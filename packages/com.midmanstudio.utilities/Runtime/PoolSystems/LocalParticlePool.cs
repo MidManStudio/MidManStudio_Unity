@@ -1,78 +1,15 @@
-﻿using System.Collections.Generic;
+﻿// LocalParticlePool.cs
+// Singleton pool manager for particle GameObjects.
+// Uses the generated PoolableParticleType enum.
+
+using System.Collections.Generic;
 using UnityEngine;
-using MidManStudio.Core.Singleton;
 using MidManStudio.Core.Logging;
+using MidManStudio.Core.Singleton;
 using MidManStudio.Core.Utilities;
 
 namespace MidManStudio.Core.Pools
 {
-    // =============================================================================
-    // PoolableParticleType — DuckDuckBara
-    // Add new particle types here as needed.
-    // =============================================================================
-    [System.Serializable]
-    public enum PoolableParticleType
-    {
-        // ===== FLIGHT PLAN EFFECTS (300-399) =====
-        FP_Explosion_Small = 300,
-        FP_Explosion_Medium = 301,
-        FP_Explosion_Large = 302,
-        FP_PlayerHit = 303,
-        FP_PowerUpPickup = 304,
-        FP_ProjectileImpact = 305,
-        FP_PlayerDeath = 306, 
-        FP_CoinPickup = 307,  
-    }
-
-    [System.Serializable]
-    public class ParticlePoolConfig : IArrayElementTitle
-    {
-        public PoolableParticleType particleType;
-        public GameObject prefab;
-        public int prewarmCount = 10;
-        public int maxPoolSize = 30;
-        public float defaultLifetime = 5f;
-
-        public string Name => GetPropperName();
-
-        private string GetPropperName()
-        {
-            if (prefab != null) return (prefab.name);
-            return particleType.ToString();
-        }
-    }
-
-    [System.Serializable]
-    public class ParticlePoolStats
-    {
-        public string prefabName;
-        public int totalSpawned;
-        public int currentlyActive;
-        public int availableInPool;
-        public int maxPoolSize;
-
-        public ParticlePoolStats(string name, int spawned, int active, int available, int max)
-        {
-            prefabName = name;
-            totalSpawned = spawned;
-            currentlyActive = active;
-            availableInPool = available;
-            maxPoolSize = max;
-        }
-    }
-
-    /// <summary>
-    /// LocalParticlePool — Singleton pool manager for particle effect GameObjects.
-    ///
-    /// USAGE:
-    ///   Initialized automatically by LocalObjectPool.CallInitializePool().
-    ///   Retrieve:  LocalParticlePool.Instance.GetObject(PoolableParticleType.MuzzleFlash, pos, rot)
-    ///   Return:    LocalParticlePool.Instance.ReturnObject(gameObject, PoolableParticleType.MuzzleFlash)
-    ///
-    ///   Particles auto-return via LocalParticleReturn after their defaultLifetime expires.
-    ///
-    /// DEPENDENCY: MID_Logger, MidManStudio.Core.Singleton
-    /// </summary>
     public class LocalParticlePool : Singleton<LocalParticlePool>
     {
         #region Serialized Fields
@@ -83,41 +20,38 @@ namespace MidManStudio.Core.Pools
         [MID_NamedList]
         [SerializeField] private List<ParticlePoolConfig> particleConfigs = new List<ParticlePoolConfig>();
 
-        [Header("Auto-Registration Settings")]
-        [SerializeField] private int autoRegisterPrewarmCount = 10;
-        [SerializeField] private int autoRegisterMaxPoolSize = 30;
-        [SerializeField] private bool enableAutoRegistration = true;
+        [Header("Auto-Registration")]
+        [SerializeField] private int  autoRegisterPrewarmCount = 10;
+        [SerializeField] private int  autoRegisterMaxPoolSize  = 30;
+        [SerializeField] private bool enableAutoRegistration   = true;
 
-        [Header("Pool Monitoring (Read Only)")]
-        [SerializeField] private int totalPooledParticles;
-        [SerializeField] private int totalActiveParticles;
-        [SerializeField] private int childrenCount;
+        [Header("Monitor (read-only)")]
+        [SerializeField] private int                   totalPooledParticles;
+        [SerializeField] private int                   totalActiveParticles;
+        [SerializeField] private int                   childrenCount;
         [SerializeField] private List<ParticlePoolStats> poolStatistics = new List<ParticlePoolStats>();
-
-        [Header("Validation")]
-        [SerializeField] private List<string> configurationWarnings = new List<string>();
-        [SerializeField] private bool hasValidationErrors = false;
+        [SerializeField] private List<string>          configWarnings  = new List<string>();
+        [SerializeField] private bool                  hasValidationErrors;
 
         #endregion
 
-        #region Private Fields
+        #region Private State
 
-        private bool _hasBeenInitialized = false;
+        private bool _initialized;
 
-        private Dictionary<PoolableParticleType, Queue<GameObject>> pooledParticles = new Dictionary<PoolableParticleType, Queue<GameObject>>();
-        private Dictionary<PoolableParticleType, ParticlePoolConfig> typeConfigs = new Dictionary<PoolableParticleType, ParticlePoolConfig>();
-        private Dictionary<PoolableParticleType, GameObject> typePrefabs = new Dictionary<PoolableParticleType, GameObject>();
-        private HashSet<PoolableParticleType> registeredTypes = new HashSet<PoolableParticleType>();
-        private Dictionary<PoolableParticleType, int> totalSpawnedCount = new Dictionary<PoolableParticleType, int>();
-        private Dictionary<PoolableParticleType, int> currentActiveCount = new Dictionary<PoolableParticleType, int>();
-        private Dictionary<GameObject, PoolableParticleType> prefabToTypeMap = new Dictionary<GameObject, PoolableParticleType>();
-        private Dictionary<PoolableParticleType, GameObject> typeToPrefabMap = new Dictionary<PoolableParticleType, GameObject>();
+        private readonly Dictionary<int, Queue<GameObject>>   _pooledParticles = new();
+        private readonly Dictionary<int, ParticlePoolConfig>  _typeConfigs     = new();
+        private readonly Dictionary<int, GameObject>          _typePrefabs     = new();
+        private readonly HashSet<int>                         _registeredTypes = new();
+        private readonly Dictionary<int, int>                 _totalSpawned    = new();
+        private readonly Dictionary<int, int>                 _activeCount     = new();
+        private readonly Dictionary<GameObject, int>          _prefabToType    = new();
 
         #endregion
 
         #region Properties
 
-        public bool HasBeenInitialized() => _hasBeenInitialized;
+        public bool HasBeenInitialized() => _initialized;
 
         #endregion
 
@@ -125,344 +59,341 @@ namespace MidManStudio.Core.Pools
 
         private void Update()
         {
-            if (_hasBeenInitialized)
-                UpdatePoolStatistics();
+            if (_initialized) UpdateMonitor();
         }
 
         #endregion
 
-        #region Public Methods
+        #region Public API
 
-        /// <summary>
-        /// Initializes all configured particle pools. Called automatically by LocalObjectPool.
-        /// </summary>
         public void CallInitializePool()
         {
-            if (_hasBeenInitialized) return;
+            if (_initialized) return;
 
-            MID_Logger.LogInfo(_logLevel, "Starting particle pool initialization.", nameof(LocalParticlePool), nameof(CallInitializePool));
+            MID_Logger.LogInfo(_logLevel, "Initialising particle pool.",
+                nameof(LocalParticlePool), nameof(CallInitializePool));
 
-            configurationWarnings.Clear();
+            configWarnings.Clear();
             hasValidationErrors = false;
 
-            if (!ValidatePoolConfigurations())
+            if (!ValidateConfigs())
             {
                 hasValidationErrors = true;
                 MID_Logger.LogError(_logLevel,
-                    $"PARTICLE POOL VALIDATION FAILED — {configurationWarnings.Count} errors. Check inspector.",
+                    $"Particle pool validation failed — {configWarnings.Count} error(s).",
                     nameof(LocalParticlePool), nameof(CallInitializePool));
-
-                foreach (var warning in configurationWarnings)
-                    Debug.LogError($"[LocalParticlePool] {warning}");
-
+                foreach (var w in configWarnings)
+                    Debug.LogError($"[LocalParticlePool] {w}");
                 return;
             }
 
             foreach (var config in particleConfigs)
-                RegisterPrefabInternal(config);
+                RegisterInternal(config);
 
-            _hasBeenInitialized = true;
-            MID_Logger.LogInfo(_logLevel, $"Particle pool initialized with {particleConfigs.Count} types.", nameof(LocalParticlePool), nameof(CallInitializePool));
+            _initialized = true;
+            MID_Logger.LogInfo(_logLevel,
+                $"Particle pool ready — {particleConfigs.Count} type(s) registered.",
+                nameof(LocalParticlePool), nameof(CallInitializePool));
         }
 
-        /// <summary>
-        /// Retrieves a particle object from the pool, activates it, and plays all particle systems.
-        /// </summary>
-        public GameObject GetObject(PoolableParticleType particleType, Vector3 position, Quaternion rotation)
+        // ── Get ───────────────────────────────────────────────────────────────
+
+        public GameObject GetObject(PoolableParticleType type, Vector3 position, Quaternion rotation)
+            => GetObject((int)type, position, rotation);
+
+        public GameObject GetObject(PoolableParticleType type, Vector2 position, Quaternion rotation)
+            => GetObject((int)type, new Vector3(position.x, position.y, 0f), rotation);
+
+        /// <summary>Raw int overload. Prefer the PoolableParticleType overloads.</summary>
+        public GameObject GetObject(int typeId, Vector3 position, Quaternion rotation)
         {
-            if (!registeredTypes.Contains(particleType))
-            {
-                if (enableAutoRegistration)
-                {
-                    GameObject foundPrefab = FindPrefabForType(particleType);
-                    if (foundPrefab != null)
-                    {
-                        MID_Logger.LogWarning(_logLevel, $"Auto-registering {particleType}.", nameof(LocalParticlePool), nameof(GetObject));
-                        AddType(particleType, foundPrefab, autoRegisterPrewarmCount, autoRegisterMaxPoolSize);
-                    }
-                    else
-                    {
-                        MID_Logger.LogError(_logLevel, $"Type {particleType} not registered and no prefab found.", nameof(LocalParticlePool), nameof(GetObject));
-                        return null;
-                    }
-                }
-                else
-                {
-                    MID_Logger.LogError(_logLevel, $"Type {particleType} is not registered.", nameof(LocalParticlePool), nameof(GetObject));
-                    return null;
-                }
-            }
+            if (!EnsureRegistered(typeId)) return null;
 
-            var pool = pooledParticles[particleType];
-            GameObject obj;
-            bool wasCreatedNew = false;
+            var pool  = _pooledParticles[typeId];
+            bool isNew = pool.Count == 0;
 
-            if (pool.Count == 0)
-            {
-                obj = CreatePooledInstance(typeConfigs[particleType]);
-                totalSpawnedCount[particleType]++;
-                wasCreatedNew = true;
-            }
-            else
-            {
-                obj = pool.Dequeue();
-            }
+            var obj = isNew
+                ? CreateInstance(_typeConfigs[typeId])
+                : pool.Dequeue();
 
-            currentActiveCount[particleType]++;
+            if (isNew) _totalSpawned[typeId]++;
+            _activeCount[typeId]++;
 
             obj.SetActive(true);
             obj.transform.position = position;
             obj.transform.rotation = rotation;
             obj.transform.SetParent(null);
 
-            ParticleSystem[] particleSystems = obj.GetComponentsInChildren<ParticleSystem>();
-            foreach (var ps in particleSystems) { ps.Clear(); ps.Play(); }
+            foreach (var ps in obj.GetComponentsInChildren<ParticleSystem>())
+            {
+                ps.Clear();
+                ps.Play();
+            }
 
             MID_Logger.LogDebug(_logLevel,
-                $"Retrieved {particleType} | ID: {obj.GetInstanceID()} | New: {wasCreatedNew} | Active: {currentActiveCount[particleType]} | Pool: {pool.Count}",
+                $"Get {(PoolableParticleType)typeId} | id={obj.GetInstanceID()} " +
+                $"new={isNew} active={_activeCount[typeId]} pool={pool.Count}",
                 nameof(LocalParticlePool), nameof(GetObject));
 
             return obj;
         }
 
-        /// <summary>2D overload — Z is set to 0.</summary>
-        public GameObject GetObject(PoolableParticleType particleType, Vector2 position, Quaternion rotation)
-            => GetObject(particleType, new Vector3(position.x, position.y, 0), rotation);
+        // ── Return ────────────────────────────────────────────────────────────
 
-        /// <summary>Returns a particle object to the pool. Call this or let LocalParticleReturn handle it.</summary>
-        public void ReturnObject(GameObject obj, PoolableParticleType particleType)
+        public void ReturnObject(GameObject obj, PoolableParticleType type)
+            => ReturnObject(obj, (int)type, decrement: true);
+
+        public void ReturnObject(GameObject obj, int typeId)
+            => ReturnObject(obj, typeId, decrement: true);
+
+        private void ReturnObject(GameObject obj, int typeId, bool decrement)
         {
-            MID_Logger.LogDebug(_logLevel, $"Return request: {particleType} | ID: {obj.GetInstanceID()}", nameof(LocalParticlePool), nameof(ReturnObject));
-            ReturnObjectInternal(obj, particleType, true);
-        }
-
-        /// <summary>Registers a new particle type at runtime.</summary>
-        public void AddType(PoolableParticleType particleType, GameObject prefab, int prewarmCount = 10, int maxPoolSize = 30, float defaultLifetime = 5f)
-        {
-            if (registeredTypes.Contains(particleType))
+            if (!_registeredTypes.Contains(typeId))
             {
-                MID_Logger.LogWarning(_logLevel, $"Type {particleType} already registered.", nameof(LocalParticlePool), nameof(AddType));
-                return;
-            }
-
-            if (prefabToTypeMap.ContainsKey(prefab))
-            {
-                MID_Logger.LogError(_logLevel, $"Prefab '{prefab.name}' already registered as {prefabToTypeMap[prefab]}.", nameof(LocalParticlePool), nameof(AddType));
-                return;
-            }
-
-            var config = new ParticlePoolConfig
-            {
-                particleType = particleType,
-                prefab = prefab,
-                prewarmCount = prewarmCount,
-                maxPoolSize = maxPoolSize,
-                defaultLifetime = defaultLifetime
-            };
-
-            RegisterPrefabInternal(config);
-            MID_Logger.LogInfo(_logLevel, $"Runtime registered: {particleType} | Prewarm: {prewarmCount} | Max: {maxPoolSize}", nameof(LocalParticlePool), nameof(AddType));
-        }
-
-        /// <summary>Returns true if the type has been registered with the pool.</summary>
-        public bool IsRegistered(PoolableParticleType particleType) => registeredTypes.Contains(particleType);
-
-        /// <summary>Destroys all pooled particles and clears all registration data.</summary>
-        public void ClearPool()
-        {
-            int totalDestroyed = 0;
-            foreach (var particleType in registeredTypes)
-            {
-                var pool = pooledParticles[particleType];
-                while (pool.Count > 0)
-                {
-                    GameObject obj = pool.Dequeue();
-                    if (obj != null) { Destroy(obj); totalDestroyed++; }
-                }
-            }
-
-            pooledParticles.Clear();
-            typeConfigs.Clear();
-            typePrefabs.Clear();
-            registeredTypes.Clear();
-            totalSpawnedCount.Clear();
-            currentActiveCount.Clear();
-            prefabToTypeMap.Clear();
-            typeToPrefabMap.Clear();
-
-            MID_Logger.LogInfo(_logLevel, $"Particle pool cleared — destroyed {totalDestroyed} objects.", nameof(LocalParticlePool), nameof(ClearPool));
-        }
-
-        #endregion
-
-        #region Private Methods
-
-        private bool ValidatePoolConfigurations()
-        {
-            bool isValid = true;
-            var seenTypes = new HashSet<PoolableParticleType>();
-            var prefabCheck = new Dictionary<GameObject, PoolableParticleType>();
-
-            for (int i = 0; i < particleConfigs.Count; i++)
-            {
-                var config = particleConfigs[i];
-
-                if (config.prefab == null)
-                {
-                    string w = $"Config at index {i} has NULL prefab for type {config.particleType}.";
-                    configurationWarnings.Add(w);
-                    MID_Logger.LogWarning(_logLevel, w, nameof(LocalParticlePool), nameof(ValidatePoolConfigurations));
-                    continue;
-                }
-
-                if (!seenTypes.Add(config.particleType))
-                {
-                    string w = $"DUPLICATE TYPE: '{config.particleType}' appears more than once.";
-                    configurationWarnings.Add(w);
-                    MID_Logger.LogError(_logLevel, w, nameof(LocalParticlePool), nameof(ValidatePoolConfigurations));
-                    isValid = false;
-                }
-
-                if (prefabCheck.ContainsKey(config.prefab))
-                {
-                    string w = $"SAME PREFAB MULTIPLE TYPES: '{config.prefab.name}' has types {prefabCheck[config.prefab]} and {config.particleType}.";
-                    configurationWarnings.Add(w);
-                    MID_Logger.LogError(_logLevel, w, nameof(LocalParticlePool), nameof(ValidatePoolConfigurations));
-                    isValid = false;
-                }
-                else
-                {
-                    prefabCheck[config.prefab] = config.particleType;
-                }
-            }
-
-            return isValid;
-        }
-
-        private void RegisterPrefabInternal(ParticlePoolConfig config)
-        {
-            if (config.prefab == null) return;
-
-            registeredTypes.Add(config.particleType);
-            typeConfigs[config.particleType] = config;
-            typePrefabs[config.particleType] = config.prefab;
-            pooledParticles[config.particleType] = new Queue<GameObject>(config.maxPoolSize);
-            totalSpawnedCount[config.particleType] = 0;
-            currentActiveCount[config.particleType] = 0;
-            prefabToTypeMap[config.prefab] = config.particleType;
-            typeToPrefabMap[config.particleType] = config.prefab;
-
-            MID_Logger.LogDebug(_logLevel,
-                $"Registered: {config.particleType} | Prefab: {config.prefab.name} | Prewarm: {config.prewarmCount} | Max: {config.maxPoolSize}",
-                nameof(LocalParticlePool), nameof(RegisterPrefabInternal));
-
-            for (int i = 0; i < config.prewarmCount; i++)
-            {
-                GameObject obj = CreatePooledInstance(config);
-                ReturnObjectInternal(obj, config.particleType, false);
-            }
-        }
-
-        private void ReturnObjectInternal(GameObject obj, PoolableParticleType particleType, bool decrementActive)
-        {
-            if (!registeredTypes.Contains(particleType))
-            {
-                MID_Logger.LogError(_logLevel, $"RETURN FAILED — type {particleType} not registered. Destroying.", nameof(LocalParticlePool), nameof(ReturnObjectInternal));
-                if (decrementActive && currentActiveCount.ContainsKey(particleType))
-                    currentActiveCount[particleType]--;
+                MID_Logger.LogError(_logLevel,
+                    $"Return failed — type {typeId} not registered. Destroying.",
+                    nameof(LocalParticlePool));
+                if (decrement && _activeCount.ContainsKey(typeId)) _activeCount[typeId]--;
                 Destroy(obj);
                 return;
             }
 
-            var pool = pooledParticles[particleType];
-            var config = typeConfigs[particleType];
+            var pool   = _pooledParticles[typeId];
+            var config = _typeConfigs[typeId];
 
             if (pool.Count >= config.maxPoolSize)
             {
-                MID_Logger.LogWarning(_logLevel, $"Pool at max capacity for {particleType} — destroying overflow.", nameof(LocalParticlePool), nameof(ReturnObjectInternal));
-                if (decrementActive) currentActiveCount[particleType]--;
+                MID_Logger.LogWarning(_logLevel,
+                    $"Particle pool full for type {typeId} — destroying overflow.",
+                    nameof(LocalParticlePool));
+                if (decrement) _activeCount[typeId]--;
                 Destroy(obj);
                 return;
             }
 
-            if (decrementActive && currentActiveCount.ContainsKey(particleType))
-                currentActiveCount[particleType]--;
+            if (decrement && _activeCount.ContainsKey(typeId))
+                _activeCount[typeId]--;
 
-            ParticleSystem[] particleSystems = obj.GetComponentsInChildren<ParticleSystem>();
-            foreach (var ps in particleSystems)
+            foreach (var ps in obj.GetComponentsInChildren<ParticleSystem>())
                 ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
 
-            ResetParticleState(obj);
-
-            if (obj.transform.parent != transform)
-                obj.transform.SetParent(transform);
-
+            ResetParticle(obj);
+            obj.transform.SetParent(transform);
             obj.SetActive(false);
             pool.Enqueue(obj);
 
             MID_Logger.LogDebug(_logLevel,
-                $"Returned {particleType} | ID: {obj.GetInstanceID()} | Pool: {pool.Count}",
-                nameof(LocalParticlePool), nameof(ReturnObjectInternal));
+                $"Returned {typeId} | id={obj.GetInstanceID()} pool={pool.Count}",
+                nameof(LocalParticlePool));
         }
 
-        private GameObject CreatePooledInstance(ParticlePoolConfig config)
+        // ── Registration ──────────────────────────────────────────────────────
+
+        public void AddType(PoolableParticleType type, GameObject prefab,
+                            int prewarm = 10, int maxSize = 30, float lifetime = 5f)
+            => AddType((int)type, prefab, prewarm, maxSize, lifetime);
+
+        public void AddType(int typeId, GameObject prefab,
+                            int prewarm = 10, int maxSize = 30, float lifetime = 5f)
         {
-            GameObject obj = Instantiate(config.prefab, transform);
+            if (_registeredTypes.Contains(typeId))
+            {
+                MID_Logger.LogWarning(_logLevel, $"Type {typeId} already registered.",
+                    nameof(LocalParticlePool));
+                return;
+            }
 
-            LocalParticleReturn returnComponent = obj.GetComponent<LocalParticleReturn>();
-            if (returnComponent == null)
-                returnComponent = obj.AddComponent<LocalParticleReturn>();
+            if (_prefabToType.ContainsKey(prefab))
+            {
+                MID_Logger.LogError(_logLevel,
+                    $"Prefab '{prefab.name}' already registered as type {_prefabToType[prefab]}.",
+                    nameof(LocalParticlePool));
+                return;
+            }
 
-            returnComponent.SetOriginalType(config.particleType);
-            returnComponent.SetMaxLifetime(config.defaultLifetime);
+            RegisterInternal(new ParticlePoolConfig
+            {
+                typeId          = typeId,
+                displayName     = prefab.name,
+                prefab          = prefab,
+                prewarmCount    = prewarm,
+                maxPoolSize     = maxSize,
+                defaultLifetime = lifetime
+            });
+        }
 
-            MID_Logger.LogDebug(_logLevel, $"Created particle instance: {config.particleType} | ID: {obj.GetInstanceID()}", nameof(LocalParticlePool), nameof(CreatePooledInstance));
+        public bool IsRegistered(PoolableParticleType type) => _registeredTypes.Contains((int)type);
+        public bool IsRegistered(int typeId)                 => _registeredTypes.Contains(typeId);
+
+        public void ClearPool()
+        {
+            int total = 0;
+            foreach (var typeId in _registeredTypes)
+            {
+                var pool = _pooledParticles[typeId];
+                while (pool.Count > 0)
+                {
+                    var obj = pool.Dequeue();
+                    if (obj != null) { Destroy(obj); total++; }
+                }
+            }
+
+            _pooledParticles.Clear();
+            _typeConfigs.Clear();
+            _typePrefabs.Clear();
+            _registeredTypes.Clear();
+            _totalSpawned.Clear();
+            _activeCount.Clear();
+            _prefabToType.Clear();
+
+            MID_Logger.LogInfo(_logLevel, $"Particle pool cleared — {total} destroyed.",
+                nameof(LocalParticlePool));
+        }
+
+        #endregion
+
+        #region Private Helpers
+
+        private bool ValidateConfigs()
+        {
+            var seenTypes   = new HashSet<int>();
+            var seenPrefabs = new Dictionary<GameObject, int>();
+
+            foreach (var cfg in particleConfigs)
+            {
+                if (cfg.prefab == null)
+                {
+                    configWarnings.Add($"Config '{cfg.displayName}' has null prefab.");
+                    continue;
+                }
+
+                if (seenTypes.Contains(cfg.typeId))
+                {
+                    configWarnings.Add($"Duplicate typeId {cfg.typeId}.");
+                    return false;
+                }
+
+                if (seenPrefabs.ContainsKey(cfg.prefab))
+                {
+                    configWarnings.Add(
+                        $"Prefab '{cfg.prefab.name}' assigned to both typeId " +
+                        $"{seenPrefabs[cfg.prefab]} and {cfg.typeId}.");
+                    return false;
+                }
+
+                seenTypes.Add(cfg.typeId);
+                seenPrefabs[cfg.prefab] = cfg.typeId;
+            }
+
+            return true;
+        }
+
+        private void RegisterInternal(ParticlePoolConfig config)
+        {
+            if (config.prefab == null) return;
+
+            _registeredTypes.Add(config.typeId);
+            _typeConfigs[config.typeId]     = config;
+            _typePrefabs[config.typeId]     = config.prefab;
+            _pooledParticles[config.typeId] = new Queue<GameObject>(config.maxPoolSize);
+            _totalSpawned[config.typeId]    = 0;
+            _activeCount[config.typeId]     = 0;
+            _prefabToType[config.prefab]    = config.typeId;
+
+            MID_Logger.LogDebug(_logLevel,
+                $"Registered typeId={config.typeId} prefab={config.prefab.name} " +
+                $"prewarm={config.prewarmCount} max={config.maxPoolSize}",
+                nameof(LocalParticlePool));
+
+            for (int i = 0; i < config.prewarmCount; i++)
+            {
+                var obj = CreateInstance(config);
+                ReturnObject(obj, config.typeId, decrement: false);
+            }
+        }
+
+        private GameObject CreateInstance(ParticlePoolConfig config)
+        {
+            var obj = Instantiate(config.prefab, transform);
+
+            var pr = obj.GetComponent<LocalParticleReturn>()
+                  ?? obj.AddComponent<LocalParticleReturn>();
+            pr.SetOriginalType((PoolableParticleType)config.typeId);
+            pr.SetMaxLifetime(config.defaultLifetime);
+
             return obj;
         }
 
-        private void ResetParticleState(GameObject obj)
+        private bool EnsureRegistered(int typeId)
         {
-            obj.transform.position = Vector3.zero;
-            obj.transform.rotation = Quaternion.identity;
+            if (_registeredTypes.Contains(typeId)) return true;
+
+            if (!enableAutoRegistration)
+            {
+                MID_Logger.LogError(_logLevel,
+                    $"Type {typeId} not registered and auto-registration is disabled.",
+                    nameof(LocalParticlePool));
+                return false;
+            }
+
+            var prefab = FindPrefabForType(typeId);
+            if (prefab == null)
+            {
+                MID_Logger.LogError(_logLevel,
+                    $"Type {typeId} not registered and no matching prefab found.",
+                    nameof(LocalParticlePool));
+                return false;
+            }
+
+            MID_Logger.LogWarning(_logLevel,
+                $"Auto-registering particle type {typeId} with prefab {prefab.name}.",
+                nameof(LocalParticlePool));
+            AddType(typeId, prefab, autoRegisterPrewarmCount, autoRegisterMaxPoolSize);
+            return true;
+        }
+
+        private static void ResetParticle(GameObject obj)
+        {
+            obj.transform.position   = Vector3.zero;
+            obj.transform.rotation   = Quaternion.identity;
             obj.transform.localScale = Vector3.one;
 
-            ParticleSystem[] particleSystems = obj.GetComponentsInChildren<ParticleSystem>();
-            foreach (var ps in particleSystems)
+            foreach (var ps in obj.GetComponentsInChildren<ParticleSystem>())
             {
                 ps.Clear();
                 ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
             }
         }
 
-        private GameObject FindPrefabForType(PoolableParticleType particleType)
+        private GameObject FindPrefabForType(int typeId)
         {
-            string typeName = particleType.ToString();
-            foreach (var config in particleConfigs)
-            {
-                if (config.prefab != null && config.prefab.name.Contains(typeName))
-                    return config.prefab;
-            }
+            string typeName = ((PoolableParticleType)typeId).ToString();
+            foreach (var cfg in particleConfigs)
+                if (cfg.prefab != null && cfg.prefab.name.Contains(typeName))
+                    return cfg.prefab;
             return null;
         }
 
-        private void UpdatePoolStatistics()
+        private void UpdateMonitor()
         {
             poolStatistics.Clear();
             totalPooledParticles = 0;
             totalActiveParticles = 0;
-            childrenCount = transform.childCount;
+            childrenCount        = transform.childCount;
 
-            foreach (var particleType in registeredTypes)
+            foreach (var typeId in _registeredTypes)
             {
-                var config = typeConfigs[particleType];
-                int available = pooledParticles[particleType].Count;
-                int spawned = totalSpawnedCount.GetValueOrDefault(particleType, 0);
-                int active = currentActiveCount.GetValueOrDefault(particleType, 0);
+                var cfg       = _typeConfigs[typeId];
+                int available = _pooledParticles[typeId].Count;
+                int spawned   = _totalSpawned.GetValueOrDefault(typeId, 0);
+                int active    = _activeCount.GetValueOrDefault(typeId, 0);
 
                 totalPooledParticles += available;
                 totalActiveParticles += active;
 
-                poolStatistics.Add(new ParticlePoolStats(config.prefab.name, spawned, active, available, config.maxPoolSize));
+                poolStatistics.Add(new ParticlePoolStats(
+                    cfg.prefab != null ? cfg.prefab.name : $"type_{typeId}",
+                    spawned, active, available, cfg.maxPoolSize));
             }
         }
 
