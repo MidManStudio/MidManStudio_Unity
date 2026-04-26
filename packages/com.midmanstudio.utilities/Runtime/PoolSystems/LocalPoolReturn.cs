@@ -1,51 +1,42 @@
-﻿using System.Collections;
+﻿// LocalPoolReturn.cs
+// Auto-returns a pooled GameObject to LocalObjectPool after a configured delay.
+// Automatically added to pooled objects by LocalObjectPool.
+// Uses the generated PoolableObjectType enum.
+
+using System.Collections;
 using UnityEngine;
 using MidManStudio.Core.Logging;
-using MidManStudio.Core.Pools;
-
 
 namespace MidManStudio.Core.Pools
 {
-
     [System.Serializable]
     public class ReturnConfig
     {
-        [Header("Auto-Return Configuration")]
-        public bool autoReturn = true;
-        public float duration = 5f;
+        [Header("Auto-Return")]
+        public bool  autoReturn = true;
+        public float duration   = 5f;
+
+        [Tooltip("Destroy the object if the pool is unavailable instead of leaking it.")]
         public bool useAutoDestruct = true;
     }
 
     /// <summary>
-    /// LocalPoolReturn — Auto-returns a pooled GameObject to LocalObjectPool after a configured delay.
-    /// Automatically added to pooled objects by LocalObjectPool. Performs cleanup on return:
-    /// stops AudioSource, resets Animator, clears TrailRenderers.
-    ///
-    /// To return immediately from game code: call ReturnToPoolNow().
-    /// To disable auto-return for a specific object: call SetAutoReturn(false).
+    /// Attach to any pooled GameObject.
+    /// Handles auto-return after a delay and immediate manual return.
     /// </summary>
     public class LocalPoolReturn : MonoBehaviour
     {
-        #region Serialized Fields
-
-        [SerializeField] private MID_LogLevel _logLevel = MID_LogLevel.None;
-        [SerializeField] private ReturnConfig config = new ReturnConfig();
+        [SerializeField] private MID_LogLevel  _logLevel    = MID_LogLevel.None;
+        [SerializeField] private ReturnConfig  config       = new ReturnConfig();
         [SerializeField] private PoolableObjectType originalType;
-
-        #endregion
-
-        #region Private Fields
 
         private Coroutine _returnCoroutine;
 
-        #endregion
-
-        #region Unity Lifecycle
+        // ── Unity lifecycle ───────────────────────────────────────────────────
 
         private void OnEnable()
         {
-            if (config.autoReturn)
-                StartAutoReturn();
+            if (config.autoReturn) StartAutoReturn();
         }
 
         private void OnDisable()
@@ -53,14 +44,13 @@ namespace MidManStudio.Core.Pools
             StopAutoReturn();
         }
 
-        #endregion
+        // ── Public API ────────────────────────────────────────────────────────
 
-        #region Public Methods
-
-        public void SetOriginalType(PoolableObjectType objectType)
+        public void SetOriginalType(PoolableObjectType type)
         {
-            originalType = objectType;
-            MID_Logger.LogDebug(_logLevel, $"Type set to {objectType}.", nameof(LocalPoolReturn), nameof(SetOriginalType));
+            originalType = type;
+            MID_Logger.LogDebug(_logLevel, $"Type set to {type}.",
+                nameof(LocalPoolReturn), nameof(SetOriginalType));
         }
 
         public PoolableObjectType GetOriginalType() => originalType;
@@ -68,37 +58,30 @@ namespace MidManStudio.Core.Pools
         public void SetAutoReturn(bool enabled)
         {
             config.autoReturn = enabled;
-
-            if (gameObject.activeInHierarchy)
-            {
-                if (config.autoReturn) StartAutoReturn();
-                else StopAutoReturn();
-            }
-
-            MID_Logger.LogDebug(_logLevel, $"Auto-return {(enabled ? "enabled" : "disabled")} for {originalType}.", nameof(LocalPoolReturn), nameof(SetAutoReturn));
+            if (!gameObject.activeInHierarchy) return;
+            if (enabled) StartAutoReturn();
+            else         StopAutoReturn();
         }
 
         public void SetDuration(float newDuration)
         {
             config.duration = newDuration;
-            if (gameObject.activeInHierarchy && config.autoReturn)
-                StartAutoReturn();
+            if (gameObject.activeInHierarchy && config.autoReturn) StartAutoReturn();
         }
 
-        /// <summary>Returns the object to the pool immediately, bypassing the auto-return timer.</summary>
+        /// <summary>Return immediately, bypassing the auto-return timer.</summary>
         public void ReturnToPoolNow()
         {
-            MID_Logger.LogDebug(_logLevel, $"Manual return for {originalType}.", nameof(LocalPoolReturn), nameof(ReturnToPoolNow));
+            MID_Logger.LogDebug(_logLevel, $"Manual return: {originalType}.",
+                nameof(LocalPoolReturn), nameof(ReturnToPoolNow));
             ReturnToPool();
         }
 
         public bool IsScheduledForReturn() => config.autoReturn && _returnCoroutine != null;
-        public float GetDuration() => config.duration;
-        public bool IsAutoReturnEnabled() => config.autoReturn;
+        public float GetDuration()          => config.duration;
+        public bool  IsAutoReturnEnabled()  => config.autoReturn;
 
-        #endregion
-
-        #region Private Methods
+        // ── Private ───────────────────────────────────────────────────────────
 
         private void StartAutoReturn()
         {
@@ -108,17 +91,14 @@ namespace MidManStudio.Core.Pools
 
         private void StopAutoReturn()
         {
-            if (_returnCoroutine != null)
-            {
-                StopCoroutine(_returnCoroutine);
-                _returnCoroutine = null;
-            }
+            if (_returnCoroutine == null) return;
+            StopCoroutine(_returnCoroutine);
+            _returnCoroutine = null;
         }
 
         private void ReturnToPool()
         {
             if (gameObject == null) return;
-
             StopAutoReturn();
             ResetComponents();
 
@@ -130,41 +110,38 @@ namespace MidManStudio.Core.Pools
                 }
                 else
                 {
-                    MID_Logger.LogError(_logLevel, $"Type {originalType} not registered in LocalObjectPool.", nameof(LocalPoolReturn), nameof(ReturnToPool));
+                    MID_Logger.LogError(_logLevel,
+                        $"{originalType} not registered in LocalObjectPool.",
+                        nameof(LocalPoolReturn), nameof(ReturnToPool));
                     if (config.useAutoDestruct) Destroy(gameObject);
                 }
             }
             else
             {
-                MID_Logger.LogError(_logLevel, "LocalObjectPool instance missing.", nameof(LocalPoolReturn), nameof(ReturnToPool));
+                MID_Logger.LogError(_logLevel, "LocalObjectPool instance missing.",
+                    nameof(LocalPoolReturn), nameof(ReturnToPool));
                 if (config.useAutoDestruct) Destroy(gameObject);
             }
         }
 
         private void ResetComponents()
         {
-            AudioSource audioSource = GetComponent<AudioSource>();
-            if (audioSource != null) { audioSource.Stop(); audioSource.time = 0f; }
+            var audio = GetComponent<AudioSource>();
+            if (audio != null) { audio.Stop(); audio.time = 0f; }
 
-            Animator animator = GetComponent<Animator>();
-            if (animator != null) animator.Play(0, 0, 0f);
+            var anim = GetComponent<Animator>();
+            if (anim != null) anim.Play(0, 0, 0f);
 
-            TrailRenderer[] trails = GetComponentsInChildren<TrailRenderer>();
-            foreach (var trail in trails)
-                if (trail != null) trail.Clear();
+            foreach (var trail in GetComponentsInChildren<TrailRenderer>())
+                trail?.Clear();
         }
-
-        #endregion
-
-        #region Coroutines
 
         private IEnumerator ReturnAfterDelay()
         {
             yield return new WaitForSeconds(config.duration);
-            MID_Logger.LogDebug(_logLevel, $"Auto-return triggered for {originalType}.", nameof(LocalPoolReturn), nameof(ReturnAfterDelay));
+            MID_Logger.LogDebug(_logLevel, $"Auto-return: {originalType}.",
+                nameof(LocalPoolReturn), nameof(ReturnAfterDelay));
             ReturnToPool();
         }
-
-        #endregion
     }
 }
