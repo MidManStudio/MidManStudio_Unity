@@ -1,79 +1,55 @@
-﻿using UnityEngine;
+﻿// LocalParticleReturn.cs
+// Auto-returns a pooled particle GameObject to LocalParticlePool.
+// Automatically added by LocalParticlePool. Uses the generated PoolableParticleType enum.
+
 using System.Collections;
-using MidManStudio.Core.Pools;
+using UnityEngine;
+using MidManStudio.Core.Logging;
 
 namespace MidManStudio.Core.Pools
 {
-    /// <summary>
-    /// LocalParticleReturn — Auto-returns a pooled particle GameObject to LocalParticlePool
-    /// after maxLifetime seconds. Automatically added to particles by LocalParticlePool.
-    ///
-    /// Call ReturnToPool() or ForceReturn() to return early from game code.
-    /// Call SetMaxLifetime() to override the default lifetime per-spawn if needed.
-    /// </summary>
     public class LocalParticleReturn : MonoBehaviour
     {
-        #region Serialized Fields
-
-        [Header("Auto-Return Configuration")]
-        [SerializeField] private float maxLifetime = 10f;
-
-        [Header("Debug")]
+        [SerializeField] private float               maxLifetime        = 10f;
         [SerializeField] private PoolableParticleType originalParticleType;
-
-        #endregion
-
-        #region Private Fields
+        [SerializeField] private MID_LogLevel        _logLevel          = MID_LogLevel.None;
 
         private Coroutine _autoReturnCoroutine;
-        private bool _hasBeenReturned = false;
+        private bool      _returned;
 
-        #endregion
-
-        #region Unity Lifecycle
+        // ── Unity lifecycle ───────────────────────────────────────────────────
 
         private void OnEnable()
         {
-            _hasBeenReturned = false;
-
-            if (_autoReturnCoroutine != null)
-                StopCoroutine(_autoReturnCoroutine);
-
+            _returned = false;
+            if (_autoReturnCoroutine != null) StopCoroutine(_autoReturnCoroutine);
             _autoReturnCoroutine = StartCoroutine(AutoReturnAfterTime());
         }
 
         private void OnDisable()
         {
-            if (_autoReturnCoroutine != null)
-            {
-                StopCoroutine(_autoReturnCoroutine);
-                _autoReturnCoroutine = null;
-            }
+            if (_autoReturnCoroutine == null) return;
+            StopCoroutine(_autoReturnCoroutine);
+            _autoReturnCoroutine = null;
         }
 
-        #endregion
+        // ── Public API ────────────────────────────────────────────────────────
 
-        #region Public Methods
-
-        public void SetOriginalType(PoolableParticleType particleType) => originalParticleType = particleType;
-        public PoolableParticleType GetOriginalType() => originalParticleType;
+        public void SetOriginalType(PoolableParticleType type)  => originalParticleType = type;
+        public PoolableParticleType GetOriginalType()            => originalParticleType;
 
         public void SetMaxLifetime(float lifetime)
         {
             maxLifetime = lifetime;
-
-            if (gameObject.activeInHierarchy && _autoReturnCoroutine != null)
-            {
-                StopCoroutine(_autoReturnCoroutine);
-                _autoReturnCoroutine = StartCoroutine(AutoReturnAfterTime());
-            }
+            if (!gameObject.activeInHierarchy) return;
+            if (_autoReturnCoroutine != null) StopCoroutine(_autoReturnCoroutine);
+            _autoReturnCoroutine = StartCoroutine(AutoReturnAfterTime());
         }
 
-        /// <summary>Returns the particle to the pool immediately.</summary>
         public void ReturnToPool()
         {
-            if (_hasBeenReturned) return;
-            _hasBeenReturned = true;
+            if (_returned) return;
+            _returned = true;
 
             if (_autoReturnCoroutine != null)
             {
@@ -84,32 +60,33 @@ namespace MidManStudio.Core.Pools
             if (LocalParticlePool.Instance != null)
             {
                 if (LocalParticlePool.Instance.IsRegistered(originalParticleType))
+                {
                     LocalParticlePool.Instance.ReturnObject(gameObject, originalParticleType);
+                }
                 else
                 {
-                    Debug.LogError($"[LocalParticleReturn] Type {originalParticleType} not registered — destroying.");
+                    MID_Logger.LogError(_logLevel,
+                        $"{originalParticleType} not registered — destroying.",
+                        nameof(LocalParticleReturn));
                     Destroy(gameObject);
                 }
             }
             else
             {
-                Debug.LogWarning("[LocalParticleReturn] Pool unavailable — destroying.");
+                MID_Logger.LogWarning(_logLevel, "LocalParticlePool unavailable — destroying.",
+                    nameof(LocalParticleReturn));
                 Destroy(gameObject);
             }
         }
 
         public void ForceReturn() => ReturnToPool();
 
-        #endregion
-
-        #region Coroutines
+        // ── Private ───────────────────────────────────────────────────────────
 
         private IEnumerator AutoReturnAfterTime()
         {
             yield return new WaitForSeconds(maxLifetime);
             ReturnToPool();
         }
-
-        #endregion
     }
 }
