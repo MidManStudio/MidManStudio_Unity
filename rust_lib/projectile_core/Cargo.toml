@@ -9,7 +9,12 @@ crate-type = ["cdylib", "staticlib"]
 
 [features]
 default = []
+# Force scalar fallback — disables all SIMD paths and RwLock-based config store.
+# Enable this for WebGL/WASM builds or for debugging.
 scalar-math = []
+
+[dependencies]
+lazy_static = { version = "1.5", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 lazy_static = "1.5"

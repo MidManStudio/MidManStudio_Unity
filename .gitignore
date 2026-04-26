@@ -2,13 +2,16 @@
 rust_lib/**/target/
 
 # ── Unity generated ───────────────────────────────────────────────────────────
-DevProject/Library/
-DevProject/Temp/
-DevProject/Logs/
-DevProject/UserSettings/
-DevProject/obj/
-DevProject/Build/
-DevProject/Builds/
+# Using wildcards ensures these folders are ignored anywhere in the repo, 
+# including inside PackageCreatorSandbox/
+**/[Ll]ibrary/
+**/[Tt]emp/
+**/[Ll]ogs/
+**/[Uu]serSettings/
+**/[Oo]bj/
+**/[Bb]uild/
+**/[Bb]uilds/
+**/.vs/
 
 # ── Keep compiled native libs ─────────────────────────────────────────────────
 !packages/**/Plugins/Native/**/*.dll
