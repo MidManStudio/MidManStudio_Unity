@@ -1,0 +1,37 @@
+name: Release Packages
+on:
+  push:
+    tags:
+      - 'utilities/v*'
+      - 'projectilesystem/v*'
+  workflow_dispatch:
+    inputs:
+      package:
+        description: 'Package to release (utilities or projectilesystem)'
+        required: true
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Determine package
+        id: pkg
+        run: |
+          TAG="${GITHUB_REF##*/}"
+          if [[ "$TAG" == utilities* || "${{ github.event.inputs.package }}" == "utilities" ]]; then
+            echo "name=com.midmanstudio.utilities" >> $GITHUB_OUTPUT
+            echo "path=packages/com.midmanstudio.utilities" >> $GITHUB_OUTPUT
+          else
+            echo "name=com.midmanstudio.projectilesystem" >> $GITHUB_OUTPUT
+            echo "path=packages/com.midmanstudio.projectilesystem" >> $GITHUB_OUTPUT
+          fi
+      - name: Create release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "${{ steps.pkg.outputs.name }} ${{ github.ref_name }}"
+          body: "See CHANGELOG.md"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

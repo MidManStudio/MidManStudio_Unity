@@ -1,0 +1,12 @@
+{
+  "name": "MidManStudio.ProjectileSystem.Editor",
+  "rootNamespace": "MidManStudio.Projectiles.Editor",
+  "references": [
+    "MidManStudio.ProjectileSystem",
+    "MidManStudio.Utilities"
+  ],
+  "includePlatforms": ["Editor"],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "autoReferenced": false
+}

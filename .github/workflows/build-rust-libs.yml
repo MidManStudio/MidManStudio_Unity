@@ -1,0 +1,165 @@
+name: Build Rust Native Libs
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'rust_lib/**'
+  workflow_dispatch:
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+      - name: Build universal dylib
+        working-directory: rust_lib/projectile_core
+        run: |
+          cargo build --release --target x86_64-apple-darwin
+          cargo build --release --target aarch64-apple-darwin
+          lipo -create \
+            target/x86_64-apple-darwin/release/libprojectile_core.dylib \
+            target/aarch64-apple-darwin/release/libprojectile_core.dylib \
+            -output libprojectile_core.dylib
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-macos
+          path: rust_lib/projectile_core/libprojectile_core.dylib
+          retention-days: 1
+
+  build-windows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+      - run: sudo apt-get install -y gcc-mingw-w64-x86-64
+      - name: Configure mingw linker
+        run: |
+          mkdir -p ~/.cargo
+          cat >> ~/.cargo/config.toml << 'EOF'
+          [target.x86_64-pc-windows-gnu]
+          linker = "x86_64-w64-mingw32-gcc"
+          EOF
+      - name: Build
+        working-directory: rust_lib/projectile_core
+        run: cargo build --release --target x86_64-pc-windows-gnu
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-windows
+          path: rust_lib/projectile_core/target/x86_64-pc-windows-gnu/release/projectile_core.dll
+          retention-days: 1
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - working-directory: rust_lib/projectile_core
+        run: cargo build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-linux
+          path: rust_lib/projectile_core/target/release/libprojectile_core.so
+          retention-days: 1
+
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+      - run: cargo install cargo-ndk --version "^3" --locked
+      - name: Locate NDK
+        run: |
+          NDK="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_ROOT:-}}"
+          [ -z "$NDK" ] && NDK=$(ls -d /usr/local/lib/android/sdk/ndk/* 2>/dev/null | sort -V | tail -1)
+          echo "ANDROID_NDK_HOME=$NDK" >> $GITHUB_ENV
+      - working-directory: rust_lib/projectile_core
+        run: |
+          cargo ndk -t arm64-v8a   -o ./android-out build --release
+          cargo ndk -t armeabi-v7a -o ./android-out build --release
+          cargo ndk -t x86_64      -o ./android-out build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-android
+          path: rust_lib/projectile_core/android-out/
+          retention-days: 1
+
+  build-ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+      - working-directory: rust_lib/projectile_core
+        run: |
+          cargo build --release --target aarch64-apple-ios
+          cargo build --release --target aarch64-apple-ios-sim
+          cargo build --release --target x86_64-apple-ios
+          lipo -create \
+            target/aarch64-apple-ios-sim/release/libprojectile_core.a \
+            target/x86_64-apple-ios/release/libprojectile_core.a \
+            -output libprojectile_core_sim.a
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-ios-device
+          path: rust_lib/projectile_core/target/aarch64-apple-ios/release/libprojectile_core.a
+          retention-days: 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-ios-sim
+          path: rust_lib/projectile_core/libprojectile_core_sim.a
+          retention-days: 1
+
+  commit-to-repo:
+    needs: [build-macos, build-windows, build-linux, build-android, build-ios]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: native-macos,       path: dl/macos }
+        continue-on-error: true
+      - uses: actions/download-artifact@v4
+        with: { name: native-windows,     path: dl/windows }
+        continue-on-error: true
+      - uses: actions/download-artifact@v4
+        with: { name: native-linux,       path: dl/linux }
+        continue-on-error: true
+      - uses: actions/download-artifact@v4
+        with: { name: native-android,     path: dl/android }
+        continue-on-error: true
+      - uses: actions/download-artifact@v4
+        with: { name: native-ios-device,  path: dl/ios-device }
+        continue-on-error: true
+      - uses: actions/download-artifact@v4
+        with: { name: native-ios-sim,     path: dl/ios-sim }
+        continue-on-error: true
+      - name: Copy libs into package
+        run: |
+          copy_if() {
+            [ -f "$1" ] && { mkdir -p "$(dirname "$2")"; cp "$1" "$2"; echo "copied $2"; } || echo "missing $1"
+          }
+          PLUG=packages/com.midmanstudio.projectilesystem/Runtime/Plugins/Native
+          copy_if dl/macos/libprojectile_core.dylib           "$PLUG/macOS/libprojectile_core.dylib"
+          copy_if dl/windows/projectile_core.dll              "$PLUG/Windows/projectile_core.dll"
+          copy_if dl/linux/libprojectile_core.so              "$PLUG/Linux/libprojectile_core.so"
+          for ABI in arm64-v8a armeabi-v7a x86_64; do
+            copy_if "dl/android/$ABI/libprojectile_core.so"  "$PLUG/Android/$ABI/libprojectile_core.so"
+          done
+          copy_if dl/ios-device/libprojectile_core.a          "$PLUG/iOS/libprojectile_core.a"
+          copy_if dl/ios-sim/libprojectile_core_sim.a         "$PLUG/iOS/libprojectile_core_sim.a"
+      - name: Commit
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add packages/com.midmanstudio.projectilesystem/Runtime/Plugins/Native/
+          git diff --staged --quiet && echo "no changes" || git commit -m "ci: rebuild native libs [skip ci]"
+          git push

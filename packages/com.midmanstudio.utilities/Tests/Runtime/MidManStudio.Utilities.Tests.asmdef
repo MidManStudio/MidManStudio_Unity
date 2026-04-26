@@ -1,0 +1,14 @@
+{
+  "name": "MidManStudio.Utilities.Tests",
+  "rootNamespace": "MidManStudio.Core.Tests",
+  "references": [
+    "MidManStudio.Utilities",
+    "UnityEngine.TestRunner",
+    "UnityEditor.TestRunner"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "autoReferenced": false,
+  "defineConstraints": ["UNITY_INCLUDE_TESTS"]
+}

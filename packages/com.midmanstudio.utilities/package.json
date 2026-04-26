@@ -1,0 +1,21 @@
+{
+  "name": "com.midmanstudio.utilities",
+  "version": "1.0.0",
+  "displayName": "MidMan Studio Utilities",
+  "description": "Core utilities: tick dispatcher, logger, timers, object pools, singletons.",
+  "unity": "2022.3",
+  "unityRelease": "0f1",
+  "documentationUrl": "",
+  "changelogUrl": "",
+  "licensesUrl": "",
+  "dependencies": {
+    "com.unity.burst": "1.8.0",
+    "com.unity.collections": "2.1.0"
+  },
+  "keywords": ["utilities", "tick", "dispatcher", "logger", "pool"],
+  "author": {
+    "name": "MidMan Studio",
+    "email": "",
+    "url": ""
+  }
+}

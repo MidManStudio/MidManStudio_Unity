@@ -1,0 +1,11 @@
+{
+  "name": "MidManStudio.Utilities.Editor",
+  "rootNamespace": "MidManStudio.Core.Editor",
+  "references": [
+    "MidManStudio.Utilities"
+  ],
+  "includePlatforms": ["Editor"],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "autoReferenced": false
+}

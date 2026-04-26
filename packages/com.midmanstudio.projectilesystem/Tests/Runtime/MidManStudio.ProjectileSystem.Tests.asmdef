@@ -1,0 +1,15 @@
+{
+  "name": "MidManStudio.ProjectileSystem.Tests",
+  "rootNamespace": "MidManStudio.Projectiles.Tests",
+  "references": [
+    "MidManStudio.ProjectileSystem",
+    "MidManStudio.Utilities",
+    "UnityEngine.TestRunner",
+    "UnityEditor.TestRunner"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "autoReferenced": false,
+  "defineConstraints": ["UNITY_INCLUDE_TESTS"]
+}
