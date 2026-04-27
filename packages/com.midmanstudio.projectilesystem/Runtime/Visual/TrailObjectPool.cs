@@ -1,153 +1,116 @@
 // TrailObjectPool.cs
-using System.Collections.Generic;
+// Projectile-specific trail coordinator.
+// Delegates all TrailRenderer lifecycle to TrailRendererPool (utilities package).
+// This class only handles the mapping between projectile IDs and trail slots,
+// and reads projectile config to build TrailConfig structs.
+//
+// Called by ProjectileManager every FixedUpdate via SyncToSimulation().
+
 using UnityEngine;
+using MidManStudio.Core.Pools;
 
 namespace MidManStudio.Projectiles
 {
     [RequireComponent(typeof(ProjectileManager))]
     public class TrailObjectPool : MonoBehaviour
     {
-        [SerializeField] private int _poolSize = 512;
+        [Header("Trail Pool")]
+        [Tooltip("Shared TrailRendererPool instance. " +
+                 "If null, TrailRendererPool.Instance is used.")]
+        [SerializeField] private TrailRendererPool _trailPool;
 
-        private TrailRenderer[] _trails;
-        private uint[] _assignedIds;
-        private bool[] _inUse;
-        private float[] _fadingUntil;
+        [Tooltip("Extra seconds a trail lingers after its projectile dies.\n" +
+                 "Overrides TrailRendererPool.FadePad for projectile trails.")]
+        [SerializeField] private float _fadePad = 0.12f;
 
-        private readonly Dictionary<uint, int> _idToSlot = new(512);
+        // projId → trail slot index in TrailRendererPool
+        private readonly System.Collections.Generic.Dictionary<uint, int>
+            _projToSlot = new(256);
 
-        // ─────────────────────────────────────────────────────────────────────
+        // ── Unity lifecycle ───────────────────────────────────────────────────
 
-        void Awake()
+        private void Awake()
         {
-            _trails = new TrailRenderer[_poolSize];
-            _assignedIds = new uint[_poolSize];
-            _inUse = new bool[_poolSize];
-            _fadingUntil = new float[_poolSize];
+            if (_trailPool == null)
+                _trailPool = TrailRendererPool.Instance;
 
-            for (int i = 0; i < _poolSize; i++)
-            {
-                var go = new GameObject($"Trail_{i}");
-                go.transform.SetParent(transform);
-                go.hideFlags = HideFlags.HideInHierarchy;
-
-                var tr = go.AddComponent<TrailRenderer>();
-                tr.enabled = false;
-                tr.autodestruct = false;
-                tr.emitting = false;
-                _trails[i] = tr;
-            }
+            if (_trailPool == null)
+                Debug.LogWarning(
+                    "[TrailObjectPool] No TrailRendererPool found — " +
+                    "trails will not render. Add TrailRendererPool to the scene.");
         }
 
-        // ─── Called by ProjectileManager every FixedUpdate ────────────────────
+        // ── Called by ProjectileManager ───────────────────────────────────────
 
+        /// <summary>
+        /// Sync active projectile positions to their trail slots.
+        /// Call every FixedUpdate from ProjectileManager.
+        /// </summary>
         public void SyncToSimulation(NativeProjectile[] projs, int count)
         {
-            float now = Time.time;
+            if (_trailPool == null) return;
 
-            // Pass 1: retire fully-faded trails
-            for (int i = 0; i < _poolSize; i++)
-            {
-                if (_inUse[i] || _fadingUntil[i] <= 0f) continue;
-                if (now >= _fadingUntil[i])
-                {
-                    _trails[i].enabled = false;
-                    _fadingUntil[i] = 0f;
-                }
-            }
-
-            // Pass 2: move active trails to their projectile
             for (int i = 0; i < count; i++)
             {
                 ref var p = ref projs[i];
                 if (p.Alive == 0) continue;
 
                 var cfg = ProjectileRegistry.Instance.Get(p.ConfigId);
-                if (!cfg.HasTrail) continue;
+                if (cfg == null || !cfg.HasTrail) continue;
 
-                if (!_idToSlot.TryGetValue(p.ProjId, out int slot))
+                if (!_projToSlot.TryGetValue(p.ProjId, out int slot))
                 {
-                    slot = AcquireSlot(p.ProjId, cfg);
+                    slot = AcquireSlot(p, cfg);
                     if (slot < 0) continue;
+                    _projToSlot[p.ProjId] = slot;
                 }
 
-                _trails[slot].transform.position = new Vector3(p.X, p.Y, 0f);
+                _trailPool.SetPosition(slot, new Vector3(p.X, p.Y, 0f));
             }
         }
 
-        // Called from ProjectileManager.CompactDeadSlots
+        /// <summary>
+        /// Notify that a projectile has died so its trail slot can begin fading.
+        /// Called from ProjectileManager.CompactDeadSlots.
+        /// </summary>
         public void NotifyDead(uint projId)
         {
-            if (!_idToSlot.TryGetValue(projId, out int slot)) return;
+            if (!_projToSlot.TryGetValue(projId, out int slot)) return;
 
-            _trails[slot].emitting = false;
-            _fadingUntil[slot] = Time.time + _trails[slot].time + 0.05f;
-            _inUse[slot] = false;
-            _assignedIds[slot] = 0;
-            _idToSlot.Remove(projId);
+            _trailPool.Release(slot);
+            _projToSlot.Remove(projId);
         }
 
-        // ─── Internals ────────────────────────────────────────────────────────
-
-        private int AcquireSlot(uint projId, ProjectileConfigSO cfg)
+        /// <summary>Release all currently active trail slots (e.g. on scene unload).</summary>
+        public void ReleaseAll()
         {
-            // Pass 1: find a completely free slot (not in use, not fading)
-            for (int i = 0; i < _poolSize; i++)
-            {
-                if (_inUse[i] || _fadingUntil[i] > 0f) continue;
-                return InitSlot(i, projId, cfg);
-            }
+            if (_trailPool == null) return;
 
-            // Pass 2: LRU eviction — steal the slot closest to finishing its fade
-            int bestSlot = -1;
-            float soonest = float.MaxValue;
-            for (int i = 0; i < _poolSize; i++)
-            {
-                if (_inUse[i]) continue;
-                if (_fadingUntil[i] < soonest) { soonest = _fadingUntil[i]; bestSlot = i; }
-            }
+            foreach (var slot in _projToSlot.Values)
+                _trailPool.ForceRelease(slot);
 
-            if (bestSlot >= 0)
-            {
-                _trails[bestSlot].enabled = false;
-                _fadingUntil[bestSlot] = 0f;
-                return InitSlot(bestSlot, projId, cfg);
-            }
-
-            return -1; // pool exhausted
+            _projToSlot.Clear();
         }
 
-        private int InitSlot(int i, uint projId, ProjectileConfigSO cfg)
-        {
-            _inUse[i] = true;
-            _assignedIds[i] = projId;
-            _fadingUntil[i] = 0f;
-            _idToSlot[projId] = i;
+        // ── Private ───────────────────────────────────────────────────────────
 
-            ApplyConfig(_trails[i], cfg);
-            _trails[i].Clear();
-            _trails[i].enabled = true;
-            _trails[i].emitting = true;
-            return i;
+        private int AcquireSlot(in NativeProjectile p, ProjectileConfigSO cfg)
+        {
+            var trailCfg = BuildTrailConfig(cfg);
+            return _trailPool.Acquire(trailCfg, ownerId: (int)p.ProjId);
         }
 
-        private static void ApplyConfig(TrailRenderer tr, ProjectileConfigSO cfg)
+        private static TrailConfig BuildTrailConfig(ProjectileConfigSO cfg)
         {
-            if (cfg.TrailMaterial == null)
+            return new TrailConfig
             {
-                Debug.LogWarning(
-                    $"[TrailObjectPool] Config '{cfg.name}' HasTrail=true but TrailMaterial is null — " +
-                    "assign a material on the ProjectileConfigSO or the trail will be invisible.");
-            }
-
-            tr.material = cfg.TrailMaterial;
-            tr.colorGradient = cfg.TrailColorGradient;
-            tr.time = cfg.TrailTime;
-            tr.startWidth = cfg.TrailStartWidth;
-            tr.endWidth = cfg.TrailEndWidth;
-            tr.numCapVertices = cfg.TrailCapVertices; // 0=flat, 2-4=smooth rounded end caps
-            tr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            tr.receiveShadows = false;
+                Material      = cfg.TrailMaterial,
+                ColorGradient = cfg.TrailColorGradient,
+                Time          = cfg.TrailTime > 0f ? cfg.TrailTime : 0.25f,
+                StartWidth    = cfg.TrailStartWidth,
+                EndWidth      = cfg.TrailEndWidth,
+                CapVertices   = cfg.TrailCapVertices
+            };
         }
     }
 }
