@@ -1,0 +1,14 @@
+{
+  "name": "MidManStudio.Netcode.Editor",
+  "rootNamespace": "MidManStudio.Core.Netcode.Editor",
+  "references": [
+    "MidManStudio.Utilities",
+    "MidManStudio.Utilities.Editor",
+    "MidManStudio.Netcode",
+    "Unity.Netcode.Runtime"
+  ],
+  "includePlatforms": ["Editor"],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "autoReferenced": false
+}
