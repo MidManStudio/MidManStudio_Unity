@@ -1,8 +1,8 @@
 {
   "name": "com.midmanstudio.utilities",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "displayName": "MidMan Studio Utilities",
-  "description": "Core utilities: tick dispatcher, logger, timers, object pools, singletons.",
+  "description": "Core utilities: tick dispatcher, logger, timers, object pools, singletons, scene dependency injector, trail renderer pool, spawnable audio.",
   "unity": "2022.3",
   "unityRelease": "0f1",
   "documentationUrl": "",
@@ -12,7 +12,7 @@
     "com.unity.burst": "1.8.0",
     "com.unity.collections": "2.1.0"
   },
-  "keywords": ["utilities", "tick", "dispatcher", "logger", "pool"],
+  "keywords": ["utilities", "tick", "dispatcher", "logger", "pool", "singleton", "audio", "trail"],
   "author": {
     "name": "MidMan Studio",
     "email": "",
