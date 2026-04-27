@@ -1,81 +1,67 @@
 // ProjectileImpactHandler.cs
-// Client-side only. Manages impact effects without VFX Graph or GPU instancing.
+// Client-side only. Manages impact effects for confirmed projectile hits.
+// MID_ProjectileNetworkBridge calls PlayImpact() on HitConfirmedClientRpc.
 //
-// Three strategies (from the plan):
-//   1. PooledParticleSystem  — LocalParticlePool for standard hits (dust, sparks, blood)
-//   2. SpriteSheetFlipbook  — pooled GameObjects with SpriteRenderer for explosions
-//   3. SharedEmit           — single ParticleSystem.Emit() for very high hit rates (SMG)
+// IMPACT STRATEGIES:
+//   PooledParticleSystem — LocalParticlePool (standard hits)
+//   SpriteSheetFlipbook  — pooled GameObjects with SpriteRenderer + ImpactFlipbook
+//   SharedEmit           — ParticleSystem.Emit() for very high hit rates
 //
-// Strategy selection per configId:
-//   Registered at startup via RegisterImpactStrategy().
-//   Default (no registration): PooledParticleSystem.
+// REGISTRATION:
+//   Assign strategies in the inspector via ConfigImpactBindings,
+//   or call RegisterStrategy() at runtime from your weapon setup flow.
 //
-// Flipbook:
-//   FlipbookPool holds pre-instantiated GameObjects with SpriteRenderer.
-//   ImpactFlipbook component steps through frames in Update.
-//   Returned to pool when animation completes.
-//
-// SharedEmit:
-//   One ParticleSystem per impact type, shared across ALL hits of that type.
-//   Call ps.Emit(params) at hit position — do NOT call Play().
-//   Zero allocation. Ideal for high-rate weapons hitting surfaces.
+// POOL TYPES:
+//   All particle types use the generated PoolableParticleType enum.
+//   Flipbook objects use PoolableObjectType.
 
 using System;
 using System.Collections.Generic;
 using UnityEngine;
 using MidManStudio.Core.Singleton;
-using MidManStudio.Core.PoolSystems;
-using MidManStudio.Core.HelperFunctions;
+using MidManStudio.Core.Pools;
+using MidManStudio.Core.Logging;
 
 namespace MidManStudio.Projectiles
 {
-    // ─────────────────────────────────────────────────────────────────────────
-    //  Impact strategy enum
-    // ─────────────────────────────────────────────────────────────────────────
+    // ── Impact strategy ───────────────────────────────────────────────────────
 
     public enum ImpactStrategy
     {
-        /// Use LocalParticlePool — good for most impacts.
         PooledParticleSystem,
-
-        /// Use a pooled sprite-sheet flipbook — good for explosions.
         SpriteSheetFlipbook,
-
-        /// Use ParticleSystem.Emit() on a shared system — best for SMG/shotgun high rate.
         SharedEmit
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    //  Flipbook component — drives sprite-sheet animation on a pooled GO
-    // ─────────────────────────────────────────────────────────────────────────
+    // ── Flipbook component ────────────────────────────────────────────────────
 
     /// <summary>
-    /// Attached to flipbook pool GameObjects. Steps through sprite frames in Update.
-    /// Returns itself to pool when animation completes.
+    /// Drives sprite-sheet animation on a pooled GameObject.
+    /// Returns to pool when animation ends.
     /// </summary>
     public sealed class ImpactFlipbook : MonoBehaviour
     {
-        private Sprite[]       _frames;
-        private SpriteRenderer _rend;
-        private float          _frameDuration;
-        private float          _timer;
-        private int            _currentFrame;
+        private Sprite[]        _frames;
+        private SpriteRenderer  _rend;
+        private float           _frameDuration;
+        private float           _timer;
+        private int             _frame;
         private PoolableObjectType _poolType;
-        private bool           _active;
+        private bool            _active;
 
-        public void Initialise(
-            Sprite[] frames, float frameDuration, PoolableObjectType poolType)
+        public void Initialise(Sprite[] frames, float frameDuration,
+                               PoolableObjectType poolType)
         {
             _frames        = frames;
             _frameDuration = frameDuration;
             _poolType      = poolType;
             _rend          = GetComponent<SpriteRenderer>();
             _timer         = 0f;
-            _currentFrame  = 0;
+            _frame         = 0;
             _active        = true;
 
-            if (_rend != null && _frames.Length > 0)
-                _rend.sprite = _frames[0];
+            if (_rend != null && frames.Length > 0)
+                _rend.sprite = frames[0];
         }
 
         private void Update()
@@ -83,26 +69,24 @@ namespace MidManStudio.Projectiles
             if (!_active || _frames == null || _frames.Length == 0) return;
 
             _timer += Time.deltaTime;
-            int frame = Mathf.FloorToInt(_timer / _frameDuration);
+            int f   = Mathf.FloorToInt(_timer / _frameDuration);
 
-            if (frame >= _frames.Length)
+            if (f >= _frames.Length)
             {
                 _active = false;
                 LocalObjectPool.Instance?.ReturnObject(gameObject, _poolType);
                 return;
             }
 
-            if (frame != _currentFrame)
+            if (f != _frame)
             {
-                _currentFrame = frame;
-                if (_rend != null) _rend.sprite = _frames[_currentFrame];
+                _frame = f;
+                if (_rend != null) _rend.sprite = _frames[_frame];
             }
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    //  Impact registration data
-    // ─────────────────────────────────────────────────────────────────────────
+    // ── Registration data ─────────────────────────────────────────────────────
 
     [Serializable]
     public sealed class ImpactRegistration
@@ -119,40 +103,34 @@ namespace MidManStudio.Projectiles
         public float                FlipbookFrameDuration = 0.05f;
 
         // SharedEmit
-        public ParticleSystem       SharedSystem;
-        public int                  EmitCount = 10;
-        public float                EmitSpeed = 3f;
+        public ParticleSystem SharedSystem;
+        public int            EmitCount = 10;
+        public float          EmitSpeed = 3f;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  ProjectileImpactHandler
-    // ─────────────────────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Client-only singleton. Plays impact effects for confirmed hits.
-    /// MID_ProjectileNetworkBridge calls PlayImpact() on HitConfirmedClientRpc.
-    /// </summary>
     public sealed class ProjectileImpactHandler : Singleton<ProjectileImpactHandler>
     {
-        #region Configuration
+        #region Serialized
 
-        [Header("Default Strategy")]
-        [Tooltip("Used for configs with no registered strategy.")]
+        [Header("Default Particle Type")]
+        [Tooltip("Used when no strategy is registered for a configId.\n" +
+                 "Set to your generic hit particle type.")]
         [SerializeField] private PoolableParticleType _defaultParticleType;
 
-        [Header("Per-Config Registrations")]
+        [Header("Per-Config Bindings")]
         [Tooltip("Assign in inspector or call RegisterStrategy() at runtime.\n" +
-                 "Key = configId (ushort) as int for inspector compatibility.")]
-        [SerializeField] private List<ConfigImpactBinding> _bindings
-            = new List<ConfigImpactBinding>();
+                 "ConfigIdInt = ushort config ID cast to int (inspector limitation).")]
+        [SerializeField] private List<ConfigBinding> _bindings = new();
 
         [Header("Debug")]
-        [SerializeField] private bool _enableLogs = false;
+        [SerializeField] private MID_LogLevel _logLevel = MID_LogLevel.None;
 
         [Serializable]
-        private struct ConfigImpactBinding
+        private struct ConfigBinding
         {
-            public int               ConfigIdInt; // ushort as int for inspector
+            public int               ConfigIdInt;
             public ImpactRegistration Registration;
         }
 
@@ -160,55 +138,41 @@ namespace MidManStudio.Projectiles
 
         #region State
 
-        private readonly Dictionary<ushort, ImpactRegistration> _strategies
-            = new Dictionary<ushort, ImpactRegistration>(32);
+        private readonly Dictionary<ushort, ImpactRegistration> _strategies = new(32);
 
         #endregion
 
-        #region Initialisation
+        #region Init
 
         protected override void Awake()
         {
             base.Awake();
-
-            // Load inspector bindings
             foreach (var b in _bindings)
-            {
                 if (b.Registration != null)
                     _strategies[(ushort)b.ConfigIdInt] = b.Registration;
-            }
         }
 
         #endregion
 
         #region Public API
 
-        /// <summary>
-        /// Register an impact strategy for a configId at runtime.
-        /// Call from your game's weapon setup flow.
-        /// </summary>
+        /// <summary>Register an impact strategy for a projectile config ID.</summary>
         public void RegisterStrategy(ushort configId, ImpactRegistration registration)
         {
             _strategies[configId] = registration;
         }
 
+        public void UnregisterStrategy(ushort configId) => _strategies.Remove(configId);
+
         /// <summary>
-        /// Play impact effect at the given world position.
-        /// Called by MID_ProjectileNetworkBridge on HitConfirmedClientRpc.
+        /// Play an impact effect at the given world position.
+        /// Called by the network bridge on HitConfirmedClientRpc.
         /// </summary>
-        public void PlayImpact(Vector3 position, ushort configId, bool isHeadshot)
+        public void PlayImpact(Vector3 position, ushort configId, bool isHeadshot = false)
         {
             if (!_strategies.TryGetValue(configId, out var reg))
             {
-                // Default: pool particle
-                var cfg = ProjectileRegistry.Instance.Get(configId);
-                PoolableParticleType pType = cfg != null
-                    ? cfg.ImpactEffectType
-                    : _defaultParticleType;
-
-                LocalParticlePool.Instance?.GetObject(pType, position, Quaternion.identity);
-
-                Log($"Impact (default pool): configId={configId} pos={position}");
+                PlayDefault(position, configId);
                 return;
             }
 
@@ -217,11 +181,9 @@ namespace MidManStudio.Projectiles
                 case ImpactStrategy.PooledParticleSystem:
                     PlayPooled(reg, position, isHeadshot);
                     break;
-
                 case ImpactStrategy.SpriteSheetFlipbook:
                     PlayFlipbook(reg, position);
                     break;
-
                 case ImpactStrategy.SharedEmit:
                     PlaySharedEmit(reg, position);
                     break;
@@ -230,14 +192,31 @@ namespace MidManStudio.Projectiles
 
         #endregion
 
-        #region Strategy Implementations
+        #region Strategies
 
-        private void PlayPooled(ImpactRegistration reg, Vector3 pos, bool isHeadshot)
+        private void PlayDefault(Vector3 pos, ushort configId)
+        {
+            // Try to get a particle type from the registry config; fall back to default
+            PoolableParticleType pType = _defaultParticleType;
+            var cfg = ProjectileRegistry.Instance.Get(configId);
+            if (cfg != null && cfg.ImpactEffectType != _defaultParticleType)
+                pType = cfg.ImpactEffectType;
+
+            LocalParticlePool.Instance?.GetObject(pType, pos, Quaternion.identity);
+
+            MID_Logger.LogDebug(_logLevel,
+                $"Impact (default pool) configId={configId} type={pType}",
+                nameof(ProjectileImpactHandler));
+        }
+
+        private void PlayPooled(ImpactRegistration reg, Vector3 pos, bool headshot)
         {
             LocalParticlePool.Instance?.GetObject(
                 reg.ParticleType, pos, Quaternion.identity);
 
-            Log($"Impact (pool): type={reg.ParticleType} headshot={isHeadshot}");
+            MID_Logger.LogDebug(_logLevel,
+                $"Impact (pool) type={reg.ParticleType} headshot={headshot}",
+                nameof(ProjectileImpactHandler));
         }
 
         private void PlayFlipbook(ImpactRegistration reg, Vector3 pos)
@@ -246,45 +225,36 @@ namespace MidManStudio.Projectiles
 
             var obj = LocalObjectPool.Instance?.GetObject(
                 reg.FlipbookPoolType, pos, Quaternion.identity);
-
             if (obj == null) return;
 
-            var fb = obj.GetComponent<ImpactFlipbook>();
-            if (fb == null) fb = obj.AddComponent<ImpactFlipbook>();
+            var fb = obj.GetComponent<ImpactFlipbook>()
+                  ?? obj.AddComponent<ImpactFlipbook>();
+            fb.Initialise(reg.FlipbookFrames, reg.FlipbookFrameDuration,
+                          reg.FlipbookPoolType);
 
-            fb.Initialise(reg.FlipbookFrames, reg.FlipbookFrameDuration, reg.FlipbookPoolType);
-
-            Log($"Impact (flipbook): frames={reg.FlipbookFrames.Length}");
+            MID_Logger.LogDebug(_logLevel,
+                $"Impact (flipbook) frames={reg.FlipbookFrames.Length}",
+                nameof(ProjectileImpactHandler));
         }
 
         private void PlaySharedEmit(ImpactRegistration reg, Vector3 pos)
         {
             if (reg.SharedSystem == null) return;
 
-            var emitParams = new ParticleSystem.EmitParams
-            {
-                position   = pos,
-                applyShapeToPosition = true
-            };
-
-            // Vary speed slightly for natural look
             for (int i = 0; i < reg.EmitCount; i++)
             {
-                emitParams.velocity = UnityEngine.Random.onUnitSphere * reg.EmitSpeed;
-                reg.SharedSystem.Emit(emitParams, 1);
+                var ep = new ParticleSystem.EmitParams
+                {
+                    position             = pos,
+                    velocity             = UnityEngine.Random.onUnitSphere * reg.EmitSpeed,
+                    applyShapeToPosition = true
+                };
+                reg.SharedSystem.Emit(ep, 1);
             }
 
-            Log($"Impact (shared emit): count={reg.EmitCount} pos={pos}");
-        }
-
-        #endregion
-
-        #region Logging
-
-        private void Log(string msg)
-        {
-            if (_enableLogs)
-                MID_HelperFunctions.LogDebug(msg, nameof(ProjectileImpactHandler));
+            MID_Logger.LogDebug(_logLevel,
+                $"Impact (shared emit) count={reg.EmitCount}",
+                nameof(ProjectileImpactHandler));
         }
 
         #endregion
