@@ -1,221 +1,206 @@
-﻿using System.Collections.Generic;
+// UIParticlePoolManager.cs
+// Manages ParticleSystem instances placed directly in the HUD/UI hierarchy.
+// Effects are identified by string keys — no closed enum, fully extensible.
+//
+// USAGE:
+//   Register effects in the inspector under Effect Configs.
+//   Call TriggerEffect("WaveComplete") from game code.
+//
+// SETUP:
+//   Place this component on your HUD root.
+//   Add one UIEffectConfig entry per particle system.
+//   Set the key to any string you like (e.g. "Explosion", "LevelUp").
+//
+// PLAY MODES:
+//   useEmitMode = false → ParticleSystem.Play()
+//   useEmitMode = true  → ParticleSystem.Emit(count)
+
+using System.Collections.Generic;
 using UnityEngine;
 using MidManStudio.Core.Logging;
 
 namespace MidManStudio.Core.Pools
 {
+    [System.Serializable]
+    public class UIEffectConfig
+    {
+        [Tooltip("String key used to trigger this effect from code.")]
+        public string         key;
+
+        public ParticleSystem particleSystem;
+
+        [Tooltip("If true, uses Emit(count) instead of Play().\n" +
+                 "Use for burst effects that must not loop.")]
+        public bool           useEmitMode = false;
+    }
 
     /// <summary>
-    /// UIParticlePoolManager — Manages UI particle systems placed directly in the HUD hierarchy.
-    /// No instantiation — just plays/emits existing particle systems by enum type.
-    ///
-    /// USAGE:
-    ///   Assign ParticleSystems in the inspector under Effect Configs.
-    ///   Call TriggerEffect(UIEffectType.WaveComplete) from game code.
-    ///   Uses Play() for continuous effects, Emit(count) for bursts — configured per-effect.
+    /// Manages UI-layer ParticleSystem effects by string key.
+    /// Zero instantiation — plays/emits existing scene particle systems.
     /// </summary>
     public class UIParticlePoolManager : MonoBehaviour
     {
-        #region Serialized Fields
+        [SerializeField] private MID_LogLevel         _logLevel     = MID_LogLevel.Info;
+        [SerializeField] private List<UIEffectConfig> _effectConfigs = new();
 
-        [SerializeField] private MID_LogLevel _logLevel = MID_LogLevel.Info;
+        private readonly Dictionary<string, UIEffectConfig> _lookup = new();
 
-        [Header("UI Particle Systems — Placed in HUD Hierarchy")]
-        [SerializeField] private List<UIEffectConfig> effectConfigs = new List<UIEffectConfig>();
-
-        #endregion
-
-        #region Private Fields
-
-        private Dictionary<UIEffectType, UIEffectConfig> _effectLookup = new Dictionary<UIEffectType, UIEffectConfig>();
-
-        #endregion
-
-        #region Unity Lifecycle
+        // ── Unity lifecycle ───────────────────────────────────────────────────
 
         private void Awake()
         {
-            InitializeEffectLookup();
-            DisableAllEffectsAtStart();
+            BuildLookup();
+            DisableAll();
         }
 
-        private void OnDestroy()
-        {
-            StopAllEffects(true);
-        }
+        private void OnDestroy() => StopAll(clear: true);
 
-        #endregion
-
-        #region Public Methods
-
-        /// <summary>Plays a continuous particle effect via Play().</summary>
-        public void PlayEffect(UIEffectType effectType)
-        {
-            if (!TryGetConfig(effectType, nameof(PlayEffect), out UIEffectConfig config)) return;
-
-            if (config.particleSystem.isPlaying)
-                config.particleSystem.Stop(true, ParticleSystemStopBehavior.StopEmitting);
-
-            config.particleSystem.gameObject.SetActive(true);
-            config.particleSystem.Play();
-
-            MID_Logger.LogDebug(_logLevel, $"Playing: {effectType}.", nameof(UIParticlePoolManager), nameof(PlayEffect));
-        }
-
-        /// <summary>Emits a burst of particles via Emit(count).</summary>
-        public void EmitEffect(UIEffectType effectType, int particleCount)
-        {
-            if (!TryGetConfig(effectType, nameof(EmitEffect), out UIEffectConfig config)) return;
-
-            config.particleSystem.gameObject.SetActive(true);
-            config.particleSystem.Emit(particleCount);
-
-            MID_Logger.LogDebug(_logLevel, $"Emitted {particleCount} for: {effectType}.", nameof(UIParticlePoolManager), nameof(EmitEffect));
-        }
-
-        /// <summary>Triggers an effect using Play() or Emit() based on per-config useEmitMode setting.</summary>
-        public void TriggerEffect(UIEffectType effectType, int particleCount = 10)
-        {
-            if (!TryGetConfig(effectType, nameof(TriggerEffect), out UIEffectConfig config)) return;
-
-            if (config.useEmitMode) EmitEffect(effectType, particleCount);
-            else PlayEffect(effectType);
-        }
-
-        /// <summary>Stops a specific particle effect.</summary>
-        public void StopEffect(UIEffectType effectType, bool clearParticles = true)
-        {
-            if (!TryGetConfig(effectType, nameof(StopEffect), out UIEffectConfig config)) return;
-
-            var stopBehavior = clearParticles
-                ? ParticleSystemStopBehavior.StopEmittingAndClear
-                : ParticleSystemStopBehavior.StopEmitting;
-
-            config.particleSystem.Stop(true, stopBehavior);
-            if (clearParticles) config.particleSystem.gameObject.SetActive(false);
-
-            MID_Logger.LogDebug(_logLevel, $"Stopped: {effectType}.", nameof(UIParticlePoolManager), nameof(StopEffect));
-        }
-
-        /// <summary>Stops all active particle effects.</summary>
-        public void StopAllEffects(bool clearParticles = true)
-        {
-            foreach (var config in effectConfigs)
-            {
-                if (config.particleSystem != null && config.particleSystem.isPlaying)
-                {
-                    var stopBehavior = clearParticles
-                        ? ParticleSystemStopBehavior.StopEmittingAndClear
-                        : ParticleSystemStopBehavior.StopEmitting;
-
-                    config.particleSystem.Stop(true, stopBehavior);
-                    if (clearParticles) config.particleSystem.gameObject.SetActive(false);
-                }
-            }
-
-            MID_Logger.LogDebug(_logLevel, "Stopped all effects.", nameof(UIParticlePoolManager), nameof(StopAllEffects));
-        }
-
-        /// <summary>Returns true if the effect is currently playing.</summary>
-        public bool IsEffectPlaying(UIEffectType effectType)
-        {
-            if (!_effectLookup.TryGetValue(effectType, out UIEffectConfig config)) return false;
-            return config.particleSystem != null && config.particleSystem.isPlaying;
-        }
-
-        /// <summary>Returns the ParticleSystem for a given effect type for advanced control.</summary>
-        public ParticleSystem GetParticleSystem(UIEffectType effectType)
-        {
-            if (_effectLookup.TryGetValue(effectType, out UIEffectConfig config))
-                return config.particleSystem;
-
-            MID_Logger.LogWarning(_logLevel, $"Effect type '{effectType}' not found.", nameof(UIParticlePoolManager), nameof(GetParticleSystem));
-            return null;
-        }
-
-        #endregion
-
-        #region Private Methods
-
-        private void InitializeEffectLookup()
-        {
-            _effectLookup.Clear();
-
-            foreach (var config in effectConfigs)
-            {
-                if (config.particleSystem == null)
-                {
-                    MID_Logger.LogError(_logLevel, $"Null ParticleSystem on effect type: {config.effectType}.", nameof(UIParticlePoolManager), nameof(InitializeEffectLookup));
-                    continue;
-                }
-
-                if (_effectLookup.ContainsKey(config.effectType))
-                {
-                    MID_Logger.LogWarning(_logLevel, $"Duplicate effect type: {config.effectType} — using first entry.", nameof(UIParticlePoolManager), nameof(InitializeEffectLookup));
-                    continue;
-                }
-
-                _effectLookup[config.effectType] = config;
-            }
-
-            MID_Logger.LogInfo(_logLevel, $"Initialized {_effectLookup.Count} UI particle effects.", nameof(UIParticlePoolManager), nameof(InitializeEffectLookup));
-        }
-
-        private void DisableAllEffectsAtStart()
-        {
-            foreach (var config in effectConfigs)
-            {
-                if (config.particleSystem != null)
-                {
-                    config.particleSystem.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-                    config.particleSystem.gameObject.SetActive(false);
-                }
-            }
-        }
-
-        private bool TryGetConfig(UIEffectType effectType, string callerName, out UIEffectConfig config)
-        {
-            if (!_effectLookup.TryGetValue(effectType, out config))
-            {
-                MID_Logger.LogError(_logLevel, $"Effect type '{effectType}' not found.", nameof(UIParticlePoolManager), callerName);
-                return false;
-            }
-
-            if (config.particleSystem == null)
-            {
-                MID_Logger.LogError(_logLevel, $"ParticleSystem for '{effectType}' is null.", nameof(UIParticlePoolManager), callerName);
-                return false;
-            }
-
-            return true;
-        }
-
-        #endregion
-
-        #region Internal Types
+        // ── Public API ────────────────────────────────────────────────────────
 
         /// <summary>
-        /// UI particle effect types for DuckDuckBara.
-        /// These are particles already placed in the HUD hierarchy — not pooled GameObjects.
+        /// Trigger an effect by key using the configured play mode.
         /// </summary>
-        public enum UIEffectType
+        public void TriggerEffect(string key, int emitCount = 10)
         {
-            DamageIndicator,    // Flash when player or capybara takes damage
-            HealEffect,         // Visual feedback on heal upgrade
-            WaveComplete,       // Plays between waves
-            UpgradeSelect,      // Plays when upgrade card is chosen
-            PlayerHurt,         // Screen-edge effect on player damage
+            if (!TryGet(key, out var cfg)) return;
+
+            if (cfg.useEmitMode) EmitEffect(key, emitCount);
+            else                 PlayEffect(key);
         }
 
-        [System.Serializable]
-        public class UIEffectConfig
+        /// <summary>Play an effect continuously via ParticleSystem.Play().</summary>
+        public void PlayEffect(string key)
         {
-            public UIEffectType effectType;
-            public ParticleSystem particleSystem;
-            [Tooltip("If true, uses Emit(count) instead of Play().")]
-            public bool useEmitMode = false;
+            if (!TryGet(key, out var cfg)) return;
+
+            if (cfg.particleSystem.isPlaying)
+                cfg.particleSystem.Stop(true,
+                    ParticleSystemStopBehavior.StopEmitting);
+
+            cfg.particleSystem.gameObject.SetActive(true);
+            cfg.particleSystem.Play();
+
+            MID_Logger.LogDebug(_logLevel, $"Playing: {key}",
+                nameof(UIParticlePoolManager));
         }
 
-        #endregion
+        /// <summary>Emit a burst via ParticleSystem.Emit().</summary>
+        public void EmitEffect(string key, int count = 10)
+        {
+            if (!TryGet(key, out var cfg)) return;
+
+            cfg.particleSystem.gameObject.SetActive(true);
+            cfg.particleSystem.Emit(count);
+
+            MID_Logger.LogDebug(_logLevel, $"Emitted {count}: {key}",
+                nameof(UIParticlePoolManager));
+        }
+
+        /// <summary>Stop a specific effect.</summary>
+        public void StopEffect(string key, bool clear = true)
+        {
+            if (!TryGet(key, out var cfg)) return;
+
+            cfg.particleSystem.Stop(true,
+                clear
+                    ? ParticleSystemStopBehavior.StopEmittingAndClear
+                    : ParticleSystemStopBehavior.StopEmitting);
+
+            if (clear)
+                cfg.particleSystem.gameObject.SetActive(false);
+
+            MID_Logger.LogDebug(_logLevel, $"Stopped: {key}",
+                nameof(UIParticlePoolManager));
+        }
+
+        /// <summary>Stop all registered effects.</summary>
+        public void StopAll(bool clear = true)
+        {
+            foreach (var cfg in _effectConfigs)
+            {
+                if (cfg?.particleSystem == null) continue;
+                cfg.particleSystem.Stop(true,
+                    clear
+                        ? ParticleSystemStopBehavior.StopEmittingAndClear
+                        : ParticleSystemStopBehavior.StopEmitting);
+                if (clear)
+                    cfg.particleSystem.gameObject.SetActive(false);
+            }
+        }
+
+        public bool IsPlaying(string key) =>
+            TryGet(key, out var cfg) && cfg.particleSystem.isPlaying;
+
+        /// <summary>Returns the ParticleSystem for a key — for advanced control.</summary>
+        public ParticleSystem GetSystem(string key) =>
+            TryGet(key, out var cfg) ? cfg.particleSystem : null;
+
+        /// <summary>Register an effect at runtime (e.g. from a dynamically spawned HUD).</summary>
+        public void RegisterEffect(UIEffectConfig config)
+        {
+            if (config == null || string.IsNullOrEmpty(config.key)) return;
+            _lookup[config.key] = config;
+            if (!_effectConfigs.Contains(config)) _effectConfigs.Add(config);
+        }
+
+        public void UnregisterEffect(string key)
+        {
+            _lookup.Remove(key);
+            _effectConfigs.RemoveAll(c => c.key == key);
+        }
+
+        // ── Private ───────────────────────────────────────────────────────────
+
+        private void BuildLookup()
+        {
+            _lookup.Clear();
+            foreach (var cfg in _effectConfigs)
+            {
+                if (cfg == null || string.IsNullOrEmpty(cfg.key)) continue;
+
+                if (cfg.particleSystem == null)
+                {
+                    MID_Logger.LogError(_logLevel,
+                        $"Null ParticleSystem on effect key '{cfg.key}'.",
+                        nameof(UIParticlePoolManager));
+                    continue;
+                }
+
+                if (_lookup.ContainsKey(cfg.key))
+                {
+                    MID_Logger.LogWarning(_logLevel,
+                        $"Duplicate key '{cfg.key}' — keeping first.",
+                        nameof(UIParticlePoolManager));
+                    continue;
+                }
+
+                _lookup[cfg.key] = cfg;
+            }
+
+            MID_Logger.LogInfo(_logLevel,
+                $"Registered {_lookup.Count} UI particle effect(s).",
+                nameof(UIParticlePoolManager));
+        }
+
+        private void DisableAll()
+        {
+            foreach (var cfg in _effectConfigs)
+            {
+                if (cfg?.particleSystem == null) continue;
+                cfg.particleSystem.Stop(true,
+                    ParticleSystemStopBehavior.StopEmittingAndClear);
+                cfg.particleSystem.gameObject.SetActive(false);
+            }
+        }
+
+        private bool TryGet(string key, out UIEffectConfig cfg)
+        {
+            if (_lookup.TryGetValue(key, out cfg)) return true;
+
+            MID_Logger.LogError(_logLevel,
+                $"Effect key '{key}' not found.",
+                nameof(UIParticlePoolManager));
+            return false;
+        }
     }
 }
