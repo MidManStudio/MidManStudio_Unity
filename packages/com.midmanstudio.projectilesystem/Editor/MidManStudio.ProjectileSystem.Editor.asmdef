@@ -3,7 +3,8 @@
   "rootNamespace": "MidManStudio.Projectiles.Editor",
   "references": [
     "MidManStudio.ProjectileSystem",
-    "MidManStudio.Utilities"
+    "MidManStudio.Utilities",
+    "MidManStudio.Utilities.Editor"
   ],
   "includePlatforms": ["Editor"],
   "excludePlatforms": [],
