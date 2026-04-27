@@ -1,0 +1,21 @@
+{
+  "name": "com.midmanstudio.netcode",
+  "version": "1.0.0",
+  "displayName": "MidMan Studio Netcode Utilities",
+  "description": "NGO-specific utilities: NetworkSingleton, HybridNetworkSingleton, MID_NetworkObjectPool, MID_NetworkConnectionManager, NetworkTimer.",
+  "unity": "2022.3",
+  "unityRelease": "0f1",
+  "documentationUrl": "",
+  "changelogUrl": "",
+  "licensesUrl": "",
+  "dependencies": {
+    "com.midmanstudio.utilities": "1.1.0",
+    "com.unity.netcode.gameobjects": "1.7.1"
+  },
+  "keywords": ["netcode", "ngo", "networking", "multiplayer", "singleton", "pool"],
+  "author": {
+    "name": "MidMan Studio",
+    "email": "",
+    "url": ""
+  }
+}
