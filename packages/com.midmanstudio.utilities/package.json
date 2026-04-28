@@ -10,7 +10,7 @@
   "licensesUrl": "",
   "dependencies": {
     "com.unity.burst": "1.8.0",
-    "com.unity.collections": "2.1.0"
+    "com.unity.collections": "1.2.4"
   },
   "keywords": ["utilities", "tick", "dispatcher", "logger", "pool", "singleton", "audio", "trail"],
   "author": {
