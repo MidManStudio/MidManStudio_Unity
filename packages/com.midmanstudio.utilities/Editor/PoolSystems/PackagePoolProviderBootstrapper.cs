@@ -1,10 +1,13 @@
 // PackagePoolProviderBootstrapper.cs
-// Editor-only. Creates the default PoolTypeProvider and ParticlePoolTypeProvider
-// assets for com.midmanstudio.utilities and com.midmanstudio.projectilesystem
-// if they don't already exist in the project.
+// Editor-only. Runs automatically after import via [InitializeOnLoad].
+// 1. Creates default PoolTypeProvider assets for the utilities package.
+// 2. Writes stub enum files so the package compiles before the user
+//    runs the generator for the first time.
 //
-// Runs automatically once after import via [InitializeOnLoad].
-// Also exposed as a menu item for manual recovery.
+// The stub enums contain only the entries shipped by utilities and projectile system.
+// After the user creates their own PoolTypeProviderSO and runs
+// MidManStudio > Pool Type Generator, the stubs are overwritten with the full
+// combined enum that includes their game entries.
 
 #if UNITY_EDITOR
 using System.IO;
@@ -17,44 +20,41 @@ namespace MidManStudio.Core.Editor
     [InitializeOnLoad]
     internal static class PackagePoolProviderBootstrapper
     {
-        // Paths relative to project root (Assets/...)
-        // Stored inside the package folders so they ship with the package.
-        // Users should NOT modify these — create your own provider asset instead.
+        private const string UtilitiesDir  = "Assets/MidManStudio/Utilities/PoolProviders";
+        private const string GeneratedDir  = "Assets/MidManStudio/Generated";
 
-        private const string UtilitiesDir    = "Assets/MidManStudio/Utilities/PoolProviders";
-        private const string ProjectileDir   = "Assets/MidManStudio/ProjectileSystem/PoolProviders";
+        // Sentinel file — if it exists we've already bootstrapped this project
+        private const string SentinelFile  = "Assets/MidManStudio/Generated/.bootstrapped";
 
         static PackagePoolProviderBootstrapper()
         {
-            // Defer so the asset database is fully ready after a domain reload
-            EditorApplication.delayCall += EnsureDefaultProviders;
+            EditorApplication.delayCall += Bootstrap;
         }
 
         [MenuItem("MidManStudio/Internal/Recreate Default Pool Providers")]
-        public static void EnsureDefaultProviders()
+        public static void Bootstrap()
         {
             bool changed = false;
             changed |= EnsureUtilitiesObjectProvider();
             changed |= EnsureUtilitiesParticleProvider();
-            changed |= EnsureProjectileObjectProvider();
-            changed |= EnsureProjectileParticleProvider();
+            changed |= EnsureStubEnums();
 
             if (changed)
             {
                 AssetDatabase.SaveAssets();
                 AssetDatabase.Refresh();
-                Debug.Log("[PoolProviderBootstrapper] Default provider assets created/updated.");
+                Debug.Log("[PoolProviderBootstrapper] Default assets and stub enums created.");
             }
         }
 
-        // ── Utilities — object pool ───────────────────────────────────────────
+        // ── Provider assets ───────────────────────────────────────────────────
 
         private static bool EnsureUtilitiesObjectProvider()
         {
             const string path = UtilitiesDir + "/PoolTypeProvider_Utilities.asset";
             if (File.Exists(path)) return false;
 
-            EnsureDirectory(UtilitiesDir);
+            EnsureDir(UtilitiesDir);
             var so = ScriptableObject.CreateInstance<PoolTypeProviderSO>();
             so.packageId   = "com.midmanstudio.utilities";
             so.displayName = "MidMan Studio Utilities";
@@ -63,121 +63,134 @@ namespace MidManStudio.Core.Editor
             {
                 entryName      = "SpawnableAudio",
                 comment        = "Pooled one-shot / looping audio source",
-                explicitOffset = 0    // pinned — never moves
+                explicitOffset = 0
             });
             so.entries.Add(new PoolEntryDefinition
             {
                 entryName      = "Trail",
                 comment        = "Pooled trail renderer object",
-                explicitOffset = 1    // pinned — never moves
+                explicitOffset = 1
             });
 
             AssetDatabase.CreateAsset(so, path);
             return true;
         }
-
-        // ── Utilities — particle pool ─────────────────────────────────────────
 
         private static bool EnsureUtilitiesParticleProvider()
         {
             const string path = UtilitiesDir + "/ParticlePoolTypeProvider_Utilities.asset";
             if (File.Exists(path)) return false;
 
-            EnsureDirectory(UtilitiesDir);
+            EnsureDir(UtilitiesDir);
             var so = ScriptableObject.CreateInstance<ParticlePoolTypeProviderSO>();
             so.packageId   = "com.midmanstudio.utilities";
             so.displayName = "MidMan Studio Utilities";
             so.priority    = 0;
-            // Utilities defines no particle types by default.
-            // User game or other packages start at block 0 for particles.
+            // Utilities defines no particle types by default
 
             AssetDatabase.CreateAsset(so, path);
             return true;
         }
 
-        // ── Projectile system — object pool ───────────────────────────────────
+        // ── Stub enum files ───────────────────────────────────────────────────
+        // Written once so the package compiles immediately after import.
+        // The generator overwrites these when the user clicks Generate Now.
 
-        private static bool EnsureProjectileObjectProvider()
+        private static bool EnsureStubEnums()
         {
-            const string path = ProjectileDir + "/PoolTypeProvider_ProjectileSystem.asset";
-            if (File.Exists(path)) return false;
+            // If all three stubs already exist, nothing to do
+            string objPath  = GeneratedDir + "/PoolableObjectType.cs";
+            string partPath = GeneratedDir + "/PoolableParticleType.cs";
+            string netPath  = GeneratedDir + "/PoolableNetworkObjectType.cs";
 
-            EnsureDirectory(ProjectileDir);
-            var so = ScriptableObject.CreateInstance<PoolTypeProviderSO>();
-            so.packageId   = "com.midmanstudio.projectilesystem";
-            so.displayName = "MidMan Projectile System";
-            so.priority    = 10;
-            so.entries.Add(new PoolEntryDefinition
-            {
-                entryName      = "Projectile_Visual2D",
-                comment        = "2D projectile visual / sprite object",
-                explicitOffset = 0
-            });
-            so.entries.Add(new PoolEntryDefinition
-            {
-                entryName      = "Projectile_Visual3D",
-                comment        = "3D projectile visual object",
-                explicitOffset = 1
-            });
-            so.entries.Add(new PoolEntryDefinition
-            {
-                entryName      = "Projectile_Trail",
-                comment        = "Projectile trail renderer",
-                explicitOffset = 2
-            });
+            if (File.Exists(objPath)  &&
+                File.Exists(partPath) &&
+                File.Exists(netPath)) return false;
 
-            AssetDatabase.CreateAsset(so, path);
+            EnsureDir(GeneratedDir);
+
+            if (!File.Exists(objPath))
+                WriteStubObjectEnum(objPath);
+
+            if (!File.Exists(partPath))
+                WriteStubParticleEnum(partPath);
+
+            if (!File.Exists(netPath))
+                WriteStubNetworkEnum(netPath);
+
             return true;
         }
 
-        // ── Projectile system — particle pool ─────────────────────────────────
-
-        private static bool EnsureProjectileParticleProvider()
+        private static void WriteStubObjectEnum(string path)
         {
-            const string path = ProjectileDir + "/ParticlePoolTypeProvider_ProjectileSystem.asset";
-            if (File.Exists(path)) return false;
+            File.WriteAllText(path,
+@"// AUTO-GENERATED by MidManStudio Pool Type Generator.
+// This stub is written on first import so the package compiles immediately.
+// Run  MidManStudio > Pool Type Generator  to regenerate with your own entries.
 
-            EnsureDirectory(ProjectileDir);
-            var so = ScriptableObject.CreateInstance<ParticlePoolTypeProviderSO>();
-            so.packageId   = "com.midmanstudio.projectilesystem";
-            so.displayName = "MidMan Projectile System";
-            so.priority    = 10;
-            so.entries.Add(new PoolEntryDefinition
-            {
-                entryName      = "Projectile_Impact",
-                comment        = "Standard hit / impact particle",
-                explicitOffset = 0
-            });
-            so.entries.Add(new PoolEntryDefinition
-            {
-                entryName      = "Projectile_Explosion_Small",
-                comment        = "Small explosion",
-                explicitOffset = 1
-            });
-            so.entries.Add(new PoolEntryDefinition
-            {
-                entryName      = "Projectile_Explosion_Medium",
-                comment        = "Medium explosion",
-                explicitOffset = 2
-            });
-            so.entries.Add(new PoolEntryDefinition
-            {
-                entryName      = "Projectile_Explosion_Large",
-                comment        = "Large explosion",
-                explicitOffset = 3
-            });
-            so.entries.Add(new PoolEntryDefinition
-            {
-                entryName      = "Projectile_Headshot",
-                comment        = "Headshot / critical hit particle",
-                explicitOffset = 4
-            });
+namespace MidManStudio.Core.Pools
+{
+    /// <summary>Object pool type IDs. AUTO-GENERATED — do not edit manually.</summary>
+    public enum PoolableObjectType
+    {
+        // ── com.midmanstudio.utilities  (block 0–99)  ──────────────────────────
+        SpawnableAudio = 0, // Pooled one-shot / looping audio source [pinned]
+        Trail          = 1, // Pooled trail renderer object [pinned]
 
-            AssetDatabase.CreateAsset(so, path);
-            return true;
+        // ── com.midmanstudio.projectilesystem  (block 100–199)  ───────────────
+        Projectile_Visual2D = 100, // 2D projectile sprite visual [pinned]
+        Projectile_Visual3D = 101, // 3D projectile visual [pinned]
+        Projectile_Flipbook = 102, // Sprite-sheet flipbook for impact explosions [pinned]
+    }
+}
+");
         }
 
-        private static void EnsureDirectory(string dir)
+        private static void WriteStubParticleEnum(string path)
+        {
+            File.WriteAllText(path,
+@"// AUTO-GENERATED by MidManStudio Pool Type Generator.
+// This stub is written on first import so the package compiles immediately.
+// Run  MidManStudio > Pool Type Generator  to regenerate with your own entries.
+
+namespace MidManStudio.Core.Pools
+{
+    /// <summary>Particle pool type IDs. AUTO-GENERATED — do not edit manually.</summary>
+    public enum PoolableParticleType
+    {
+        // ── com.midmanstudio.projectilesystem  (block 0–99)  ──────────────────
+        Projectile_Impact           = 0,  // Generic hit / impact particle [pinned]
+        Projectile_Explosion_Small  = 1,  // Small explosion [pinned]
+        Projectile_Explosion_Medium = 2,  // Medium explosion [pinned]
+        Projectile_Explosion_Large  = 3,  // Large explosion [pinned]
+        Projectile_Headshot         = 4,  // Headshot / critical hit particle [pinned]
+        Projectile_Tracer           = 5,  // Tracer round particle [pinned]
+    }
+}
+");
+        }
+
+        private static void WriteStubNetworkEnum(string path)
+        {
+            File.WriteAllText(path,
+@"// AUTO-GENERATED by MidManStudio Pool Type Generator.
+// This stub is written on first import so the package compiles immediately.
+// Run  MidManStudio > Pool Type Generator  to regenerate with your own entries.
+
+namespace MidManStudio.Core.Pools
+{
+    /// <summary>Network object pool type IDs. AUTO-GENERATED — do not edit manually.</summary>
+    public enum PoolableNetworkObjectType
+    {
+        // ── com.midmanstudio.netcode  (block 0–99)  ───────────────────────────
+        // (no entries defined by default)
+        _Reserved = 0,
+    }
+}
+");
+        }
+
+        private static void EnsureDir(string dir)
         {
             if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
         }
