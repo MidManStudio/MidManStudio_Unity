@@ -1,8 +1,6 @@
 {
   "dependencies": {
     "com.midmanstudio.utilities": "file:../../packages/com.midmanstudio.utilities",
-    "com.midmanstudio.netcode": "file:../../packages/com.midmanstudio.netcode",
-    "com.midmanstudio.projectilesystem": "file:../../packages/com.midmanstudio.projectilesystem",
 
     "com.unity.cinemachine": "2.9.7",
     "com.unity.collab-proxy": "2.2.0",
