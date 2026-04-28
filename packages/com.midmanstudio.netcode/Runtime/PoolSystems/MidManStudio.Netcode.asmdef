@@ -1,0 +1,17 @@
+{
+  "name": "MidManStudio.Netcode",
+  "rootNamespace": "MidManStudio.Core.Netcode",
+  "references": [
+    "MidManStudio.Utilities",
+    "Unity.Netcode.Runtime"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}
