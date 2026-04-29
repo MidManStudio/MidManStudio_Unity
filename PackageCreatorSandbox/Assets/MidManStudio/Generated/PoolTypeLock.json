@@ -1,0 +1,21 @@
+﻿{
+    "objectEntries": [
+        {
+            "packageId": "com.midmanstudio.utilities",
+            "name": "SpawnableAudio",
+            "value": 0
+        },
+        {
+            "packageId": "com.midmanstudio.utilities",
+            "name": "Trail",
+            "value": 1
+        },
+        {
+            "packageId": "com.mygame",
+            "name": "Mugen",
+            "value": 100
+        }
+    ],
+    "particleEntries": [],
+    "networkEntries": []
+}

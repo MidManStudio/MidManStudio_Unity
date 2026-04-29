@@ -1,14 +1,12 @@
-﻿// MID_Button.cs
+// MID_Button.cs
 // Generic animated UI button. Zero game-specific dependencies.
+// Animations implemented with coroutines — no external tween library required.
 //
-// ANIMATIONS: scale-pop, move, bounce, pulse, shake, rotate, fade.
-// SOUND:      Assign an AudioClip directly, or hook OnClickSound UnityEvent
-//             to route through MID_AudioManager.Instance.PlaySFX("click").
-// ACTIONS:    Use OnClickAction UnityEvent in inspector for any game logic.
-//
-// REQUIRES: LeanTween (free on Asset Store)
+// SOUND:  Assign an AudioClip directly, or hook OnClickSound UnityEvent
+//         to route through MID_AudioManager.Instance.PlaySFX("click").
+// ACTIONS: Use OnClickAction UnityEvent in inspector for any game logic.
 
-
+using System.Collections;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.UI;
@@ -37,13 +35,10 @@ namespace MidManStudio.Core.UI
 
         [Header("Animation")]
         [SerializeField] private AnimationType _animationType = AnimationType.ScalePop;
-        [SerializeField] private float _animDuration = 0.22f;
-        [SerializeField] private float _moveDistance = 10f;
-        [SerializeField] private float _bounceHeight = 15f;
-        [SerializeField] private float _rotateAmount = 15f;
-        [SerializeField]
-        private AnimationCurve _curve =
-            AnimationCurve.EaseInOut(0f, 0f, 1f, 1f);
+        [SerializeField] private float _animDuration  = 0.22f;
+        [SerializeField] private float _moveDistance  = 10f;
+        [SerializeField] private float _bounceHeight  = 15f;
+        [SerializeField] private float _rotateAmount  = 15f;
 
         [Header("Rate Limiting")]
         [SerializeField] private float _cooldown = 0.3f;
@@ -58,22 +53,24 @@ namespace MidManStudio.Core.UI
         [Tooltip("Fires on every valid click — wire game logic here.")]
         public UnityEvent OnClickAction;
 
-        [Tooltip("Fires so you can route sound through your audio system. " +
-                 "e.g. drag MID_AudioManager and call PlaySFX('click').")]
+        [Tooltip("Fires so you can route sound through your audio system.")]
         public UnityEvent OnClickSound;
 
         #endregion
 
         #region Private Fields
 
-        private Button _button;
+        private Button        _button;
         private RectTransform _rect;
-        private LayoutGroup _parentLayout;
-        private bool _inLayout;
-        private bool _canClick = true;
+        private LayoutGroup   _parentLayout;
+        private bool          _inLayout;
+        private bool          _canClick = true;
 
         private Vector3 _origPosition;
         private Vector3 _origScale;
+        private float   _origRotation;
+
+        private Coroutine _animCoroutine;
 
         #endregion
 
@@ -82,13 +79,14 @@ namespace MidManStudio.Core.UI
         private void Awake()
         {
             _button = GetComponent<Button>();
-            _rect = GetComponent<RectTransform>();
+            _rect   = GetComponent<RectTransform>();
 
             _origPosition = _rect.localPosition;
-            _origScale = _rect.localScale;
+            _origScale    = _rect.localScale;
+            _origRotation = _rect.localEulerAngles.z;
 
             _parentLayout = GetComponentInParent<LayoutGroup>();
-            _inLayout = _parentLayout != null;
+            _inLayout     = _parentLayout != null;
 
             _button.onClick.AddListener(HandleClick);
         }
@@ -96,8 +94,10 @@ namespace MidManStudio.Core.UI
         private void OnDisable()
         {
             if (_rect == null) return;
-            _rect.localPosition = _origPosition;
-            _rect.localScale = _origScale;
+            if (_animCoroutine != null) { StopCoroutine(_animCoroutine); _animCoroutine = null; }
+            _rect.localPosition    = _origPosition;
+            _rect.localScale       = _origScale;
+            _rect.localEulerAngles = new Vector3(0f, 0f, _origRotation);
         }
 
         #endregion
@@ -114,22 +114,26 @@ namespace MidManStudio.Core.UI
         {
             if (!_canClick) return;
 
-            PlayAnimation();
+            if (_animCoroutine != null) StopCoroutine(_animCoroutine);
+            _animCoroutine = StartCoroutine(PlayAnimation());
+
             PlaySound();
             OnClickAction?.Invoke();
 
-            _canClick = false;
-            _button.interactable = false;
-            LeanTween.delayedCall(gameObject, _cooldown, () =>
-            {
-                _canClick = true;
-                if (_button != null) _button.interactable = true;
-            });
+            _canClick             = false;
+            _button.interactable  = false;
+            StartCoroutine(ResetCooldown());
+        }
+
+        private IEnumerator ResetCooldown()
+        {
+            yield return new WaitForSeconds(_cooldown);
+            _canClick            = true;
+            if (_button != null) _button.interactable = true;
         }
 
         private void PlaySound()
         {
-            // Prioritise direct clip assignment; fall through to event for routing
             if (_clickSound != null)
             {
                 var cam = Camera.main;
@@ -147,131 +151,184 @@ namespace MidManStudio.Core.UI
 
         #region Private — Animations
 
-        private void PlayAnimation()
+        private IEnumerator PlayAnimation()
         {
-            LeanTween.cancel(_rect.gameObject);
-
             switch (_animationType)
             {
-                case AnimationType.ScalePop: AnimScalePop(); break;
-                case AnimationType.MoveLeft: AnimMove(Vector3.left); break;
-                case AnimationType.MoveRight: AnimMove(Vector3.right); break;
-                case AnimationType.MoveUp: AnimMove(Vector3.up); break;
-                case AnimationType.MoveDown: AnimMove(Vector3.down); break;
-                case AnimationType.Bounce: AnimBounce(); break;
-                case AnimationType.Pulse: AnimPulse(); break;
-                case AnimationType.Shake: AnimShake(); break;
-                case AnimationType.Rotate: AnimRotate(); break;
-                case AnimationType.FadeFlash: AnimFadeFlash(); break;
+                case AnimationType.ScalePop:  yield return StartCoroutine(AnimScalePop());  break;
+                case AnimationType.MoveLeft:  yield return StartCoroutine(AnimMove(Vector3.left));  break;
+                case AnimationType.MoveRight: yield return StartCoroutine(AnimMove(Vector3.right)); break;
+                case AnimationType.MoveUp:    yield return StartCoroutine(AnimMove(Vector3.up));    break;
+                case AnimationType.MoveDown:  yield return StartCoroutine(AnimMove(Vector3.down));  break;
+                case AnimationType.Bounce:    yield return StartCoroutine(_inLayout ? AnimPulse() : AnimBounce()); break;
+                case AnimationType.Pulse:     yield return StartCoroutine(AnimPulse());     break;
+                case AnimationType.Shake:     yield return StartCoroutine(AnimShake());     break;
+                case AnimationType.Rotate:    yield return StartCoroutine(AnimRotate());    break;
+                case AnimationType.FadeFlash: yield return StartCoroutine(AnimFadeFlash()); break;
             }
         }
 
-        private void AnimScalePop()
+        // ── Scale pop ─────────────────────────────────────────────────────────
+
+        private IEnumerator AnimScalePop()
         {
             Vector3 small = _origScale * 0.8f;
-            float half = _animDuration * 0.5f;
-            LeanTween.scale(_rect, small, half).setEase(_curve)
-                .setOnComplete(() =>
-                {
-                    LeanTween.scale(_rect, _origScale, half).setEase(_curve);
-                    RebuildLayout();
-                });
+            float   half  = _animDuration * 0.5f;
+
+            yield return StartCoroutine(ScaleTo(small, half));
+            RebuildLayout();
+            yield return StartCoroutine(ScaleTo(_origScale, half));
+            RebuildLayout();
         }
 
-        private void AnimMove(Vector3 direction)
+        // ── Move ──────────────────────────────────────────────────────────────
+
+        private IEnumerator AnimMove(Vector3 direction)
         {
-            // Use scale animation inside layout groups
-            if (_inLayout) { AnimScalePop(); return; }
+            if (_inLayout) { yield return StartCoroutine(AnimScalePop()); yield break; }
 
             Vector3 target = _origPosition + direction * _moveDistance;
-            float half = _animDuration * 0.5f;
-            LeanTween.moveLocal(_rect.gameObject, target, half).setEase(_curve)
-                .setOnComplete(() =>
-                    LeanTween.moveLocal(_rect.gameObject, _origPosition, half).setEase(_curve));
+            float   half   = _animDuration * 0.5f;
+
+            yield return StartCoroutine(MoveTo(target, half));
+            yield return StartCoroutine(MoveTo(_origPosition, half));
         }
 
-        private void AnimBounce()
+        // ── Bounce ────────────────────────────────────────────────────────────
+
+        private IEnumerator AnimBounce()
         {
-            if (_inLayout) { AnimPulse(); return; }
+            float   third = _animDuration / 3f;
+            Vector3 up    = _origPosition + Vector3.up * _bounceHeight;
 
-            float third = _animDuration / 3f;
-            Vector3 up = _origPosition + Vector3.up * _bounceHeight;
-            LeanTween.moveLocal(_rect.gameObject, up, third)
-                .setEase(LeanTweenType.easeOutQuad)
-                .setOnComplete(() =>
-                    LeanTween.moveLocal(_rect.gameObject, _origPosition, third)
-                        .setEase(LeanTweenType.easeInQuad)
-                        .setOnComplete(() =>
-                            LeanTween.moveLocal(_rect.gameObject,
-                                    _origPosition + Vector3.up * (_bounceHeight * 0.3f),
-                                    third * 0.5f)
-                                .setEase(LeanTweenType.easeOutQuad)
-                                .setOnComplete(() =>
-                                    LeanTween.moveLocal(_rect.gameObject, _origPosition, third * 0.5f)
-                                        .setEase(LeanTweenType.easeInQuad))));
+            yield return StartCoroutine(MoveTo(up, third));
+            yield return StartCoroutine(MoveTo(_origPosition, third));
+            yield return StartCoroutine(MoveTo(_origPosition + Vector3.up * (_bounceHeight * 0.3f), third * 0.5f));
+            yield return StartCoroutine(MoveTo(_origPosition, third * 0.5f));
         }
 
-        private void AnimPulse()
+        // ── Pulse ─────────────────────────────────────────────────────────────
+
+        private IEnumerator AnimPulse()
         {
-            Vector3 big = _origScale * 1.2f;
-            float half = _animDuration * 0.5f;
-            LeanTween.scale(_rect, big, half).setEase(LeanTweenType.easeOutQuad)
-                .setOnComplete(() =>
-                {
-                    LeanTween.scale(_rect, _origScale, half).setEase(LeanTweenType.easeInQuad);
-                    RebuildLayout();
-                });
+            Vector3 big  = _origScale * 1.2f;
+            float   half = _animDuration * 0.5f;
+
+            yield return StartCoroutine(ScaleTo(big, half));
+            RebuildLayout();
+            yield return StartCoroutine(ScaleTo(_origScale, half));
+            RebuildLayout();
         }
 
-        private void AnimShake()
+        // ── Shake ─────────────────────────────────────────────────────────────
+
+        private IEnumerator AnimShake()
         {
             if (_inLayout)
             {
                 // Rotation shake for layout groups
                 float sixth = _animDuration / 6f;
-                LeanTween.rotateZ(_rect.gameObject, -12f, sixth)
-                    .setOnComplete(() =>
-                        LeanTween.rotateZ(_rect.gameObject, 12f, sixth * 2f)
-                            .setOnComplete(() =>
-                                LeanTween.rotateZ(_rect.gameObject, 0f, sixth)));
-                return;
+                yield return StartCoroutine(RotateTo(-12f, sixth));
+                yield return StartCoroutine(RotateTo(12f,  sixth * 2f));
+                yield return StartCoroutine(RotateTo(0f,   sixth));
+                yield break;
             }
 
-            float s = 5f; float fifth = _animDuration / 5f;
-            Vector3 p = _origPosition;
-            LeanTween.moveLocal(_rect.gameObject, p + new Vector3(s, 0, 0), fifth)
-                .setEase(LeanTweenType.easeShake)
-                .setOnComplete(() =>
-                    LeanTween.moveLocal(_rect.gameObject, p + new Vector3(-s, 0, 0), fifth)
-                        .setEase(LeanTweenType.easeShake)
-                        .setOnComplete(() =>
-                            LeanTween.moveLocal(_rect.gameObject, p + new Vector3(s * 0.5f, 0, 0), fifth)
-                                .setEase(LeanTweenType.easeShake)
-                                .setOnComplete(() =>
-                                    LeanTween.moveLocal(_rect.gameObject, p + new Vector3(-s * 0.5f, 0, 0), fifth)
-                                        .setEase(LeanTweenType.easeShake)
-                                        .setOnComplete(() =>
-                                            LeanTween.moveLocal(_rect.gameObject, p, fifth)
-                                                .setEase(LeanTweenType.easeShake)))));
+            float s     = 5f;
+            float fifth = _animDuration / 5f;
+            yield return StartCoroutine(MoveTo(_origPosition + new Vector3(s,        0, 0), fifth));
+            yield return StartCoroutine(MoveTo(_origPosition + new Vector3(-s,       0, 0), fifth));
+            yield return StartCoroutine(MoveTo(_origPosition + new Vector3(s * 0.5f, 0, 0), fifth));
+            yield return StartCoroutine(MoveTo(_origPosition + new Vector3(-s * 0.5f,0, 0), fifth));
+            yield return StartCoroutine(MoveTo(_origPosition,                               fifth));
         }
 
-        private void AnimRotate()
+        // ── Rotate ────────────────────────────────────────────────────────────
+
+        private IEnumerator AnimRotate()
         {
             float half = _animDuration * 0.5f;
-            LeanTween.rotateZ(_rect.gameObject, _rotateAmount, half).setEase(_curve)
-                .setOnComplete(() =>
-                    LeanTween.rotateZ(_rect.gameObject, 0f, half).setEase(_curve));
+            yield return StartCoroutine(RotateTo(_rotateAmount, half));
+            yield return StartCoroutine(RotateTo(0f, half));
         }
 
-        private void AnimFadeFlash()
+        // ── Fade flash ────────────────────────────────────────────────────────
+
+        private IEnumerator AnimFadeFlash()
         {
-            var cg = _rect.GetComponent<CanvasGroup>()
-                  ?? _rect.gameObject.AddComponent<CanvasGroup>();
+            var cg   = _rect.GetComponent<CanvasGroup>()
+                    ?? _rect.gameObject.AddComponent<CanvasGroup>();
             float half = _animDuration * 0.5f;
-            LeanTween.alphaCanvas(cg, 0.4f, half).setEase(_curve)
-                .setOnComplete(() =>
-                    LeanTween.alphaCanvas(cg, 1f, half).setEase(_curve));
+
+            yield return StartCoroutine(AlphaTo(cg, 0.4f, half));
+            yield return StartCoroutine(AlphaTo(cg, 1f,   half));
         }
+
+        #endregion
+
+        #region Private — Tween Helpers
+
+        private IEnumerator ScaleTo(Vector3 target, float duration)
+        {
+            Vector3 start   = _rect.localScale;
+            float   elapsed = 0f;
+            while (elapsed < duration)
+            {
+                elapsed           += Time.unscaledDeltaTime;
+                _rect.localScale   = Vector3.Lerp(start, target,
+                                        EaseInOut(Mathf.Clamp01(elapsed / duration)));
+                yield return null;
+            }
+            _rect.localScale = target;
+        }
+
+        private IEnumerator MoveTo(Vector3 target, float duration)
+        {
+            Vector3 start   = _rect.localPosition;
+            float   elapsed = 0f;
+            while (elapsed < duration)
+            {
+                elapsed              += Time.unscaledDeltaTime;
+                _rect.localPosition   = Vector3.Lerp(start, target,
+                                            EaseInOut(Mathf.Clamp01(elapsed / duration)));
+                yield return null;
+            }
+            _rect.localPosition = target;
+        }
+
+        private IEnumerator RotateTo(float targetZ, float duration)
+        {
+            float startZ  = _rect.localEulerAngles.z;
+            // Normalize to signed range so lerp is sensible
+            if (startZ > 180f) startZ -= 360f;
+            float elapsed = 0f;
+            while (elapsed < duration)
+            {
+                elapsed += Time.unscaledDeltaTime;
+                float z  = Mathf.Lerp(startZ, targetZ,
+                               EaseInOut(Mathf.Clamp01(elapsed / duration)));
+                _rect.localEulerAngles = new Vector3(0f, 0f, z);
+                yield return null;
+            }
+            _rect.localEulerAngles = new Vector3(0f, 0f, targetZ);
+        }
+
+        private IEnumerator AlphaTo(CanvasGroup cg, float targetAlpha, float duration)
+        {
+            float startAlpha = cg.alpha;
+            float elapsed    = 0f;
+            while (elapsed < duration)
+            {
+                elapsed   += Time.unscaledDeltaTime;
+                cg.alpha   = Mathf.Lerp(startAlpha, targetAlpha,
+                                 EaseInOut(Mathf.Clamp01(elapsed / duration)));
+                yield return null;
+            }
+            cg.alpha = targetAlpha;
+        }
+
+        private static float EaseInOut(float t) =>
+            t < 0.5f ? 2f * t * t : -1f + (4f - 2f * t) * t;
 
         private void RebuildLayout()
         {

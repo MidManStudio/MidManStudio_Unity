@@ -1,351 +1,273 @@
-﻿using UnityEngine;
+using UnityEngine;
 using System;
-using System.Diagnostics;
 using System.Collections.Generic;
-
+using Debug = UnityEngine.Debug;
+using System.Diagnostics;
+using MidManStudio.Core.EditorTools;
 namespace MidManStudio.Core.Timers
 {
-    /// <summary>
-    /// Advanced benchmark timer for performance testing
-    /// Extends the timer system with iteration-based benchmarking
-    /// </summary>
     public class PerformanceBenchmarkTimer
     {
         #region Benchmark Result
+
         public struct BenchmarkResult
         {
-            public int iterations;
+            public int    iterations;
             public double totalTimeMs;
             public double averageTimeMs;
             public double minTimeMs;
             public double maxTimeMs;
             public double standardDeviation;
-            public long totalMemoryAllocated;
-            public long averageMemoryPerIteration;
+            public long   totalMemoryAllocated;
+            public long   averageMemoryPerIteration;
 
-            public override string ToString()
-            {
-                return $"<b>Benchmark Results:</b>\n" +
-                       $"Iterations: {iterations}\n" +
-                       $"Total Time: {totalTimeMs:F3} ms\n" +
-                       $"Average Time: {averageTimeMs:F3} ms\n" +
-                       $"Min Time: {minTimeMs:F3} ms\n" +
-                       $"Max Time: {maxTimeMs:F3} ms\n" +
-                       $"Std Deviation: {standardDeviation:F3} ms\n" +
-                       $"Total Memory: {totalMemoryAllocated / 1024f:F2} KB\n" +
-                       $"Avg Memory/Iter: {averageMemoryPerIteration:F2} bytes";
-            }
+            public override string ToString() =>
+                $"<b>Benchmark Results:</b>\n" +
+                $"Iterations: {iterations}\n" +
+                $"Total Time: {totalTimeMs:F3} ms\n" +
+                $"Average Time: {averageTimeMs:F3} ms\n" +
+                $"Min Time: {minTimeMs:F3} ms\n" +
+                $"Max Time: {maxTimeMs:F3} ms\n" +
+                $"Std Deviation: {standardDeviation:F3} ms\n" +
+                $"Total Memory: {totalMemoryAllocated / 1024f:F2} KB\n" +
+                $"Avg Memory/Iter: {averageMemoryPerIteration:F2} bytes";
 
-            public string ToCSV()
-            {
-                return $"{iterations},{totalTimeMs:F3},{averageTimeMs:F3},{minTimeMs:F3}," +
-                       $"{maxTimeMs:F3},{standardDeviation:F3},{totalMemoryAllocated}," +
-                       $"{averageMemoryPerIteration}";
-            }
+            public string ToCSV() =>
+                $"{iterations},{totalTimeMs:F3},{averageTimeMs:F3},{minTimeMs:F3}," +
+                $"{maxTimeMs:F3},{standardDeviation:F3},{totalMemoryAllocated}," +
+                $"{averageMemoryPerIteration}";
         }
+
         #endregion
 
         #region Private Variables
-        private Stopwatch stopwatch;
-        private List<double> iterationTimes;
-        private long startMemory;
-        private long endMemory;
+
+        private readonly Stopwatch    _stopwatch;
+        private readonly List<double> _iterationTimes;
+        private long _startMemory;
+        private long _endMemory;
+
         #endregion
 
         #region Constructor
+
         public PerformanceBenchmarkTimer()
         {
-            stopwatch = new Stopwatch();
-            iterationTimes = new List<double>();
+            _stopwatch      = new Stopwatch();
+            _iterationTimes = new List<double>();
         }
+
         #endregion
 
         #region Benchmark Methods
-        /// <summary>
-        /// Run a benchmark with specified iterations
-        /// </summary>
-        /// <param name="action">Action to benchmark</param>
-        /// <param name="iterations">Number of times to run the action</param>
-        /// <param name="warmupIterations">Warmup runs before actual benchmark (default: 10)</param>
-        /// <returns>Benchmark results</returns>
-        public BenchmarkResult RunBenchmark(Action action, int iterations, int warmupIterations = 10)
+
+        public BenchmarkResult RunBenchmark(Action action, int iterations,
+                                             int warmupIterations = 10)
         {
             if (action == null)
             {
-                UnityEngine.Debug.LogError("Cannot benchmark null action");
+                Debug.LogError("[PerformanceBenchmarkTimer] Cannot benchmark null action.");
                 return default;
             }
 
             if (iterations <= 0)
             {
-                UnityEngine.Debug.LogError("Iterations must be greater than 0");
+                Debug.LogError("[PerformanceBenchmarkTimer] Iterations must be > 0.");
                 return default;
             }
 
-            // Warm up (allows JIT compilation and cache warming)
-            for (int i = 0; i < warmupIterations; i++)
-            {
-                action();
-            }
+            for (int i = 0; i < warmupIterations; i++) action();
 
-            // Force garbage collection before benchmark
             GC.Collect();
             GC.WaitForPendingFinalizers();
             GC.Collect();
 
-            // Reset tracking
-            iterationTimes.Clear();
-            startMemory = GC.GetTotalMemory(false);
+            _iterationTimes.Clear();
+            _startMemory = GC.GetTotalMemory(false);
 
-            // Run benchmark
-            stopwatch.Restart();
-
+            _stopwatch.Restart();
             for (int i = 0; i < iterations; i++)
             {
-                long iterStartTime = stopwatch.ElapsedTicks;
-
-                try
-                {
-                    action();
-                }
+                long iterStart = _stopwatch.ElapsedTicks;
+                try   { action(); }
                 catch (Exception ex)
                 {
-                    UnityEngine.Debug.LogError($"Exception during benchmark iteration {i}: {ex.Message}");
+                    Debug.LogError(
+                        $"[PerformanceBenchmarkTimer] Exception at iteration {i}: {ex.Message}");
                     continue;
                 }
-
-                long iterEndTime = stopwatch.ElapsedTicks;
-                double iterationTimeMs = (iterEndTime - iterStartTime) * 1000.0 / Stopwatch.Frequency;
-                iterationTimes.Add(iterationTimeMs);
+                double ms = (_stopwatch.ElapsedTicks - iterStart)
+                            * 1000.0 / Stopwatch.Frequency;
+                _iterationTimes.Add(ms);
             }
+            _stopwatch.Stop();
+            _endMemory = GC.GetTotalMemory(false);
 
-            stopwatch.Stop();
-            endMemory = GC.GetTotalMemory(false);
-
-            // Calculate results
             return CalculateResults(iterations);
         }
 
-        /// <summary>
-        /// Run a benchmark with a parameterized action
-        /// </summary>
-        public BenchmarkResult RunBenchmark<T>(Action<T> action, T parameter, int iterations, int warmupIterations = 10)
+        public BenchmarkResult RunBenchmark<T>(Action<T> action, T parameter,
+                                                int iterations, int warmup = 10) =>
+            RunBenchmark(() => action(parameter), iterations, warmup);
+
+        public BenchmarkResult RunBenchmark<TResult>(Func<TResult> func,
+                                                      int iterations, int warmup = 10)
         {
-            return RunBenchmark(() => action(parameter), iterations, warmupIterations);
+            TResult r = default;
+            return RunBenchmark(() => { r = func(); }, iterations, warmup);
         }
 
-        /// <summary>
-        /// Run a benchmark that returns a value (useful for preventing compiler optimization)
-        /// </summary>
-        public BenchmarkResult RunBenchmark<TResult>(Func<TResult> func, int iterations, int warmupIterations = 10)
+        public (BenchmarkResult methodA, BenchmarkResult methodB, string comparison)
+            CompareMethods(Action methodA, Action methodB, int iterations,
+                           string methodAName = "Method A", string methodBName = "Method B")
         {
-            TResult result = default;
-            return RunBenchmark(() => { result = func(); }, iterations, warmupIterations);
-        }
-
-        /// <summary>
-        /// Compare two methods and return results for both
-        /// </summary>
-        public (BenchmarkResult methodA, BenchmarkResult methodB, string comparison) CompareMethods(
-            Action methodA,
-            Action methodB,
-            int iterations,
-            string methodAName = "Method A",
-            string methodBName = "Method B")
-        {
-            UnityEngine.Debug.Log($"<color=yellow>Starting comparison: {methodAName} vs {methodBName}</color>");
+            Debug.Log(
+                $"<color=yellow>Starting comparison: {methodAName} vs {methodBName}</color>");
 
             var resultA = RunBenchmark(methodA, iterations);
-
-            // Short delay between benchmarks
             System.Threading.Thread.Sleep(100);
             GC.Collect();
-
             var resultB = RunBenchmark(methodB, iterations);
 
-            // Calculate comparison
-            double timeDifference = resultB.averageTimeMs - resultA.averageTimeMs;
-            double percentDifference = (timeDifference / resultA.averageTimeMs) * 100.0;
+            double diff    = resultB.averageTimeMs - resultA.averageTimeMs;
+            double pct     = diff / resultA.averageTimeMs * 100.0;
+            string compare =
+                $"<b>Comparison Results:</b>\n" +
+                $"{methodAName}: {resultA.averageTimeMs:F3} ms average\n" +
+                $"{methodBName}: {resultB.averageTimeMs:F3} ms average\n" +
+                $"Difference: {diff:F3} ms ({pct:F1}%)\n" +
+                $"{(diff < 0 ? methodBName + " is SLOWER" : methodAName + " is SLOWER")}";
 
-            string comparison = $"<b>Comparison Results:</b>\n" +
-                              $"{methodAName}: {resultA.averageTimeMs:F3} ms average\n" +
-                              $"{methodBName}: {resultB.averageTimeMs:F3} ms average\n" +
-                              $"Difference: {timeDifference:F3} ms ({percentDifference:F1}%)\n" +
-                              $"{(timeDifference < 0 ? methodBName + " is SLOWER" : methodAName + " is SLOWER")}";
-
-            return (resultA, resultB, comparison);
+            return (resultA, resultB, compare);
         }
+
         #endregion
 
         #region Calculation
+
         private BenchmarkResult CalculateResults(int iterations)
         {
-            double totalTime = 0;
-            double minTime = double.MaxValue;
-            double maxTime = 0;
-
-            foreach (double time in iterationTimes)
+            double total = 0, min = double.MaxValue, max = 0;
+            foreach (double t in _iterationTimes)
             {
-                totalTime += time;
-                if (time < minTime) minTime = time;
-                if (time > maxTime) maxTime = time;
+                total += t;
+                if (t < min) min = t;
+                if (t > max) max = t;
             }
+            double avg = total / _iterationTimes.Count;
+            double v   = 0;
+            foreach (double t in _iterationTimes) v += (t - avg) * (t - avg);
 
-            double averageTime = totalTime / iterationTimes.Count;
-
-            // Calculate standard deviation
-            double variance = 0;
-            foreach (double time in iterationTimes)
-            {
-                variance += Math.Pow(time - averageTime, 2);
-            }
-            variance /= iterationTimes.Count;
-            double stdDev = Math.Sqrt(variance);
-
-            // Memory calculations
-            long memoryAllocated = endMemory - startMemory;
-            long avgMemoryPerIter = memoryAllocated / iterations;
+            long mem    = _endMemory - _startMemory;
+            long avgMem = mem / iterations;
 
             return new BenchmarkResult
             {
-                iterations = iterations,
-                totalTimeMs = totalTime,
-                averageTimeMs = averageTime,
-                minTimeMs = minTime,
-                maxTimeMs = maxTime,
-                standardDeviation = stdDev,
-                totalMemoryAllocated = memoryAllocated,
-                averageMemoryPerIteration = avgMemoryPerIter
+                iterations                = iterations,
+                totalTimeMs               = total,
+                averageTimeMs             = avg,
+                minTimeMs                 = min,
+                maxTimeMs                 = max,
+                standardDeviation         = Math.Sqrt(v / _iterationTimes.Count),
+                totalMemoryAllocated      = mem,
+                averageMemoryPerIteration = avgMem,
             };
         }
+
         #endregion
 
-        #region Static Convenience Methods
-        /// <summary>
-        /// Quick benchmark without creating timer instance
-        /// </summary>
-        public static BenchmarkResult QuickBenchmark(Action action, int iterations = 1000, int warmup = 10)
-        {
-            var timer = new PerformanceBenchmarkTimer();
-            return timer.RunBenchmark(action, iterations, warmup);
-        }
+        #region Static Convenience
 
-        /// <summary>
-        /// Quick comparison without creating timer instance
-        /// </summary>
-        public static (BenchmarkResult methodA, BenchmarkResult methodB, string comparison) QuickCompare(
-            Action methodA,
-            Action methodB,
-            int iterations = 1000,
-            string nameA = "Method A",
-            string nameB = "Method B")
-        {
-            var timer = new PerformanceBenchmarkTimer();
-            return timer.CompareMethods(methodA, methodB, iterations, nameA, nameB);
-        }
+        public static BenchmarkResult QuickBenchmark(Action action,
+                                                      int iterations = 1000, int warmup = 10) =>
+            new PerformanceBenchmarkTimer().RunBenchmark(action, iterations, warmup);
+
+        public static (BenchmarkResult, BenchmarkResult, string) QuickCompare(
+            Action methodA, Action methodB, int iterations = 1000,
+            string nameA = "Method A", string nameB = "Method B") =>
+            new PerformanceBenchmarkTimer().CompareMethods(
+                methodA, methodB, iterations, nameA, nameB);
+
         #endregion
     }
 
-    /// <summary>
-    /// MonoBehaviour wrapper for easy use in Unity
-    /// </summary>
+    // ─────────────────────────────────────────────────────────────────────────
+
     public class PerformanceBenchmarkRunner : MonoBehaviour
     {
         [Header("Benchmark Configuration")]
-        [SerializeField] private int iterations = 1000;
-        [SerializeField] private int warmupIterations = 10;
-        [SerializeField] private bool logToConsole = true;
-        [SerializeField] private bool logToDebugPanel = true;
+        [SerializeField] private int  iterations       = 1000;
+        [SerializeField] private int  warmupIterations = 10;
+        [SerializeField] private bool logToConsole     = true;
+        [SerializeField] private bool logToDebugPanel  = true;
 
-        private PerformanceBenchmarkTimer benchmarkTimer;
+        private PerformanceBenchmarkTimer _benchmarkTimer;
 
-        private void Awake()
+        private void Awake() =>
+            _benchmarkTimer = new PerformanceBenchmarkTimer();
+
+        public PerformanceBenchmarkTimer.BenchmarkResult RunBenchmark(
+            Action action, string benchmarkName = "Benchmark")
         {
-            benchmarkTimer = new PerformanceBenchmarkTimer();
-        }
-
-        /// <summary>
-        /// Run a benchmark and optionally log results
-        /// </summary>
-        public PerformanceBenchmarkTimer.BenchmarkResult RunBenchmark(Action action, string benchmarkName = "Benchmark")
-        {
-            var result = benchmarkTimer.RunBenchmark(action, iterations, warmupIterations);
+            var result = _benchmarkTimer.RunBenchmark(action, iterations, warmupIterations);
 
             if (logToConsole)
-            {
-                UnityEngine.Debug.Log($"<color=cyan><b>{benchmarkName}</b></color>\n{result}");
-            }
+                Debug.Log($"<color=cyan><b>{benchmarkName}</b></color>\n{result}");
 
+#if UNITY_EDITOR
             if (logToDebugPanel && DynamicDebugPanel.Instance != null)
-            {
-                DynamicDebugPanel.Instance.AddLog($"{benchmarkName}: {result.averageTimeMs:F3} ms avg");
-            }
-
+                DynamicDebugPanel.Instance.AddLog(
+                    $"{benchmarkName}: {result.averageTimeMs:F3} ms avg");
+#endif
             return result;
         }
 
-        /// <summary>
-        /// Compare two methods
-        /// </summary>
-        public void CompareMethods(Action methodA, Action methodB, string nameA = "Method A", string nameB = "Method B")
+        public void CompareMethods(Action methodA, Action methodB,
+                                    string nameA = "Method A", string nameB = "Method B")
         {
-            var (resultA, resultB, comparison) = benchmarkTimer.CompareMethods(
-                methodA, methodB, iterations, nameA, nameB);
+            var (_, _, comparison) =
+                _benchmarkTimer.CompareMethods(methodA, methodB, iterations, nameA, nameB);
 
             if (logToConsole)
-            {
-                UnityEngine.Debug.Log($"<color=green>{comparison}</color>");
-            }
+                Debug.Log($"<color=green>{comparison}</color>");
 
+#if UNITY_EDITOR
             if (logToDebugPanel && DynamicDebugPanel.Instance != null)
-            {
                 DynamicDebugPanel.Instance.AddLog(comparison);
-            }
+#endif
         }
 
-        #region Example Usage
         [ContextMenu("Run Example Benchmark")]
         private void RunExampleBenchmark()
         {
-            // Example: Benchmark string concatenation vs StringBuilder
-            System.Text.StringBuilder sb = new System.Text.StringBuilder();
+            var sb = new System.Text.StringBuilder();
 
             Action stringConcat = () =>
             {
-                string result = "";
-                for (int i = 0; i < 100; i++)
-                {
-                    result += "test";
-                }
+                string r = "";
+                for (int i = 0; i < 100; i++) r += "test";
             };
 
             Action stringBuilder = () =>
             {
                 sb.Clear();
-                for (int i = 0; i < 100; i++)
-                {
-                    sb.Append("test");
-                }
+                for (int i = 0; i < 100; i++) sb.Append("test");
             };
 
-            CompareMethods(stringConcat, stringBuilder, "String Concat", "StringBuilder");
+            CompareMethods(stringConcat, stringBuilder,
+                "String Concat", "StringBuilder");
         }
 
         [ContextMenu("Benchmark GameObject Instantiation")]
         private void BenchmarkInstantiation()
         {
-            GameObject prefab = GameObject.CreatePrimitive(PrimitiveType.Cube);
-
-            Action instantiate = () =>
+            var prefab = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            RunBenchmark(() =>
             {
-                GameObject obj = Instantiate(prefab);
+                var obj = Instantiate(prefab);
                 Destroy(obj);
-            };
-
-            RunBenchmark(instantiate, "GameObject Instantiation");
-
+            }, "GameObject Instantiation");
             Destroy(prefab);
         }
-        #endregion
     }
 }

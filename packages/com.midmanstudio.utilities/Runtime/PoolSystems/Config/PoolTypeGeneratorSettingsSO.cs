@@ -8,7 +8,7 @@ namespace MidManStudio.Core.Pools.Generator
 {
     [CreateAssetMenu(
         fileName = "PoolTypeGeneratorSettings",
-        menuName = "MidManStudio/Pool Type Generator Settings")]
+        menuName = "MidManStudio/Utilities/Pool Type Generator Settings")]
     public class PoolTypeGeneratorSettingsSO : ScriptableObject
     {
         [Header("Output Paths")]

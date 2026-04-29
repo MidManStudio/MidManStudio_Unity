@@ -4,7 +4,7 @@
 
 using System;
 using UnityEngine;
-using MidManStudio.Core.Utilities;
+using MidManStudio.Core.EditorUtils;
 
 namespace MidManStudio.Core.Pools
 {

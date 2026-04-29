@@ -29,7 +29,7 @@ using Unity.Burst;
 using Unity.Mathematics;
 using UnityEngine;
 using Debug = UnityEngine.Debug;
-
+using MidManStudio.Core.TickDispatcher;
 #if UNITY_EDITOR
 using UnityEditor;
 #endif
@@ -503,7 +503,7 @@ namespace MidManStudio.Core.Benchmarks
         static readonly Color DimCol = new Color(0.50f, 0.50f, 0.50f, 1f);
         static readonly Color BarBg = new Color(0.15f, 0.15f, 0.15f, 0.4f);
 
-        [MenuItem("Window/MID/Tick Dispatcher Bench")]
+        [MenuItem("MidManStudio/Utilities/Tests/Tick Dispatcher Bench")]
         static void Open() =>
             GetWindow<MID_TickDispatcherBenchWindow>("Tick Dispatcher Bench").minSize = new Vector2(560, 360);
 

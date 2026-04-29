@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using MidManStudio.Core.Logging;
 using MidManStudio.Core.Singleton;
-using MidManStudio.Core.Utilities;
+using MidManStudio.Core.EditorUtils;
 
 namespace MidManStudio.Core.Libraries
 {

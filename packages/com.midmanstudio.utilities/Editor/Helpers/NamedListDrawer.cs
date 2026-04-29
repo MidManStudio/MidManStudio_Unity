@@ -2,7 +2,7 @@
 using UnityEditor;
 using UnityEngine;
 
-namespace MidManStudio.Core.Utilities.Editor
+namespace MidManStudio.Core.EditorUtils
 {
     /// <summary>
     /// Custom property drawer for MID_NamedListAttribute with color support
@@ -286,6 +286,8 @@ namespace MidManStudio.Core.Utilities.Editor
 
                 case SerializedPropertyType.Quaternion:
                     return prop.quaternionValue.ToString();
+
+             
 
                 default:
                     return string.Empty;

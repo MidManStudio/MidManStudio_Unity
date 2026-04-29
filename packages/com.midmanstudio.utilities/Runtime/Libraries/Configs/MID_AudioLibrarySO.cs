@@ -2,7 +2,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-using MidManStudio.Core.Utilities;
+using MidManStudio.Core.EditorUtils;
 
 namespace MidManStudio.Core.Audio
 {
@@ -21,7 +21,7 @@ namespace MidManStudio.Core.Audio
                            "Audio Entry";
     }
 
-    [CreateAssetMenu(fileName = "MID_AudioLibrary", menuName = "MidManStudio/Audio Library")]
+    [CreateAssetMenu(fileName = "MID_AudioLibrary", menuName = "MidManStudio/Utilities/Audio Library")]
     public class MID_AudioLibrarySO : ScriptableObject
     {
         [MID_NamedList]

@@ -72,6 +72,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Helpers/MID_HelperFunctions.cs">
       <Link>Runtime/Helpers/MID_HelperFunctions.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Editor/DynamicDebugPanel.cs">
+      <Link>Runtime/Editor/DynamicDebugPanel.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Logging/ExampleScript.cs">
       <Link>Runtime/Logging/ExampleScript.cs</Link>
     </Compile>
@@ -99,7 +102,7 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/TrailRendererPool.cs">
       <Link>Runtime/PoolSystems/TrailRendererPool.cs</Link>
     </Compile>
-    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/MID_NamedListAttribute.cs">
+    <Compile Include="..\packages\com.midmanstudio.utilities\Runtime\Helpers\MID_NamedListAttribute.cs">
       <Link>Runtime/MID_NamedListAttribute.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/LocalObjectPool.cs">
@@ -129,6 +132,12 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Helpers/MID_SusValue.cs">
       <Link>Runtime/Helpers/MID_SusValue.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/BasicPoolConfig.cs">
+      <Link>Runtime/PoolSystems/BasicPoolConfig.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/PoolableParticleType.cs">
+      <Link>Runtime/PoolSystems/PoolableParticleType.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Singleton/StaticContentSingleton.cs">
       <Link>Runtime/Singleton/StaticContentSingleton.cs</Link>
     </Compile>
@@ -137,6 +146,9 @@
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Libraries/Configs/MID_AudioLibrarySO.cs">
       <Link>Runtime/Libraries/Configs/MID_AudioLibrarySO.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/PoolableObjectType.cs">
+      <Link>Runtime/PoolSystems/PoolableObjectType.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Ui/MID_Button.cs">
       <Link>Runtime/Ui/MID_Button.cs</Link>

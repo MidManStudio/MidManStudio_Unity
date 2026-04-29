@@ -15,8 +15,7 @@ using System.Linq;
 using UnityEditor;
 using UnityEngine;
 using MidManStudio.Core.Logging;
-using MidManStudio.Core.Utilities;
-
+using MidManStudio.Core.EditorUtils;
 namespace MidManStudio.Core.EditorTools
 {
     [System.Serializable]
@@ -66,6 +65,7 @@ namespace MidManStudio.Core.EditorTools
 
         private void OnDisable()
         {
+            
             if (!Application.isPlaying) return;
             EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
         }
@@ -207,7 +207,7 @@ namespace MidManStudio.Core.EditorTools
     // ── Custom inspector ──────────────────────────────────────────────────────
 
     [CustomEditor(typeof(SceneDependencyInjector))]
-    public class SceneDependencyInjectorEditor : Editor
+   public class SceneDependencyInjectorEditor : UnityEditor.Editor
     {
         private SerializedProperty _dependencies, _autoInject, _cleanup, _logLevel,
                                    _injected, _hasInjected;

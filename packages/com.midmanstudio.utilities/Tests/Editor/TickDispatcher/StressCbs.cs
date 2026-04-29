@@ -10,7 +10,7 @@ using Unity.Burst;
 using Unity.Mathematics;
 using UnityEngine;
 using Debug = UnityEngine.Debug;
-
+using MidManStudio.Core.TickDispatcher;
 namespace MidManStudio.Core.Benchmarks
 {
     // ── 500 static Burst callbacks doing real sin/cos work ────────────────────

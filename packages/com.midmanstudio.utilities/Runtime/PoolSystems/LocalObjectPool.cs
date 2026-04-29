@@ -1,4 +1,4 @@
-﻿// LocalObjectPool.cs
+// LocalObjectPool.cs
 // Singleton pool manager for non-particle GameObjects.
 // Uses the generated PoolableObjectType enum. Pool configs use int typeId internally
 // but the public API accepts PoolableObjectType directly.
@@ -7,7 +7,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using MidManStudio.Core.Logging;
 using MidManStudio.Core.Singleton;
-using MidManStudio.Core.Utilities;
+using MidManStudio.Core.EditorUtils;
 
 namespace MidManStudio.Core.Pools
 {
@@ -391,20 +391,20 @@ namespace MidManStudio.Core.Pools
         }
 
         private static void ResetObject(GameObject obj)
-        {
-            obj.transform.position   = Vector3.zero;
-            obj.transform.rotation   = Quaternion.identity;
-            obj.transform.localScale = Vector3.one;
+{
+    obj.transform.position   = Vector3.zero;
+    obj.transform.rotation   = Quaternion.identity;
+    obj.transform.localScale = Vector3.one;
 
-            var rb2d = obj.GetComponent<Rigidbody2D>();
-            if (rb2d != null) { rb2d.linearVelocity = Vector2.zero; rb2d.angularVelocity = 0f; }
+    var rb2d = obj.GetComponent<Rigidbody2D>();
+    if (rb2d != null) { rb2d.velocity = Vector2.zero; rb2d.angularVelocity = 0f; }
 
-            var rb3d = obj.GetComponent<Rigidbody>();
-            if (rb3d != null) { rb3d.linearVelocity = Vector3.zero; rb3d.angularVelocity = Vector3.zero; }
+    var rb3d = obj.GetComponent<Rigidbody>();
+    if (rb3d != null) { rb3d.velocity = Vector3.zero; rb3d.angularVelocity = Vector3.zero; }
 
-            foreach (var trail in obj.GetComponentsInChildren<TrailRenderer>())
-                trail?.Clear();
-        }
+    foreach (var trail in obj.GetComponentsInChildren<TrailRenderer>())
+        trail?.Clear();
+}
 
         private GameObject FindPrefabForType(int typeId)
         {

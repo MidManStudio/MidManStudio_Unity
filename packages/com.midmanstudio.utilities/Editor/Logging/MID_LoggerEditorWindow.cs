@@ -5,8 +5,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System;
-
-namespace MidManStudio.Core.Logging.EditorCustom
+using MidManStudio.Core.Logging;
+namespace MidManStudio.Core.EditorTools
 {
     public class MID_LoggerEditorWindow : EditorWindow
     {
@@ -27,7 +27,7 @@ namespace MidManStudio.Core.Logging.EditorCustom
         private bool _groupByGameObject = false;
         private Dictionary<string, List<MonoBehaviourLogInfo>> _groupedInfos = new Dictionary<string, List<MonoBehaviourLogInfo>>();
 
-        [MenuItem("MidManStudio/Logger Manager")]
+        [MenuItem("MidManStudio/Utilities/Logger Manager")]
         public static void ShowWindow()
         {
             var window = GetWindow<MID_LoggerEditorWindow>("Logger Manager");

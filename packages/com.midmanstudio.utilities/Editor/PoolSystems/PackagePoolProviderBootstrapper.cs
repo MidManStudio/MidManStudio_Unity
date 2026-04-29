@@ -12,7 +12,7 @@ using UnityEditor;
 using UnityEngine;
 using MidManStudio.Core.Pools.Generator;
 
-namespace MidManStudio.Core.Editor
+namespace MidManStudio.Core.EditorUtils
 {
     [InitializeOnLoad]
     internal static class PackagePoolProviderBootstrapper
@@ -24,7 +24,7 @@ namespace MidManStudio.Core.Editor
             EditorApplication.delayCall += Bootstrap;
         }
 
-        [MenuItem("MidManStudio/Internal/Recreate Default Pool Providers")]
+        [MenuItem("MidManStudio/Utilities/Internal/Recreate Default Pool Providers")]
         public static void Bootstrap()
         {
             bool changed = false;

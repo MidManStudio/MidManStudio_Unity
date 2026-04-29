@@ -6,7 +6,7 @@
 using UnityEngine;
 using System;
 
-namespace MidManStudio.Core.Utilities
+namespace MidManStudio.Core.EditorUtils
 {
     /// <summary>
     /// Apply to a List field to show per-element display names in the Inspector

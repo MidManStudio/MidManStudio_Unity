@@ -1,8 +1,15 @@
 ﻿using UnityEngine;
 using UnityEngine.SceneManagement;
 
+
 namespace MidManStudio.Core.Singleton
 {
+    /// <summary>
+    /// Base singleton class, notice use always use HasInstance to check for existing instance
+    /// if you notices object being dynamically created , means you are using .Instance without an existing instance in place
+    /// 
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
     public class Singleton<T> : MonoBehaviour where T : Component
     {
         private static T _instance;

@@ -66,9 +66,6 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/SceneDependencyInjector.cs">
       <Link>Editor/Helpers/SceneDependencyInjector.cs</Link>
     </Compile>
-    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/DynamicDebugPanel.cs">
-      <Link>Editor/Helpers/DynamicDebugPanel.cs</Link>
-    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/PoolSystems/PoolTypeGenerator.cs">
       <Link>Editor/PoolSystems/PoolTypeGenerator.cs</Link>
     </Compile>

@@ -2,11 +2,11 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-using MidManStudio.Core.Utilities;
+using MidManStudio.Core.EditorUtils;
 
 namespace MidManStudio.Core.Libraries
 {
-    [CreateAssetMenu(fileName = "MID_Library", menuName = "MidManStudio/Library")]
+    [CreateAssetMenu(fileName = "MID_Library", menuName = "MidManStudio/Utilities/Library")]
     public class MID_LibrarySO : ScriptableObject, IArrayElementTitle
     {
         [Tooltip("Unique ID used to retrieve this library from MID_LibraryRegistry.")]

@@ -20,7 +20,7 @@
 
 using System.Collections.Generic;
 using UnityEngine;
-using MidManStudio.Core.Utilities;
+using MidManStudio.Core.EditorUtils;
 
 namespace MidManStudio.Core.Pools.Generator
 {
@@ -50,7 +50,7 @@ namespace MidManStudio.Core.Pools.Generator
 
     [CreateAssetMenu(
         fileName = "PoolTypeProvider",
-        menuName = "MidManStudio/Pool Type Provider (Object)")]
+        menuName = "MidManStudio/Utilities/Pool Type Provider (Object)")]
     public class PoolTypeProviderSO : ScriptableObject
     {
         [Header("Identity")]

@@ -1237,6 +1237,10 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="Assembly-CSharp.csproj">
+      <Project>{31983F8B-66D7-6191-C007-A70B0DEA8AF3}</Project>
+      <Name>Assembly-CSharp</Name>
+    </ProjectReference>
     <ProjectReference Include="MidManStudio.Utilities.csproj">
       <Project>{4787055D-3001-DCB9-695E-DA6631E522A9}</Project>
       <Name>MidManStudio.Utilities</Name>
