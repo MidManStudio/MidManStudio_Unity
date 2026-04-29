@@ -83,7 +83,7 @@ namespace MidManStudio.Core.Pools.Generator
 
     [CreateAssetMenu(
         fileName = "ParticlePoolTypeProvider",
-        menuName = "MidManStudio/Pool Type Provider (Particle)")]
+        menuName = "MidManStudio/Utilities/Pool Type Provider (Particle)")]
     public class ParticlePoolTypeProviderSO : ScriptableObject
     {
         [Header("Identity")]

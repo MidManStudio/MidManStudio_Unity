@@ -102,9 +102,6 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/TrailRendererPool.cs">
       <Link>Runtime/PoolSystems/TrailRendererPool.cs</Link>
     </Compile>
-    <Compile Include="..\packages\com.midmanstudio.utilities\Runtime\Helpers\MID_NamedListAttribute.cs">
-      <Link>Runtime/MID_NamedListAttribute.cs</Link>
-    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/LocalObjectPool.cs">
       <Link>Runtime/PoolSystems/LocalObjectPool.cs</Link>
     </Compile>
@@ -125,6 +122,9 @@
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Libraries/Configs/MID_LibraryItemSO.cs">
       <Link>Runtime/Libraries/Configs/MID_LibraryItemSO.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Helpers/MID_NamedListAttribute.cs">
+      <Link>Runtime/Helpers/MID_NamedListAttribute.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/UIParticlePoolManager.cs">
       <Link>Runtime/PoolSystems/UIParticlePoolManager.cs</Link>
