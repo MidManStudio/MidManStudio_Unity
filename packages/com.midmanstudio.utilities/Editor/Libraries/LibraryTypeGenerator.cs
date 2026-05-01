@@ -20,10 +20,11 @@ namespace MidManStudio.Core.Editor.Libraries
         // ── Settings ─────────────────────────────────────────────────────────
 
         // Paths inside the utilities package — change if your layout differs
-        private const string LibraryIdPath   =
-            "packages/com.midmanstudio.utilities/Runtime/Libraries/Generated/LibraryId.cs";
-        private const string LibraryItemPath =
-            "packages/com.midmanstudio.utilities/Runtime/Libraries/Generated/LibraryItemId.cs";
+        private const string LibraryIdPath =
+    "packages/com.midmanstudio.utilities/Runtime/Libraries/Generated/LibraryId.cs";
+
+private const string LibraryItemPath =
+    "packages/com.midmanstudio.utilities/Runtime/Libraries/Generated/LibraryItemId.cs";
         private const string Namespace       = "MidManStudio.Core.Libraries";
 
         // ── Entry Point ───────────────────────────────────────────────────────
