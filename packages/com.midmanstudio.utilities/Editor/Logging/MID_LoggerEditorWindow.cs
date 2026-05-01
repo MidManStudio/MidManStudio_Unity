@@ -1,353 +1,292 @@
-﻿#if UNITY_EDITOR
-using UnityEngine;
-using UnityEditor;
+﻿// MID_LoggerEditorWindow.cs
+// Editor window for bulk-managing MID_LogLevel fields across all scene MonoBehaviours.
+// Supports: search/filter, file selection, group by GameObject, validated live editing.
+// Open via: MidManStudio > Utilities > Logger Manager
+
+#if UNITY_EDITOR
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using System;
+using UnityEditor;
+using UnityEngine;
 using MidManStudio.Core.Logging;
+
 namespace MidManStudio.Core.EditorTools
 {
     public class MID_LoggerEditorWindow : EditorWindow
     {
-        private MID_LoggerSettings _settings;
-        private Vector2 _scrollPosition;
-        private string _searchFilter = "";
+        // ── State ──────────────────────────────────────────────────────────────
+        private MID_LoggerSettings     _settings;
+        private Vector2                _scrollPos;
+        private string                 _searchFilter     = "";
+        private bool                   _groupByGO        = false;
+        private bool                   _showSelected     = false; // filter to selection only
 
-        // Cached MonoBehaviours with log levels
-        private List<MonoBehaviourLogInfo> _cachedLogInfos = new List<MonoBehaviourLogInfo>();
-        private bool _needsRefresh = true;
+        private List<MonoBehaviourLogInfo> _allInfos     = new();
+        private HashSet<MonoBehaviourLogInfo> _selected  = new();
+        private bool                   _needsRefresh     = true;
 
-        // UI State
-        private bool _showGlobalSettings = true;
-        private bool _showSceneObjects = true;
-        private bool _showQuickActions = true;
+        // Foldouts
+        private bool _showSettings    = true;
+        private bool _showObjects     = true;
+        private bool _showActions     = true;
 
-        // Grouping
-        private bool _groupByGameObject = false;
-        private Dictionary<string, List<MonoBehaviourLogInfo>> _groupedInfos = new Dictionary<string, List<MonoBehaviourLogInfo>>();
-
+        // ── Menu ───────────────────────────────────────────────────────────────
         [MenuItem("MidManStudio/Utilities/Logger Manager")]
         public static void ShowWindow()
         {
-            var window = GetWindow<MID_LoggerEditorWindow>("Logger Manager");
-            window.minSize = new Vector2(550, 450);
-            window.Show();
+            var w = GetWindow<MID_LoggerEditorWindow>("Logger Manager");
+            w.minSize = new Vector2(580, 480);
+            w.Show();
         }
 
+        // ── Lifecycle ──────────────────────────────────────────────────────────
         private void OnEnable()
         {
             LoadSettings();
-            EditorApplication.hierarchyChanged += OnHierarchyChanged;
-            EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
+            EditorApplication.hierarchyChanged      += MarkDirty;
+            EditorApplication.playModeStateChanged  += _ => MarkDirty();
         }
 
         private void OnDisable()
         {
-            EditorApplication.hierarchyChanged -= OnHierarchyChanged;
-            EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
+            EditorApplication.hierarchyChanged      -= MarkDirty;
+            EditorApplication.playModeStateChanged  -= _ => MarkDirty();
         }
 
-        private void OnHierarchyChanged()
-        {
-            _needsRefresh = true;
-            Repaint();
-        }
+        private void MarkDirty() { _needsRefresh = true; Repaint(); }
 
-        private void OnPlayModeStateChanged(PlayModeStateChange state)
-        {
-            _needsRefresh = true;
-            Repaint();
-        }
-
-        private void LoadSettings()
-        {
-            _settings = Resources.Load<MID_LoggerSettings>("MID_LoggerSettings");
-
-            if (_settings == null)
-            {
-                string[] guids = AssetDatabase.FindAssets("t:MID_LoggerSettings");
-                if (guids.Length > 0)
-                {
-                    string path = AssetDatabase.GUIDToAssetPath(guids[0]);
-                    _settings = AssetDatabase.LoadAssetAtPath<MID_LoggerSettings>(path);
-                }
-            }
-        }
-
+        // ── Main GUI ───────────────────────────────────────────────────────────
         private void OnGUI()
         {
-            EditorGUILayout.Space(10);
-
-            // ===== HEADER =====
+            EditorGUILayout.Space(8);
             DrawHeader();
-
-            EditorGUILayout.Space(5);
             DrawSeparator();
-            EditorGUILayout.Space(10);
+            EditorGUILayout.Space(6);
 
-            // ===== GLOBAL SETTINGS =====
-            _showGlobalSettings = EditorGUILayout.BeginFoldoutHeaderGroup(_showGlobalSettings, "Global Settings");
-            if (_showGlobalSettings)
-            {
-                DrawGlobalSettings();
-            }
-            EditorGUILayout.EndFoldoutHeaderGroup();
-
-            EditorGUILayout.Space(5);
+            _showSettings = DrawFoldout(_showSettings, "Global Settings", DrawSettings);
             DrawSeparator();
-            EditorGUILayout.Space(10);
-
-            // ===== SCENE OBJECTS =====
-            _showSceneObjects = EditorGUILayout.BeginFoldoutHeaderGroup(_showSceneObjects, "Scene MonoBehaviours with Log Levels");
-            if (_showSceneObjects)
-            {
-                DrawSceneObjects();
-            }
-            EditorGUILayout.EndFoldoutHeaderGroup();
-
-            EditorGUILayout.Space(5);
+            _showObjects  = DrawFoldout(_showObjects,  "Scene MonoBehaviours", DrawObjects);
             DrawSeparator();
-            EditorGUILayout.Space(10);
-
-            // ===== QUICK ACTIONS =====
-            _showQuickActions = EditorGUILayout.BeginFoldoutHeaderGroup(_showQuickActions, "Quick Actions");
-            if (_showQuickActions)
-            {
-                DrawQuickActions();
-            }
-            EditorGUILayout.EndFoldoutHeaderGroup();
+            _showActions  = DrawFoldout(_showActions,  "Quick Actions", DrawActions);
         }
 
+        // ── Header ─────────────────────────────────────────────────────────────
         private void DrawHeader()
         {
             EditorGUILayout.BeginHorizontal();
-
-            GUIStyle titleStyle = new GUIStyle(EditorStyles.boldLabel)
-            {
-                fontSize = 14,
-                alignment = TextAnchor.MiddleLeft
-            };
-
-            EditorGUILayout.LabelField("MID Logger Manager", titleStyle);
-
+            EditorGUILayout.LabelField("MID Logger Manager",
+                new GUIStyle(EditorStyles.boldLabel) { fontSize = 14 });
             GUILayout.FlexibleSpace();
 
-            if (GUILayout.Button("Refresh", GUILayout.Width(70), GUILayout.Height(20)))
-            {
-                _needsRefresh = true;
-            }
+            if (GUILayout.Button("Refresh", GUILayout.Width(72), GUILayout.Height(22)))
+                MarkDirty();
 
             EditorGUILayout.EndHorizontal();
+            EditorGUILayout.Space(4);
         }
 
-        private void DrawGlobalSettings()
+        // ── Settings section ───────────────────────────────────────────────────
+        private void DrawSettings()
         {
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-            EditorGUILayout.Space(5);
 
-            // Settings asset reference
             EditorGUILayout.BeginHorizontal();
-            EditorGUI.BeginChangeCheck();
-            _settings = (MID_LoggerSettings)EditorGUILayout.ObjectField("Settings Asset", _settings, typeof(MID_LoggerSettings), false);
-            if (EditorGUI.EndChangeCheck())
-            {
-                if (_settings != null)
-                {
-                    EditorUtility.SetDirty(_settings);
-                }
-            }
+            var prev = _settings;
+            _settings = (MID_LoggerSettings)EditorGUILayout.ObjectField(
+                "Settings Asset", _settings, typeof(MID_LoggerSettings), false);
+            if (_settings != prev && _settings != null) EditorUtility.SetDirty(_settings);
 
-            if (GUILayout.Button("Create New", GUILayout.Width(100)))
-            {
-                CreateNewSettings();
-            }
+            if (GUILayout.Button("Create New", GUILayout.Width(90)))
+                CreateSettings();
             EditorGUILayout.EndHorizontal();
 
             if (_settings != null)
             {
-                EditorGUILayout.Space(5);
+                EditorGUILayout.Space(4);
                 EditorGUI.BeginChangeCheck();
-                var newDefaultLevel = (MID_LogLevel)EditorGUILayout.EnumPopup("Default Log Level", _settings.DefaultLogLevel);
+                var newLevel = (MID_LogLevel)EditorGUILayout.EnumPopup(
+                    "Default Level", _settings.DefaultLogLevel);
                 if (EditorGUI.EndChangeCheck())
                 {
                     Undo.RecordObject(_settings, "Change Default Log Level");
-                    _settings.DefaultLogLevel = newDefaultLevel;
+                    _settings.DefaultLogLevel = newLevel;
                     EditorUtility.SetDirty(_settings);
                 }
-
-                EditorGUILayout.Space(5);
-                EditorGUILayout.HelpBox("Default level used by editor tools when creating new scripts.", MessageType.Info);
             }
             else
             {
-                EditorGUILayout.Space(5);
-                EditorGUILayout.HelpBox("No MID_LoggerSettings asset found. Create one to set default levels.", MessageType.Warning);
+                EditorGUILayout.HelpBox("No MID_LoggerSettings asset found.", MessageType.Warning);
             }
 
-            EditorGUILayout.Space(5);
             EditorGUILayout.EndVertical();
+            EditorGUILayout.Space(4);
         }
 
-        private void DrawSceneObjects()
+        // ── Objects section ────────────────────────────────────────────────────
+        private void DrawObjects()
         {
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-            EditorGUILayout.Space(5);
+            if (_needsRefresh) { RefreshList(); _needsRefresh = false; }
 
-            // Refresh cache if needed
-            if (_needsRefresh)
-            {
-                RefreshMonoBehaviourList();
-                _needsRefresh = false;
-            }
+            // ── Toolbar ────────────────────────────────────────────────────────
+            EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
 
-            // Search and grouping controls
-            EditorGUILayout.BeginHorizontal();
-            _searchFilter = EditorGUILayout.TextField("Search", _searchFilter);
-            if (GUILayout.Button("Clear", GUILayout.Width(60)))
-            {
-                _searchFilter = "";
-                GUI.FocusControl(null);
-            }
+            EditorGUI.BeginChangeCheck();
+            _searchFilter = EditorGUILayout.TextField(_searchFilter,
+                EditorStyles.toolbarSearchField, GUILayout.ExpandWidth(true));
+            if (EditorGUI.EndChangeCheck()) _selected.Clear();
+
+            if (GUILayout.Button("✕", EditorStyles.toolbarButton, GUILayout.Width(22)))
+            { _searchFilter = ""; _selected.Clear(); GUI.FocusControl(null); }
+
+            _groupByGO   = GUILayout.Toggle(_groupByGO, "Group", EditorStyles.toolbarButton, GUILayout.Width(50));
+            _showSelected = GUILayout.Toggle(_showSelected, "Selection only",
+                EditorStyles.toolbarButton, GUILayout.Width(94));
+
             EditorGUILayout.EndHorizontal();
 
-            EditorGUILayout.Space(5);
+            // ── Selection toolbar ──────────────────────────────────────────────
+            EditorGUILayout.BeginHorizontal(EditorStyles.helpBox);
 
-            EditorGUILayout.BeginHorizontal();
-            _groupByGameObject = EditorGUILayout.ToggleLeft("Group by GameObject", _groupByGameObject, GUILayout.Width(170));
+            var filtered = GetFiltered();
+            EditorGUILayout.LabelField(
+                $"Showing {filtered.Count}   |   Selected {_selected.Count}",
+                EditorStyles.miniLabel, GUILayout.ExpandWidth(true));
 
-            GUILayout.FlexibleSpace();
+            if (GUILayout.Button("Select All", EditorStyles.miniButton, GUILayout.Width(70)))
+                foreach (var i in filtered) _selected.Add(i);
 
-            EditorGUILayout.LabelField($"Total: {_cachedLogInfos.Count}", EditorStyles.miniLabel, GUILayout.Width(80));
-            EditorGUILayout.EndHorizontal();
+            if (GUILayout.Button("Deselect All", EditorStyles.miniButton, GUILayout.Width(80)))
+                _selected.Clear();
 
-            EditorGUILayout.Space(10);
-
-            // Filter list
-            var filteredList = _cachedLogInfos;
-            if (!string.IsNullOrEmpty(_searchFilter))
+            // Apply level to selected only
+            if (_selected.Count > 0)
             {
-                filteredList = _cachedLogInfos.Where(info =>
-                    info.GameObjectName.ToLower().Contains(_searchFilter.ToLower()) ||
-                    info.ComponentName.ToLower().Contains(_searchFilter.ToLower())).ToList();
+                EditorGUILayout.LabelField("→", GUILayout.Width(14));
+                var pick = (MID_LogLevel)EditorGUILayout.EnumPopup(
+                    GUIContent.none,
+                    _selected.First().CurrentLogLevel,
+                    GUILayout.Width(78));
+
+                if (GUILayout.Button("Apply", EditorStyles.miniButton, GUILayout.Width(46)))
+                    ApplyLevelToSelected(pick);
             }
 
-            if (filteredList.Count == 0)
+            EditorGUILayout.EndHorizontal();
+
+            if (filtered.Count == 0)
             {
                 EditorGUILayout.HelpBox(
                     string.IsNullOrEmpty(_searchFilter)
-                        ? "No MonoBehaviours with MID_LogLevel fields found in the scene.\n\nAdd [SerializeField] private MID_LogLevel _logLevel to your scripts."
-                        : "No MonoBehaviours match the search filter.",
+                        ? "No MonoBehaviours with MID_LogLevel fields found.\n" +
+                          "Add [SerializeField] private MID_LogLevel _logLevel to your scripts."
+                        : "No results match the filter.",
                     MessageType.Info);
-            }
-            else
-            {
-                EditorGUILayout.LabelField($"Showing {filteredList.Count} MonoBehaviour(s)", EditorStyles.miniLabel);
-                EditorGUILayout.Space(5);
-
-                _scrollPosition = EditorGUILayout.BeginScrollView(_scrollPosition, GUILayout.Height(300));
-
-                if (_groupByGameObject)
-                {
-                    DrawGroupedList(filteredList);
-                }
-                else
-                {
-                    DrawFlatList(filteredList);
-                }
-
-                EditorGUILayout.EndScrollView();
+                return;
             }
 
-            EditorGUILayout.Space(5);
-            EditorGUILayout.EndVertical();
+            // ── List ───────────────────────────────────────────────────────────
+            _scrollPos = EditorGUILayout.BeginScrollView(_scrollPos, GUILayout.MaxHeight(340));
+
+            if (_groupByGO) DrawGrouped(filtered);
+            else            DrawFlat(filtered);
+
+            EditorGUILayout.EndScrollView();
         }
 
-        private void DrawFlatList(List<MonoBehaviourLogInfo> list)
+        // ── Actions section ────────────────────────────────────────────────────
+        private void DrawActions()
+        {
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            EditorGUILayout.LabelField("Set ALL scene MonoBehaviours to:", EditorStyles.boldLabel);
+            EditorGUILayout.Space(4);
+
+            EditorGUILayout.BeginHorizontal();
+            BulkButton("None",    MID_LogLevel.None,    new Color(0.5f, 0.5f, 0.5f));
+            BulkButton("Error",   MID_LogLevel.Error,   new Color(1f,   0.4f, 0.4f));
+            BulkButton("Info",    MID_LogLevel.Info,    new Color(0.4f, 0.8f, 1f));
+            BulkButton("Debug",   MID_LogLevel.Debug,   new Color(0.4f, 1f,   0.4f));
+            BulkButton("Verbose", MID_LogLevel.Verbose, new Color(1f,   0.8f, 0.4f));
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.Space(8);
+            if (GUILayout.Button("Export Log Levels to Console", GUILayout.Height(24)))
+                ExportToConsole();
+
+            EditorGUILayout.EndVertical();
+            EditorGUILayout.Space(4);
+        }
+
+        // ── Row drawing ────────────────────────────────────────────────────────
+        private void DrawFlat(List<MonoBehaviourLogInfo> list)
         {
             foreach (var info in list.OrderBy(i => i.GameObjectName).ThenBy(i => i.ComponentName))
-            {
-                DrawMonoBehaviourLogInfo(info);
-                EditorGUILayout.Space(2);
-            }
+                DrawRow(info, false);
         }
 
-        private void DrawGroupedList(List<MonoBehaviourLogInfo> list)
+        private void DrawGrouped(List<MonoBehaviourLogInfo> list)
         {
-            // Group by GameObject
-            var grouped = list.GroupBy(info => info.GameObjectName)
-                .OrderBy(g => g.Key);
-
-            foreach (var group in grouped)
+            foreach (var group in list.GroupBy(i => i.GameObjectName).OrderBy(g => g.Key))
             {
-                // GameObject header
                 EditorGUILayout.BeginVertical(EditorStyles.helpBox);
 
                 EditorGUILayout.BeginHorizontal();
-                GUIStyle headerStyle = new GUIStyle(EditorStyles.boldLabel)
-                {
-                    normal = { textColor = new Color(0.8f, 0.8f, 1f) }
-                };
-                EditorGUILayout.LabelField($"GameObject: {group.Key}", headerStyle);
+                EditorGUILayout.LabelField($"⬡  {group.Key}",
+                    new GUIStyle(EditorStyles.boldLabel)
+                    { normal = { textColor = new Color(0.7f, 0.7f, 1f) } });
 
-                if (GUILayout.Button("Select", GUILayout.Width(60)))
+                if (GUILayout.Button("Select GO", EditorStyles.miniButton, GUILayout.Width(70)))
                 {
-                    var firstComponent = group.First().Component;
-                    if (firstComponent != null)
-                    {
-                        Selection.activeGameObject = firstComponent.gameObject;
-                        EditorGUIUtility.PingObject(firstComponent.gameObject);
-                    }
+                    var mb = group.First().Component;
+                    if (mb) { Selection.activeGameObject = mb.gameObject; EditorGUIUtility.PingObject(mb.gameObject); }
                 }
                 EditorGUILayout.EndHorizontal();
 
-                EditorGUILayout.Space(5);
-
-                // Components under this GameObject
+                EditorGUILayout.Space(2);
                 foreach (var info in group.OrderBy(i => i.ComponentName))
-                {
-                    DrawMonoBehaviourLogInfo(info, true);
-                    EditorGUILayout.Space(2);
-                }
+                    DrawRow(info, true);
 
                 EditorGUILayout.EndVertical();
-                EditorGUILayout.Space(5);
+                EditorGUILayout.Space(3);
             }
         }
 
-        private void DrawMonoBehaviourLogInfo(MonoBehaviourLogInfo info, bool isGrouped = false)
+        private void DrawRow(MonoBehaviourLogInfo info, bool indented)
         {
             if (info.Component == null) return;
 
-            EditorGUILayout.BeginHorizontal(isGrouped ? GUIStyle.none : EditorStyles.helpBox);
+            bool isSelected = _selected.Contains(info);
+            var  rowStyle   = isSelected
+                ? new GUIStyle(EditorStyles.helpBox)
+                  { normal = { background = MakeTex(1, 1, new Color(0.3f, 0.5f, 0.8f, 0.25f)) } }
+                : EditorStyles.helpBox;
 
-            if (!isGrouped)
+            EditorGUILayout.BeginHorizontal(rowStyle);
+
+            // Checkbox
+            bool nowSelected = EditorGUILayout.Toggle(isSelected, GUILayout.Width(16));
+            if (nowSelected != isSelected)
             {
-                EditorGUILayout.Space(5);
+                if (nowSelected) _selected.Add(info);
+                else             _selected.Remove(info);
             }
 
-            // GameObject and Component name
-            string displayName = isGrouped
-                ? $"└─ {info.ComponentName}"
-                : $"{info.GameObjectName} / {info.ComponentName}";
+            // Name
+            string label = indented
+                ? $"  └  {info.ComponentName}"
+                : $"{info.GameObjectName}  /  {info.ComponentName}";
+            EditorGUILayout.LabelField(label, GUILayout.MinWidth(200), GUILayout.ExpandWidth(true));
 
-            EditorGUILayout.LabelField(displayName, GUILayout.Width(280));
-
-            // Log level enum popup
+            // Level popup — validated and applied
             EditorGUI.BeginChangeCheck();
-            var newLevel = (MID_LogLevel)EditorGUILayout.EnumPopup(info.CurrentLogLevel, GUILayout.Width(100));
+            var newLevel = (MID_LogLevel)EditorGUILayout.EnumPopup(
+                info.CurrentLogLevel, GUILayout.Width(80));
             if (EditorGUI.EndChangeCheck())
-            {
-                Undo.RecordObject(info.Component, "Change Log Level");
-                info.LogLevelField.SetValue(info.Component, newLevel);
-                EditorUtility.SetDirty(info.Component);
-                info.CurrentLogLevel = newLevel;
-            }
+                ApplyLevelToInfo(info, newLevel);
 
-            GUILayout.FlexibleSpace();
-
-            // Ping button
-            if (GUILayout.Button("Select", GUILayout.Width(60)))
+            // Ping / Select
+            if (GUILayout.Button("Ping", EditorStyles.miniButton, GUILayout.Width(36)))
             {
                 Selection.activeGameObject = info.Component.gameObject;
                 EditorGUIUtility.PingObject(info.Component);
@@ -356,210 +295,202 @@ namespace MidManStudio.Core.EditorTools
             EditorGUILayout.EndHorizontal();
         }
 
-        private void DrawQuickActions()
+        // ── Apply helpers ──────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Core validated apply. Uses SerializedObject so Unity marks the
+        /// asset/object dirty and the value survives domain reloads and prefab saves.
+        /// Falls back to direct reflection if SerializedObject cannot find the property.
+        /// </summary>
+        private void ApplyLevelToInfo(MonoBehaviourLogInfo info, MID_LogLevel level)
         {
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-            EditorGUILayout.Space(5);
+            if (info.Component == null) return;
 
-            EditorGUILayout.LabelField("Set All MonoBehaviours to:", EditorStyles.boldLabel);
-            EditorGUILayout.Space(5);
+            Undo.RecordObject(info.Component, "Change Log Level");
 
-            // First row of buttons
-            EditorGUILayout.BeginHorizontal();
+            // Primary: SerializedObject path (robust, survives domain reload)
+            var so   = new SerializedObject(info.Component);
+            var prop = so.FindProperty(info.FieldName);
 
-            if (GUILayout.Button("None", GUILayout.Height(30)))
+            if (prop != null)
             {
-                SetAllLogLevels(MID_LogLevel.None);
+                prop.enumValueIndex = (int)level;
+                so.ApplyModifiedPropertiesWithoutUndo();
+            }
+            else
+            {
+                // Fallback: direct reflection set
+                info.LogLevelField.SetValue(info.Component, level);
             }
 
-            if (GUILayout.Button("Error", GUILayout.Height(30)))
-            {
-                SetAllLogLevels(MID_LogLevel.Error);
-            }
+            // Verify the value was actually written
+            var readBack = (MID_LogLevel)info.LogLevelField.GetValue(info.Component);
+            if (readBack != level)
+                Debug.LogWarning(
+                    $"[MID Logger] Could not write {level} to " +
+                    $"{info.ComponentName}.{info.FieldName} — field may be a property.");
+            else
+                info.CurrentLogLevel = level;
 
-            if (GUILayout.Button("Info", GUILayout.Height(30)))
-            {
-                SetAllLogLevels(MID_LogLevel.Info);
-            }
+            EditorUtility.SetDirty(info.Component);
 
-            EditorGUILayout.EndHorizontal();
-
-            EditorGUILayout.Space(3);
-
-            // Second row of buttons
-            EditorGUILayout.BeginHorizontal();
-
-            if (GUILayout.Button("Debug", GUILayout.Height(30)))
-            {
-                SetAllLogLevels(MID_LogLevel.Debug);
-            }
-
-            if (GUILayout.Button("Verbose", GUILayout.Height(30)))
-            {
-                SetAllLogLevels(MID_LogLevel.Verbose);
-            }
-
-            EditorGUILayout.EndHorizontal();
-
-            EditorGUILayout.Space(10);
-
-            // Additional actions
-            EditorGUILayout.LabelField("Scene Actions:", EditorStyles.boldLabel);
-            EditorGUILayout.Space(5);
-
-            if (GUILayout.Button("Export Log Levels to Console", GUILayout.Height(25)))
-            {
-                ExportLogLevelsToConsole();
-            }
-
-            EditorGUILayout.Space(5);
-            EditorGUILayout.EndVertical();
+            // If we're in prefab mode also mark the prefab stage dirty
+#if UNITY_2021_2_OR_NEWER
+            var stage = UnityEditor.SceneManagement.PrefabStageUtility.GetCurrentPrefabStage();
+            if (stage != null) UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(stage.scene);
+#endif
         }
 
-        private void RefreshMonoBehaviourList()
+        private void ApplyLevelToSelected(MID_LogLevel level)
         {
-            _cachedLogInfos.Clear();
-
-            // Find all MonoBehaviours in scene (including inactive)
-            MonoBehaviour[] allMonoBehaviours = Resources.FindObjectsOfTypeAll<MonoBehaviour>();
-
-            foreach (var mb in allMonoBehaviours)
-            {
-                if (mb == null) continue;
-
-                // Skip editor-only objects and prefabs
-                if (mb.gameObject.scene.name == null) continue;
-
-                Type type = mb.GetType();
-
-                // Look for fields of type MID_LogLevel
-                FieldInfo[] fields = type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-
-                foreach (var field in fields)
-                {
-                    if (field.FieldType == typeof(MID_LogLevel))
-                    {
-                        var currentValue = (MID_LogLevel)field.GetValue(mb);
-
-                        _cachedLogInfos.Add(new MonoBehaviourLogInfo
-                        {
-                            Component = mb,
-                            GameObjectName = mb.gameObject.name,
-                            ComponentName = type.Name,
-                            LogLevelField = field,
-                            CurrentLogLevel = currentValue
-                        });
-
-                        break; // Only add once per MonoBehaviour
-                    }
-                }
-            }
+            foreach (var info in _selected.ToList())
+                ApplyLevelToInfo(info, level);
         }
 
-        private void SetAllLogLevels(MID_LogLevel level)
+        private void ApplyLevelToAll(MID_LogLevel level)
         {
-            if (_cachedLogInfos.Count == 0) return;
-
             if (!EditorUtility.DisplayDialog("Set All Log Levels",
-                $"Set all {_cachedLogInfos.Count} MonoBehaviour log levels to {level}?",
-                "Set All", "Cancel"))
-            {
+                $"Set all {_allInfos.Count} MonoBehaviour(s) to {level}?", "Set All", "Cancel"))
                 return;
-            }
 
-            int changedCount = 0;
-
-            foreach (var info in _cachedLogInfos)
-            {
-                if (info.Component != null)
-                {
-                    Undo.RecordObject(info.Component, "Set All Log Levels");
-                    info.LogLevelField.SetValue(info.Component, level);
-                    info.CurrentLogLevel = level;
-                    EditorUtility.SetDirty(info.Component);
-                    changedCount++;
-                }
-            }
-
-            Debug.Log($"[MID_Logger] Set {changedCount} MonoBehaviour(s) to log level: {level}");
-
-            _needsRefresh = true;
+            foreach (var info in _allInfos)
+                ApplyLevelToInfo(info, level);
         }
 
-        private void ExportLogLevelsToConsole()
+        // ── Filtering ──────────────────────────────────────────────────────────
+        private List<MonoBehaviourLogInfo> GetFiltered()
         {
-            if (_cachedLogInfos.Count == 0)
+            var src = _showSelected && _selected.Count > 0
+                ? _allInfos.Where(i => _selected.Contains(i)).ToList()
+                : _allInfos;
+
+            if (string.IsNullOrEmpty(_searchFilter)) return src;
+            string q = _searchFilter.ToLowerInvariant();
+            return src.Where(i =>
+                i.GameObjectName.ToLowerInvariant().Contains(q) ||
+                i.ComponentName.ToLowerInvariant().Contains(q) ||
+                i.FieldName.ToLowerInvariant().Contains(q)).ToList();
+        }
+
+        // ── Refresh ────────────────────────────────────────────────────────────
+        private void RefreshList()
+        {
+            _allInfos.Clear();
+            _selected.Clear();
+
+            foreach (var mb in Resources.FindObjectsOfTypeAll<MonoBehaviour>())
             {
-                Debug.Log("[MID_Logger] No MonoBehaviours with log levels found in scene.");
-                return;
+                if (mb == null || mb.gameObject.scene.name == null) continue;
+
+                var type = mb.GetType();
+                foreach (var field in type.GetFields(
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+                {
+                    if (field.FieldType != typeof(MID_LogLevel)) continue;
+
+                    var current = (MID_LogLevel)field.GetValue(mb);
+                    _allInfos.Add(new MonoBehaviourLogInfo
+                    {
+                        Component       = mb,
+                        GameObjectName  = mb.gameObject.name,
+                        ComponentName   = type.Name,
+                        FieldName       = field.Name,
+                        LogLevelField   = field,
+                        CurrentLogLevel = current
+                    });
+                    break; // one entry per MonoBehaviour (first MID_LogLevel field)
+                }
             }
+        }
 
-            System.Text.StringBuilder sb = new System.Text.StringBuilder();
-            sb.AppendLine("===== SCENE LOG LEVELS =====");
-            sb.AppendLine($"Total MonoBehaviours: {_cachedLogInfos.Count}");
-            sb.AppendLine();
+        // ── Utilities ──────────────────────────────────────────────────────────
+        private void BulkButton(string label, MID_LogLevel level, Color col)
+        {
+            var old = GUI.backgroundColor;
+            GUI.backgroundColor = col;
+            if (GUILayout.Button(label, GUILayout.Height(28)))
+                ApplyLevelToAll(level);
+            GUI.backgroundColor = old;
+        }
 
-            var grouped = _cachedLogInfos
+        private void ExportToConsole()
+        {
+            if (_allInfos.Count == 0) { Debug.Log("[MID Logger] No MonoBehaviours found."); return; }
+            var sb = new System.Text.StringBuilder("===== SCENE LOG LEVELS =====\n");
+            sb.AppendLine($"Total: {_allInfos.Count}");
+            foreach (var g in _allInfos
                 .OrderBy(i => i.CurrentLogLevel)
                 .ThenBy(i => i.GameObjectName)
-                .ThenBy(i => i.ComponentName)
-                .GroupBy(i => i.CurrentLogLevel);
-
-            foreach (var group in grouped)
+                .GroupBy(i => i.CurrentLogLevel))
             {
-                sb.AppendLine($"--- {group.Key} ({group.Count()}) ---");
-                foreach (var info in group)
-                {
-                    sb.AppendLine($"  • {info.GameObjectName} / {info.ComponentName}");
-                }
-                sb.AppendLine();
+                sb.AppendLine($"\n--- {g.Key} ({g.Count()}) ---");
+                foreach (var i in g)
+                    sb.AppendLine($"  • {i.GameObjectName} / {i.ComponentName}  [{i.FieldName}]");
             }
-
             Debug.Log(sb.ToString());
         }
 
-        private void CreateNewSettings()
+        private bool DrawFoldout(bool state, string title, Action drawContent)
         {
-            string path = EditorUtility.SaveFilePanelInProject(
-                "Create MID Logger Settings",
-                "MID_LoggerSettings",
-                "asset",
-                "Create a new MID Logger Settings asset. It should be placed in a Resources folder.");
-
-            if (!string.IsNullOrEmpty(path))
-            {
-                var newSettings = CreateInstance<MID_LoggerSettings>();
-                AssetDatabase.CreateAsset(newSettings, path);
-                AssetDatabase.SaveAssets();
-                AssetDatabase.Refresh();
-
-                _settings = newSettings;
-                EditorUtility.SetDirty(_settings);
-
-                if (!path.Contains("/Resources/"))
-                {
-                    EditorUtility.DisplayDialog("Warning",
-                        "The settings asset should be placed in a Resources folder for runtime access.\n\n" +
-                        "Current path: " + path,
-                        "OK");
-                }
-            }
+            state = EditorGUILayout.BeginFoldoutHeaderGroup(state, title);
+            if (state) drawContent?.Invoke();
+            EditorGUILayout.EndFoldoutHeaderGroup();
+            return state;
         }
 
         private void DrawSeparator()
         {
-            Rect rect = EditorGUILayout.GetControlRect(false, 1);
-            rect.height = 1;
-            EditorGUI.DrawRect(rect, new Color(0.5f, 0.5f, 0.5f, 0.5f));
+            var r = EditorGUILayout.GetControlRect(false, 1);
+            EditorGUI.DrawRect(r, new Color(0.5f, 0.5f, 0.5f, 0.4f));
+            EditorGUILayout.Space(4);
         }
 
+        private void LoadSettings()
+        {
+            _settings = Resources.Load<MID_LoggerSettings>("MID_LoggerSettings");
+            if (_settings != null) return;
+            var guids = AssetDatabase.FindAssets("t:MID_LoggerSettings");
+            if (guids.Length > 0)
+                _settings = AssetDatabase.LoadAssetAtPath<MID_LoggerSettings>(
+                    AssetDatabase.GUIDToAssetPath(guids[0]));
+        }
+
+        private void CreateSettings()
+        {
+            string path = EditorUtility.SaveFilePanelInProject(
+                "Create MID Logger Settings", "MID_LoggerSettings", "asset",
+                "Place in a Resources folder for runtime access.");
+            if (string.IsNullOrEmpty(path)) return;
+
+            var asset = CreateInstance<MID_LoggerSettings>();
+            AssetDatabase.CreateAsset(asset, path);
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+            _settings = asset;
+
+            if (!path.Contains("/Resources/"))
+                EditorUtility.DisplayDialog("Warning",
+                    "Settings asset should be inside a Resources/ folder.\nCurrent path: " + path, "OK");
+        }
+
+        private static Texture2D MakeTex(int w, int h, Color col)
+        {
+            var pix = new Color[w * h];
+            for (int i = 0; i < pix.Length; i++) pix[i] = col;
+            var t = new Texture2D(w, h);
+            t.SetPixels(pix); t.Apply();
+            return t;
+        }
+
+        // ── Data class ─────────────────────────────────────────────────────────
         private class MonoBehaviourLogInfo
         {
             public MonoBehaviour Component;
-            public string GameObjectName;
-            public string ComponentName;
-            public FieldInfo LogLevelField;
-            public MID_LogLevel CurrentLogLevel;
+            public string        GameObjectName;
+            public string        ComponentName;
+            public string        FieldName;
+            public FieldInfo     LogLevelField;
+            public MID_LogLevel  CurrentLogLevel;
         }
     }
 }
