@@ -1,10 +1,7 @@
 // MID_UIStateButton.cs
-// Button that transitions MID_UIStateManager to a target UIStateId.
-// Also disables itself when the current state already matches the target.
-// Replaces MenuStateUIController and GenericUIStateButton.
-//
-// USAGE:
-//   Attach to any Button. Set targetState in the inspector.
+// Button that transitions a MID_UIStateContext to a target state.
+// Assign the context SO and target state raw int, or use the custom editor
+// which shows an enum dropdown based on the context's generated enum type.
 
 using UnityEngine;
 using UnityEngine.UI;
@@ -12,18 +9,22 @@ using MidManStudio.Core.Logging;
 
 namespace MidManStudio.Core.UIState
 {
-    /// <summary>
-    /// Wires a UI Button to a UIStateId transition.
-    /// Disables when current state already equals target state.
-    /// </summary>
     [RequireComponent(typeof(Button))]
     public class MID_UIStateButton : MonoBehaviour
     {
-        [SerializeField] private UIStateId   _targetState;
-        [SerializeField] private bool        _disableWhenActive = true;
-        [SerializeField] private MID_LogLevel _logLevel         = MID_LogLevel.None;
+        [Tooltip("Which context this button drives.")]
+        [SerializeField] private MID_UIStateContext _context;
+
+        [Tooltip("The state to transition to. Use the custom inspector for enum names.")]
+        [SerializeField] private int _targetStateMask;
+
+        [SerializeField] private bool         _disableWhenActive = true;
+        [SerializeField] private MID_LogLevel _logLevel          = MID_LogLevel.None;
 
         private Button _button;
+
+        public MID_UIStateContext Context        => _context;
+        public int                TargetStateMask => _targetStateMask;
 
         private void Awake()
         {
@@ -31,38 +32,31 @@ namespace MidManStudio.Core.UIState
             _button.onClick.AddListener(OnClick);
         }
 
-        private void Start()
+        private void OnEnable()
         {
-            if (MID_UIStateManager.Instance == null)
-            {
-                MID_Logger.LogWarning(MID_LogLevel.Info,
-                    $"MID_UIStateManager not found on {gameObject.name}.",
-                    nameof(MID_UIStateButton));
-                return;
-            }
-
-            MID_UIStateManager.Instance.OnStateChanged += UpdateInteractable;
-            UpdateInteractable(MID_UIStateManager.Instance.CurrentState);
+            if (_context == null) return;
+            _context.OnStateChanged += UpdateInteractable;
+            UpdateInteractable(_context.CurrentState);
         }
 
-        private void OnDestroy()
+        private void OnDisable()
         {
-            if (MID_UIStateManager.Instance != null)
-                MID_UIStateManager.Instance.OnStateChanged -= UpdateInteractable;
+            if (_context != null)
+                _context.OnStateChanged -= UpdateInteractable;
         }
 
         private void OnClick()
         {
-            if (MID_UIStateManager.Instance == null) return;
-            MID_Logger.LogDebug(_logLevel, $"Button → {_targetState}.",
+            if (_context == null) return;
+            MID_Logger.LogDebug(_logLevel, $"Button → {_targetStateMask}.",
                 nameof(MID_UIStateButton));
-            MID_UIStateManager.Instance.ChangeState(_targetState);
+            _context.ChangeState(_targetStateMask);
         }
 
-        private void UpdateInteractable(UIStateId currentState)
+        private void UpdateInteractable(int state)
         {
             if (!_disableWhenActive) return;
-            _button.interactable = currentState != _targetState;
+            _button.interactable = state != _targetStateMask;
         }
     }
 }
