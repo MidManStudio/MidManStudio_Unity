@@ -1,89 +1,62 @@
 // MID_UIStateVisibility.cs
-// Shows this UI element when the current UIStateId matches any of the flagged states.
-// Replace MenuStateVisibilityUI — no game-specific code, works with any generated UIStateId.
-//
-// USAGE:
-//   Attach to any UI panel alongside MID_UIElement.
-//   In the inspector, set showWhen to one or more UIStateId flags using the custom drawer.
-//   The panel is shown when (currentState & showWhen) != 0.
+// Shows this UI element when the referenced MID_UIStateContext has a state
+// that matches any of the selected flags.
+// Works across scenes — just assign the same context SO asset.
+// Custom editor auto-discovers the enum type from the context SO.
 
 using UnityEngine;
 using MidManStudio.Core.Logging;
 
 namespace MidManStudio.Core.UIState
 {
-    /// <summary>
-    /// Shows/hides this UI element based on UIStateId flags.
-    /// Automatically registers with MID_UIStateManager on Start.
-    /// </summary>
     [RequireComponent(typeof(MID_UIElement))]
     public class MID_UIStateVisibility : MonoBehaviour
     {
-        [Tooltip("Show this element when the current state contains ANY of these flags.")]
-        [SerializeField] private UIStateId _showWhen;
+        [Tooltip("Which context this element belongs to. Assign a MID_UIStateContext SO asset.")]
+        [SerializeField] private MID_UIStateContext _context;
+
+        [Tooltip("Show when the context state contains ANY of these flags.\n" +
+                 "Use the custom inspector to pick flags by name.")]
+        [SerializeField] private int _showWhenMask;
 
         [SerializeField] private MID_LogLevel _logLevel = MID_LogLevel.None;
 
         private MID_UIElement _element;
-        private bool          _isVisible;
+        private bool          _visible;
 
-        // ── Lifecycle ─────────────────────────────────────────────────────────
+        public MID_UIStateContext Context      => _context;
+        public int                ShowWhenMask => _showWhenMask;
 
         private void Awake()
         {
             _element = GetComponent<MID_UIElement>();
         }
 
-        private void Start()
+        private void OnEnable()
         {
-            if (MID_UIStateManager.Instance == null)
-            {
-                MID_Logger.LogWarning(MID_LogLevel.Info,
-                    $"MID_UIStateManager not found on {gameObject.name}.",
-                    nameof(MID_UIStateVisibility));
-                return;
-            }
-
-            MID_UIStateManager.Instance.OnStateChanged += HandleStateChanged;
-            // Initialise with current state
-            HandleStateChanged(MID_UIStateManager.Instance.CurrentState);
+            if (_context == null) return;
+            _context.OnStateChanged += HandleStateChanged;
+            HandleStateChanged(_context.CurrentState);
         }
 
-        private void OnDestroy()
+        private void OnDisable()
         {
-            if (MID_UIStateManager.Instance != null)
-                MID_UIStateManager.Instance.OnStateChanged -= HandleStateChanged;
+            if (_context != null)
+                _context.OnStateChanged -= HandleStateChanged;
         }
 
-        // ── Logic ─────────────────────────────────────────────────────────────
-
-        private void HandleStateChanged(UIStateId newState)
+        private void HandleStateChanged(int newState)
         {
-            // Show if the current state has ANY of the flagged bits
-            bool shouldShow = _showWhen != UIStateId.None &&
-                              (newState & _showWhen) != 0;
+            bool shouldShow = _showWhenMask != 0 && (newState & _showWhenMask) != 0;
+            if (shouldShow == _visible) return;
+            _visible = shouldShow;
 
-            if (shouldShow == _isVisible) return;
+            if (shouldShow) _element.Show();
+            else            _element.Hide();
 
-            _isVisible = shouldShow;
-
-            if (shouldShow)
-            {
-                _element.Show();
-                MID_Logger.LogDebug(_logLevel, $"{name} shown for state {newState}.",
-                    nameof(MID_UIStateVisibility));
-            }
-            else
-            {
-                _element.Hide();
-                MID_Logger.LogDebug(_logLevel, $"{name} hidden for state {newState}.",
-                    nameof(MID_UIStateVisibility));
-            }
+            MID_Logger.LogDebug(_logLevel,
+                $"{name} {(shouldShow ? "shown" : "hidden")} (state={newState} mask={_showWhenMask})",
+                nameof(MID_UIStateVisibility));
         }
-
-        // ── Editor helpers ────────────────────────────────────────────────────
-
-        /// <summary>The flags this element responds to. Read-only at runtime.</summary>
-        public UIStateId ShowWhen => _showWhen;
     }
 }
