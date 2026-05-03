@@ -1,29 +1,37 @@
 // MID_NetworkRPCQueue.cs
-// Batches NGO RPC calls into one send per network tick instead of per-call.
-// Dramatically reduces packet overhead when many small state updates fire in one frame
-// (e.g. 20 players sending position corrections simultaneously).
+// Batches NGO ClientRpc/ServerRpc payloads into one send per network tick.
+// Reduces packet overhead when many small state updates fire in one frame.
 //
-// HOW IT WORKS:
-//   1. Callers enqueue a pending RPC payload (any struct implementing IMIDRPCPayload).
-//   2. Every network tick (driven by NetworkTimer) the queue flushes — one RPC per channel.
-//   3. Duplicate payloads in the same flush window are collapsed if TCollapseKey matches.
+// CONSTRAINT: T must implement both IMIDRPCPayload and INetworkSerializable.
+// INetworkSerializable is required so NGO can write T into a FastBufferWriter.
 //
 // USAGE:
-//   // Define a payload
-//   public struct PositionUpdate : IMIDRPCPayload
+//   // 1. Define your payload
+//   public struct HitEvent : IMIDRPCPayload, INetworkSerializable
 //   {
-//       public Vector3 Position;
-//       public string CollapseKey => $"pos_{OwnerId}";  // one update per owner per tick
-//       public ulong OwnerId;
+//       public ulong  TargetId;
+//       public float  Damage;
+//       public string CollapseKey => null; // never collapse — all hits matter
+//
+//       public void NetworkSerialize<T>(BufferSerializer<T> s) where T : IReaderWriter
+//       {
+//           s.SerializeValue(ref TargetId);
+//           s.SerializeValue(ref Damage);
+//       }
 //   }
 //
-//   // Enqueue from any system
-//   MID_NetworkRPCQueue.Instance.Enqueue(new PositionUpdate { Position = pos, OwnerId = id });
+//   // 2. Register your flush handler (in OnNetworkSpawn)
+//   MID_NetworkRPCQueue.Instance.RegisterChannel<HitEvent>(FlushHits);
 //
-//   // The queue fires your registered handler each flush
-//   MID_NetworkRPCQueue.Instance.RegisterChannel<PositionUpdate>(FlushPositionUpdates);
+//   // 3. Enqueue from any system — batches automatically
+//   MID_NetworkRPCQueue.Instance.Enqueue(new HitEvent { TargetId = id, Damage = 10f });
 //
-//   void FlushPositionUpdates(List<PositionUpdate> batch) { /* send one ClientRpc with batch */ }
+//   // 4. Implement your flush handler — receives the whole batch as one call
+//   private void FlushHits(List<HitEvent> batch)
+//   {
+//       // Send one RPC with all hits this tick
+//       SendHitBatchClientRpc(batch.ToArray());
+//   }
 
 using System;
 using System.Collections.Generic;
@@ -36,9 +44,10 @@ namespace MidManStudio.Core.Netcode
     // ── Payload interface ─────────────────────────────────────────────────────
 
     /// <summary>
-    /// Implement on any struct used as an RPC queue payload.
-    /// CollapseKey: payloads with the same key in one flush window are deduplicated
-    /// (last-write-wins). Return null or empty to never collapse.
+    /// Implement on any struct used as a batched RPC payload.
+    /// Must also implement INetworkSerializable for NGO to serialize it.
+    /// CollapseKey: payloads with the same key in one flush window are
+    /// deduplicated (last-write-wins). Return null to never collapse.
     /// </summary>
     public interface IMIDRPCPayload
     {
@@ -46,22 +55,37 @@ namespace MidManStudio.Core.Netcode
         string CollapseKey { get; }
     }
 
-    // ── Per-channel queue ─────────────────────────────────────────────────────
+    // ── Channel interface (avoids reflection in FlushAll) ─────────────────────
 
-    internal class RPCChannel<T> where T : struct, IMIDRPCPayload
+    internal interface IRPCChannel
     {
-        private readonly Dictionary<string, T> _collapsed = new(); // keyed by CollapseKey
+        void  Flush();
+        int   PendingCount { get; }
+    }
+
+    // ── Per-type channel ──────────────────────────────────────────────────────
+
+    internal class RPCChannel<T> : IRPCChannel
+        where T : struct, IMIDRPCPayload, INetworkSerializable
+    {
+        // Collapsed payloads — last-write-wins per CollapseKey
+        private readonly Dictionary<string, T> _collapsed   = new();
+        // Uncollapsed payloads — all kept
         private readonly List<T>               _uncollapsed = new();
-        private readonly Action<List<T>>        _flushHandler;
+        // Reused flush list — passed to handler, cleared after
         private readonly List<T>               _flushBuffer = new();
 
+        private readonly Action<List<T>> _flushHandler;
+
         public RPCChannel(Action<List<T>> handler) => _flushHandler = handler;
+
+        public int PendingCount => _collapsed.Count + _uncollapsed.Count;
 
         public void Enqueue(T payload)
         {
             string key = payload.CollapseKey;
             if (!string.IsNullOrEmpty(key))
-                _collapsed[key] = payload;  // last-write-wins per key
+                _collapsed[key] = payload;
             else
                 _uncollapsed.Add(payload);
         }
@@ -79,38 +103,38 @@ namespace MidManStudio.Core.Netcode
 
             _flushHandler?.Invoke(_flushBuffer);
         }
-
-        public int PendingCount => _collapsed.Count + _uncollapsed.Count;
     }
 
     // ── Manager ───────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Tick-driven RPC batch queue. Reduces NGO packet count by flushing
-    /// all enqueued payloads once per network tick.
+    /// Tick-driven RPC batch queue for Unity Netcode for GameObjects.
+    /// Attach to a persistent NetworkBehaviour GameObject.
     /// </summary>
     public class MID_NetworkRPCQueue : NetworkBehaviour
     {
         #region Singleton
 
         private static MID_NetworkRPCQueue _instance;
-        public  static MID_NetworkRPCQueue Instance => _instance;
+        public  static MID_NetworkRPCQueue Instance   => _instance;
         public  static bool                HasInstance => _instance != null;
 
         #endregion
 
         #region Inspector
 
-        [SerializeField] private float       _serverTickRate = 20f;
-        [SerializeField] private MID_LogLevel _logLevel      = MID_LogLevel.Info;
+        [Tooltip("How many times per second to flush all queued RPC payloads.")]
+        [SerializeField] private float        _flushRate = 20f;
+
+        [SerializeField] private MID_LogLevel _logLevel  = MID_LogLevel.Info;
 
         #endregion
 
         #region State
 
-        private readonly Dictionary<Type, object> _channels = new();
-        private NetworkTimer                      _timer;
-        private int                               _totalFlushed;
+        private readonly Dictionary<Type, IRPCChannel> _channels = new();
+        private NetworkTimer                           _timer;
+        private int                                    _totalFlushes;
 
         #endregion
 
@@ -120,10 +144,10 @@ namespace MidManStudio.Core.Netcode
         {
             if (_instance != null && _instance != this) { Destroy(gameObject); return; }
             _instance = this;
-            _timer    = new NetworkTimer(_serverTickRate);
+            _timer    = new NetworkTimer(_flushRate);
 
             MID_Logger.LogInfo(_logLevel,
-                $"MID_NetworkRPCQueue ready — tick rate {_serverTickRate}/s.",
+                $"MID_NetworkRPCQueue ready — flush rate {_flushRate}/s.",
                 nameof(MID_NetworkRPCQueue));
         }
 
@@ -146,10 +170,11 @@ namespace MidManStudio.Core.Netcode
 
         /// <summary>
         /// Register a flush handler for payload type T.
-        /// Call once at initialization — typically from OnNetworkSpawn.
+        /// Call once per channel, typically in OnNetworkSpawn.
+        /// T must implement both IMIDRPCPayload and INetworkSerializable.
         /// </summary>
         public void RegisterChannel<T>(Action<List<T>> flushHandler)
-            where T : struct, IMIDRPCPayload
+            where T : struct, IMIDRPCPayload, INetworkSerializable
         {
             var type = typeof(T);
             if (_channels.ContainsKey(type))
@@ -158,6 +183,7 @@ namespace MidManStudio.Core.Netcode
                     $"Channel for {type.Name} already registered — overwriting.",
                     nameof(MID_NetworkRPCQueue));
             }
+
             _channels[type] = new RPCChannel<T>(flushHandler);
 
             MID_Logger.LogDebug(_logLevel,
@@ -166,16 +192,18 @@ namespace MidManStudio.Core.Netcode
         }
 
         /// <summary>
-        /// Enqueue a payload for batched dispatch on next tick.
-        /// Safe to call from any system every frame.
+        /// Enqueue a payload for dispatch on the next flush tick.
+        /// Payloads with the same CollapseKey are deduplicated — last-write-wins.
+        /// Safe to call every frame.
         /// </summary>
-        public void Enqueue<T>(T payload) where T : struct, IMIDRPCPayload
+        public void Enqueue<T>(T payload)
+            where T : struct, IMIDRPCPayload, INetworkSerializable
         {
             var type = typeof(T);
             if (!_channels.TryGetValue(type, out var channelObj))
             {
                 MID_Logger.LogWarning(_logLevel,
-                    $"No channel registered for {type.Name}. Call RegisterChannel first.",
+                    $"No channel for {type.Name}. Call RegisterChannel<{type.Name}>() first.",
                     nameof(MID_NetworkRPCQueue));
                 return;
             }
@@ -183,14 +211,23 @@ namespace MidManStudio.Core.Netcode
             ((RPCChannel<T>)channelObj).Enqueue(payload);
         }
 
-        /// <summary>Remove a channel. Call when the owning system is despawned.</summary>
-        public void UnregisterChannel<T>() where T : struct, IMIDRPCPayload
+        /// <summary>Unregister a channel. Call when the owning system despawns.</summary>
+        public void UnregisterChannel<T>()
+            where T : struct, IMIDRPCPayload, INetworkSerializable
         {
             _channels.Remove(typeof(T));
         }
 
-        /// <summary>Total payloads flushed since startup. Useful for profiling.</summary>
-        public int TotalFlushed => _totalFlushed;
+        /// <summary>Total flush cycles executed since startup. Useful for profiling.</summary>
+        public int TotalFlushes => _totalFlushes;
+
+        /// <summary>Number of payloads pending across all channels.</summary>
+        public int TotalPending()
+        {
+            int total = 0;
+            foreach (var c in _channels.Values) total += c.PendingCount;
+            return total;
+        }
 
         #endregion
 
@@ -198,20 +235,19 @@ namespace MidManStudio.Core.Netcode
 
         private void FlushAll()
         {
+            _totalFlushes++;
             foreach (var channel in _channels.Values)
             {
-                // Use reflection-free virtual dispatch via interface
-                (channel as IFlushable)?.Flush();
+                try   { channel.Flush(); }
+                catch (Exception e)
+                {
+                    MID_Logger.LogError(_logLevel,
+                        $"Flush error: {e.Message}",
+                        nameof(MID_NetworkRPCQueue));
+                }
             }
         }
 
         #endregion
     }
-
-    // ── Internal flush interface — avoids reflection in FlushAll ─────────────
-
-    internal interface IFlushable { void Flush(); }
-
-    // Make RPCChannel implement it
-    internal partial class RPCChannel<T> : IFlushable where T : struct, IMIDRPCPayload { }
 }
