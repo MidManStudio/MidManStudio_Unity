@@ -1,4 +1,4 @@
-﻿// LocalParticlePool.cs
+// LocalParticlePool.cs
 // Singleton pool manager for particle GameObjects.
 // Uses the generated PoolableParticleType enum.
 
@@ -26,12 +26,11 @@ namespace MidManStudio.Core.Pools
         [SerializeField] private bool enableAutoRegistration   = true;
 
         [Header("Monitor (read-only)")]
-        [SerializeField] private int                   totalPooledParticles;
-        [SerializeField] private int                   totalActiveParticles;
-        [SerializeField] private int                   childrenCount;
-        [SerializeField] private List<ParticlePoolStats> poolStatistics = new List<ParticlePoolStats>();
-        [SerializeField] private List<string>          configWarnings  = new List<string>();
-        [SerializeField] private bool                  hasValidationErrors;
+        [SerializeField] private int                     totalPooledParticles;
+        [SerializeField] private int                     totalActiveParticles;
+        [SerializeField] private int                     childrenCount;
+        [SerializeField] private List<ParticlePoolStats> poolStatistics  = new List<ParticlePoolStats>();
+        [SerializeField] private List<string>            configWarnings  = new List<string>();
 
         #endregion
 
@@ -74,11 +73,9 @@ namespace MidManStudio.Core.Pools
                 nameof(LocalParticlePool), nameof(CallInitializePool));
 
             configWarnings.Clear();
-            hasValidationErrors = false;
 
             if (!ValidateConfigs())
             {
-                hasValidationErrors = true;
                 MID_Logger.LogError(_logLevel,
                     $"Particle pool validation failed — {configWarnings.Count} error(s).",
                     nameof(LocalParticlePool), nameof(CallInitializePool));
@@ -104,7 +101,6 @@ namespace MidManStudio.Core.Pools
         public GameObject GetObject(PoolableParticleType type, Vector2 position, Quaternion rotation)
             => GetObject((int)type, new Vector3(position.x, position.y, 0f), rotation);
 
-        /// <summary>Raw int overload. Prefer the PoolableParticleType overloads.</summary>
         public GameObject GetObject(int typeId, Vector3 position, Quaternion rotation)
         {
             if (!EnsureRegistered(typeId)) return null;
