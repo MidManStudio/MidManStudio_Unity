@@ -1,13 +1,11 @@
-﻿using UnityEngine;
+using UnityEngine;
 using System;
 using System.Collections.Generic;
-
 
 namespace MidManStudio.Core.EditorTools
 {
     /// <summary>
-    /// Enhanced debug panel with minimize functionality and separate logs/stats sections
-    /// Now with proper FPS tracking (min/max/avg)
+    /// Enhanced debug panel with minimize functionality and separate logs/stats sections.
     /// </summary>
     public class DynamicDebugPanel : MonoBehaviour
     {
@@ -127,15 +125,15 @@ namespace MidManStudio.Core.EditorTools
                 return;
             }
             Instance = this;
+            // Use showPanel to determine initial panel state
+            currentState = showPanel ? PanelState.Expanded : PanelState.Closed;
             InitializeDefaultSections();
         }
 
         private void OnDestroy()
         {
             if (Instance == this)
-            {
                 Instance = null;
-            }
         }
 
         private void Update()
@@ -151,13 +149,9 @@ namespace MidManStudio.Core.EditorTools
             InitializeStyles();
 
             if (currentState == PanelState.Minimized)
-            {
                 DrawMinimizedPanel();
-            }
             else
-            {
                 DrawExpandedPanel();
-            }
         }
 #endif
         #endregion
@@ -166,12 +160,12 @@ namespace MidManStudio.Core.EditorTools
         private void InitializeDefaultSections()
         {
             AddSection("System", Color.cyan);
-            AddValue("System", "FPS", 0f, DebugValueType.Display, format: "F1");
+            AddValue("System", "FPS",       0f, DebugValueType.Display, format: "F1");
             AddValue("System", "FPS (Avg)", 0f, DebugValueType.Display, format: "F1");
             AddValue("System", "FPS (Min)", 0f, DebugValueType.Display, format: "F1");
             AddValue("System", "FPS (Max)", 0f, DebugValueType.Display, format: "F1");
-            AddValue("System", "Frame Time", 0f, DebugValueType.Display, format: "F2");
-            AddValue("System", "Memory", 0f, DebugValueType.Display, format: "F1");
+            AddValue("System", "Frame Time",0f, DebugValueType.Display, format: "F2");
+            AddValue("System", "Memory",    0f, DebugValueType.Display, format: "F1");
         }
 
         private void InitializeStyles()
@@ -187,26 +181,18 @@ namespace MidManStudio.Core.EditorTools
             _headerStyle = new GUIStyle(GUI.skin.label)
             {
                 fontStyle = FontStyle.Bold,
-                fontSize = 12,
-                normal = { textColor = Color.white }
+                fontSize  = 12,
+                normal    = { textColor = Color.white }
             };
 
             _valueStyle = new GUIStyle(GUI.skin.label)
             {
                 fontSize = 10,
-                normal = { textColor = Color.gray }
+                normal   = { textColor = Color.gray }
             };
 
-            _buttonStyle = new GUIStyle(GUI.skin.button)
-            {
-                fontSize = 10
-            };
-
-            _miniButtonStyle = new GUIStyle(GUI.skin.button)
-            {
-                fontSize = 8,
-                padding = new RectOffset(2, 2, 2, 2)
-            };
+            _buttonStyle     = new GUIStyle(GUI.skin.button) { fontSize = 10 };
+            _miniButtonStyle = new GUIStyle(GUI.skin.button) { fontSize = 8, padding = new RectOffset(2, 2, 2, 2) };
 
             stylesInitialized = true;
         }
@@ -214,13 +200,11 @@ namespace MidManStudio.Core.EditorTools
         private Texture2D MakeTex(int width, int height, Color col)
         {
             Color[] pix = new Color[width * height];
-            for (int i = 0; i < pix.Length; i++)
-                pix[i] = col;
-
-            Texture2D result = new Texture2D(width, height);
-            result.SetPixels(pix);
-            result.Apply();
-            return result;
+            for (int i = 0; i < pix.Length; i++) pix[i] = col;
+            var t = new Texture2D(width, height);
+            t.SetPixels(pix);
+            t.Apply();
+            return t;
         }
         #endregion
 
@@ -229,38 +213,27 @@ namespace MidManStudio.Core.EditorTools
         private void DrawMinimizedPanel()
         {
             HandleMinimizedPanelDragging();
-
             GUILayout.BeginArea(minimizedRect, _panelStyle);
             GUILayout.BeginHorizontal();
 
             if (GUILayout.Button("▼", _miniButtonStyle, GUILayout.Width(25)))
-            {
                 currentState = PanelState.Expanded;
-            }
 
             GUILayout.Space(10);
 
             GUI.color = currentViewMode == ViewMode.Stats ? Color.green : Color.white;
             if (GUILayout.Button("Stats", _miniButtonStyle, GUILayout.Width(45)))
-            {
-                currentViewMode = ViewMode.Stats;
-                currentState = PanelState.Expanded;
-            }
+            { currentViewMode = ViewMode.Stats; currentState = PanelState.Expanded; }
 
             GUI.color = currentViewMode == ViewMode.Logs ? Color.yellow : Color.white;
             if (GUILayout.Button("Logs", _miniButtonStyle, GUILayout.Width(45)))
-            {
-                currentViewMode = ViewMode.Logs;
-                currentState = PanelState.Expanded;
-            }
+            { currentViewMode = ViewMode.Logs; currentState = PanelState.Expanded; }
 
             GUI.color = Color.white;
             GUILayout.FlexibleSpace();
 
             if (GUILayout.Button("X", _miniButtonStyle, GUILayout.Width(20)))
-            {
                 currentState = PanelState.Closed;
-            }
 
             GUILayout.EndHorizontal();
             GUILayout.EndArea();
@@ -269,80 +242,52 @@ namespace MidManStudio.Core.EditorTools
         private void DrawExpandedPanel()
         {
             HandlePanelDragging();
-
             GUILayout.BeginArea(panelRect, _panelStyle);
 
             GUILayout.BeginHorizontal();
-
             if (GUILayout.Button("▲", _miniButtonStyle, GUILayout.Width(25)))
-            {
                 currentState = PanelState.Minimized;
-            }
 
             GUILayout.Space(10);
 
             GUI.color = currentViewMode == ViewMode.Stats ? Color.green : Color.white;
             if (GUILayout.Button("Stats", _buttonStyle, GUILayout.Width(50)))
-            {
                 currentViewMode = ViewMode.Stats;
-            }
 
             GUI.color = currentViewMode == ViewMode.Logs ? Color.yellow : Color.white;
             if (GUILayout.Button("Logs", _buttonStyle, GUILayout.Width(50)))
-            {
                 currentViewMode = ViewMode.Logs;
-            }
 
             GUI.color = Color.white;
             GUILayout.FlexibleSpace();
 
             if (currentViewMode == ViewMode.Stats && GUILayout.Button("Clear Stats", _buttonStyle, GUILayout.Width(75)))
-            {
                 ClearAllStats();
-            }
             else if (currentViewMode == ViewMode.Logs && GUILayout.Button("Clear Logs", _buttonStyle, GUILayout.Width(75)))
-            {
                 ClearLogs();
-            }
 
             GUILayout.EndHorizontal();
             GUILayout.Space(5);
 
             scrollPosition = GUILayout.BeginScrollView(scrollPosition);
-
-            if (currentViewMode == ViewMode.Stats)
-            {
-                DrawStatsContent();
-            }
-            else
-            {
-                DrawLogsContent();
-            }
-
+            if (currentViewMode == ViewMode.Stats) DrawStatsContent();
+            else                                    DrawLogsContent();
             GUILayout.EndScrollView();
+
             GUILayout.EndArea();
         }
 
         private void DrawStatsContent()
         {
             foreach (var kvp in debugSections)
-            {
                 DrawSection(kvp.Key, kvp.Value);
-            }
         }
 
         private void DrawLogsContent()
         {
-            if (logEntries.Count == 0)
-            {
-                GUILayout.Label("No logs available", _valueStyle);
-                return;
-            }
-
+            if (logEntries.Count == 0) { GUILayout.Label("No logs available", _valueStyle); return; }
             for (int i = 0; i < logEntries.Count; i++)
-            {
                 GUILayout.Label(logEntries[i], _valueStyle);
-            }
         }
 
         private void DrawSection(string sectionKey, DebugSection section)
@@ -362,9 +307,7 @@ namespace MidManStudio.Core.EditorTools
             if (!expanded) return;
 
             foreach (var valueKvp in section.values)
-            {
                 DrawDebugValue(sectionKey, valueKvp.Key, valueKvp.Value);
-            }
         }
 
         private void DrawDebugValue(string sectionKey, string valueKey, DebugValue debugValue)
@@ -383,7 +326,6 @@ namespace MidManStudio.Core.EditorTools
                     float sliderValue = Convert.ToSingle(debugValue.value);
                     float newValue = GUILayout.HorizontalSlider(sliderValue, debugValue.minValue, debugValue.maxValue);
                     GUILayout.Label(FormatValue(newValue, debugValue.format), _valueStyle, GUILayout.Width(50));
-
                     if (Mathf.Abs(newValue - sliderValue) > 0.001f)
                     {
                         debugValue.onSliderChanged?.Invoke(newValue);
@@ -394,17 +336,12 @@ namespace MidManStudio.Core.EditorTools
                 case DebugValueType.Toggle:
                     bool toggleValue = Convert.ToBoolean(debugValue.value);
                     bool newToggleValue = GUILayout.Toggle(toggleValue, debugValue.name, GUILayout.Width(150));
-                    if (newToggleValue != toggleValue)
-                    {
-                        UpdateValue(sectionKey, valueKey, newToggleValue);
-                    }
+                    if (newToggleValue != toggleValue) UpdateValue(sectionKey, valueKey, newToggleValue);
                     break;
 
                 case DebugValueType.Button:
                     if (GUILayout.Button(debugValue.name, _buttonStyle))
-                    {
                         debugValue.onSliderChanged?.Invoke(0);
-                    }
                     break;
 
                 case DebugValueType.ProgressBar:
@@ -423,46 +360,26 @@ namespace MidManStudio.Core.EditorTools
         private void HandlePanelDragging()
         {
             if (!allowDragging) return;
-
             Event e = Event.current;
             Rect headerRect = new Rect(panelRect.x, panelRect.y, panelRect.width, 25);
-
             if (e.type == EventType.MouseDown && headerRect.Contains(e.mousePosition))
-            {
-                isDragging = true;
-                dragOffset = e.mousePosition - new Vector2(panelRect.x, panelRect.y);
-            }
+            { isDragging = true; dragOffset = e.mousePosition - new Vector2(panelRect.x, panelRect.y); }
             else if (e.type == EventType.MouseDrag && isDragging)
-            {
-                panelRect.x = e.mousePosition.x - dragOffset.x;
-                panelRect.y = e.mousePosition.y - dragOffset.y;
-            }
+            { panelRect.x = e.mousePosition.x - dragOffset.x; panelRect.y = e.mousePosition.y - dragOffset.y; }
             else if (e.type == EventType.MouseUp)
-            {
-                isDragging = false;
-            }
+            { isDragging = false; }
         }
 
         private void HandleMinimizedPanelDragging()
         {
             if (!allowDragging) return;
-
             Event e = Event.current;
-
             if (e.type == EventType.MouseDown && minimizedRect.Contains(e.mousePosition))
-            {
-                isDragging = true;
-                dragOffset = e.mousePosition - new Vector2(minimizedRect.x, minimizedRect.y);
-            }
+            { isDragging = true; dragOffset = e.mousePosition - new Vector2(minimizedRect.x, minimizedRect.y); }
             else if (e.type == EventType.MouseDrag && isDragging)
-            {
-                minimizedRect.x = e.mousePosition.x - dragOffset.x;
-                minimizedRect.y = e.mousePosition.y - dragOffset.y;
-            }
+            { minimizedRect.x = e.mousePosition.x - dragOffset.x; minimizedRect.y = e.mousePosition.y - dragOffset.y; }
             else if (e.type == EventType.MouseUp)
-            {
-                isDragging = false;
-            }
+            { isDragging = false; }
         }
 #endif
         #endregion
@@ -471,19 +388,13 @@ namespace MidManStudio.Core.EditorTools
         public void AddSection(string sectionName, Color titleColor = default)
         {
             if (!debugSections.ContainsKey(sectionName))
-            {
                 debugSections[sectionName] = new DebugSection(sectionName, titleColor);
-            }
         }
 
         public void AddValue(string section, string name, object value, DebugValueType type = DebugValueType.Display,
                             float minValue = 0f, float maxValue = 100f, System.Action<float> onChanged = null, string format = "F2")
         {
-            if (!debugSections.ContainsKey(section))
-            {
-                AddSection(section);
-            }
-
+            if (!debugSections.ContainsKey(section)) AddSection(section);
             var debugSection = debugSections[section];
             debugSection.values[name] = new DebugValue(name, value, type, minValue, maxValue, onChanged, format);
             debugSections[section] = debugSection;
@@ -491,46 +402,30 @@ namespace MidManStudio.Core.EditorTools
 
         public void UpdateValue(string section, string name, object value)
         {
-            if (debugSections.ContainsKey(section) && debugSections[section].values.ContainsKey(name))
-            {
-                var debugSection = debugSections[section];
-                var debugValue = debugSection.values[name];
-                debugValue.value = value;
-                debugSection.values[name] = debugValue;
-                debugSections[section] = debugSection;
-            }
+            if (!debugSections.ContainsKey(section) || !debugSections[section].values.ContainsKey(name)) return;
+            var debugSection = debugSections[section];
+            var debugValue   = debugSection.values[name];
+            debugValue.value = value;
+            debugSection.values[name] = debugValue;
+            debugSections[section]    = debugSection;
         }
 
         public void RemoveValue(string section, string name)
         {
-            if (debugSections.ContainsKey(section))
-            {
-                var debugSection = debugSections[section];
-                debugSection.values.Remove(name);
-                debugSections[section] = debugSection;
-            }
+            if (!debugSections.ContainsKey(section)) return;
+            var debugSection = debugSections[section];
+            debugSection.values.Remove(name);
+            debugSections[section] = debugSection;
         }
 
         public void AddLog(string message)
         {
-            string timestampedMessage = $"[{DateTime.Now:HH:mm:ss}] {message}";
-            logEntries.Add(timestampedMessage);
-
-            if (logEntries.Count > maxLogEntries)
-            {
-                logEntries.RemoveAt(0);
-            }
-
-            if (autoScroll && currentViewMode == ViewMode.Logs)
-            {
-                scrollPosition.y = float.MaxValue;
-            }
+            logEntries.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
+            if (logEntries.Count > maxLogEntries) logEntries.RemoveAt(0);
+            if (autoScroll && currentViewMode == ViewMode.Logs) scrollPosition.y = float.MaxValue;
         }
 
-        public void ClearLogs()
-        {
-            logEntries.Clear();
-        }
+        public void ClearLogs()     => logEntries.Clear();
 
         public void ClearAllStats()
         {
@@ -540,37 +435,25 @@ namespace MidManStudio.Core.EditorTools
 
         public void TogglePanel()
         {
-            if (currentState == PanelState.Closed)
+            currentState = currentState switch
             {
-                currentState = PanelState.Expanded;
-            }
-            else if (currentState == PanelState.Expanded)
-            {
-                currentState = PanelState.Minimized;
-            }
-            else
-            {
-                currentState = PanelState.Expanded;
-            }
+                PanelState.Closed    => PanelState.Expanded,
+                PanelState.Expanded  => PanelState.Minimized,
+                _                    => PanelState.Expanded
+            };
         }
 
-        public void SetPanelState(bool show)
-        {
+        public void SetPanelState(bool show) =>
             currentState = show ? PanelState.Expanded : PanelState.Closed;
-        }
 
         [ContextMenu("Reset FPS Stats")]
         public void ResetFPSStats()
         {
-            for (int i = 0; i < fpsBuffer.Length; i++)
-            {
-                fpsBuffer[i] = 0f;
-            }
+            for (int i = 0; i < fpsBuffer.Length; i++) fpsBuffer[i] = 0f;
             fpsBufferIndex = 0;
             minFPS = float.MaxValue;
             maxFPS = 0f;
             avgFPS = 0f;
-
             AddLog("FPS statistics reset");
         }
         #endregion
@@ -578,46 +461,33 @@ namespace MidManStudio.Core.EditorTools
         #region System Stats Update
         private void UpdateSystemStats()
         {
-            // Calculate current FPS
             float currentFPS = 1f / Time.unscaledDeltaTime;
-
-            // Update rolling buffer
             fpsBuffer[fpsBufferIndex] = currentFPS;
             fpsBufferIndex = (fpsBufferIndex + 1) % fpsBuffer.Length;
 
-            // Calculate average FPS from buffer
             float sum = 0f;
-            for (int i = 0; i < fpsBuffer.Length; i++)
-            {
-                sum += fpsBuffer[i];
-            }
+            for (int i = 0; i < fpsBuffer.Length; i++) sum += fpsBuffer[i];
             avgFPS = sum / fpsBuffer.Length;
 
-            // Track min/max FPS
             if (currentFPS < minFPS) minFPS = currentFPS;
             if (currentFPS > maxFPS) maxFPS = currentFPS;
 
-            // Update display values
-            UpdateValue("System", "FPS", currentFPS);
-            UpdateValue("System", "FPS (Avg)", avgFPS);
-            UpdateValue("System", "FPS (Min)", minFPS);
-            UpdateValue("System", "FPS (Max)", maxFPS);
+            UpdateValue("System", "FPS",        currentFPS);
+            UpdateValue("System", "FPS (Avg)",  avgFPS);
+            UpdateValue("System", "FPS (Min)",  minFPS);
+            UpdateValue("System", "FPS (Max)",  maxFPS);
             UpdateValue("System", "Frame Time", Time.unscaledDeltaTime * 1000f);
-            UpdateValue("System", "Memory", UnityEngine.Profiling.Profiler.GetTotalAllocatedMemoryLong() / 1024f / 1024f);
+            UpdateValue("System", "Memory",     UnityEngine.Profiling.Profiler.GetTotalAllocatedMemoryLong() / 1024f / 1024f);
         }
         #endregion
 
         #region Helper Methods
         private string FormatValue(object value, string format)
         {
-            if (value is float f)
-                return f.ToString(format);
-            else if (value is double d)
-                return d.ToString(format);
-            else if (value is int i)
-                return i.ToString();
-            else
-                return value?.ToString() ?? "null";
+            if (value is float f)  return f.ToString(format);
+            if (value is double d) return d.ToString(format);
+            if (value is int i)    return i.ToString();
+            return value?.ToString() ?? "null";
         }
         #endregion
     }
