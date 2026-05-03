@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 using System;
 namespace MidManStudio.Core.Logging
 {
@@ -17,7 +17,6 @@ namespace MidManStudio.Core.Logging
         #region Private Fields
 
         private int _counter;
-        private bool _isActive;
 
         #endregion
 
@@ -46,7 +45,6 @@ namespace MidManStudio.Core.Logging
 
         private void Update()
         {
-            // Verbose logging - only use when debugging Update specifically
             MID_Logger.LogVerbose(_logLevel, $"Update tick: {_counter}", nameof(ExampleScript), nameof(Update));
             _counter++;
         }
@@ -81,7 +79,6 @@ namespace MidManStudio.Core.Logging
         private void InitializeScript()
         {
             MID_Logger.LogDebug(_logLevel, "Initializing script", nameof(ExampleScript), nameof(InitializeScript));
-            _isActive = true;
         }
 
         private void ProcessValue(float value)
