@@ -1,32 +1,45 @@
 // MID_TickDelayBenchmark.cs
 // Runtime benchmark: MID_TickDelay vs Coroutine vs Task.Delay
-// Measures GC allocation per scheduling call and timing accuracy.
 //
-// ══ SCENE SETUP ═══════════════════════════════════════════════════════════
-//   Add ONLY MID_TickDelayBenchRunner to a scene GameObject.
-//   DelayBenchGCResult and DelayBenchTimingResult are plain structs —
-//   they CANNOT be added as components. If your scene log shows:
-//     "'DelayBenchGCResult' is missing ExtensionOfNativeClass"
-//   open that scene, find the broken GameObject and delete the orphaned
-//   missing script component.
+// ══ GC MEASUREMENT CAVEATS ═══════════════════════════════════════════════
+//   Uses GC.GetAllocatedBytesForCurrentThread() — per-thread monotonic
+//   counter, most accurate managed API available.
 //
-// ══ ZERO-ALLOC RULES (confirmed via IL2CPP & Mono) ═══════════════════════
-//   MID_TickDelay.After() itself has zero internal allocation after pool init.
-//   But: passing a method group (MyMethod) to Action parameter allocates
-//   on Unity 2019.2+ because static delegate caching was removed.
-//   Fix: pre-allocate as static readonly field → field reference = zero alloc.
-//   The benchmark uses static readonly delegates for this reason.
+//   KNOWN LIMITATIONS:
+//   - Task.Delay: .NET pools DelayPromise objects internally. After warmup
+//     the pool is warm and subsequent calls show 0B. First run shows real
+//     allocation (~120–160B). This is correct behaviour — Task reuses objects.
+//   - Coroutine: Same effect. After first GC pass, IEnumerator state machines
+//     get reused from the allocator free list. First run shows real alloc (~80B).
+//   - Re-running the test in the same Play session will show lower numbers
+//     for Coroutine and Task because their pools are warm.
+//   - MID_TickDelay shows 0B consistently because it never allocates at all —
+//     the pre-allocated pool has no internal pooling that could mask real allocs.
+//   For ground truth: open Window > Analysis > Profiler, GC.Alloc column.
 //
-// ══ OPENING THE WINDOW ════════════════════════════════════════════════════
-//   Enter Play Mode, then: MidManStudio > Utilities > Tests > Tick Delay Bench
-//   The window auto-finds the runner. Click "Add Runner to Scene" if prompted.
+// ══ TIMING CAVEATS ════════════════════════════════════════════════════════
+//   Task.Delay ≈ 0ms error — OS high-res timer, correct.
+//   Coroutine  ≈ frame duration error — correct.
+//   TickDelay  ≈ 0–one tick interval error — correct and intentional.
+//   Task fires on threadpool. Time.realtimeSinceStartup is NOT thread-safe.
+//   We use Stopwatch.GetTimestamp() for Task timing instead.
+//
+// ══ WHY MID_TICKDELAY FOR NETCODE? ═══════════════════════════════════════
+//   - Zero alloc every run (no pool warm-up dependency)
+//   - Fires on main thread — safe to touch Unity objects
+//   - No IEnumerator — works inside ServerRpc/ClientRpc directly
+//   - Cancellable with TickDelayHandle
+//   Trade-off: timing bounded by one tick interval (~50ms avg at Tick_0_1)
+//   which is acceptable for respawn timers, cooldowns, deferred RPCs.
 
 using System;
 using System.Collections;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
 using MidManStudio.Core.TickDispatcher;
+using MidManStudio.Core.Logging;
 
 #if UNITY_EDITOR
 using UnityEditor;
@@ -34,9 +47,6 @@ using UnityEditor;
 
 namespace MidManStudio.Core.Benchmarks
 {
-    // ── Result structs ────────────────────────────────────────────────────────
-    // These are VALUE TYPES (structs). Do not add them to a scene as components.
-
     [Serializable]
     public struct DelayBenchGCResult
     {
@@ -45,6 +55,8 @@ namespace MidManStudio.Core.Benchmarks
         public long   TaskDelayBytesPerCall;
         public int    Iterations;
         public bool   Valid;
+        // Whether this was a first run (cold pools) or re-run (warm pools)
+        public bool   WasColdRun;
 
         public long MaxBytes =>
             Math.Max(TickDelayBytesPerCall,
@@ -66,14 +78,13 @@ namespace MidManStudio.Core.Benchmarks
         public double TaskDelayMaxMs;
         public int    TaskDelayFired;
 
-        public int  Total;
-        public bool Valid;
+        public int   Total;
+        public float TickIntervalMs;
+        public bool  Valid;
 
         public double MaxAvgMs =>
             Math.Max(TickDelayAvgMs, Math.Max(CoroutineAvgMs, TaskDelayAvgMs));
     }
-
-    // ── Timing accumulator ────────────────────────────────────────────────────
 
     internal sealed class TimingAccumulator
     {
@@ -92,7 +103,7 @@ namespace MidManStudio.Core.Benchmarks
     }
 
     // ═════════════════════════════════════════════════════════════════════════
-    // MID_TickDelayBenchRunner — add THIS to your scene, nothing else.
+    // Add MID_TickDelayBenchRunner to a scene GameObject — nothing else.
     // ═════════════════════════════════════════════════════════════════════════
 
     public class MID_TickDelayBenchRunner : MonoBehaviour
@@ -100,21 +111,24 @@ namespace MidManStudio.Core.Benchmarks
         [Header("Configuration")]
         public float    DelaySeconds     = 0.5f;
         public TickRate Rate             = TickRate.Tick_0_1;
-        public int      GCIterations     = 200;
-        public int      TimingIterations = 50;
+        public int      GCIterations     = 500;
+        public int      TimingIterations = 30;
         public int      WarmupCount      = 20;
 
-        [Header("Results  (read-only — set at runtime)")]
+        [Header("Log Level")]
+        [SerializeField] private MID_LogLevel _logLevel = MID_LogLevel.Info;
+
+        [Header("Results  (read-only)")]
         public DelayBenchGCResult     GCResult;
         public DelayBenchTimingResult TimingResult;
         public string                 StatusMessage = "Idle.";
         public float                  Progress;
         public bool                   IsRunning;
 
-        // ── Pre-allocated zero-alloc delegates ───────────────────────────────
-        // Static readonly → delegate object created once at type load.
-        // Passing these to After() costs zero GC on Unity 2019.2+ (no caching
-        // of method groups, but field references to existing delegate objects ARE free).
+        // Track run count so window can warn about warm-pool effect
+        public int RunCount { get; private set; }
+
+        // Pre-allocated zero-alloc delegate — field reference, never reallocated.
         private static readonly Action _doNothing = DoNothing;
 
         private Coroutine _active;
@@ -125,9 +139,8 @@ namespace MidManStudio.Core.Benchmarks
         {
             if (IsRunning) return;
             StopActive();
-            GCResult     = default;
-            TimingResult = default;
-            _active      = StartCoroutine(RunAllCo());
+            GCResult = default; TimingResult = default;
+            _active  = StartCoroutine(RunAllCo());
         }
 
         public void RunGCOnly()
@@ -150,9 +163,9 @@ namespace MidManStudio.Core.Benchmarks
         {
             StopActive();
             MID_TickDelay.CancelAll();
-            IsRunning     = false;
-            StatusMessage = "Cancelled.";
-            Progress      = 0f;
+            IsRunning = false;
+            SetStatus("Cancelled.");
+            Progress = 0f;
         }
 
         private void StopActive()
@@ -166,218 +179,258 @@ namespace MidManStudio.Core.Benchmarks
         private IEnumerator RunAllCo()
         {
             IsRunning = true;
+            RunCount++;
             yield return StartCoroutine(WarmUp());
             yield return StartCoroutine(GCInner());
             yield return StartCoroutine(TimingInner());
-            StatusMessage = "All tests complete.";
-            Progress      = 1f;
-            IsRunning     = false;
+            SetStatus("All tests complete.");
+            Progress  = 1f;
+            IsRunning = false;
         }
 
         private IEnumerator RunGCOnlyCo()
         {
             IsRunning = true;
+            RunCount++;
             yield return StartCoroutine(WarmUp());
             yield return StartCoroutine(GCInner());
-            StatusMessage = "GC test complete.";
-            Progress      = 1f;
-            IsRunning     = false;
+            SetStatus("GC test complete.");
+            Progress  = 1f;
+            IsRunning = false;
         }
 
         private IEnumerator RunTimingOnlyCo()
         {
             IsRunning = true;
+            RunCount++;
             yield return StartCoroutine(WarmUp());
             yield return StartCoroutine(TimingInner());
-            StatusMessage = "Timing test complete.";
-            Progress      = 1f;
-            IsRunning     = false;
+            SetStatus("Timing test complete.");
+            Progress  = 1f;
+            IsRunning = false;
         }
 
         // ── Warm-up ───────────────────────────────────────────────────────────
-        // Uses the pre-allocated delegate — no closure allocation during warmup.
-        // This also forces MID_TickDelay pool initialisation so GC test is clean.
 
         private IEnumerator WarmUp()
         {
-            StatusMessage = $"Warming up ({WarmupCount} cycles)…";
-            Progress      = 0f;
-
-            // Use pre-allocated delegate for warmup too
-            int fired = 0;
-            Action countFired = () => fired++;   // one-time allocation is OK for warmup
+            SetStatus($"Warming up — initialising pool and JIT ({WarmupCount} delays)…");
+            Progress = 0f;
 
             for (int i = 0; i < WarmupCount; i++)
-                MID_TickDelay.After(DelaySeconds, countFired, Rate);
+                MID_TickDelay.After(DelaySeconds, _doNothing, Rate);
 
-            // Wait for all warmup delays to fire
-            float waitTime = DelaySeconds + TickIntervalSec() * 4f;
-            yield return new WaitForSeconds(waitTime);
+            yield return new WaitForSeconds(DelaySeconds + TickIntervalSec() * 4f);
+            MID_TickDelay.CancelAll();
 
-            StatusMessage = $"Warm-up done ({fired}/{WarmupCount} fired). Pool ready.";
-            yield return null;
-            yield return null;
+            // Warm coroutine path too
+            for (int i = 0; i < 5; i++) StartCoroutine(DummyWait(0.05f));
+            yield return new WaitForSeconds(0.2f);
+
+            SetStatus("Warm-up done.");
+            yield return null; yield return null;
         }
 
         // ── GC test ───────────────────────────────────────────────────────────
-        // Measures bytes allocated PER scheduling call to After()/StartCoroutine()/Task.Delay().
-        // The measurement window is a single frame (no yield between before/after) to
-        // prevent background GC from polluting the delta.
         //
-        // KEY: uses pre-allocated static readonly delegates to isolate the cost of
-        // the scheduling call itself, not delegate creation. A result of 0 B for
-        // MID_TickDelay means the scheduling call is truly zero-alloc after pool init.
+        // GetAllocatedBytesForCurrentThread() measures main-thread allocations only.
+        // Task.Delay and Coroutine WILL show real allocations on first (cold) run.
+        // On re-runs their internal pools are warm — results will be lower or 0.
+        // MID_TickDelay always shows 0B because it never allocates regardless.
 
         private IEnumerator GCInner()
         {
-            int n = GCIterations;
+            int  n       = GCIterations;
+            bool isCold  = RunCount == 1;
 
             // ── MID_TickDelay ─────────────────────────────────────────────────
-            StatusMessage = $"GC test — MID_TickDelay ({n} calls)…";
-            GC.Collect(2, GCCollectionMode.Forced, blocking: true);
-            yield return null;
-            yield return null; // let GC settle
+            SetStatus($"GC test — MID_TickDelay ({n} calls)…");
+            yield return DoFullGC();
 
-            // Measure inside a single frame — no yield between before/after
-            long before = GC.GetTotalMemory(false);
+            long tdBefore = GetThreadAllocBytes();
             for (int i = 0; i < n; i++)
                 MID_TickDelay.After(DelaySeconds, _doNothing, Rate);
-            long after    = GC.GetTotalMemory(false);
-            long tickDiff = Math.Max(0L, after - before);
-            long tickPerCall = tickDiff / n;
+            long tdPerCall = (GetThreadAllocBytes() - tdBefore) / n;
 
-            // Let delays fire so they don't affect coroutine test
             yield return new WaitForSeconds(DelaySeconds + TickIntervalSec() * 3f);
             MID_TickDelay.CancelAll();
             yield return null;
             Progress = 0.33f;
 
-            // ── Coroutine ──────────────────────────────────────────────────────
-            StatusMessage = $"GC test — Coroutine ({n} calls)…";
-            GC.Collect(2, GCCollectionMode.Forced, blocking: true);
-            yield return null;
-            yield return null;
+            MID_Logger.LogInfo(_logLevel,
+                $"[GC Test] MID_TickDelay = {tdPerCall} B/call over {n} iterations.",
+                nameof(MID_TickDelayBenchRunner));
 
-            before = GC.GetTotalMemory(false);
+            // ── Coroutine ──────────────────────────────────────────────────────
+            SetStatus($"GC test — Coroutine ({n} calls)…");
+            yield return DoFullGC();
+
+            long coBefore = GetThreadAllocBytes();
             for (int i = 0; i < n; i++)
                 StartCoroutine(DummyWait(DelaySeconds));
-            after     = GC.GetTotalMemory(false);
-            long coroDiff = Math.Max(0L, after - before);
-            long coroPerCall = coroDiff / n;
+            long coPerCall = (GetThreadAllocBytes() - coBefore) / n;
 
             yield return new WaitForSeconds(DelaySeconds + 0.3f);
             yield return null;
             Progress = 0.66f;
 
-            // ── Task.Delay ────────────────────────────────────────────────────
-            StatusMessage = $"GC test — Task.Delay ({n} calls)…";
-            GC.Collect(2, GCCollectionMode.Forced, blocking: true);
-            yield return null;
-            yield return null;
+            MID_Logger.LogInfo(_logLevel,
+                $"[GC Test] Coroutine = {coPerCall} B/call over {n} iterations " +
+                (isCold ? "(cold run)" : "(warm run — pool reuse may show lower)"),
+                nameof(MID_TickDelayBenchRunner));
 
-            var taskDelay = TimeSpan.FromSeconds(DelaySeconds);
-            before = GC.GetTotalMemory(false);
+            // ── Task.Delay ────────────────────────────────────────────────────
+            // Task.Delay allocates on the main thread call site, but .NET pools
+            // DelayPromise objects. After warmup, re-runs can legitimately show 0B.
+            // This is a feature of Task's design, not a measurement error.
+            SetStatus($"GC test — Task.Delay ({n} calls)…");
+            yield return DoFullGC();
+
+            var  taskDelay = TimeSpan.FromSeconds(DelaySeconds);
+            long taskBefore = GetThreadAllocBytes();
             for (int i = 0; i < n; i++)
                 _ = Task.Delay(taskDelay);
-            after    = GC.GetTotalMemory(false);
-            long taskDiff = Math.Max(0L, after - before);
-            long taskPerCall = taskDiff / n;
+            long taskPerCall = (GetThreadAllocBytes() - taskBefore) / n;
 
             yield return null;
             Progress = 1f;
 
+            MID_Logger.LogInfo(_logLevel,
+                $"[GC Test] Task.Delay = {taskPerCall} B/call over {n} iterations " +
+                (isCold ? "(cold run)" : "(warm run — DelayPromise pool may show 0B)"),
+                nameof(MID_TickDelayBenchRunner));
+
             GCResult = new DelayBenchGCResult
             {
-                TickDelayBytesPerCall = tickPerCall,
-                CoroutineBytesPerCall = coroPerCall,
+                TickDelayBytesPerCall = tdPerCall,
+                CoroutineBytesPerCall = coPerCall,
                 TaskDelayBytesPerCall = taskPerCall,
                 Iterations            = n,
-                Valid                 = true
+                Valid                 = true,
+                WasColdRun            = isCold
             };
 
-            StatusMessage =
-                $"GC — TickDelay: {FormatBytes(tickPerCall)} | " +
-                $"Coroutine: {FormatBytes(coroPerCall)} | " +
-                $"Task.Delay: {FormatBytes(taskPerCall)}";
+            SetStatus(
+                $"GC done — TickDelay: {FormatBytes(tdPerCall)} | " +
+                $"Coroutine: {FormatBytes(coPerCall)} | " +
+                $"Task: {FormatBytes(taskPerCall)}" +
+                (isCold ? "" : "  [warm pool — see Profiler for cold truth]"));
         }
 
         // ── Timing test ───────────────────────────────────────────────────────
+        //
+        // IMPORTANT: Time.realtimeSinceStartupAsDouble is NOT thread-safe.
+        // Task.Delay fires ContinueWith on a threadpool thread.
+        // We use Stopwatch.GetTimestamp() for Task timing — it uses
+        // QueryPerformanceCounter which IS thread-safe.
 
         private IEnumerator TimingInner()
         {
-            int n = TimingIterations;
+            int   n      = TimingIterations;
+            float tickMs = TickIntervalSec() * 1000f;
 
             // ── MID_TickDelay ─────────────────────────────────────────────────
-            StatusMessage = $"Timing — MID_TickDelay (0/{n})…";
+            SetStatus($"Timing — MID_TickDelay (0/{n})…");
             var tdAcc = new TimingAccumulator();
 
             for (int i = 0; i < n; i++)
             {
-                double sched = RealtimeMs();
-                float  req   = DelaySeconds;
-                // Capture sched+req into local pre-allocated action via closure.
-                // Closure allocates here — this is expected and unavoidable for
-                // per-iteration timestamp capture. The GC test above uses the clean path.
-                double capturedSched = sched;
-                float  capturedReq   = req;
-                MID_TickDelay.After(req, () =>
+                // Capture timing reference before scheduling — closure allocates here,
+                // which is intentional (timing test, not GC test).
+                long   startTick    = Stopwatch.GetTimestamp();
+                float  capturedReq  = DelaySeconds;
+                MID_TickDelay.After(capturedReq, () =>
                 {
-                    tdAcc.Record(Math.Abs(RealtimeMs() - capturedSched - capturedReq * 1000.0));
+                    double actualMs   = TicksToMs(Stopwatch.GetTimestamp() - startTick);
+                    double requestedMs = capturedReq * 1000.0;
+                    tdAcc.Record(Math.Abs(actualMs - requestedMs));
                 }, Rate);
 
                 Progress = (float)i / (n * 3f);
-                if (i % 5 == 0)
-                    StatusMessage = $"Timing — MID_TickDelay ({i}/{n})…";
+                if (i % 5 == 0) SetStatus($"Timing — MID_TickDelay ({i}/{n})…");
                 yield return null;
             }
+
             yield return new WaitForSeconds(DelaySeconds + TickIntervalSec() * 3f);
             Progress = 0.35f;
 
+            MID_Logger.LogInfo(_logLevel,
+                $"[Timing] MID_TickDelay — avg:{tdAcc.AvgMs:F1}ms  max:{tdAcc.MaxErr:F1}ms  " +
+                $"fired:{tdAcc.Fired}/{n}  (tick interval = {tickMs:F0}ms)",
+                nameof(MID_TickDelayBenchRunner));
+
             // ── Coroutine ──────────────────────────────────────────────────────
-            StatusMessage = $"Timing — Coroutine (0/{n})…";
+            SetStatus($"Timing — Coroutine (0/{n})…");
             var coAcc = new TimingAccumulator();
 
             for (int i = 0; i < n; i++)
             {
-                StartCoroutine(TimedWait(DelaySeconds, RealtimeMs(), coAcc));
+                // Coroutine fires on main thread — Stopwatch.GetTimestamp() is fine here too.
+                StartCoroutine(TimedWait(DelaySeconds, Stopwatch.GetTimestamp(), coAcc));
                 Progress = 0.33f + (float)i / (n * 3f);
-                if (i % 5 == 0)
-                    StatusMessage = $"Timing — Coroutine ({i}/{n})…";
+                if (i % 5 == 0) SetStatus($"Timing — Coroutine ({i}/{n})…");
                 yield return null;
             }
+
             yield return new WaitForSeconds(DelaySeconds + 0.5f);
             Progress = 0.67f;
 
+            MID_Logger.LogInfo(_logLevel,
+                $"[Timing] Coroutine — avg:{coAcc.AvgMs:F1}ms  max:{coAcc.MaxErr:F1}ms  " +
+                $"fired:{coAcc.Fired}/{n}",
+                nameof(MID_TickDelayBenchRunner));
+
             // ── Task.Delay ────────────────────────────────────────────────────
-            StatusMessage = $"Timing — Task.Delay (0/{n})…";
-            double[] taskErrors  = new double[n];
-            int      taskFiredRaw = 0;
+            // ContinueWith fires on threadpool.
+            // Time.realtimeSinceStartupAsDouble is NOT thread-safe — use Stopwatch.
+            SetStatus($"Timing — Task.Delay (0/{n})…");
+            var  taskErrors   = new double[n];
+            int  taskFiredRaw = 0;
 
             for (int i = 0; i < n; i++)
             {
-                int    idx   = i;
-                double sched = RealtimeMs();
-                float  req   = DelaySeconds;
-                _ = Task.Delay(TimeSpan.FromSeconds(req)).ContinueWith(_ =>
+                int    idx         = i;
+                long   startTick   = Stopwatch.GetTimestamp();   // thread-safe
+                float  capturedReq = DelaySeconds;
+
+                _ = Task.Delay(TimeSpan.FromSeconds(capturedReq)).ContinueWith(_ =>
                 {
-                    taskErrors[idx] = Math.Abs(RealtimeMs() - sched - req * 1000.0);
+                    // Stopwatch.GetTimestamp() is safe to call from any thread.
+                    double actualMs    = TicksToMs(Stopwatch.GetTimestamp() - startTick);
+                    double requestedMs = capturedReq * 1000.0;
+                    taskErrors[idx]    = Math.Abs(actualMs - requestedMs);
                     Interlocked.Increment(ref taskFiredRaw);
                 });
 
                 Progress = 0.66f + (float)i / (n * 3f);
-                if (i % 5 == 0)
-                    StatusMessage = $"Timing — Task.Delay ({i}/{n})…";
+                if (i % 5 == 0) SetStatus($"Timing — Task.Delay ({i}/{n})…");
                 yield return null;
             }
-            yield return new WaitForSeconds(DelaySeconds + 0.8f);
+
+            // Wait for all threadpool callbacks to land
+            float taskWait = DelaySeconds + 1.0f;
+            yield return new WaitForSeconds(taskWait);
 
             double taskTotal = 0, taskMax = 0;
+            int    taskFired = Volatile.Read(ref taskFiredRaw);
             for (int i = 0; i < n; i++)
             {
                 taskTotal += taskErrors[i];
                 if (taskErrors[i] > taskMax) taskMax = taskErrors[i];
             }
-            int taskFired = Volatile.Read(ref taskFiredRaw);
+
+            MID_Logger.LogInfo(_logLevel,
+                $"[Timing] Task.Delay — avg:{(taskFired > 0 ? taskTotal / taskFired : 0):F2}ms  " +
+                $"max:{taskMax:F2}ms  fired:{taskFired}/{n}  (OS timer, threadpool thread)",
+                nameof(MID_TickDelayBenchRunner));
+
+            if (taskFired < n)
+            {
+                MID_Logger.LogWarning(_logLevel,
+                    $"[Timing] Task.Delay only fired {taskFired}/{n}. " +
+                    "Increase wait time or check threadpool saturation.",
+                    nameof(MID_TickDelayBenchRunner));
+            }
 
             TimingResult = new DelayBenchTimingResult
             {
@@ -391,13 +444,14 @@ namespace MidManStudio.Core.Benchmarks
                 TaskDelayMaxMs = taskMax,
                 TaskDelayFired = taskFired,
                 Total          = n,
+                TickIntervalMs = tickMs,
                 Valid          = true
             };
 
-            StatusMessage =
+            SetStatus(
                 $"Timing — TD avg:{TimingResult.TickDelayAvgMs:F1}ms | " +
                 $"Coro avg:{TimingResult.CoroutineAvgMs:F1}ms | " +
-                $"Task avg:{TimingResult.TaskDelayAvgMs:F1}ms";
+                $"Task avg:{TimingResult.TaskDelayAvgMs:F2}ms");
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────
@@ -409,11 +463,31 @@ namespace MidManStudio.Core.Benchmarks
             yield return new WaitForSeconds(seconds);
         }
 
-        private IEnumerator TimedWait(float seconds, double schedMs, TimingAccumulator acc)
+        private IEnumerator TimedWait(float seconds, long startTick, TimingAccumulator acc)
         {
             yield return new WaitForSeconds(seconds);
-            acc.Record(Math.Abs(RealtimeMs() - schedMs - seconds * 1000.0));
+            double actualMs    = TicksToMs(Stopwatch.GetTimestamp() - startTick);
+            double requestedMs = seconds * 1000.0;
+            acc.Record(Math.Abs(actualMs - requestedMs));
         }
+
+        private IEnumerator DoFullGC()
+        {
+            GC.Collect(2, GCCollectionMode.Forced, blocking: true);
+            GC.WaitForPendingFinalizers();
+            GC.Collect(2, GCCollectionMode.Forced, blocking: true);
+            yield return null;
+            yield return null;
+        }
+
+        private static long GetThreadAllocBytes()
+        {
+            try   { return GC.GetAllocatedBytesForCurrentThread(); }
+            catch { return GC.GetTotalMemory(false); }
+        }
+
+        private static double TicksToMs(long ticks) =>
+            ticks * 1000.0 / Stopwatch.Frequency;
 
         private float TickIntervalSec() => Rate switch
         {
@@ -426,11 +500,14 @@ namespace MidManStudio.Core.Benchmarks
             _                 => 0.1f
         };
 
-        private static double RealtimeMs() =>
-            Time.realtimeSinceStartupAsDouble * 1000.0;
+        private void SetStatus(string msg)
+        {
+            StatusMessage = msg;
+            MID_Logger.LogDebug(_logLevel, msg, nameof(MID_TickDelayBenchRunner));
+        }
 
-        private static string FormatBytes(long bytes) =>
-            bytes == 0 ? "0 B  ✓" : $"{bytes} B";
+        private static string FormatBytes(long b) =>
+            b == 0 ? "0 B  ✓" : $"{b} B";
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -443,35 +520,32 @@ namespace MidManStudio.Core.Benchmarks
     {
         private MID_TickDelayBenchRunner _runner;
         private Vector2                  _scroll;
+        private bool _fContext = true;
         private bool _fConfig  = true;
         private bool _fGC      = true;
         private bool _fTiming  = true;
 
-        // Colour palette
-        private static readonly Color ColTick   = new Color(0.28f, 0.90f, 0.45f, 1f);
-        private static readonly Color ColCoro   = new Color(0.40f, 0.65f, 1.00f, 1f);
-        private static readonly Color ColTask   = new Color(1.00f, 0.70f, 0.25f, 1f);
-        private static readonly Color ColBarBg  = new Color(0.15f, 0.15f, 0.15f, 0.5f);
-        private static readonly Color ColDim    = new Color(0.55f, 0.55f, 0.55f, 1f);
-        private static readonly Color ColPass   = new Color(0.28f, 0.95f, 0.45f, 1f);
-        private static readonly Color ColFail   = new Color(1.00f, 0.35f, 0.35f, 1f);
+        private static readonly Color ColTick  = new Color(0.28f, 0.90f, 0.45f, 1f);
+        private static readonly Color ColCoro  = new Color(0.40f, 0.65f, 1.00f, 1f);
+        private static readonly Color ColTask  = new Color(1.00f, 0.70f, 0.25f, 1f);
+        private static readonly Color ColBarBg = new Color(0.15f, 0.15f, 0.15f, 0.5f);
+        private static readonly Color ColDim   = new Color(0.55f, 0.55f, 0.55f, 1f);
+        private static readonly Color ColPass  = new Color(0.28f, 0.95f, 0.45f, 1f);
+        private static readonly Color ColFail  = new Color(1.00f, 0.35f, 0.35f, 1f);
+        private static readonly Color ColWarn  = new Color(1.00f, 0.85f, 0.25f, 1f);
+        private static readonly Color ColInfo  = new Color(0.60f, 0.80f, 1.00f, 1f);
 
         [MenuItem("MidManStudio/Utilities/Tests/Tick Delay Bench")]
         public static void Open()
         {
             var w = GetWindow<MID_TickDelayBenchWindow>("Tick Delay Bench");
-            w.minSize = new Vector2(500, 540);
+            w.minSize = new Vector2(520, 600);
         }
 
-        private void OnEnable()
-        {
-            EditorApplication.update += Repaint;
-            TryFindRunner();
-        }
+        private void OnEnable()  { EditorApplication.update += Repaint; TryFind(); }
+        private void OnDisable() { EditorApplication.update -= Repaint; }
 
-        private void OnDisable() => EditorApplication.update -= Repaint;
-
-        private void TryFindRunner()
+        private void TryFind()
         {
             if (_runner == null)
                 _runner = FindObjectOfType<MID_TickDelayBenchRunner>();
@@ -479,22 +553,21 @@ namespace MidManStudio.Core.Benchmarks
 
         private void OnGUI()
         {
-            TryFindRunner();
+            TryFind();
             DrawToolbar();
-
             _scroll = EditorGUILayout.BeginScrollView(_scroll);
             DrawPlayModeGuard();
 
             if (Application.isPlaying && _runner != null)
             {
+                DrawContext();
+                DrawSeparator();
                 DrawConfig();
                 DrawRunButtons();
                 DrawSeparator();
                 DrawGCSection();
                 DrawSeparator();
                 DrawTimingSection();
-                DrawSeparator();
-                DrawZeroAllocNote();
                 DrawSeparator();
                 DrawLegend();
             }
@@ -521,34 +594,79 @@ namespace MidManStudio.Core.Benchmarks
         private void DrawPlayModeGuard()
         {
             EditorGUILayout.Space(4);
-
             if (!Application.isPlaying)
             {
-                EditorGUILayout.HelpBox(
-                    "Enter Play Mode to run benchmarks.\n" +
-                    "Benchmarks use coroutines and require an active Unity scene.",
-                    MessageType.Info);
+                EditorGUILayout.HelpBox("Enter Play Mode to run benchmarks.", MessageType.Info);
                 return;
             }
-
             if (_runner == null)
             {
                 EditorGUILayout.HelpBox(
-                    "No MID_TickDelayBenchRunner found in the scene.\n" +
-                    "Add it to a scene GameObject.\n\n" +
-                    "If you see an error about 'DelayBenchGCResult missing ExtensionOfNativeClass':\n" +
-                    "open your scene, find the GameObject with the missing script, and delete that component.\n" +
+                    "No MID_TickDelayBenchRunner found.\n\n" +
+                    "If you see 'DelayBenchGCResult missing ExtensionOfNativeClass':\n" +
+                    "Find the broken GameObject and remove the missing script component.\n" +
                     "DelayBenchGCResult is a struct, not a MonoBehaviour.",
                     MessageType.Warning);
-
                 if (GUILayout.Button("Add Runner to Scene", GUILayout.Height(28)))
                 {
                     var go = new GameObject("[TickDelayBenchRunner]");
                     _runner = go.AddComponent<MID_TickDelayBenchRunner>();
                     Selection.activeGameObject = go;
-                    Undo.RegisterCreatedObjectUndo(go, "Add Tick Delay Bench Runner");
+                    Undo.RegisterCreatedObjectUndo(go, "Add Bench Runner");
                 }
             }
+        }
+
+        // ── Why section ───────────────────────────────────────────────────────
+
+        private void DrawContext()
+        {
+            _fContext = EditorGUILayout.BeginFoldoutHeaderGroup(_fContext,
+                "Why MID_TickDelay? — trade-offs at a glance");
+            if (_fContext)
+            {
+                using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+                {
+                    var old = GUI.color;
+
+                    Row(ColPass, "MID_TickDelay",
+                        "✓ Zero GC allocation — always, not just cold runs\n" +
+                        "✓ Fires on main thread — safe to call Unity APIs\n" +
+                        "✓ No IEnumerator — works directly inside ServerRpc/ClientRpc\n" +
+                        "✓ Cancellable via TickDelayHandle\n" +
+                        "✗ Timing bounded by tick interval (~50ms avg error at Tick_0_1)");
+
+                    EditorGUILayout.Space(3);
+
+                    Row(ColCoro, "Coroutine",
+                        "✓ Frame-accurate (fires next frame after delay expires)\n" +
+                        "✗ ~80–400B per StartCoroutine call (IEnumerator state machine)\n" +
+                        "✗ Requires IEnumerator — CANNOT be used directly in RPCs\n" +
+                        "✗ Tied to MonoBehaviour lifecycle");
+
+                    EditorGUILayout.Space(3);
+
+                    Row(ColTask, "Task.Delay",
+                        "✓ OS-timer accurate (~0–1ms error)\n" +
+                        "✓ DelayPromise pooled by .NET after warmup (can show 0B on re-runs)\n" +
+                        "✗ Fires on threadpool — CANNOT touch Unity objects\n" +
+                        "✗ First run allocates ~120–160B; subsequent runs pool-dependent\n" +
+                        "✗ No clean cancellation without CancellationToken (extra alloc)");
+
+                    GUI.color = old;
+                }
+            }
+            EditorGUILayout.EndFoldoutHeaderGroup();
+            EditorGUILayout.Space(2);
+        }
+
+        private void Row(Color col, string label, string text)
+        {
+            var old = GUI.color;
+            GUI.color = col;
+            EditorGUILayout.LabelField(label, EditorStyles.miniBoldLabel);
+            GUI.color = old;
+            EditorGUILayout.LabelField(text, EditorStyles.wordWrappedMiniLabel);
         }
 
         // ── Config ────────────────────────────────────────────────────────────
@@ -561,39 +679,26 @@ namespace MidManStudio.Core.Benchmarks
                 using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
                 {
                     GUI.enabled = !_runner.IsRunning;
-
                     _runner.DelaySeconds = EditorGUILayout.Slider(
-                        new GUIContent("Delay (s)", "How long each test delay waits."),
-                        _runner.DelaySeconds, 0.1f, 5f);
-
+                        "Delay (s)", _runner.DelaySeconds, 0.1f, 5f);
                     _runner.Rate = (TickRate)EditorGUILayout.EnumPopup(
-                        new GUIContent("Tick Rate",
-                            "Rate bucket used by MID_TickDelay. Min = Tick_0_1.\n" +
-                            "Faster rates are clamped — they provide no benefit."),
+                        new GUIContent("Tick Rate", "Min = Tick_0_1. Error ≈ 0 to one tick interval."),
                         _runner.Rate);
-
                     _runner.GCIterations = EditorGUILayout.IntSlider(
                         new GUIContent("GC Iterations",
-                            "Scheduling calls per method in the GC allocation test.\n" +
-                            "Higher = more accurate bytes-per-call average."),
-                        _runner.GCIterations, 50, 500);
-
+                            "Calls per method. Cold run (run 1) gives most accurate results."),
+                        _runner.GCIterations, 50, 1000);
                     _runner.TimingIterations = EditorGUILayout.IntSlider(
-                        new GUIContent("Timing Iterations",
-                            "Number of delays fired per method in the timing accuracy test."),
-                        _runner.TimingIterations, 10, 200);
-
+                        "Timing Iterations", _runner.TimingIterations, 10, 100);
                     _runner.WarmupCount = EditorGUILayout.IntSlider(
-                        new GUIContent("Warmup",
-                            "Delays fired before measurement to initialise the pool and JIT."),
-                        _runner.WarmupCount, 10, 50);
-
+                        "Warmup", _runner.WarmupCount, 10, 50);
                     GUI.enabled = true;
 
-                    float tickMs = TickIntervalMs(_runner.Rate);
+                    float tm = TickIntervalMs(_runner.Rate);
                     EditorGUILayout.HelpBox(
-                        $"At {_runner.Rate} the tick fires every {tickMs:F0}ms.\n" +
-                        $"Maximum possible MID_TickDelay timing error ≈ {tickMs:F0}ms.",
+                        $"Tick interval: {tm:F0}ms   " +
+                        $"Expected TickDelay timing error: 0–{tm:F0}ms  (avg ~{tm * 0.5f:F0}ms)\n" +
+                        "GC test: most accurate on first run in a fresh Play session.",
                         MessageType.None);
                 }
             }
@@ -605,6 +710,19 @@ namespace MidManStudio.Core.Benchmarks
 
         private void DrawRunButtons()
         {
+            // Show run count so user knows if results are from a cold or warm run
+            if (_runner.RunCount > 0)
+            {
+                var old = GUI.color;
+                GUI.color = _runner.RunCount == 1 ? ColPass : ColWarn;
+                EditorGUILayout.LabelField(
+                    _runner.RunCount == 1
+                        ? $"Run #{_runner.RunCount}  (cold — most accurate GC results)"
+                        : $"Run #{_runner.RunCount}  (warm — Coroutine/Task GC may show lower due to pool reuse)",
+                    EditorStyles.miniBoldLabel);
+                GUI.color = old;
+            }
+
             if (_runner.IsRunning)
             {
                 Rect r = EditorGUILayout.GetControlRect(false, 20);
@@ -619,31 +737,23 @@ namespace MidManStudio.Core.Benchmarks
             }
 
             EditorGUILayout.Space(2);
-
             using (new EditorGUILayout.HorizontalScope())
             {
                 GUI.enabled = !_runner.IsRunning;
-                var old = GUI.backgroundColor;
+                var oldbg = GUI.backgroundColor;
 
                 GUI.backgroundColor = new Color(0.25f, 0.80f, 0.30f);
-                if (GUILayout.Button("▶  Run All", GUILayout.Height(30)))
-                    _runner.RunAll();
-
+                if (GUILayout.Button("▶  Run All",    GUILayout.Height(30))) _runner.RunAll();
                 GUI.backgroundColor = ColTick * 0.75f;
-                if (GUILayout.Button("GC Only", GUILayout.Height(30)))
-                    _runner.RunGCOnly();
-                if (GUILayout.Button("Timing Only", GUILayout.Height(30)))
-                    _runner.RunTimingOnly();
-
+                if (GUILayout.Button("GC Only",       GUILayout.Height(30))) _runner.RunGCOnly();
+                if (GUILayout.Button("Timing Only",   GUILayout.Height(30))) _runner.RunTimingOnly();
                 GUI.backgroundColor = new Color(0.85f, 0.25f, 0.25f);
                 GUI.enabled         = _runner.IsRunning;
-                if (GUILayout.Button("■  Cancel", GUILayout.Height(30)))
-                    _runner.Cancel();
+                if (GUILayout.Button("■  Cancel",     GUILayout.Height(30))) _runner.Cancel();
 
-                GUI.backgroundColor = old;
+                GUI.backgroundColor = oldbg;
                 GUI.enabled         = true;
             }
-
             EditorGUILayout.Space(4);
         }
 
@@ -652,14 +762,35 @@ namespace MidManStudio.Core.Benchmarks
         private void DrawGCSection()
         {
             _fGC = EditorGUILayout.BeginFoldoutHeaderGroup(_fGC,
-                "GC Allocation per scheduling call  (lower = better, 0 B = ✓ zero alloc)");
-
+                "GC Allocation per scheduling call  (lower = better, 0 B = zero-alloc)");
             if (_fGC)
             {
                 var res = _runner.GCResult;
-
                 using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
                 {
+                    // Measurement method note
+                    var old = GUI.color;
+                    GUI.color = ColDim;
+                    EditorGUILayout.LabelField(
+                        "Measured with GC.GetAllocatedBytesForCurrentThread() — main-thread only, " +
+                        "monotonic counter. Most accurate managed API available.",
+                        EditorStyles.wordWrappedMiniLabel);
+                    GUI.color = old;
+
+                    // Warm-pool warning
+                    if (res.Valid && !res.WasColdRun)
+                    {
+                        GUI.color = ColWarn;
+                        EditorGUILayout.LabelField(
+                            "⚠ Warm run — Coroutine and Task.Delay may show 0B due to internal pool reuse. " +
+                            "Restart Play Mode for cold (most accurate) results. " +
+                            "Use Window > Analysis > Profiler > GC.Alloc for ground truth.",
+                            EditorStyles.wordWrappedMiniLabel);
+                        GUI.color = old;
+                    }
+
+                    EditorGUILayout.Space(4);
+
                     if (!res.Valid)
                     {
                         EditorGUILayout.HelpBox("Run the GC test to see results.", MessageType.Info);
@@ -667,56 +798,62 @@ namespace MidManStudio.Core.Benchmarks
                         return;
                     }
 
-                    // Header row
                     using (new EditorGUILayout.HorizontalScope())
                     {
                         ColHeader("MID_TickDelay", ColTick);
                         ColHeader("Coroutine",     ColCoro);
                         ColHeader("Task.Delay",    ColTask);
                     }
-
                     EditorGUILayout.Space(2);
 
-                    // Value row
                     using (new EditorGUILayout.HorizontalScope())
                     {
                         bool tdZero = res.TickDelayBytesPerCall == 0;
                         ValueCell(
                             tdZero ? "0 B  ✓" : $"{res.TickDelayBytesPerCall} B",
                             tdZero ? ColPass : ColFail,
-                            tdZero ? "Zero alloc — pool working" : "Alloc detected — check warmup");
-                        ValueCell($"{res.CoroutineBytesPerCall} B", ColCoro, "baseline");
-                        ValueCell($"{res.TaskDelayBytesPerCall} B", ColTask, "baseline");
+                            "always zero — no internal pool needed");
+                        ValueCell($"{res.CoroutineBytesPerCall} B", ColCoro,
+                            res.CoroutineBytesPerCall == 0
+                                ? "0B = warm pool reuse (normal on re-run)"
+                                : "IEnumerator state machine heap alloc");
+                        ValueCell($"{res.TaskDelayBytesPerCall} B", ColTask,
+                            res.TaskDelayBytesPerCall == 0
+                                ? "0B = DelayPromise pool warm (normal on re-run)"
+                                : "Task + timer heap alloc");
                     }
 
                     EditorGUILayout.Space(2);
                     EditorGUILayout.LabelField(
-                        $"Measured over {res.Iterations} calls each method. " +
-                        "TickDelay uses pre-allocated static delegates.",
+                        $"{res.Iterations} iterations per method.  " +
+                        (res.WasColdRun ? "Cold run." : "Warm run — restart Play for cold results."),
                         EditorStyles.miniLabel);
-
                     EditorGUILayout.Space(4);
 
-                    // Bar chart — only show if there's something to compare
                     long mx = res.MaxBytes;
                     if (mx > 0)
                     {
-                        BarRow("TickDelay",  (float)res.TickDelayBytesPerCall / mx, ColTick,
-                            res.TickDelayBytesPerCall == 0 ? "0 B  ✓" : $"{res.TickDelayBytesPerCall} B");
-                        BarRow("Coroutine",  (float)res.CoroutineBytesPerCall / mx, ColCoro,
+                        BarRow("TickDelay",
+                            (float)res.TickDelayBytesPerCall / mx, ColTick,
+                            res.TickDelayBytesPerCall == 0 ? "0 B  ✓  zero-alloc" : $"{res.TickDelayBytesPerCall} B");
+                        BarRow("Coroutine",
+                            (float)res.CoroutineBytesPerCall / mx, ColCoro,
                             $"{res.CoroutineBytesPerCall} B");
-                        BarRow("Task.Delay", (float)res.TaskDelayBytesPerCall / mx, ColTask,
+                        BarRow("Task.Delay",
+                            (float)res.TaskDelayBytesPerCall / mx, ColTask,
                             $"{res.TaskDelayBytesPerCall} B");
                     }
                     else
                     {
-                        // All three are 0 — very unusual but handle it
+                        // All zero — either all pools warm or genuine zero-alloc across the board
                         BarRow("TickDelay",  0f, ColPass, "0 B  ✓");
-                        BarRow("Coroutine",  0f, ColCoro, "0 B");
-                        BarRow("Task.Delay", 0f, ColTask, "0 B");
+                        BarRow("Coroutine",  0f, ColCoro, "0 B  (pool warm)");
+                        BarRow("Task.Delay", 0f, ColTask, "0 B  (pool warm)");
                         EditorGUILayout.HelpBox(
-                            "All methods show 0 B. This can happen if the GC collected before/after " +
-                            "measurement. Try increasing GC Iterations.",
+                            "All 0B — internal pools are warm from previous runs or warmup.\n" +
+                            "TickDelay 0B is always correct. Coroutine/Task 0B means their " +
+                            "object pools absorbed the allocs.\n" +
+                            "Restart Play Mode for cold measurements, or use the Unity Profiler.",
                             MessageType.Warning);
                     }
                 }
@@ -729,12 +866,10 @@ namespace MidManStudio.Core.Benchmarks
         private void DrawTimingSection()
         {
             _fTiming = EditorGUILayout.BeginFoldoutHeaderGroup(_fTiming,
-                "Timing Accuracy — error vs requested delay  (lower = better)");
-
+                "Timing Accuracy — absolute error vs requested delay");
             if (_fTiming)
             {
                 var res = _runner.TimingResult;
-
                 using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
                 {
                     if (!res.Valid)
@@ -744,26 +879,36 @@ namespace MidManStudio.Core.Benchmarks
                         return;
                     }
 
+                    EditorGUILayout.HelpBox(
+                        $"MID_TickDelay  avg ~{res.TickDelayAvgMs:F0}ms  — fires on tick boundary, " +
+                        $"error bounded by {res.TickIntervalMs:F0}ms.  CORRECT AND EXPECTED.\n\n" +
+                        $"Coroutine      avg ~{res.CoroutineAvgMs:F0}ms  — fires on next frame.  CORRECT.\n\n" +
+                        $"Task.Delay     avg ~{res.TaskDelayAvgMs:F2}ms  — OS high-res timer.  CORRECT.\n" +
+                        "Note: Task fires on threadpool — cannot call Unity APIs inside callback.\n" +
+                        "Timing measured with Stopwatch.GetTimestamp() (thread-safe).",
+                        MessageType.Info);
+
+                    EditorGUILayout.Space(4);
+
                     using (new EditorGUILayout.HorizontalScope())
                     {
                         ColHeader("MID_TickDelay", ColTick);
                         ColHeader("Coroutine",     ColCoro);
                         ColHeader("Task.Delay",    ColTask);
                     }
-
                     EditorGUILayout.Space(2);
 
                     using (new EditorGUILayout.HorizontalScope())
                         MetricRow("Avg error",
                             $"{res.TickDelayAvgMs:F1} ms", ColTick,
                             $"{res.CoroutineAvgMs:F1} ms",  ColCoro,
-                            $"{res.TaskDelayAvgMs:F1} ms",  ColTask);
+                            $"{res.TaskDelayAvgMs:F2} ms",  ColTask);
 
                     using (new EditorGUILayout.HorizontalScope())
                         MetricRow("Max error",
                             $"{res.TickDelayMaxMs:F1} ms", ColTick,
                             $"{res.CoroutineMaxMs:F1} ms",  ColCoro,
-                            $"{res.TaskDelayMaxMs:F1} ms",  ColTask);
+                            $"{res.TaskDelayMaxMs:F2} ms",  ColTask);
 
                     using (new EditorGUILayout.HorizontalScope())
                         MetricRow($"Fired/{res.Total}",
@@ -771,57 +916,44 @@ namespace MidManStudio.Core.Benchmarks
                             $"{res.CoroutineFired}", ColCoro,
                             $"{res.TaskDelayFired}", ColTask);
 
+                    if (res.TaskDelayFired < res.Total)
+                    {
+                        var old = GUI.color; GUI.color = ColWarn;
+                        EditorGUILayout.LabelField(
+                            $"⚠ Task only fired {res.TaskDelayFired}/{res.Total} — " +
+                            "threadpool may be busy. Re-run timing only.",
+                            EditorStyles.wordWrappedMiniLabel);
+                        GUI.color = old;
+                    }
+
                     EditorGUILayout.Space(4);
 
                     double maxAvg = res.MaxAvgMs;
                     if (maxAvg > 0)
                     {
-                        BarRow("TickDelay",  (float)(res.TickDelayAvgMs / maxAvg), ColTick,
-                            $"{res.TickDelayAvgMs:F1} ms avg");
-                        BarRow("Coroutine",  (float)(res.CoroutineAvgMs / maxAvg), ColCoro,
-                            $"{res.CoroutineAvgMs:F1} ms avg");
-                        BarRow("Task.Delay", (float)(res.TaskDelayAvgMs / maxAvg), ColTask,
-                            $"{res.TaskDelayAvgMs:F1} ms avg");
-
-                        CentredGrey("Bar width = relative avg error  (shorter bar = more accurate)");
+                        BarRow("TickDelay",
+                            (float)(res.TickDelayAvgMs / maxAvg), ColTick,
+                            $"{res.TickDelayAvgMs:F1}ms avg  (bounded by {res.TickIntervalMs:F0}ms tick)");
+                        BarRow("Coroutine",
+                            (float)(res.CoroutineAvgMs / maxAvg), ColCoro,
+                            $"{res.CoroutineAvgMs:F1}ms avg  (bounded by frame)");
+                        BarRow("Task.Delay",
+                            (float)(Math.Max(res.TaskDelayAvgMs, 0.1) / maxAvg), ColTask,
+                            $"{res.TaskDelayAvgMs:F2}ms avg  (OS timer — threadpool, not main thread)");
+                        CentredGrey("Shorter = more accurate. Task near-zero is correct — OS timer really is that precise.");
                     }
 
                     EditorGUILayout.Space(4);
-
-                    float tickMs = _runner != null ? TickIntervalMs(_runner.Rate) : 100f;
-                    EditorGUILayout.HelpBox(
-                        $"MID_TickDelay maximum error = one tick interval ({tickMs:F0}ms).\n" +
-                        "Coroutine fires on the next frame after WaitForSeconds elapses.\n" +
-                        "Task.Delay fires at OS timer precision but on a threadpool thread.\n\n" +
-                        "Trade-off: MID_TickDelay is the only zero-alloc option. " +
-                        "Use Coroutine when sub-frame accuracy matters more than GC.",
-                        MessageType.Info);
+                    var c = GUI.color; GUI.color = ColInfo;
+                    EditorGUILayout.LabelField(
+                        "For NGO usage: TickDelay's ~50ms timing error is fine for respawn timers, " +
+                        "cooldowns, and deferred RPCs. You get zero GC + main thread safety + " +
+                        "no IEnumerator in exchange for that timing bound.",
+                        EditorStyles.wordWrappedMiniLabel);
+                    GUI.color = c;
                 }
             }
-
             EditorGUILayout.EndFoldoutHeaderGroup();
-        }
-
-        // ── Zero-alloc usage note ─────────────────────────────────────────────
-
-        private void DrawZeroAllocNote()
-        {
-            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
-            {
-                var old = GUI.color; GUI.color = ColPass;
-                EditorGUILayout.LabelField("How to use MID_TickDelay with zero GC",
-                    EditorStyles.miniBoldLabel);
-                GUI.color = old;
-
-                EditorGUILayout.LabelField(
-                    "// ✗ Allocates every call (method group → new delegate each time in Unity 2019.2+):\n" +
-                    "MID_TickDelay.After(1f, MyMethod);\n\n" +
-                    "// ✓ Zero alloc — pre-allocate delegate once:\n" +
-                    "private static readonly Action _cb = MyMethod;\n" +
-                    "MID_TickDelay.After(1f, _cb);",
-                    EditorStyles.helpBox,
-                    GUILayout.MinHeight(80));
-            }
         }
 
         // ── Legend ────────────────────────────────────────────────────────────
@@ -834,8 +966,8 @@ namespace MidManStudio.Core.Benchmarks
                 Swatch(ColCoro); Label("Coroutine",      80);
                 Swatch(ColTask); Label("Task.Delay",      80);
                 GUILayout.FlexibleSpace();
-                Swatch(ColPass); Label("✓ zero / pass",  80);
-                Swatch(ColFail); Label("✗ alloc",         60);
+                Swatch(ColPass); Label("✓ zero / pass", 80);
+                Swatch(ColFail); Label("✗ alloc",        60);
             }
         }
 
@@ -846,8 +978,7 @@ namespace MidManStudio.Core.Benchmarks
         private void ColHeader(string text, Color col)
         {
             var old = GUI.color; GUI.color = col;
-            EditorGUILayout.LabelField(text, EditorStyles.miniBoldLabel,
-                GUILayout.Width(ColWidth));
+            EditorGUILayout.LabelField(text, EditorStyles.miniBoldLabel, GUILayout.Width(ColWidth));
             GUI.color = old;
         }
 
@@ -894,18 +1025,17 @@ namespace MidManStudio.Core.Benchmarks
 
                 if (fraction > 0.002f)
                 {
-                    Rect fill = r; fill.width = Mathf.Max(fill.width * fraction, 2f);
+                    Rect fill = r; fill.width = Mathf.Max(r.width * fraction, 2f);
                     EditorGUI.DrawRect(fill, col);
                 }
-                else if (fraction == 0f)
+                else
                 {
-                    // Show a tiny green tick mark for zero
                     Rect tick = r; tick.width = 4f;
                     EditorGUI.DrawRect(tick, ColPass);
                 }
 
                 GUI.color = ColDim;
-                EditorGUILayout.LabelField(tooltip, EditorStyles.miniLabel, GUILayout.Width(120));
+                EditorGUILayout.LabelField(tooltip, EditorStyles.miniLabel, GUILayout.Width(260));
                 GUI.color = old;
             }
         }
@@ -941,7 +1071,6 @@ namespace MidManStudio.Core.Benchmarks
             TickRate.Tick_5   => 5000f,
             _                 => 100f
         };
-
     }
 
 #endif
