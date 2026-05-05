@@ -1,15 +1,28 @@
 // MID_TickDelay.cs
 // Zero-allocation delayed action system built on MID_TickDispatcher.
 //
-// ZERO-ALLOC DESIGN:
-//   All TickDispatcher callbacks are subscribed ONCE during Reinitialise() and
-//   kept subscribed permanently. Each callback does a cheap ref-count check and
-//   early-returns when no delays are active for that rate. This eliminates the
-//   HashSet.Add / string-interpolation allocations that would otherwise occur
-//   every time After() was called after a quiet period.
+// ZERO-ALLOC CONTRACT — READ BEFORE USE:
+//   MID_TickDelay.After() itself performs zero heap allocations after warm-up.
+//   However, converting a method group to Action allocates in Unity 2019.2+.
 //
-//   AllocateSlot() and FreeSlot() never touch the TickDispatcher subscription
-//   list — zero allocation on the hot path after warm-up.
+//   WRONG — allocates every call:
+//     MID_TickDelay.After(1f, MyStaticMethod);   // method group → allocates
+//     MID_TickDelay.After(1f, () => DoWork());   // non-static lambda → closure
+//
+//   CORRECT — pre-allocate the delegate once and reuse:
+//     private static readonly Action _onTick = HandleTick;
+//     MID_TickDelay.After(1f, _onTick);          // zero alloc ✓
+//
+// MINIMUM RATE:
+//   MID_TickDelay enforces a minimum rate of Tick_0_1.
+//   Faster rates (Tick_0_05, Tick_0_02, Tick_0_01) are clamped.
+//   These rates fire faster than a typical frame — the dispatcher cost
+//   exceeds any benefit. Use Coroutine or Task for sub-frame timing instead.
+//
+// POOL SIZING:
+//   Default capacity = 64 slots. Raise before the first call if your game
+//   schedules more than 64 simultaneous delays:
+//     MID_TickDelay.PoolCapacity = 128;
 
 using System;
 using UnityEngine;
@@ -40,13 +53,18 @@ namespace MidManStudio.Core.TickDispatcher
 
     /// <summary>
     /// Static entry point for tick-based delayed and repeating actions.
-    /// Zero heap allocations on the hot path — permanent dispatcher subscriptions
-    /// with idle early-return instead of subscribe/unsubscribe per-cycle.
+    /// Zero heap allocations inside After() on the hot path.
+    /// Callers are responsible for pre-allocating their Action delegates.
     /// </summary>
     public static class MID_TickDelay
     {
         #region Configuration
 
+        /// <summary>
+        /// Maximum number of simultaneous pending delays.
+        /// Set before the first call. Changing at runtime rebuilds the pool.
+        /// Default: 64.
+        /// </summary>
         public static int PoolCapacity
         {
             get => _capacity;
@@ -60,31 +78,37 @@ namespace MidManStudio.Core.TickDispatcher
 
         private static int _capacity = 64;
 
+        /// <summary>
+        /// The minimum allowed tick rate. Rates faster than this are clamped.
+        /// MID_TickDelay only subscribes to rates at or above this value.
+        /// </summary>
+        private static readonly TickRate MinAllowedRate = TickRate.Tick_0_1;
+
         #endregion
 
-        #region Pool — arrays of primitives, no GC after init
+        #region Pool
 
-        private static float[]   _remaining;     // seconds until next fire
-        private static float[]   _interval;      // repeat interval
-        private static int[]     _repeatLeft;    // -1 = infinite, 0 = done, N = fires remaining
-        private static Action[]  _actions;
+        private static float[]    _remaining;
+        private static float[]    _interval;
+        private static int[]      _repeatLeft;   // -1=infinite  0=done  N=fires left
+        private static Action[]   _actions;
         private static TickRate[] _rates;
-        private static bool[]    _active;
-        private static ushort[]  _generation;
+        private static bool[]     _active;
+        private static ushort[]   _generation;
 
-        // Per-rate active-delay reference counts.
-        // Used ONLY for the idle early-return in tick callbacks —
-        // NOT for managing subscriptions (those are permanent).
-        private static int[]     _rateRefCount;
-        private static int       _rateCount;
+        // Per-rate active-delay ref counts — used only for the idle early-return.
+        private static int[]      _rateRefCount;
+        private static int        _rateCount;
 
-        // One callback per TickRate, subscribed once and never unsubscribed
-        // (until Reinitialise() rebuilds everything).
+        // One permanent callback per allowed rate (subscribed once, never removed).
         private static MID_TickDispatcher.TickCallback[] _tickCallbacks;
 
-        // Pre-allocated per-rate fire buffers — avoids stackalloc inside lambdas.
-        // Encoded: >= 0 = fire-then-free slot index; < 0 = -(slot+1) = fire-and-keep slot.
-        private static int[][] _firedBuffers;
+        // Pre-allocated fire buffers — one per rate, avoids stackalloc per tick.
+        // Encoding: >= 0 = fire-then-free slot;  < 0 = -(slot+1) = fire-and-keep.
+        private static int[][]    _firedBuffers;
+
+        // Which rates are actually subscribed (only those >= MinAllowedRate).
+        private static bool[]     _rateSubscribed;
 
         private static readonly object _lock = new();
         private static bool _initialised;
@@ -96,7 +120,12 @@ namespace MidManStudio.Core.TickDispatcher
 
         /// <summary>
         /// Execute <paramref name="action"/> once after <paramref name="seconds"/>.
-        /// Returns a cancellable handle.
+        /// <para>
+        /// IMPORTANT: Pre-allocate your delegate to guarantee zero GC:
+        ///   private static readonly Action _cb = MyMethod;
+        ///   MID_TickDelay.After(1f, _cb);
+        /// </para>
+        /// Returns a cancellable handle. Rate is clamped to Tick_0_1 minimum.
         /// </summary>
         public static TickDelayHandle After(float seconds, Action action,
             TickRate rate = TickRate.Tick_0_1)
@@ -117,9 +146,10 @@ namespace MidManStudio.Core.TickDispatcher
         /// <summary>
         /// Execute <paramref name="action"/> <paramref name="times"/> times,
         /// separated by <paramref name="intervalSeconds"/>.
+        /// Rate is clamped to Tick_0_1 minimum.
         /// </summary>
-        public static TickDelayHandle Repeat(float intervalSeconds, int times, Action action,
-            TickRate rate = TickRate.Tick_0_1)
+        public static TickDelayHandle Repeat(float intervalSeconds, int times,
+            Action action, TickRate rate = TickRate.Tick_0_1)
         {
             if (action == null)
             {
@@ -138,6 +168,7 @@ namespace MidManStudio.Core.TickDispatcher
         /// <summary>
         /// Execute <paramref name="action"/> every <paramref name="intervalSeconds"/>
         /// until the handle is cancelled.
+        /// Rate is clamped to Tick_0_1 minimum.
         /// </summary>
         public static TickDelayHandle RepeatForever(float intervalSeconds, Action action,
             TickRate rate = TickRate.Tick_0_1)
@@ -156,7 +187,9 @@ namespace MidManStudio.Core.TickDispatcher
                 rate, repeatCount: -1);
         }
 
-        /// <summary>Cancel a pending delay. Safe to call with invalid or already-fired handles.</summary>
+        /// <summary>
+        /// Cancel a pending delay. Safe to call with invalid or already-fired handles.
+        /// </summary>
         public static void Cancel(TickDelayHandle handle)
         {
             if (!handle.IsValid) return;
@@ -164,7 +197,7 @@ namespace MidManStudio.Core.TickDispatcher
             {
                 int i = handle.SlotIndex;
                 if (i < 0 || i >= _capacity) return;
-                if (!_active[i])              return;
+                if (!_active[i])             return;
                 if (_generation[i] != handle.Generation) return;
                 FreeSlot(i);
             }
@@ -181,18 +214,18 @@ namespace MidManStudio.Core.TickDispatcher
             }
         }
 
+        /// <summary>Number of currently active pending delays.</summary>
         public static int ActiveCount => _activeCount;
 
         #endregion
 
-        #region Slot Allocation
+        #region Slot Management
 
         private static TickDelayHandle AllocateSlot(float seconds, Action action,
             TickRate rate, int repeatCount)
         {
             lock (_lock)
             {
-                // Linear scan — pool is typically small and stays warm in L1.
                 int slot = -1;
                 for (int i = 0; i < _capacity; i++)
                     if (!_active[i]) { slot = i; break; }
@@ -201,7 +234,7 @@ namespace MidManStudio.Core.TickDispatcher
                 {
                     MID_Logger.LogWarning(MID_LogLevel.Error,
                         $"MID_TickDelay pool exhausted (capacity={_capacity}). " +
-                        "Increase MID_TickDelay.PoolCapacity. Action dropped.",
+                        "Increase MID_TickDelay.PoolCapacity before first use. Action dropped.",
                         nameof(MID_TickDelay));
                     return TickDelayHandle.Invalid;
                 }
@@ -215,7 +248,6 @@ namespace MidManStudio.Core.TickDispatcher
 
                 _activeCount++;
                 _rateRefCount[(int)rate]++;
-                // Subscription is permanent — no Subscribe call needed here.
 
                 return new TickDelayHandle
                 {
@@ -225,52 +257,53 @@ namespace MidManStudio.Core.TickDispatcher
             }
         }
 
-        // ── Rate guard ────────────────────────────────────────────────────────
+        // Must be called inside lock.
+        private static void FreeSlot(int i)
+        {
+            if (!_active[i]) return;
+            _rateRefCount[(int)_rates[i]]--;
+            _active[i]    = false;
+            _actions[i]   = null;
+            _activeCount--;
+            unchecked { _generation[i]++; }
+        }
 
-        private const TickRate MinAllowedRate = TickRate.Tick_0_1;
+        #endregion
+
+        #region Rate Guard
+
+        private static bool IsAllowedRate(TickRate rate) => rate >= MinAllowedRate;
 
         private static TickRate ClampRate(TickRate requested)
         {
-            if ((int)requested < (int)MinAllowedRate)
+            if (!IsAllowedRate(requested))
             {
                 MID_Logger.LogWarning(MID_LogLevel.Info,
-                    $"MID_TickDelay rate {requested} is faster than the minimum " +
-                    $"({MinAllowedRate}). Clamped to {MinAllowedRate}.",
+                    $"MID_TickDelay does not support rates faster than {MinAllowedRate}. " +
+                    $"Rates below {MinAllowedRate} fire faster than a typical frame — " +
+                    $"the dispatcher overhead exceeds any gain. " +
+                    $"Requested {requested} → clamped to {MinAllowedRate}. " +
+                    $"Use a Coroutine for sub-frame precision.",
                     nameof(MID_TickDelay));
                 return MinAllowedRate;
             }
             return requested;
         }
 
-        // Must be called inside lock
-        private static void FreeSlot(int i)
-        {
-            if (!_active[i]) return;
-
-            int rateIdx      = (int)_rates[i];
-            _active[i]       = false;
-            _actions[i]      = null;
-            unchecked { _generation[i]++; }
-            _activeCount--;
-            _rateRefCount[rateIdx]--;
-            // Subscription is permanent — no Unsubscribe call here.
-        }
-
         #endregion
 
         #region Tick Dispatch — main thread only
 
-        private static void BuildTickCallback(TickRate rate)
+        private static void BuildTickCallback(TickRate rate, int rateIdx)
         {
-            int   rateIdx = (int)rate;
-            int[] fireBuf = _firedBuffers[rateIdx]; // pre-allocated, never heap-allocated per tick
+            int[]  fireBuf = _firedBuffers[rateIdx];
 
             _tickCallbacks[rateIdx] = (float dt) =>
             {
-                // Cheap idle early-return — zero cost when no delays are active for this rate.
+                // Cheap idle early-return — zero cost when no delays use this rate.
                 if (_rateRefCount[rateIdx] == 0) return;
 
-                // ── Phase 1: determine which slots fire this tick ─────────────
+                // ── Phase 1: collect firing slots ─────────────────────────────
                 int firedCount = 0;
 
                 for (int i = 0; i < _capacity; i++)
@@ -282,15 +315,13 @@ namespace MidManStudio.Core.TickDispatcher
 
                     if (_repeatLeft[i] == 1)
                     {
-                        // Final fire — encode as positive (fire then free)
-                        fireBuf[firedCount++] = i;
+                        fireBuf[firedCount++] = i;           // positive = fire then free
                     }
                     else if (_repeatLeft[i] > 1)
                     {
-                        // More repeats — reset timer
                         _remaining[i]  = _interval[i];
                         _repeatLeft[i]--;
-                        fireBuf[firedCount++] = -(i + 1);
+                        fireBuf[firedCount++] = -(i + 1);    // negative = fire and keep
                     }
                     else // -1 = infinite
                     {
@@ -299,12 +330,12 @@ namespace MidManStudio.Core.TickDispatcher
                     }
                 }
 
-                // ── Phase 2: free one-shot slots then invoke all ──────────────
+                // ── Phase 2: free one-shot slots, then invoke all ─────────────
                 for (int fi = 0; fi < firedCount; fi++)
                 {
-                    int encoded    = fireBuf[fi];
+                    int  encoded    = fireBuf[fi];
                     bool shouldFree = encoded >= 0;
-                    int  slotIdx   = shouldFree ? encoded : (-encoded - 1);
+                    int  slotIdx    = shouldFree ? encoded : (-encoded - 1);
 
                     if (slotIdx < 0 || slotIdx >= _capacity) continue;
 
@@ -313,11 +344,14 @@ namespace MidManStudio.Core.TickDispatcher
                     if (shouldFree)
                         lock (_lock) { FreeSlot(slotIdx); }
 
-                    try { act?.Invoke(); }
+                    try
+                    {
+                        act?.Invoke();
+                    }
                     catch (Exception e)
                     {
                         MID_Logger.LogError(MID_LogLevel.Error,
-                            $"Exception in TickDelay action: {e.Message}",
+                            $"Exception in MID_TickDelay action: {e.Message}",
                             nameof(MID_TickDelay));
                     }
                 }
@@ -338,15 +372,14 @@ namespace MidManStudio.Core.TickDispatcher
         {
             lock (_lock)
             {
-                // Unsubscribe ALL existing callbacks before rebuilding.
-                // (With permanent subscriptions every rate is subscribed, so we
-                //  no longer check ref counts here.)
-                if (_initialised && _tickCallbacks != null)
+                // Unsubscribe previously subscribed callbacks.
+                if (_initialised && _tickCallbacks != null && _rateSubscribed != null)
                 {
-                    for (int r = 0; r < _rateCount; r++)
+                    var prevRates = (TickRate[])Enum.GetValues(typeof(TickRate));
+                    for (int r = 0; r < Math.Min(prevRates.Length, _tickCallbacks.Length); r++)
                     {
-                        if (_tickCallbacks[r] != null)
-                            MID_TickDispatcher.Unsubscribe((TickRate)r, _tickCallbacks[r]);
+                        if (_rateSubscribed[r] && _tickCallbacks[r] != null)
+                            MID_TickDispatcher.Unsubscribe(prevRates[r], _tickCallbacks[r]);
                     }
                 }
 
@@ -362,28 +395,38 @@ namespace MidManStudio.Core.TickDispatcher
                 _rateCount     = allRates.Length;
                 _rateRefCount  = new int[_rateCount];
                 _tickCallbacks = new MID_TickDispatcher.TickCallback[_rateCount];
+                _rateSubscribed = new bool[_rateCount];
 
-                // Pre-allocate fire buffers — one per rate, sized to worst-case (all slots fire).
                 _firedBuffers = new int[_rateCount][];
                 for (int r = 0; r < _rateCount; r++)
                     _firedBuffers[r] = new int[_capacity];
 
-                // Build callbacks BEFORE subscribing so the lambda captures the buffer refs.
+                // Build callbacks for all rates.
                 for (int r = 0; r < _rateCount; r++)
-                    BuildTickCallback(allRates[r]);
+                    BuildTickCallback(allRates[r], r);
 
-                // Permanently subscribe all rates.
-                // Each callback early-returns when _rateRefCount == 0 (zero cost at idle).
-                // This avoids Subscribe/Unsubscribe (and associated string allocations) on
-                // every After() call when a rate transitions from idle to active.
+                // Subscribe ONLY to allowed rates (>= Tick_0_1).
+                // Fast rates (Tick_0_01, Tick_0_02, Tick_0_05) are excluded —
+                // they fire faster than a normal frame and cause death spiral warnings.
                 for (int r = 0; r < _rateCount; r++)
-                    MID_TickDispatcher.Subscribe(allRates[r], _tickCallbacks[r]);
+                {
+                    if (IsAllowedRate(allRates[r]))
+                    {
+                        MID_TickDispatcher.Subscribe(allRates[r], _tickCallbacks[r]);
+                        _rateSubscribed[r] = true;
+                    }
+                    else
+                    {
+                        _rateSubscribed[r] = false;
+                    }
+                }
 
                 _activeCount = 0;
                 _initialised = true;
 
                 MID_Logger.LogInfo(MID_LogLevel.Info,
-                    $"MID_TickDelay initialised — pool capacity={_capacity}.",
+                    $"MID_TickDelay initialised — pool capacity={_capacity}, " +
+                    $"minimum rate={MinAllowedRate}.",
                     nameof(MID_TickDelay));
             }
         }

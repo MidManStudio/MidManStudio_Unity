@@ -60,14 +60,35 @@
     <Analyzer Include="/Applications/Unity/Hub/Editor/2022.3.13f1/Unity.app/Contents/Tools/Unity.SourceGenerators/Unity.Properties.SourceGenerator.dll" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/UIState/MID_UIStateManager.cs">
+      <Link>Runtime/UIState/MID_UIStateManager.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/UIState/MID_UIStateContext.cs">
+      <Link>Runtime/UIState/MID_UIStateContext.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Libraries/Configs/MID_LibrarySO.cs">
       <Link>Runtime/Libraries/Configs/MID_LibrarySO.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/LocalParticlePool.cs">
       <Link>Runtime/PoolSystems/LocalParticlePool.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/UIState/Generator/UIStateTypeProviderSO.cs">
+      <Link>Runtime/UIState/Generator/UIStateTypeProviderSO.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Events/MID_GameEventListener.cs">
+      <Link>Runtime/Events/MID_GameEventListener.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/SceneManagement/SceneNetworkDependency.cs">
+      <Link>Runtime/SceneManagement/SceneNetworkDependency.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/LocalParticleReturn.cs">
       <Link>Runtime/PoolSystems/LocalParticleReturn.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Libraries/Generator/LibraryItemId.cs">
+      <Link>Runtime/Libraries/Generator/LibraryItemId.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/UIState/Generator/UIStateContextProviderSO.cs">
+      <Link>Runtime/UIState/Generator/UIStateContextProviderSO.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Helpers/MID_HelperFunctions.cs">
       <Link>Runtime/Helpers/MID_HelperFunctions.cs</Link>
@@ -75,14 +96,26 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Editor/DynamicDebugPanel.cs">
       <Link>Runtime/Editor/DynamicDebugPanel.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/SceneManagement/MID_SceneLoader.cs">
+      <Link>Runtime/SceneManagement/MID_SceneLoader.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/UIState/MID_UIElement.cs">
+      <Link>Runtime/UIState/MID_UIElement.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Events/MID_GameEvent.cs">
+      <Link>Runtime/Events/MID_GameEvent.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/SceneManagement/MID_SceneTransitionController.cs">
+      <Link>Runtime/SceneManagement/MID_SceneTransitionController.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Logging/ExampleScript.cs">
       <Link>Runtime/Logging/ExampleScript.cs</Link>
     </Compile>
-    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/TickDispatcher/MID_NativeTickDispatcher.cs">
-      <Link>Runtime/TickDispatcher/MID_NativeTickDispatcher.cs</Link>
-    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/TickDispatcher/MID_TickDispatcher.cs">
       <Link>Runtime/TickDispatcher/MID_TickDispatcher.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/SceneManagement/Generated/SceneId.cs">
+      <Link>Runtime/SceneManagement/Generated/SceneId.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Helpers/SusValueManager.cs">
       <Link>Runtime/Helpers/SusValueManager.cs</Link>
@@ -93,6 +126,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Singleton/Singleton.cs">
       <Link>Runtime/Singleton/Singleton.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/UIState/MID_UIStateVisibility.cs">
+      <Link>Runtime/UIState/MID_UIStateVisibility.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/Config/PoolTypeProviderSO.cs">
       <Link>Runtime/PoolSystems/Config/PoolTypeProviderSO.cs</Link>
     </Compile>
@@ -101,6 +137,9 @@
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/TrailRendererPool.cs">
       <Link>Runtime/PoolSystems/TrailRendererPool.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/SceneManagement/SceneLoadType.cs">
+      <Link>Runtime/SceneManagement/SceneLoadType.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/LocalObjectPool.cs">
       <Link>Runtime/PoolSystems/LocalObjectPool.cs</Link>
@@ -114,8 +153,20 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Logging/MID_LoggerSettings.cs">
       <Link>Runtime/Logging/MID_LoggerSettings.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/SceneManagement/Generator/SceneTypeProviderSO.cs">
+      <Link>Runtime/SceneManagement/Generator/SceneTypeProviderSO.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Events/MID_EventUtilities.cs">
+      <Link>Runtime/Events/MID_EventUtilities.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Logging/MID_Logger.cs">
       <Link>Runtime/Logging/MID_Logger.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/SceneManagement/ISceneLoader.cs">
+      <Link>Runtime/SceneManagement/ISceneLoader.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/SequentialProcessRunner/MID_SequentialProcessRunner.cs">
+      <Link>Runtime/SequentialProcessRunner/MID_SequentialProcessRunner.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Audio/MID_AudioManager.cs">
       <Link>Runtime/Audio/MID_AudioManager.cs</Link>
@@ -123,14 +174,41 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Libraries/Configs/MID_LibraryItemSO.cs">
       <Link>Runtime/Libraries/Configs/MID_LibraryItemSO.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Libraries/Generator/LibraryTypeProviderSO.cs">
+      <Link>Runtime/Libraries/Generator/LibraryTypeProviderSO.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/UIState/Generated/MenuUIState.cs">
+      <Link>Runtime/UIState/Generated/MenuUIState.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Libraries/Generator/LibraryId.cs">
+      <Link>Runtime/Libraries/Generator/LibraryId.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Helpers/MID_NamedListAttribute.cs">
       <Link>Runtime/Helpers/MID_NamedListAttribute.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Events/MID_EventBus.cs">
+      <Link>Runtime/Events/MID_EventBus.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/TickDispatcher/MID_TickDelay.cs">
+      <Link>Runtime/TickDispatcher/MID_TickDelay.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/UIParticlePoolManager.cs">
       <Link>Runtime/PoolSystems/UIParticlePoolManager.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/UIState/MID_UIStateButton.cs">
+      <Link>Runtime/UIState/MID_UIStateButton.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/SceneManagement/Generated/SceneRegistry.cs">
+      <Link>Runtime/SceneManagement/Generated/SceneRegistry.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Helpers/MID_SusValue.cs">
       <Link>Runtime/Helpers/MID_SusValue.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Events/MID_DelayedGameEventListener.cs">
+      <Link>Runtime/Events/MID_DelayedGameEventListener.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/UIState/Generated/UIStateId.cs">
+      <Link>Runtime/UIState/Generated/UIStateId.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/BasicPoolConfig.cs">
       <Link>Runtime/PoolSystems/BasicPoolConfig.cs</Link>
@@ -149,6 +227,9 @@
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/PoolableObjectType.cs">
       <Link>Runtime/PoolSystems/PoolableObjectType.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/UIState/Generated/LobbyUIState.cs">
+      <Link>Runtime/UIState/Generated/LobbyUIState.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Ui/MID_Button.cs">
       <Link>Runtime/Ui/MID_Button.cs</Link>

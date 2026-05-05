@@ -1,16 +1,17 @@
 {
-    "name": "MidManStudio.Utilities.Tests",
-    "rootNamespace": "MidManStudio.Core.Tests",
+    "name": "MidManStudio.Utilities.Tests.Editor",
+    "rootNamespace": "MidManStudio.Core.Benchmarks",
     "references": [
         "MidManStudio.Utilities",
-        "UnityEngine.TestRunner",
-        "UnityEditor.TestRunner",
         "Unity.Burst",
+        "Unity.Collections",
         "Unity.Mathematics"
     ],
-    "includePlatforms": [],
+    "includePlatforms": [
+        "Editor"
+    ],
     "excludePlatforms": [],
-    "allowUnsafeCode": false,
+    "allowUnsafeCode": true,
     "overrideReferences": false,
     "precompiledReferences": [],
     "autoReferenced": false,
