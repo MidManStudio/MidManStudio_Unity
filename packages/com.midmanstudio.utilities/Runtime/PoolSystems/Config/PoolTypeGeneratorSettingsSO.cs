@@ -6,9 +6,9 @@ using UnityEngine;
 
 namespace MidManStudio.Core.Pools.Generator
 {
-    [CreateAssetMenu(
-        fileName = "PoolTypeGeneratorSettings",
-        menuName = "MidManStudio/Utilities/Pool Type Generator Settings")]
+    
+[CreateAssetMenu(fileName="PoolTypeGeneratorSettings",
+    menuName="MidManStudio/Utilities/Pool Type Generator Settings", order=150)]
     public class PoolTypeGeneratorSettingsSO : ScriptableObject
     {
         [Header("Output Paths")]
