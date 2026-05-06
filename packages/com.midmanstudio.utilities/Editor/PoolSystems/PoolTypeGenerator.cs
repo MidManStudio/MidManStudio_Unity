@@ -534,7 +534,7 @@ namespace MidManStudio.Core.Pools.Generator
         private bool                        _showParticleProviders = true;
         private bool                        _showNetworkProviders  = true;
 
-        [MenuItem("MidManStudio/Utilities/Pool Type Generator")]
+[MenuItem("MidManStudio/Utilities/Pool Type Generator",       priority = 101)]
         public static void Open()
         {
             var w = GetWindow<PoolTypeGeneratorWindow>("Pool Type Generator");
