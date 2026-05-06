@@ -19,9 +19,9 @@ using MidManStudio.Core.EditorUtils;
 
 namespace MidManStudio.Core.Libraries
 {
-    [CreateAssetMenu(
-        fileName = "NewLibrary",
-        menuName = "MidManStudio/Utilities/Library")]
+    
+[CreateAssetMenu(fileName="NewLibrary",
+    menuName="MidManStudio/Utilities/Library", order=120)]
     public class MID_LibrarySO : ScriptableObject, IArrayElementTitle
     {
         [Tooltip("Unique ID used to retrieve this library from MID_LibraryRegistry.")]
