@@ -535,7 +535,8 @@ namespace MidManStudio.Core.Benchmarks
         private static readonly Color ColWarn  = new Color(1.00f, 0.85f, 0.25f, 1f);
         private static readonly Color ColInfo  = new Color(0.60f, 0.80f, 1.00f, 1f);
 
-        [MenuItem("MidManStudio/Utilities/Tests/Tick Delay Bench")]
+       
+[MenuItem("MidManStudio/Utilities/Tests/Tick Delay Bench",      priority = 120)]
         public static void Open()
         {
             var w = GetWindow<MID_TickDelayBenchWindow>("Tick Delay Bench");
