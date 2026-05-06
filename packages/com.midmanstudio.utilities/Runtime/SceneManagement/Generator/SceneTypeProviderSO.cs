@@ -30,9 +30,9 @@ namespace MidManStudio.Core.SceneManagement.Generator
         public string Name => string.IsNullOrWhiteSpace(enumName) ? $"Scene_{buildIndex}" : enumName;
     }
 
-    [CreateAssetMenu(
-        fileName = "SceneTypeProvider",
-        menuName = "MidManStudio/Utilities/Scene Type Provider")]
+    
+[CreateAssetMenu(fileName="SceneTypeProvider",
+    menuName="MidManStudio/Utilities/Scene Type Provider", order=180)]
     public class SceneTypeProviderSO : ScriptableObject
     {
         [Header("Identity")]
