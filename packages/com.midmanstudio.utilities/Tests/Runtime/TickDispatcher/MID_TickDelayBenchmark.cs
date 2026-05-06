@@ -850,10 +850,12 @@ namespace MidManStudio.Core.Benchmarks
                         BarRow("Coroutine",  0f, ColCoro, "0 B  (pool warm)");
                         BarRow("Task.Delay", 0f, ColTask, "0 B  (pool warm)");
                         EditorGUILayout.HelpBox(
-                            "All 0B — internal pools are warm from previous runs or warmup.\n" +
-                            "TickDelay 0B is always correct. Coroutine/Task 0B means their " +
-                            "object pools absorbed the allocs.\n" +
-                            "Restart Play Mode for cold measurements, or use the Unity Profiler.",
+                            "All 0B detected. This is a known limitation of GC.GetAllocatedBytesForCurrentThread()\n" +
+"in Unity's Mono runtime — allocator free-list reuse and incremental GC mean the\n" +
+"counter delta can be zero even when heap objects were created.\n\n" +
+"GROUND TRUTH: Window > Analysis > Profiler > CPU > Hierarchy view > GC Alloc column.\n" +
+"Run the bench, check that frame in the profiler. Coroutine and Task WILL show allocs there.\n" +
+"MID_TickDelay will show 0 B in the Profiler too — that is the actual proof it works.",
                             MessageType.Warning);
                     }
                 }
