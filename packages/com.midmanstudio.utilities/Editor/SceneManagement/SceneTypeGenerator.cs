@@ -204,8 +204,7 @@ namespace MidManStudio.Core.Editor.SceneManagement
         private bool         _ranOnce;
         private bool         _lastSuccess;
         private Vector2      _scroll;
-
-        [MenuItem("MidManStudio/Utilities/Scene Type Generator")]
+[MenuItem("MidManStudio/Utilities/Scene Type Generator",      priority = 103)]
         public static void Open()
         {
             var w = GetWindow<SceneTypeGeneratorWindow>("Scene Type Generator");
