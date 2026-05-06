@@ -48,9 +48,8 @@ namespace MidManStudio.Core.Pools.Generator
     //  Object pool provider
     // ─────────────────────────────────────────────────────────────────────────
 
-    [CreateAssetMenu(
-        fileName = "PoolTypeProvider",
-        menuName = "MidManStudio/Utilities/Pool Type Provider (Object)")]
+[CreateAssetMenu(fileName="PoolTypeProvider",
+    menuName="MidManStudio/Utilities/Pool Type Provider (Object)", order=160)]
     public class PoolTypeProviderSO : ScriptableObject
     {
         [Header("Identity")]
@@ -81,9 +80,8 @@ namespace MidManStudio.Core.Pools.Generator
     //  can find them independently)
     // ─────────────────────────────────────────────────────────────────────────
 
-    [CreateAssetMenu(
-        fileName = "ParticlePoolTypeProvider",
-        menuName = "MidManStudio/Utilities/Pool Type Provider (Particle)")]
+[CreateAssetMenu(fileName="ParticlePoolTypeProvider",
+    menuName="MidManStudio/Utilities/Pool Type Provider (Particle)", order=170)]
     public class ParticlePoolTypeProviderSO : ScriptableObject
     {
         [Header("Identity")]
