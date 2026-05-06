@@ -17,9 +17,9 @@ namespace MidManStudio.Core.Libraries
     /// Ready-to-use library item with display name, description, and optional sprite.
     /// Create via: right-click > MidManStudio > Utilities > Library Item (Basic)
     /// </summary>
-    [CreateAssetMenu(
-        fileName  = "NewLibraryItem",
-        menuName  = "MidManStudio/Utilities/Library Item (Basic)")]
+    
+[CreateAssetMenu(fileName="NewLibraryItem",
+    menuName="MidManStudio/Utilities/Library Item (Basic)", order=130)]
     public class MID_BasicLibraryItemSO : MID_LibraryItemSO
     {
         [Tooltip("Human-readable display name shown in UI.")]
