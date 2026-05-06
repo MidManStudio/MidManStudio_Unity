@@ -33,7 +33,8 @@ namespace MidManStudio.Core.EditorTools
         private bool _showActions     = true;
 
         // ── Menu ───────────────────────────────────────────────────────────────
-        [MenuItem("MidManStudio/Utilities/Logger Manager")]
+       
+[MenuItem("MidManStudio/Utilities/Logger Manager", priority = 100)]
         public static void ShowWindow()
         {
             var w = GetWindow<MID_LoggerEditorWindow>("Logger Manager");
