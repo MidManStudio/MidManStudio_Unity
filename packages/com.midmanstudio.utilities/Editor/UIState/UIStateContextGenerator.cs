@@ -158,7 +158,7 @@ namespace MidManStudio.Core.Editor.UIState
         private bool         _lastSuccess;
         private Vector2      _scroll;
 
-        [MenuItem("MidManStudio/Utilities/UI State Context Generator")]
+[MenuItem("MidManStudio/Utilities/UI State Context Generator",priority = 104)]
         public static void Open()
         {
             var w = GetWindow<UIStateContextGeneratorWindow>("UI State Generator");
