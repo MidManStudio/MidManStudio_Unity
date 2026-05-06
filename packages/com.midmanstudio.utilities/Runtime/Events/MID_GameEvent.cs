@@ -14,9 +14,8 @@ using MidManStudio.Core.Logging;
 
 namespace MidManStudio.Core.Events
 {
-    [CreateAssetMenu(
-        menuName = "MidManStudio/Utilities/Game Event",
-        fileName = "New Game Event")]
+   [CreateAssetMenu(fileName="New Game Event",
+    menuName="MidManStudio/Utilities/Game Event", order=110)]
     public class MID_GameEvent : ScriptableObject
     {
         [SerializeField] private MID_LogLevel _logLevel = MID_LogLevel.Info;
