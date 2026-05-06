@@ -21,9 +21,9 @@ using MidManStudio.Core.Logging;
 
 namespace MidManStudio.Core.UIState
 {
-    [CreateAssetMenu(
-        fileName = "UIStateContext",
-        menuName = "MidManStudio/Utilities/UI State Context")]
+    
+[CreateAssetMenu(fileName="UIStateContext",
+    menuName="MidManStudio/Utilities/UI State Context", order=190)]
     public class MID_UIStateContext : ScriptableObject
     {
         #region Inspector
