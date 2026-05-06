@@ -1,13 +1,10 @@
 {
   "name": "MidManStudio.Utilities",
   "rootNamespace": "MidManStudio.Core",
-  "references": [
-    "Unity.Burst",
-    "Unity.Collections"
-  ],
+  "references": [],
   "includePlatforms": [],
   "excludePlatforms": [],
-  "allowUnsafeCode": true,
+  "allowUnsafeCode": false,
   "overrideReferences": false,
   "precompiledReferences": [],
   "autoReferenced": true,
