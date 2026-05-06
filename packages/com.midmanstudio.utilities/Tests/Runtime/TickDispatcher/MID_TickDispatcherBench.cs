@@ -337,7 +337,8 @@ namespace MidManStudio.Core.Benchmarks
         private static readonly Color DimCol     = new Color(0.50f, 0.50f, 0.50f, 1f);
         private static readonly Color BarBg      = new Color(0.15f, 0.15f, 0.15f, 0.4f);
 
-        [MenuItem("MidManStudio/Utilities/Tests/Tick Dispatcher Bench")]
+       
+[MenuItem("MidManStudio/Utilities/Tests/Tick Dispatcher Bench",  priority = 121)]
         static void Open() =>
             GetWindow<MID_TickDispatcherBenchWindow>("Tick Dispatcher Bench")
                 .minSize = new Vector2(520, 340);
