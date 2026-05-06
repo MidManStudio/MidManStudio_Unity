@@ -22,9 +22,9 @@ namespace MidManStudio.Core.UIState.Generator
             string.IsNullOrWhiteSpace(enumName) ? "Unnamed" : enumName;
     }
 
-    [CreateAssetMenu(
-        fileName = "UIStateContextProvider",
-        menuName = "MidManStudio/Utilities/UI State Context Provider")]
+    
+[CreateAssetMenu(fileName="UIStateContextProvider",
+    menuName="MidManStudio/Utilities/UI State Context Provider", order=200)]
     public class UIStateContextProviderSO : ScriptableObject
     {
         [Header("Context Identity")]
