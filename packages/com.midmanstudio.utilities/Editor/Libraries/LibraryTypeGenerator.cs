@@ -241,7 +241,7 @@ private const string LibraryItemPath =
         private bool         _lastSuccess;
         private bool         _ranOnce;
 
-        [MenuItem("MidManStudio/Utilities/Library Type Generator")]
+[MenuItem("MidManStudio/Utilities/Library Type Generator",    priority = 102)]
         public static void Open()
         {
             var w = GetWindow<LibraryTypeGeneratorWindow>("Library Type Generator");
