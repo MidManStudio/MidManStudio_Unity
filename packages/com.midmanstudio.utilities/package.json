@@ -1,18 +1,32 @@
 {
   "name": "com.midmanstudio.utilities",
-  "version": "1.1.0",
+  "version": "1.0.0",
   "displayName": "MidMan Studio Utilities",
-  "description": "Core utilities: tick dispatcher, logger, timers, object pools, singletons, scene dependency injector, trail renderer pool, spawnable audio.",
+  "description": "Core runtime utilities for Unity 2022.3+. Includes tick dispatcher, zero-alloc tick delay, logger, object/particle pools, trail renderer pool, singletons, observable values, event bus, audio manager, timers, library system, scene management, UI state system, and a suite of editor tools. No game-specific dependencies — designed as a foundation for all MidManStudio packages.",
   "unity": "2022.3",
   "unityRelease": "0f1",
   "documentationUrl": "",
   "changelogUrl": "",
   "licensesUrl": "",
   "dependencies": {
-    "com.unity.burst": "1.8.0",
-    "com.unity.collections": "1.2.4"
   },
-  "keywords": ["utilities", "tick", "dispatcher", "logger", "pool", "singleton", "audio", "trail"],
+  "keywords": [
+    "utilities",
+    "tick",
+    "dispatcher",
+    "delay",
+    "logger",
+    "pool",
+    "singleton",
+    "audio",
+    "trail",
+    "observable",
+    "events",
+    "scene",
+    "ui-state",
+    "library",
+    "netcode"
+  ],
   "author": {
     "name": "MidMan Studio",
     "email": "",
