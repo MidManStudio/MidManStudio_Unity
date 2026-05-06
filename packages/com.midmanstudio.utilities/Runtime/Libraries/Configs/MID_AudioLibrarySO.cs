@@ -21,7 +21,9 @@ namespace MidManStudio.Core.Audio
                            "Audio Entry";
     }
 
-    [CreateAssetMenu(fileName = "MID_AudioLibrary", menuName = "MidManStudio/Utilities/Audio Library")]
+    [CreateAssetMenu(fileName="MID_AudioLibrary",
+    menuName="MidManStudio/Utilities/Audio Library", order=100)]
+
     public class MID_AudioLibrarySO : ScriptableObject
     {
         [MID_NamedList]
