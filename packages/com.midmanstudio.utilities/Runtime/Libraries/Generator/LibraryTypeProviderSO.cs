@@ -29,9 +29,9 @@ namespace MidManStudio.Core.Libraries.Generator
         public string Name => string.IsNullOrWhiteSpace(libraryName) ? "Unnamed Library" : libraryName;
     }
 
-    [CreateAssetMenu(
-        fileName = "LibraryTypeProvider",
-        menuName = "MidManStudio/Utilities/Library Type Provider")]
+    
+[CreateAssetMenu(fileName="LibraryTypeProvider",
+    menuName="MidManStudio/Utilities/Library Type Provider", order=210)]
     public class LibraryTypeProviderSO : ScriptableObject
     {
         [Header("Identity")]
