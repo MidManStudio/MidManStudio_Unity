@@ -1,7 +1,5 @@
 // MID_UIStateButton.cs
-// Button that transitions a MID_UIStateContext to a target state.
-// Assign the context SO and target state raw int, or use the custom editor
-// which shows an enum dropdown based on the context's generated enum type.
+// No changes to runtime logic.
 
 using UnityEngine;
 using UnityEngine.UI;
@@ -23,7 +21,7 @@ namespace MidManStudio.Core.UIState
 
         private Button _button;
 
-        public MID_UIStateContext Context        => _context;
+        public MID_UIStateContext Context         => _context;
         public int                TargetStateMask => _targetStateMask;
 
         private void Awake()
