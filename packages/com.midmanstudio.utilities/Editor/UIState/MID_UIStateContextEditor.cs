@@ -1,8 +1,12 @@
 // MID_UIStateContextEditor.cs
 // Custom inspectors for MID_UIStateVisibility, MID_UIStateButton,
-// and MID_UIStateManager (UIStatePanelConfig rows).
-// All enum discovery is done by reflecting the generated type name from
-// the MID_UIStateContext SO — no dependency on UIStateId.
+// MID_UIStateManager, and MID_UIStateBackButton.
+//
+// FIXES in this version:
+//   - [CanEditMultipleObjects] added to all editors (fixes "multiple edit" warning)
+//   - DrawPanelConfigRow uses EditorGUILayout.Foldout instead of nested
+//     BeginFoldoutHeaderGroup (fixes "You can't nest Foldout Headers" error)
+//   - All references updated for merged MID_UIStateContext SO
 
 #if UNITY_EDITOR
 using System;
@@ -17,6 +21,7 @@ namespace MidManStudio.Core.Editor.UIState
     // ── Visibility Inspector ──────────────────────────────────────────────────
 
     [CustomEditor(typeof(MID_UIStateVisibility))]
+    [CanEditMultipleObjects]
     public class MID_UIStateVisibilityEditor : UnityEditor.Editor
     {
         private SerializedProperty _contextProp;
@@ -41,14 +46,15 @@ namespace MidManStudio.Core.Editor.UIState
             var contextSO = _contextProp.objectReferenceValue as MID_UIStateContext;
             if (contextSO == null)
             {
-                EditorGUILayout.HelpBox("Assign a MID_UIStateContext SO asset.", MessageType.Warning);
+                EditorGUILayout.HelpBox(
+                    "Assign a MID_UIStateContext SO asset.", MessageType.Warning);
                 serializedObject.ApplyModifiedProperties();
                 return;
             }
 
             EditorGUILayout.Space(4);
             EditorGUILayout.HelpBox(
-                $"Context: {contextSO.contextDisplayName}\n" +
+                $"Context: {contextSO.contextName}\n" +
                 "Panel is visible when state contains ANY checked flag.",
                 MessageType.Info);
 
@@ -62,9 +68,57 @@ namespace MidManStudio.Core.Editor.UIState
         }
     }
 
-    // ── Button Inspector ──────────────────────────────────────────────────────
+    // ── Back Button Inspector ─────────────────────────────────────────────────
+
+    [CustomEditor(typeof(MID_UIStateBackButton))]
+    [CanEditMultipleObjects]
+    public class MID_UIStateBackButtonEditor : UnityEditor.Editor
+    {
+        private SerializedProperty _contextProp;
+        private SerializedProperty _disableProp;
+        private SerializedProperty _logLevelProp;
+
+        private void OnEnable()
+        {
+            _contextProp  = serializedObject.FindProperty("_context");
+            _disableProp  = serializedObject.FindProperty("_disableWhenNoHistory");
+            _logLevelProp = serializedObject.FindProperty("_logLevel");
+        }
+
+        public override void OnInspectorGUI()
+        {
+            serializedObject.Update();
+
+            EditorGUILayout.Space(4);
+            EditorGUILayout.LabelField("UI State Back Button", EditorStyles.boldLabel);
+            EditorGUILayout.PropertyField(_contextProp, new GUIContent("Context"));
+
+            var contextSO = _contextProp.objectReferenceValue as MID_UIStateContext;
+            if (contextSO != null)
+            {
+                EditorGUILayout.HelpBox(
+                    $"Context: {contextSO.contextName}\n" +
+                    "Calls GoBack() on the context when clicked.",
+                    MessageType.None);
+            }
+            else
+            {
+                EditorGUILayout.HelpBox(
+                    "Assign a MID_UIStateContext SO asset.", MessageType.Warning);
+            }
+
+            EditorGUILayout.PropertyField(_disableProp,
+                new GUIContent("Disable When No History",
+                    "Disables the button automatically when there is no state to return to."));
+            EditorGUILayout.PropertyField(_logLevelProp);
+            serializedObject.ApplyModifiedProperties();
+        }
+    }
+
+    // ── State Button Inspector ────────────────────────────────────────────────
 
     [CustomEditor(typeof(MID_UIStateButton))]
+    [CanEditMultipleObjects]
     public class MID_UIStateButtonEditor : UnityEditor.Editor
     {
         private SerializedProperty _contextProp;
@@ -91,7 +145,8 @@ namespace MidManStudio.Core.Editor.UIState
             var contextSO = _contextProp.objectReferenceValue as MID_UIStateContext;
             if (contextSO == null)
             {
-                EditorGUILayout.HelpBox("Assign a MID_UIStateContext SO asset.", MessageType.Warning);
+                EditorGUILayout.HelpBox(
+                    "Assign a MID_UIStateContext SO asset.", MessageType.Warning);
                 serializedObject.ApplyModifiedProperties();
                 return;
             }
@@ -101,7 +156,8 @@ namespace MidManStudio.Core.Editor.UIState
             UIStateContextEditorUtils.DrawSingleStateDropdown(contextSO.enumTypeName, _maskProp);
 
             EditorGUILayout.Space(4);
-            EditorGUILayout.PropertyField(_disableProp, new GUIContent("Disable When Active"));
+            EditorGUILayout.PropertyField(_disableProp,
+                new GUIContent("Disable When Active"));
             EditorGUILayout.PropertyField(_logLevelProp);
             serializedObject.ApplyModifiedProperties();
         }
@@ -137,14 +193,12 @@ namespace MidManStudio.Core.Editor.UIState
 
             var contextSO = _contextProp.objectReferenceValue as MID_UIStateContext;
 
-            // Initial state — show dropdown if context type is known
             EditorGUILayout.Space(4);
             if (contextSO != null)
             {
                 EditorGUILayout.LabelField("Initial State:", EditorStyles.boldLabel);
                 UIStateContextEditorUtils.DrawSingleStateDropdown(
-                    contextSO.enumTypeName, _initialStateProp,
-                    includeNone: true);
+                    contextSO.enumTypeName, _initialStateProp, includeNone: true);
             }
             else
             {
@@ -155,15 +209,17 @@ namespace MidManStudio.Core.Editor.UIState
             EditorGUILayout.Space(4);
             EditorGUILayout.PropertyField(_logLevelProp);
 
-            // Panel configs
+            // Panel Configs — outer foldout uses BeginFoldoutHeaderGroup (top level, no nesting)
             EditorGUILayout.Space(6);
-            _configsFold = EditorGUILayout.BeginFoldoutHeaderGroup(_configsFold, "Panel Configurations");
+            _configsFold = EditorGUILayout.BeginFoldoutHeaderGroup(
+                _configsFold, "Panel Configurations");
+
             if (_configsFold)
             {
                 EditorGUILayout.BeginVertical(EditorStyles.helpBox);
                 EditorGUILayout.HelpBox(
                     contextSO != null
-                        ? $"Using context: {contextSO.contextDisplayName}\n" +
+                        ? $"Using context: {contextSO.contextName}\n" +
                           "Each config row shows named flags from the generated enum."
                         : "Assign a Context SO above to get named flag dropdowns.",
                     MessageType.None);
@@ -179,6 +235,8 @@ namespace MidManStudio.Core.Editor.UIState
 
                 EditorGUILayout.EndVertical();
             }
+
+            // Must always close the outer header group
             EditorGUILayout.EndFoldoutHeaderGroup();
 
             serializedObject.ApplyModifiedProperties();
@@ -186,53 +244,51 @@ namespace MidManStudio.Core.Editor.UIState
 
         private void DrawPanelConfigRow(int i, MID_UIStateContext contextSO)
         {
-            var element      = _configsProp.GetArrayElementAtIndex(i);
-            var maskProp     = element.FindPropertyRelative("stateMask");
-            var displayProp  = element.FindPropertyRelative("displayName");
-            var showProp     = element.FindPropertyRelative("show");
-            var hideProp     = element.FindPropertyRelative("hide");
-            var enterProp    = element.FindPropertyRelative("onEnter");
-            var exitProp     = element.FindPropertyRelative("onExit");
+            var element     = _configsProp.GetArrayElementAtIndex(i);
+            var maskProp    = element.FindPropertyRelative("stateMask");
+            var displayProp = element.FindPropertyRelative("displayName");
+            var showProp    = element.FindPropertyRelative("show");
+            var hideProp    = element.FindPropertyRelative("hide");
+            var enterProp   = element.FindPropertyRelative("onEnter");
+            var exitProp    = element.FindPropertyRelative("onExit");
 
             string title = string.IsNullOrEmpty(displayProp.stringValue)
                 ? $"Config [{i}]"
                 : displayProp.stringValue;
 
-            bool expanded = EditorGUILayout.BeginFoldoutHeaderGroup(
-                element.isExpanded, title);
-            element.isExpanded = expanded;
+            // FIX: Use regular Foldout (NOT BeginFoldoutHeaderGroup) here —
+            // BeginFoldoutHeaderGroup cannot be nested inside another one.
+            element.isExpanded = EditorGUILayout.Foldout(
+                element.isExpanded, title, true, EditorStyles.foldoutHeader);
 
-            if (expanded)
-            {
-                EditorGUI.indentLevel++;
+            if (!element.isExpanded) return;
 
-                EditorGUILayout.PropertyField(displayProp, new GUIContent("Display Name"));
+            EditorGUI.indentLevel++;
 
-                EditorGUILayout.Space(2);
-                EditorGUILayout.LabelField("State Mask:", EditorStyles.boldLabel);
-                if (contextSO != null)
-                    UIStateContextEditorUtils.DrawSingleStateDropdown(
-                        contextSO.enumTypeName, maskProp);
-                else
-                    EditorGUILayout.PropertyField(maskProp, new GUIContent("State Mask (raw int)"));
+            EditorGUILayout.PropertyField(displayProp, new GUIContent("Display Name"));
 
-                EditorGUILayout.Space(2);
-                EditorGUILayout.PropertyField(showProp, new GUIContent("Show"), true);
-                EditorGUILayout.PropertyField(hideProp, new GUIContent("Hide"), true);
-                EditorGUILayout.PropertyField(enterProp, new GUIContent("On Enter"));
-                EditorGUILayout.PropertyField(exitProp,  new GUIContent("On Exit"));
+            EditorGUILayout.Space(2);
+            EditorGUILayout.LabelField("State Mask:", EditorStyles.boldLabel);
+            if (contextSO != null)
+                UIStateContextEditorUtils.DrawSingleStateDropdown(
+                    contextSO.enumTypeName, maskProp);
+            else
+                EditorGUILayout.PropertyField(maskProp, new GUIContent("State Mask (raw int)"));
 
-                EditorGUILayout.Space(4);
-                var old = GUI.backgroundColor;
-                GUI.backgroundColor = new Color(1f, 0.4f, 0.4f);
-                if (GUILayout.Button("Remove"))
-                    _configsProp.DeleteArrayElementAtIndex(i);
-                GUI.backgroundColor = old;
+            EditorGUILayout.Space(2);
+            EditorGUILayout.PropertyField(showProp, new GUIContent("Show"), true);
+            EditorGUILayout.PropertyField(hideProp, new GUIContent("Hide"), true);
+            EditorGUILayout.PropertyField(enterProp, new GUIContent("On Enter"));
+            EditorGUILayout.PropertyField(exitProp,  new GUIContent("On Exit"));
 
-                EditorGUI.indentLevel--;
-            }
+            EditorGUILayout.Space(4);
+            var old = GUI.backgroundColor;
+            GUI.backgroundColor = new Color(1f, 0.4f, 0.4f);
+            if (GUILayout.Button("Remove Config"))
+                _configsProp.DeleteArrayElementAtIndex(i);
+            GUI.backgroundColor = old;
 
-            EditorGUILayout.EndFoldoutHeaderGroup();
+            EditorGUI.indentLevel--;
         }
     }
 
@@ -242,7 +298,7 @@ namespace MidManStudio.Core.Editor.UIState
     {
         /// <summary>
         /// Draw multi-select flag checkboxes by reflecting the generated enum type.
-        /// Falls back to a raw int field if the type is not found (before first generation).
+        /// Supports multi-object editing via SerializedProperty.
         /// </summary>
         public static void DrawFlagsCheckboxes(string enumTypeName, SerializedProperty maskProp)
         {
@@ -250,7 +306,8 @@ namespace MidManStudio.Core.Editor.UIState
             if (enumType == null)
             {
                 DrawMissingTypeHelpBox(enumTypeName);
-                EditorGUILayout.PropertyField(maskProp, new GUIContent("Show When (raw int)"));
+                EditorGUILayout.PropertyField(maskProp,
+                    new GUIContent("Show When (raw int)"));
                 return;
             }
 
@@ -269,13 +326,15 @@ namespace MidManStudio.Core.Editor.UIState
                 }
             }
 
-            if (next != current) maskProp.intValue = next;
+            if (next != current)
+                maskProp.intValue = next;
 
             DrawSummary(next, names, values);
         }
 
         /// <summary>
-        /// Draw a single-state dropdown (for buttons that transition to one state).
+        /// Draw a single-state dropdown for buttons / configs that transition to one state.
+        /// Supports multi-object editing via SerializedProperty.
         /// </summary>
         public static void DrawSingleStateDropdown(string enumTypeName,
             SerializedProperty maskProp, bool includeNone = false)
@@ -284,7 +343,8 @@ namespace MidManStudio.Core.Editor.UIState
             if (enumType == null)
             {
                 DrawMissingTypeHelpBox(enumTypeName);
-                EditorGUILayout.PropertyField(maskProp, new GUIContent("Target State (raw int)"));
+                EditorGUILayout.PropertyField(maskProp,
+                    new GUIContent("Target State (raw int)"));
                 return;
             }
 
@@ -301,7 +361,7 @@ namespace MidManStudio.Core.Editor.UIState
 
             foreach (var (name, value) in ZipSkipZero(names, values))
             {
-                // Only include single-bit values for direct state transitions
+                // Only single-bit values for direct state transitions
                 if (value != 0 && (value & (value - 1)) == 0)
                 {
                     options.Add(name);
@@ -311,7 +371,10 @@ namespace MidManStudio.Core.Editor.UIState
 
             if (options.Count == 0)
             {
-                EditorGUILayout.HelpBox("No single-bit states defined in this enum.", MessageType.Info);
+                EditorGUILayout.HelpBox(
+                    "No single-bit states defined in this enum yet.\n" +
+                    "Add states and run the generator.",
+                    MessageType.Info);
                 EditorGUILayout.PropertyField(maskProp, new GUIContent("State (raw int)"));
                 return;
             }
@@ -325,7 +388,7 @@ namespace MidManStudio.Core.Editor.UIState
                 maskProp.intValue = optionVals[newIdx];
         }
 
-        // ── Helpers ───────────────────────────────────────────────────────────
+        // ── Private helpers ───────────────────────────────────────────────────
 
         private static void DrawMissingTypeHelpBox(string typeName)
         {
@@ -334,7 +397,7 @@ namespace MidManStudio.Core.Editor.UIState
                 : typeName;
             EditorGUILayout.HelpBox(
                 $"Enum type '{shortName}' not found.\n" +
-                "Run the UI State Context Generator first:\n" +
+                "Run the generator first:\n" +
                 "MidManStudio > Utilities > UI State Context Generator",
                 MessageType.Warning);
         }
