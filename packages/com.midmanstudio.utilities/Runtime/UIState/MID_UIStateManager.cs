@@ -1,20 +1,6 @@
 // MID_UIStateManager.cs
 // Singleton panel manager for a single MID_UIStateContext.
-// Handles GameObject show/hide and UnityEvent callbacks on state transitions.
-// State machine logic (ChangeState, GoBack, history) lives in MID_UIStateContext.
-//
-// SETUP:
-//   1. Create a UIStateContextProviderSO, add your states, run the generator.
-//      (MidManStudio > Utilities > UI State Context Generator)
-//   2. Create a MID_UIStateContext SO asset per logical context (Menu, HUD, etc.).
-//   3. Add MID_UIStateManager to a persistent GameObject.
-//   4. Assign the context SO to the Context field.
-//   5. Add UIStatePanelConfig entries — set stateMask by casting your generated enum:
-//        stateMask = (int)MenuUIState.Settings
-//
-// USAGE (code):
-//   MID_UIStateManager.Instance.ChangeState((int)MenuUIState.MainMenu);
-//   MID_UIStateManager.Instance.GoBack();
+// Drives GameObject show/hide and UnityEvent callbacks on state transitions.
 
 using System;
 using System.Collections.Generic;
@@ -26,14 +12,11 @@ using MidManStudio.Core.EditorUtils;
 
 namespace MidManStudio.Core.UIState
 {
-    // ── Panel configuration ───────────────────────────────────────────────────
-
     [Serializable]
     public class UIStatePanelConfig : IArrayElementTitle
     {
         [Tooltip("Raw int value of the generated enum member for this state.\n" +
-                 "Cast in code: stateMask = (int)MenuUIState.Settings\n" +
-                 "The custom inspector shows named checkboxes when a context is assigned.")]
+                 "The custom inspector shows named dropdowns when a context is assigned.")]
         public int stateMask;
 
         [Tooltip("Inspector label only.")]
@@ -48,25 +31,16 @@ namespace MidManStudio.Core.UIState
         public UnityEvent onEnter;
         public UnityEvent onExit;
 
-        // IArrayElementTitle
         public string Name =>
             !string.IsNullOrWhiteSpace(displayName) ? displayName :
-            stateMask != 0                          ? $"State_{stateMask}" :
-                                                      "None";
+            stateMask != 0                           ? $"State_{stateMask}" :
+                                                       "None";
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Singleton panel manager. Wraps a MID_UIStateContext and drives
-    /// panel visibility based on state transitions.
-    /// </summary>
     public class MID_UIStateManager : Singleton<MID_UIStateManager>
     {
         #region Inspector
 
-        [Tooltip("The context SO this manager drives.\n" +
-                 "Create via: right-click > MidManStudio > Utilities > UI State Context")]
         [SerializeField] private MID_UIStateContext _context;
 
         [Header("Initial State  (raw int — cast from your generated enum)")]
@@ -90,14 +64,9 @@ namespace MidManStudio.Core.UIState
 
         #region Properties
 
-        /// <summary>The context SO this manager is currently driving.</summary>
-        public MID_UIStateContext Context => _context;
-
-        /// <summary>Current raw int state of the managed context.</summary>
-        public int CurrentState => _context != null ? _context.CurrentState : 0;
-
-        /// <summary>True if the managed context has back history.</summary>
-        public bool CanGoBack => _context != null && _context.CanGoBack;
+        public MID_UIStateContext Context     => _context;
+        public int  CurrentState             => _context != null ? _context.CurrentState : 0;
+        public bool CanGoBack                => _context != null && _context.CanGoBack;
 
         #endregion
 
@@ -146,11 +115,7 @@ namespace MidManStudio.Core.UIState
 
         #region Public API
 
-        /// <summary>
-        /// Transition to a new state.
-        /// Pass the raw int value of your generated enum:
-        ///   manager.ChangeState((int)MenuUIState.Settings);
-        /// </summary>
+        /// <summary>Transition to a new state.</summary>
         public void ChangeState(int newState)
         {
             if (_context == null)
@@ -172,13 +137,9 @@ namespace MidManStudio.Core.UIState
         /// <summary>Clear the navigation history stack.</summary>
         public void ClearHistory() => _context?.ClearHistory();
 
-        /// <summary>Returns true if the context is currently in the given raw state.</summary>
         public bool IsInState(int state) => _context != null && _context.IsInState(state);
 
-        /// <summary>
-        /// Swap the managed context at runtime.
-        /// Unsubscribes from the old context, subscribes to the new one.
-        /// </summary>
+        /// <summary>Swap the managed context at runtime.</summary>
         public void SetContext(MID_UIStateContext context)
         {
             if (_context != null)
@@ -196,27 +157,25 @@ namespace MidManStudio.Core.UIState
 
         private void HandleStateChanged(int newState)
         {
-            // Exit previous state panels
+            // Trigger exit events for configs whose mask is NOT active in the new state
             foreach (var cfg in _configurations)
             {
                 if (cfg.stateMask == 0) continue;
-                bool wasActive = ((_context != null ? _context.CurrentState : 0) & cfg.stateMask) != 0;
-                // We don't have "previous state" here — use all configs whose mask
-                // doesn't match new state to trigger exit.
-                if ((newState & cfg.stateMask) == 0)
+                if ((newState & cfg.stateMask) != 0) continue;
+
+                foreach (var go in cfg.show)
+                    if (go != null) go.SetActive(false);
+
+                try { cfg.onExit?.Invoke(); }
+                catch (Exception e)
                 {
-                    foreach (var go in cfg.show)
-                        if (go != null) go.SetActive(false);
-                    try { cfg.onExit?.Invoke(); }
-                    catch (Exception e)
-                    {
-                        MID_Logger.LogError(_logLevel, $"onExit exception: {e.Message}",
-                            nameof(MID_UIStateManager));
-                    }
+                    MID_Logger.LogError(_logLevel,
+                        $"onExit exception in config '{cfg.displayName}': {e.Message}",
+                        nameof(MID_UIStateManager));
                 }
             }
 
-            // Enter new state panels
+            // Trigger enter events for configs whose mask IS active in the new state
             foreach (var cfg in _configurations)
             {
                 if (cfg.stateMask == 0) continue;
@@ -230,7 +189,8 @@ namespace MidManStudio.Core.UIState
                 try { cfg.onEnter?.Invoke(); }
                 catch (Exception e)
                 {
-                    MID_Logger.LogError(_logLevel, $"onEnter exception: {e.Message}",
+                    MID_Logger.LogError(_logLevel,
+                        $"onEnter exception in config '{cfg.displayName}': {e.Message}",
                         nameof(MID_UIStateManager));
                 }
             }
@@ -238,7 +198,7 @@ namespace MidManStudio.Core.UIState
             OnStateChanged?.Invoke(newState);
 
             MID_Logger.LogInfo(_logLevel,
-                $"[{_context?.contextDisplayName}] → state {newState}",
+                $"[{_context?.contextName}] handled state → {newState}",
                 nameof(MID_UIStateManager));
         }
 
