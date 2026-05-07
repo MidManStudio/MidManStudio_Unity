@@ -1,8 +1,5 @@
 // MID_UIStateVisibility.cs
-// Shows this UI element when the referenced MID_UIStateContext has a state
-// that matches any of the selected flags.
-// Works across scenes — just assign the same context SO asset.
-// Custom editor auto-discovers the enum type from the context SO.
+// No changes to runtime logic — multi-object editing is handled in the editor class.
 
 using UnityEngine;
 using MidManStudio.Core.Logging;
@@ -12,11 +9,10 @@ namespace MidManStudio.Core.UIState
     [RequireComponent(typeof(MID_UIElement))]
     public class MID_UIStateVisibility : MonoBehaviour
     {
-        [Tooltip("Which context this element belongs to. Assign a MID_UIStateContext SO asset.")]
+        [Tooltip("Which context this element belongs to.")]
         [SerializeField] private MID_UIStateContext _context;
 
-        [Tooltip("Show when the context state contains ANY of these flags.\n" +
-                 "Use the custom inspector to pick flags by name.")]
+        [Tooltip("Show when the context state contains ANY of these flags.")]
         [SerializeField] private int _showWhenMask;
 
         [SerializeField] private MID_LogLevel _logLevel = MID_LogLevel.None;
@@ -55,7 +51,8 @@ namespace MidManStudio.Core.UIState
             else            _element.Hide();
 
             MID_Logger.LogDebug(_logLevel,
-                $"{name} {(shouldShow ? "shown" : "hidden")} (state={newState} mask={_showWhenMask})",
+                $"{name} {(shouldShow ? "shown" : "hidden")} " +
+                $"(state={newState} mask={_showWhenMask})",
                 nameof(MID_UIStateVisibility));
         }
     }
