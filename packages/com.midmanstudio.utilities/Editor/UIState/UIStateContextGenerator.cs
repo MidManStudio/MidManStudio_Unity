@@ -1,7 +1,11 @@
 // UIStateContextGenerator.cs
-// Reads all UIStateContextProviderSO assets and writes one [Flags] enum file per context.
-// Output path: Runtime/UIState/Generated/{ContextName}UIState.cs
-// Open via: MidManStudio > Utilities > UI State Context Generator
+// Reads all MID_UIStateContext assets (merged SO) and writes one [Flags] enum
+// file per context into Runtime/UIState/Generated/.
+//
+// CHANGED from previous version:
+//   - Discovers MID_UIStateContext assets instead of UIStateContextProviderSO
+//   - UIStateEntry is now defined in MID_UIStateContext.cs
+//   - UIStateContextProviderSO.cs can be safely deleted
 
 #if UNITY_EDITOR
 using System;
@@ -11,7 +15,7 @@ using System.Linq;
 using System.Text;
 using UnityEditor;
 using UnityEngine;
-using MidManStudio.Core.UIState.Generator;
+using MidManStudio.Core.UIState;
 
 namespace MidManStudio.Core.Editor.UIState
 {
@@ -25,74 +29,81 @@ namespace MidManStudio.Core.Editor.UIState
             var errors   = new List<string>();
             var warnings = new List<string>();
 
-            var providers = Collect();
-            if (providers.Count == 0)
+            var contexts = Collect();
+            if (contexts.Count == 0)
             {
-                warnings.Add("No UIStateContextProviderSO assets found.");
+                warnings.Add("No MID_UIStateContext assets found.\n" +
+                             "Create via: right-click > MidManStudio > Utilities > UI State Context");
                 return (true, errors, warnings);
             }
 
-            if (!Validate(providers, errors, warnings))
+            if (!Validate(contexts, errors, warnings))
                 return (false, errors, warnings);
 
-            foreach (var p in providers)
-                WriteContext(p, warnings);
+            foreach (var ctx in contexts)
+                WriteContext(ctx, warnings);
 
             AssetDatabase.Refresh();
             return (true, errors, warnings);
         }
 
-        private static List<UIStateContextProviderSO> Collect()
+        private static List<MID_UIStateContext> Collect()
         {
-            var list  = new List<UIStateContextProviderSO>();
-            var guids = AssetDatabase.FindAssets("t:UIStateContextProviderSO");
+            var list  = new List<MID_UIStateContext>();
+            var guids = AssetDatabase.FindAssets("t:MID_UIStateContext");
             foreach (var g in guids)
             {
-                var a = AssetDatabase.LoadAssetAtPath<UIStateContextProviderSO>(
+                var a = AssetDatabase.LoadAssetAtPath<MID_UIStateContext>(
                     AssetDatabase.GUIDToAssetPath(g));
                 if (a != null) list.Add(a);
             }
             return list;
         }
 
-        private static bool Validate(List<UIStateContextProviderSO> providers,
+        private static bool Validate(List<MID_UIStateContext> contexts,
             List<string> errors, List<string> warnings)
         {
             // Duplicate context names
-            foreach (var d in providers.GroupBy(p => p.contextName).Where(g => g.Count() > 1))
+            foreach (var d in contexts.GroupBy(c => c.contextName).Where(g => g.Count() > 1))
                 errors.Add($"Duplicate contextName '{d.Key}'. Each context must have a unique name.");
 
-            // Duplicate packageIds
-            foreach (var d in providers.GroupBy(p => p.packageId).Where(g => g.Count() > 1))
-                warnings.Add($"Multiple providers share packageId '{d.Key}'.");
+            // Duplicate package IDs
+            foreach (var d in contexts.GroupBy(c => c.packageId).Where(g => g.Count() > 1))
+                warnings.Add($"Multiple contexts share packageId '{d.Key}'.");
 
-            foreach (var p in providers)
+            foreach (var ctx in contexts)
             {
-                if (!IsValidIdentifier(p.contextName))
-                    errors.Add($"contextName '{p.contextName}' is not a valid C# identifier.");
+                if (string.IsNullOrWhiteSpace(ctx.contextName))
+                {
+                    errors.Add($"Context asset '{ctx.name}' has an empty contextName.");
+                    continue;
+                }
+
+                if (!IsValidIdentifier(ctx.contextName))
+                    errors.Add($"contextName '{ctx.contextName}' is not a valid C# identifier.");
 
                 int stateCount = 0;
-                foreach (var s in p.states ?? new())
+                foreach (var s in ctx.states ?? new List<UIStateEntry>())
                 {
                     if (string.IsNullOrWhiteSpace(s.enumName))
-                    { warnings.Add($"[{p.contextName}] Empty state name skipped."); continue; }
+                    { warnings.Add($"[{ctx.contextName}] Empty state name skipped."); continue; }
 
                     if (!IsValidIdentifier(s.enumName))
-                        errors.Add($"[{p.contextName}] '{s.enumName}' is not a valid C# identifier.");
+                        errors.Add($"[{ctx.contextName}] '{s.enumName}' is not a valid C# identifier.");
 
                     stateCount++;
                 }
 
                 if (stateCount > 30)
-                    errors.Add($"[{p.contextName}] Has {stateCount} states — [Flags] int supports max 30.");
+                    errors.Add($"[{ctx.contextName}] Has {stateCount} states — [Flags] int supports max 30.");
             }
 
             return errors.Count == 0;
         }
 
-        private static void WriteContext(UIStateContextProviderSO p, List<string> warnings)
+        private static void WriteContext(MID_UIStateContext ctx, List<string> warnings)
         {
-            string enumName = $"{p.contextName}UIState";
+            string enumName = $"{ctx.contextName}UIState";
             string filePath = Path.Combine(OutputDir, $"{enumName}.cs");
 
             var sb = new StringBuilder();
@@ -100,14 +111,14 @@ namespace MidManStudio.Core.Editor.UIState
             sb.AppendLine("// DO NOT edit manually.");
             sb.AppendLine("// Regenerate via: MidManStudio > Utilities > UI State Context Generator");
             sb.AppendLine($"// Generated: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
-            sb.AppendLine($"// Context: {p.contextName}  Package: {p.packageId}");
+            sb.AppendLine($"// Context: {ctx.contextName}  Package: {ctx.packageId}");
             sb.AppendLine();
             sb.AppendLine("using System;");
             sb.AppendLine();
             sb.AppendLine($"namespace {Namespace}");
             sb.AppendLine("{");
             sb.AppendLine($"    /// <summary>");
-            sb.AppendLine($"    /// UI states for the {p.contextName} context.");
+            sb.AppendLine($"    /// UI states for the {ctx.contextName} context.");
             sb.AppendLine($"    /// [Flags] — combine with | for multi-state visibility.");
             sb.AppendLine($"    /// AUTO-GENERATED — do not edit.");
             sb.AppendLine($"    /// </summary>");
@@ -118,11 +129,11 @@ namespace MidManStudio.Core.Editor.UIState
             sb.AppendLine();
 
             int bit = 0;
-            foreach (var s in (p.states ?? new())
+            foreach (var s in (ctx.states ?? new List<UIStateEntry>())
                 .Where(s => !string.IsNullOrWhiteSpace(s.enumName)))
             {
-                long val    = 1L << bit;
-                string cmt  = string.IsNullOrWhiteSpace(s.comment)
+                long   val = 1L << bit;
+                string cmt = string.IsNullOrWhiteSpace(s.comment)
                     ? $" // bit {bit}"
                     : $" // {s.comment}  (bit {bit})";
                 sb.AppendLine($"        {s.enumName} = {val},{cmt}");
@@ -143,7 +154,8 @@ namespace MidManStudio.Core.Editor.UIState
         {
             if (string.IsNullOrEmpty(name)) return false;
             if (!char.IsLetter(name[0]) && name[0] != '_') return false;
-            foreach (var c in name) if (!char.IsLetterOrDigit(c) && c != '_') return false;
+            foreach (var c in name)
+                if (!char.IsLetterOrDigit(c) && c != '_') return false;
             return true;
         }
     }
@@ -158,7 +170,7 @@ namespace MidManStudio.Core.Editor.UIState
         private bool         _lastSuccess;
         private Vector2      _scroll;
 
-[MenuItem("MidManStudio/Utilities/UI State Context Generator",priority = 104)]
+        [MenuItem("MidManStudio/Utilities/UI State Context Generator", priority = 104)]
         public static void Open()
         {
             var w = GetWindow<UIStateContextGeneratorWindow>("UI State Generator");
@@ -171,12 +183,12 @@ namespace MidManStudio.Core.Editor.UIState
             EditorGUILayout.LabelField("MidManStudio — UI State Context Generator",
                 EditorStyles.boldLabel);
             EditorGUILayout.LabelField(
-                "Generates one [Flags] enum per UIStateContextProviderSO.\n" +
-                "Create a MID_UIStateContext SO asset per context to use at runtime.",
+                "Generates one [Flags] enum per MID_UIStateContext SO asset.\n" +
+                "Each context now serves as both the state definition and runtime state machine.",
                 EditorStyles.wordWrappedMiniLabel);
 
             EditorGUILayout.Space(8);
-            DrawProviders();
+            DrawContextList();
             EditorGUILayout.Space(8);
 
             var old = GUI.backgroundColor;
@@ -184,11 +196,15 @@ namespace MidManStudio.Core.Editor.UIState
             if (GUILayout.Button("⚙  Generate Now", GUILayout.Height(36)))
             {
                 var (ok, errs, warns) = UIStateContextGeneratorCore.Generate();
-                _lastSuccess = ok; _errors = errs; _warnings = warns; _ranOnce = true;
+                _lastSuccess = ok;
+                _errors      = errs;
+                _warnings    = warns;
+                _ranOnce     = true;
             }
             GUI.backgroundColor = old;
 
             if (!_ranOnce) return;
+
             EditorGUILayout.Space(6);
             if (_lastSuccess)
                 EditorGUILayout.HelpBox("✓ Generation successful.", MessageType.Info);
@@ -196,31 +212,36 @@ namespace MidManStudio.Core.Editor.UIState
             foreach (var e in _errors)   EditorGUILayout.HelpBox(e, MessageType.Error);
         }
 
-        private void DrawProviders()
+        private void DrawContextList()
         {
             EditorGUILayout.LabelField("Discovered Contexts", EditorStyles.boldLabel);
-            var guids = AssetDatabase.FindAssets("t:UIStateContextProviderSO");
+
+            var guids = AssetDatabase.FindAssets("t:MID_UIStateContext");
             if (guids.Length == 0)
             {
                 EditorGUILayout.HelpBox(
-                    "No UIStateContextProviderSO assets found.\n" +
-                    "Create via: MidManStudio > Utilities > UI State Context Provider",
+                    "No MID_UIStateContext assets found.\n" +
+                    "Create via: right-click > MidManStudio > Utilities > UI State Context",
                     MessageType.Info);
                 return;
             }
 
-            _scroll = EditorGUILayout.BeginScrollView(_scroll, GUILayout.MaxHeight(120));
+            _scroll = EditorGUILayout.BeginScrollView(_scroll, GUILayout.MaxHeight(150));
             foreach (var g in guids)
             {
-                var a = AssetDatabase.LoadAssetAtPath<UIStateContextProviderSO>(
-                    AssetDatabase.GUIDToAssetPath(g));
-                if (a == null) continue;
+                var path = AssetDatabase.GUIDToAssetPath(g);
+                var ctx  = AssetDatabase.LoadAssetAtPath<MID_UIStateContext>(path);
+                if (ctx == null) continue;
+
                 EditorGUILayout.BeginHorizontal(EditorStyles.helpBox);
                 EditorGUILayout.LabelField(
-                    $"{a.contextName}UIState  ({a.packageId})  —  {a.StateCount} state(s)",
+                    $"{ctx.contextName}UIState  ({ctx.packageId})" +
+                    $"  —  {ctx.StateCount} state(s)  →  {ctx.contextName}UIState.cs",
                     EditorStyles.miniLabel);
+
                 if (GUILayout.Button("Select", GUILayout.Width(50)))
-                    Selection.activeObject = a;
+                    Selection.activeObject = ctx;
+
                 EditorGUILayout.EndHorizontal();
             }
             EditorGUILayout.EndScrollView();
