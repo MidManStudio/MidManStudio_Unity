@@ -1,21 +1,25 @@
+// packages/com.midmanstudio.netcode/package.json
 {
   "name": "com.midmanstudio.netcode",
   "version": "1.0.0",
   "displayName": "MidMan Studio Netcode Utilities",
-  "description": "NGO-specific utilities: NetworkSingleton, HybridNetworkSingleton, MID_NetworkObjectPool, MID_NetworkConnectionManager, NetworkTimer.",
+  "description": "NGO-specific utilities for Unity 2022.3+. NetworkSingleton, HybridNetworkSingleton, MID_NetworkObjectPool with IPoolableNetworkObject, MID_NetworkConnectionManager, MID_NetworkRPCQueue, LocalLobbyManager for LAN/WiFi play, NetworkTimer.",
   "unity": "2022.3",
   "unityRelease": "0f1",
   "documentationUrl": "",
   "changelogUrl": "",
   "licensesUrl": "",
   "dependencies": {
-    "com.midmanstudio.utilities": "1.1.0",
+    "com.midmanstudio.utilities": "1.0.0",
     "com.unity.netcode.gameobjects": "1.7.1"
   },
-  "keywords": ["netcode", "ngo", "networking", "multiplayer", "singleton", "pool"],
+  "keywords": [
+    "netcode", "ngo", "networking", "multiplayer",
+    "singleton", "pool", "lobby", "lan", "wifi"
+  ],
   "author": {
     "name": "MidMan Studio",
     "email": "",
-    "url": ""
+    "url": "https://github.com/MidManStudio/MidManStudio_Unity"
   }
 }
