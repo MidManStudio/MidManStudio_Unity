@@ -63,11 +63,11 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/SceneManagement/SceneTypeGenerator.cs">
       <Link>Editor/SceneManagement/SceneTypeGenerator.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/MID_BaseSOEditor.cs">
+      <Link>Editor/Helpers/MID_BaseSOEditor.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/PoolSystems/PackagePoolProviderBootstrapper.cs">
       <Link>Editor/PoolSystems/PackagePoolProviderBootstrapper.cs</Link>
-    </Compile>
-    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/UIState/UIStateTypeGenerator.cs">
-      <Link>Editor/UIState/UIStateTypeGenerator.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Libraries/LibraryTypeGenerator.cs">
       <Link>Editor/Libraries/LibraryTypeGenerator.cs</Link>
@@ -80,6 +80,9 @@
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/PoolSystems/PoolTypeGenerator.cs">
       <Link>Editor/PoolSystems/PoolTypeGenerator.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/MID_ScriptUtilitiesWindow.cs">
+      <Link>Editor/Helpers/MID_ScriptUtilitiesWindow.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Logging/MID_LoggerEditorWindow.cs">
       <Link>Editor/Logging/MID_LoggerEditorWindow.cs</Link>

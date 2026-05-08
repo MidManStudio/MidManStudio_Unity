@@ -58,7 +58,7 @@ namespace MidManStudio.Core
         /// Example: "Packages/com.midmanstudio.utilities/Editor/Icons/library_icon.png"
         /// Per-instance <see cref="CustomIcon"/> takes precedence over this.
         /// </summary>
-        protected virtual string GroupIconPath => null;
+        public virtual string GroupIconPath => null;
 
         /// <summary>
         /// Resolves the effective icon: per-instance first, group second, null otherwise.
