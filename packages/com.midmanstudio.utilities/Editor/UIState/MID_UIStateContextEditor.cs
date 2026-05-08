@@ -1,12 +1,10 @@
 // MID_UIStateContextEditor.cs
-// Custom inspectors for MID_UIStateVisibility, MID_UIStateButton,
-// MID_UIStateManager, and MID_UIStateBackButton.
-//
-// FIXES in this version:
-//   - [CanEditMultipleObjects] added to all editors (fixes "multiple edit" warning)
-//   - DrawPanelConfigRow uses EditorGUILayout.Foldout instead of nested
-//     BeginFoldoutHeaderGroup (fixes "You can't nest Foldout Headers" error)
-//   - All references updated for merged MID_UIStateContext SO
+// FIXES:
+//   1. [CanEditMultipleObjects] on all editors
+//   2. DrawPanelConfigRow uses plain Foldout (NOT BeginFoldoutHeaderGroup) for row header
+//   3. GameObject[] arrays drawn with manual DrawArrayProperty helper
+//      that uses plain Foldout — avoids BeginFoldoutHeaderGroup nesting
+//   4. MID_UIStateBackButton editor with state mask checkboxes
 
 #if UNITY_EDITOR
 using System;
@@ -75,14 +73,16 @@ namespace MidManStudio.Core.Editor.UIState
     public class MID_UIStateBackButtonEditor : UnityEditor.Editor
     {
         private SerializedProperty _contextProp;
+        private SerializedProperty _showWhenMaskProp;
         private SerializedProperty _disableProp;
         private SerializedProperty _logLevelProp;
 
         private void OnEnable()
         {
-            _contextProp  = serializedObject.FindProperty("_context");
-            _disableProp  = serializedObject.FindProperty("_disableWhenNoHistory");
-            _logLevelProp = serializedObject.FindProperty("_logLevel");
+            _contextProp      = serializedObject.FindProperty("_context");
+            _showWhenMaskProp = serializedObject.FindProperty("_showWhenMask");
+            _disableProp      = serializedObject.FindProperty("_disableWhenNoHistory");
+            _logLevelProp     = serializedObject.FindProperty("_logLevel");
         }
 
         public override void OnInspectorGUI()
@@ -94,22 +94,39 @@ namespace MidManStudio.Core.Editor.UIState
             EditorGUILayout.PropertyField(_contextProp, new GUIContent("Context"));
 
             var contextSO = _contextProp.objectReferenceValue as MID_UIStateContext;
-            if (contextSO != null)
-            {
-                EditorGUILayout.HelpBox(
-                    $"Context: {contextSO.contextName}\n" +
-                    "Calls GoBack() on the context when clicked.",
-                    MessageType.None);
-            }
-            else
+
+            if (contextSO == null)
             {
                 EditorGUILayout.HelpBox(
                     "Assign a MID_UIStateContext SO asset.", MessageType.Warning);
+                serializedObject.ApplyModifiedProperties();
+                return;
             }
 
+            EditorGUILayout.Space(6);
+            EditorGUILayout.LabelField("Visibility", EditorStyles.boldLabel);
+            EditorGUILayout.HelpBox(
+                "Select states in which this button is visible.\n" +
+                "Leave all unchecked (mask = 0) to always show.",
+                MessageType.None);
+
+            UIStateContextEditorUtils.DrawFlagsCheckboxes(contextSO.enumTypeName, _showWhenMaskProp);
+
+            // Show current mask value for clarity
+            if (_showWhenMaskProp.intValue == 0)
+            {
+                EditorGUILayout.HelpBox(
+                    "No states selected — button will always be visible.",
+                    MessageType.Info);
+            }
+
+            EditorGUILayout.Space(6);
+            EditorGUILayout.LabelField("Interactability", EditorStyles.boldLabel);
             EditorGUILayout.PropertyField(_disableProp,
                 new GUIContent("Disable When No History",
-                    "Disables the button automatically when there is no state to return to."));
+                    "Greys out the button when there is no state to return to."));
+
+            EditorGUILayout.Space(4);
             EditorGUILayout.PropertyField(_logLevelProp);
             serializedObject.ApplyModifiedProperties();
         }
@@ -172,6 +189,9 @@ namespace MidManStudio.Core.Editor.UIState
         private SerializedProperty _initialStateProp;
         private SerializedProperty _configsProp;
         private SerializedProperty _logLevelProp;
+
+        // Track individual config row expansion state separately from
+        // SerializedProperty.isExpanded so we control it ourselves
         private bool _configsFold = true;
 
         private void OnEnable()
@@ -209,7 +229,8 @@ namespace MidManStudio.Core.Editor.UIState
             EditorGUILayout.Space(4);
             EditorGUILayout.PropertyField(_logLevelProp);
 
-            // Panel Configs — outer foldout uses BeginFoldoutHeaderGroup (top level, no nesting)
+            // ── Panel Configs ─────────────────────────────────────────────────
+            // Outer foldout uses BeginFoldoutHeaderGroup (top-level, safe here).
             EditorGUILayout.Space(6);
             _configsFold = EditorGUILayout.BeginFoldoutHeaderGroup(
                 _configsFold, "Panel Configurations");
@@ -236,7 +257,7 @@ namespace MidManStudio.Core.Editor.UIState
                 EditorGUILayout.EndVertical();
             }
 
-            // Must always close the outer header group
+            // Always close the OUTER header group — never nest another one inside
             EditorGUILayout.EndFoldoutHeaderGroup();
 
             serializedObject.ApplyModifiedProperties();
@@ -256,37 +277,83 @@ namespace MidManStudio.Core.Editor.UIState
                 ? $"Config [{i}]"
                 : displayProp.stringValue;
 
-            // FIX: Use regular Foldout (NOT BeginFoldoutHeaderGroup) here —
+            // FIX: Use plain Foldout — NOT BeginFoldoutHeaderGroup — for row headers.
             // BeginFoldoutHeaderGroup cannot be nested inside another one.
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+
             element.isExpanded = EditorGUILayout.Foldout(
                 element.isExpanded, title, true, EditorStyles.foldoutHeader);
 
-            if (!element.isExpanded) return;
+            if (element.isExpanded)
+            {
+                EditorGUI.indentLevel++;
+
+                EditorGUILayout.PropertyField(displayProp, new GUIContent("Display Name"));
+
+                EditorGUILayout.Space(2);
+                EditorGUILayout.LabelField("State Mask:", EditorStyles.boldLabel);
+                if (contextSO != null)
+                    UIStateContextEditorUtils.DrawSingleStateDropdown(
+                        contextSO.enumTypeName, maskProp);
+                else
+                    EditorGUILayout.PropertyField(maskProp, new GUIContent("State Mask (raw int)"));
+
+                EditorGUILayout.Space(4);
+
+                // FIX: Draw arrays with plain Foldout, NOT PropertyField(prop, true)
+                // PropertyField(arrayProp, includeChildren:true) internally calls
+                // BeginFoldoutHeaderGroup which cannot be nested here.
+                DrawArrayProperty(showProp,  "Show (activate on enter)");
+                DrawArrayProperty(hideProp,  "Hide (deactivate on enter)");
+
+                EditorGUILayout.Space(2);
+                // UnityEvent properties are safe — they don't use BeginFoldoutHeaderGroup
+                EditorGUILayout.PropertyField(enterProp, new GUIContent("On Enter"));
+                EditorGUILayout.PropertyField(exitProp,  new GUIContent("On Exit"));
+
+                EditorGUILayout.Space(6);
+                var old = GUI.backgroundColor;
+                GUI.backgroundColor = new Color(1f, 0.4f, 0.4f);
+                if (GUILayout.Button("Remove Config"))
+                    _configsProp.DeleteArrayElementAtIndex(i);
+                GUI.backgroundColor = old;
+
+                EditorGUI.indentLevel--;
+            }
+
+            EditorGUILayout.EndVertical();
+            EditorGUILayout.Space(2);
+        }
+
+        /// <summary>
+        /// Draws a SerializedProperty array using a plain Foldout header.
+        /// This avoids the nested BeginFoldoutHeaderGroup error that occurs
+        /// when Unity's default PropertyField draws its own foldout header
+        /// inside one we already opened.
+        /// </summary>
+        private static void DrawArrayProperty(SerializedProperty arrayProp, string label)
+        {
+            arrayProp.isExpanded = EditorGUILayout.Foldout(
+                arrayProp.isExpanded, label, true);
+
+            if (!arrayProp.isExpanded) return;
 
             EditorGUI.indentLevel++;
 
-            EditorGUILayout.PropertyField(displayProp, new GUIContent("Display Name"));
+            // Size field
+            int newSize = EditorGUILayout.DelayedIntField("Size", arrayProp.arraySize);
+            if (newSize != arrayProp.arraySize)
+                arrayProp.arraySize = Mathf.Max(0, newSize);
 
-            EditorGUILayout.Space(2);
-            EditorGUILayout.LabelField("State Mask:", EditorStyles.boldLabel);
-            if (contextSO != null)
-                UIStateContextEditorUtils.DrawSingleStateDropdown(
-                    contextSO.enumTypeName, maskProp);
-            else
-                EditorGUILayout.PropertyField(maskProp, new GUIContent("State Mask (raw int)"));
-
-            EditorGUILayout.Space(2);
-            EditorGUILayout.PropertyField(showProp, new GUIContent("Show"), true);
-            EditorGUILayout.PropertyField(hideProp, new GUIContent("Hide"), true);
-            EditorGUILayout.PropertyField(enterProp, new GUIContent("On Enter"));
-            EditorGUILayout.PropertyField(exitProp,  new GUIContent("On Exit"));
-
-            EditorGUILayout.Space(4);
-            var old = GUI.backgroundColor;
-            GUI.backgroundColor = new Color(1f, 0.4f, 0.4f);
-            if (GUILayout.Button("Remove Config"))
-                _configsProp.DeleteArrayElementAtIndex(i);
-            GUI.backgroundColor = old;
+            // Elements — ObjectField so user can drag GameObjects
+            for (int i = 0; i < arrayProp.arraySize; i++)
+            {
+                var element = arrayProp.GetArrayElementAtIndex(i);
+                EditorGUILayout.ObjectField(
+                    element,
+                    typeof(UnityEngine.GameObject),
+                    new GUIContent($"Element {i}"));
+            }
 
             EditorGUI.indentLevel--;
         }
@@ -300,7 +367,8 @@ namespace MidManStudio.Core.Editor.UIState
         /// Draw multi-select flag checkboxes by reflecting the generated enum type.
         /// Supports multi-object editing via SerializedProperty.
         /// </summary>
-        public static void DrawFlagsCheckboxes(string enumTypeName, SerializedProperty maskProp)
+        public static void DrawFlagsCheckboxes(string enumTypeName,
+            SerializedProperty maskProp)
         {
             var enumType = FindEnumType(enumTypeName);
             if (enumType == null)
@@ -333,7 +401,7 @@ namespace MidManStudio.Core.Editor.UIState
         }
 
         /// <summary>
-        /// Draw a single-state dropdown for buttons / configs that transition to one state.
+        /// Draw a single-state dropdown for buttons that transition to one state.
         /// Supports multi-object editing via SerializedProperty.
         /// </summary>
         public static void DrawSingleStateDropdown(string enumTypeName,
@@ -372,7 +440,7 @@ namespace MidManStudio.Core.Editor.UIState
             if (options.Count == 0)
             {
                 EditorGUILayout.HelpBox(
-                    "No single-bit states defined in this enum yet.\n" +
+                    "No single-bit states defined yet.\n" +
                     "Add states and run the generator.",
                     MessageType.Info);
                 EditorGUILayout.PropertyField(maskProp, new GUIContent("State (raw int)"));
@@ -435,8 +503,8 @@ namespace MidManStudio.Core.Editor.UIState
             if (mask == 0)
             {
                 EditorGUILayout.HelpBox(
-                    "No states selected — element will never be shown.",
-                    MessageType.Warning);
+                    "No states selected — will always be visible (mask = 0).",
+                    MessageType.None);
             }
             else
             {
