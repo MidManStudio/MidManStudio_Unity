@@ -1,38 +1,22 @@
-// LocalLobbyUIManager.cs
-// Generic base class for offline lobby UI.
-// Connects to LocalLobbyManager events and exposes virtual hooks for game-specific UI.
-// Subclass this in your game and override the On* methods to drive your actual panels.
+// packages/com.midmanstudio.netcode/Runtime/LocalMultiplayer/LocalLobbyUIManager.cs
+// REWRITTEN: replaces custom LobbyUIState enum with MID_UIStateContext from utilities.
 //
-// USAGE:
-//   1. Create a class inheriting LocalLobbyUIManager in your game.
-//   2. Override the virtual On* methods to update your UI elements.
-//   3. Call the protected helper methods (ShowHostPanel, ShowJoinPanel, etc.)
-//      or drive layout entirely from your overrides.
-//   4. Assign LocalLobbyManager reference in inspector or let it auto-find.
+// SETUP:
+//   1. Create a MID_UIStateContext SO asset, set contextName = "Lobby"
+//   2. Add states: NetworkCheck, Browse, Hosting, Joining, Loading
+//   3. Run: MidManStudio > Utilities > UI State Context Generator
+//      → produces LobbyUIState.cs enum
+//   4. Assign the context asset to the LobbyContext field in inspector
+//   5. Subclass this and override the On* virtual hooks for your game's panels
 
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.UI;
 using MidManStudio.Core.Logging;
+using MidManStudio.Core.UIState;
 using MidManStudio.Core.Netcode.LocalMultiplayer;
 
 namespace MidManStudio.Core.Netcode.UI
 {
-    /// <summary>
-    /// Which top-level panel is visible.
-    /// </summary>
-    public enum LobbyUIState
-    {
-        None,
-        NetworkCheck,   // checking WiFi / hotspot
-        Browse,         // browsing available lobbies
-        Hosting,        // in lobby as host
-        Joining,        // in lobby as client
-        Loading         // transitioning
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-
     [RequireComponent(typeof(Canvas))]
     public abstract class LocalLobbyUIManager : MonoBehaviour
     {
@@ -44,15 +28,24 @@ namespace MidManStudio.Core.Netcode.UI
         [Header("Network Monitor")]
         [SerializeField] protected MobileNetworkStatusMonitor _networkMonitor;
 
+        [Header("UI State Context")]
+        [Tooltip("Assign the 'Lobby' MID_UIStateContext SO here.\n" +
+                 "Expected states: NetworkCheck, Browse, Hosting, Joining, Loading.\n" +
+                 "Run the UI State Context Generator after adding states to the SO.")]
+        [SerializeField] protected MID_UIStateContext _lobbyContext;
+
         [Header("Log")]
         [SerializeField] protected MID_LogLevel _logLevel = MID_LogLevel.Info;
 
         #endregion
 
-        #region State
+        #region State accessors
 
-        private LobbyUIState _currentState = LobbyUIState.None;
-        public  LobbyUIState CurrentState  => _currentState;
+        /// <summary>Raw int of the current lobby UI state.</summary>
+        public int CurrentState => _lobbyContext != null ? _lobbyContext.CurrentState : 0;
+
+        /// <summary>True when back-navigation is available.</summary>
+        public bool CanGoBack => _lobbyContext != null && _lobbyContext.CanGoBack;
 
         #endregion
 
@@ -74,6 +67,15 @@ namespace MidManStudio.Core.Netcode.UI
                 return;
             }
 
+            if (_lobbyContext == null)
+            {
+                MID_Logger.LogWarning(_logLevel,
+                    "No LobbyContext assigned. State transitions will still fire events " +
+                    "but nothing will drive panel show/hide automatically.\n" +
+                    "Create a MID_UIStateContext with contextName='Lobby' and assign it here.",
+                    nameof(LocalLobbyUIManager));
+            }
+
             SubscribeToManager();
         }
 
@@ -88,16 +90,16 @@ namespace MidManStudio.Core.Netcode.UI
 
         private void SubscribeToManager()
         {
-            _lobbyManager.OnLobbyDiscovered        += HandleLobbyDiscovered;
-            _lobbyManager.OnLobbyRemoved           += HandleLobbyRemoved;
-            _lobbyManager.OnPlayerJoined           += HandlePlayerJoined;
-            _lobbyManager.OnPlayerLeft             += HandlePlayerLeft;
+            _lobbyManager.OnLobbyDiscovered          += HandleLobbyDiscovered;
+            _lobbyManager.OnLobbyRemoved             += HandleLobbyRemoved;
+            _lobbyManager.OnPlayerJoined             += HandlePlayerJoined;
+            _lobbyManager.OnPlayerLeft               += HandlePlayerLeft;
             _lobbyManager.OnPlayerReadyStatusChanged += HandlePlayerReadyChanged;
-            _lobbyManager.OnHostResult             += HandleHostResult;
-            _lobbyManager.OnJoinResult             += HandleJoinResult;
-            _lobbyManager.OnLobbyDisbanded         += HandleLobbyDisbanded;
-            _lobbyManager.OnNetworkStatusChanged   += HandleNetworkStatusChanged;
-            _lobbyManager.OnGameStartReceived      += HandleGameStartReceived;
+            _lobbyManager.OnHostResult               += HandleHostResult;
+            _lobbyManager.OnJoinResult               += HandleJoinResult;
+            _lobbyManager.OnLobbyDisbanded           += HandleLobbyDisbanded;
+            _lobbyManager.OnNetworkStatusChanged     += HandleNetworkStatusChanged;
+            _lobbyManager.OnGameStartReceived        += HandleGameStartReceived;
 
             if (_networkMonitor != null)
                 _networkMonitor.OnNetworkStatusChanged += HandleNetworkStatusChanged;
@@ -106,16 +108,17 @@ namespace MidManStudio.Core.Netcode.UI
         private void UnsubscribeFromManager()
         {
             if (_lobbyManager == null) return;
-            _lobbyManager.OnLobbyDiscovered        -= HandleLobbyDiscovered;
-            _lobbyManager.OnLobbyRemoved           -= HandleLobbyRemoved;
-            _lobbyManager.OnPlayerJoined           -= HandlePlayerJoined;
-            _lobbyManager.OnPlayerLeft             -= HandlePlayerLeft;
+
+            _lobbyManager.OnLobbyDiscovered          -= HandleLobbyDiscovered;
+            _lobbyManager.OnLobbyRemoved             -= HandleLobbyRemoved;
+            _lobbyManager.OnPlayerJoined             -= HandlePlayerJoined;
+            _lobbyManager.OnPlayerLeft               -= HandlePlayerLeft;
             _lobbyManager.OnPlayerReadyStatusChanged -= HandlePlayerReadyChanged;
-            _lobbyManager.OnHostResult             -= HandleHostResult;
-            _lobbyManager.OnJoinResult             -= HandleJoinResult;
-            _lobbyManager.OnLobbyDisbanded         -= HandleLobbyDisbanded;
-            _lobbyManager.OnNetworkStatusChanged   -= HandleNetworkStatusChanged;
-            _lobbyManager.OnGameStartReceived      -= HandleGameStartReceived;
+            _lobbyManager.OnHostResult               -= HandleHostResult;
+            _lobbyManager.OnJoinResult               -= HandleJoinResult;
+            _lobbyManager.OnLobbyDisbanded           -= HandleLobbyDisbanded;
+            _lobbyManager.OnNetworkStatusChanged     -= HandleNetworkStatusChanged;
+            _lobbyManager.OnGameStartReceived        -= HandleGameStartReceived;
 
             if (_networkMonitor != null)
                 _networkMonitor.OnNetworkStatusChanged -= HandleNetworkStatusChanged;
@@ -123,7 +126,7 @@ namespace MidManStudio.Core.Netcode.UI
 
         #endregion
 
-        #region Private Handlers → Virtual Hooks
+        #region Private Handlers
 
         private void HandleLobbyDiscovered(LocalLobbyData lobby)
         {
@@ -153,17 +156,16 @@ namespace MidManStudio.Core.Netcode.UI
             OnPlayerLeft(clientId);
         }
 
-        private void HandlePlayerReadyChanged(LocalLobbyPlayer player)
-        {
+        private void HandlePlayerReadyChanged(LocalLobbyPlayer player) =>
             OnPlayerReadyChanged(player);
-        }
 
         private void HandleHostResult(bool success)
         {
             MID_Logger.LogInfo(_logLevel, $"Host result: {success}",
                 nameof(LocalLobbyUIManager));
+
             SetLoading(false);
-            if (success) SetState(LobbyUIState.Hosting);
+            if (success) GoToHosting();
             OnHostResult(success);
         }
 
@@ -171,8 +173,9 @@ namespace MidManStudio.Core.Netcode.UI
         {
             MID_Logger.LogInfo(_logLevel, $"Join result: {success}",
                 nameof(LocalLobbyUIManager));
+
             SetLoading(false);
-            if (success) SetState(LobbyUIState.Joining);
+            if (success) GoToJoining();
             OnJoinResult(success);
         }
 
@@ -180,7 +183,8 @@ namespace MidManStudio.Core.Netcode.UI
         {
             MID_Logger.LogInfo(_logLevel, "Lobby disbanded.",
                 nameof(LocalLobbyUIManager));
-            SetState(LobbyUIState.Browse);
+
+            GoToBrowse();
             OnLobbyDisbanded();
         }
 
@@ -193,10 +197,81 @@ namespace MidManStudio.Core.Netcode.UI
 
         private void HandleGameStartReceived(LocalLobbySnapshot snapshot)
         {
-            MID_Logger.LogInfo(_logLevel, "Game start received — handing off to game.",
+            MID_Logger.LogInfo(_logLevel, "Game start received.",
                 nameof(LocalLobbyUIManager));
-            SetState(LobbyUIState.Loading);
+
+            GoToLoading();
             OnGameStartReceived(snapshot);
+        }
+
+        #endregion
+
+        #region Context State Navigation
+        // These helpers let you drive state from code without knowing the int values.
+        // After running the generator, you can also call
+        //   _lobbyContext.ChangeState((int)LobbyUIState.Browse)
+        // directly from your subclass.
+
+        /// <summary>Transition to a state by raw int (from generated LobbyUIState enum).</summary>
+        protected void ChangeState(int newState)
+        {
+            if (_lobbyContext == null)
+            {
+                MID_Logger.LogWarning(_logLevel,
+                    "Cannot change state — no LobbyContext assigned.",
+                    nameof(LocalLobbyUIManager));
+                return;
+            }
+            _lobbyContext.ChangeState(newState);
+        }
+
+        /// <summary>Navigate back one level in the context history.</summary>
+        protected void GoBack() => _lobbyContext?.GoBack();
+
+        // Convenience named transitions — these look up the enum value by name
+        // via reflection so they work regardless of the generated int value.
+
+        protected void GoToNetworkCheck() => ChangeStateByName("NetworkCheck");
+        protected void GoToBrowse()        => ChangeStateByName("Browse");
+        protected void GoToHosting()       => ChangeStateByName("Hosting");
+        protected void GoToJoining()       => ChangeStateByName("Joining");
+        protected void GoToLoading()       => ChangeStateByName("Loading");
+
+        private void SetLoading(bool loading)
+        {
+            if (loading) GoToLoading();
+        }
+
+        /// <summary>
+        /// Looks up a state value by name from the generated LobbyUIState enum
+        /// via the context's enumTypeName — no hard dependency on the generated type.
+        /// </summary>
+        private void ChangeStateByName(string stateName)
+        {
+            if (_lobbyContext == null) return;
+
+            int val = ResolveEnumValue(_lobbyContext.enumTypeName, stateName);
+            if (val < 0)
+            {
+                MID_Logger.LogWarning(_logLevel,
+                    $"State '{stateName}' not found in enum '{_lobbyContext.enumTypeName}'.\n" +
+                    "Make sure the state exists in the LobbyContext and the generator has been run.",
+                    nameof(LocalLobbyUIManager));
+                return;
+            }
+            _lobbyContext.ChangeState(val);
+        }
+
+        private static int ResolveEnumValue(string enumTypeName, string memberName)
+        {
+            foreach (var asm in System.AppDomain.CurrentDomain.GetAssemblies())
+            {
+                var t = asm.GetType(enumTypeName);
+                if (t == null || !t.IsEnum) continue;
+                try { return (int)System.Enum.Parse(t, memberName); }
+                catch { return -1; }
+            }
+            return -1;
         }
 
         #endregion
@@ -206,7 +281,7 @@ namespace MidManStudio.Core.Netcode.UI
         /// <summary>A new lobby was found during discovery scan.</summary>
         protected virtual void OnLobbyDiscovered(LocalLobbyData lobby) { }
 
-        /// <summary>A previously discovered lobby timed out.</summary>
+        /// <summary>A previously discovered lobby timed out and was removed.</summary>
         protected virtual void OnLobbyRemoved(string lobbyKey) { }
 
         /// <summary>A player joined the current lobby.</summary>
@@ -218,75 +293,53 @@ namespace MidManStudio.Core.Netcode.UI
         /// <summary>A player's ready status changed.</summary>
         protected virtual void OnPlayerReadyChanged(LocalLobbyPlayer player) { }
 
-        /// <summary>Result of attempting to host. success=false means show error UI.</summary>
+        /// <summary>Result of StartHosting(). success=false means show an error.</summary>
         protected virtual void OnHostResult(bool success) { }
 
-        /// <summary>Result of attempting to join. success=false means show error UI.</summary>
+        /// <summary>Result of JoinLobby(). success=false means show an error.</summary>
         protected virtual void OnJoinResult(bool success) { }
 
-        /// <summary>The host left — client should return to browse.</summary>
+        /// <summary>The host left — return to browse state.</summary>
         protected virtual void OnLobbyDisbanded() { }
 
         /// <summary>
-        /// Network status changed. Status values: WIFI_CONNECTED, HOTSPOT, MOBILE_DATA, NO_NETWORK.
-        /// Use to show/hide hosting and joining buttons.
+        /// WiFi / hotspot / mobile-data status changed.
+        /// Values: WIFI_CONNECTED, HOTSPOT, MOBILE_DATA, NO_NETWORK.
         /// </summary>
         protected virtual void OnNetworkStatusChanged(string status) { }
 
         /// <summary>
-        /// Game is starting. Load your game scene here.
-        /// The snapshot contains the final player list with team assignments.
+        /// Game is starting — load your game scene here.
+        /// snapshot contains the final player list with team assignments.
         /// </summary>
         protected virtual void OnGameStartReceived(LocalLobbySnapshot snapshot) { }
 
-        /// <summary>Called whenever the UI transitions to a new state.</summary>
-        protected virtual void OnStateChanged(LobbyUIState previous, LobbyUIState next) { }
-
         #endregion
 
-        #region Protected Helpers
-
-        /// <summary>Transition to a new UI state and fire OnStateChanged.</summary>
-        protected void SetState(LobbyUIState newState)
-        {
-            if (_currentState == newState) return;
-            var prev = _currentState;
-            _currentState = newState;
-            MID_Logger.LogDebug(_logLevel, $"UI state: {prev} → {newState}",
-                nameof(LocalLobbyUIManager));
-            OnStateChanged(prev, newState);
-        }
-
-        /// <summary>Show or hide a loading overlay. Override to drive your own spinner.</summary>
-        protected virtual void SetLoading(bool loading)
-        {
-            if (loading) SetState(LobbyUIState.Loading);
-        }
-
-        // ── Action wrappers so subclass UI buttons can call one line ──────────
+        #region Protected Helpers — Action wrappers
 
         protected void RequestHost(LocalLobbyConfig config)
         {
-            SetLoading(true);
+            GoToLoading();
             _lobbyManager.StartHosting(config);
         }
 
         protected void RequestJoin(LocalLobbyData lobby)
         {
-            SetLoading(true);
+            GoToLoading();
             _lobbyManager.JoinLobby(lobby);
         }
 
         protected void RequestLeave()
         {
             _lobbyManager.LeaveLobby();
-            SetState(LobbyUIState.Browse);
+            GoToBrowse();
         }
 
         protected void RequestStopHosting()
         {
             _lobbyManager.StopHosting();
-            SetState(LobbyUIState.Browse);
+            GoToBrowse();
         }
 
         protected void RequestStartSearch() => _lobbyManager.StartSearching();
@@ -310,10 +363,11 @@ namespace MidManStudio.Core.Netcode.UI
         protected IReadOnlyDictionary<string, LocalLobbyData> GetDiscoveredLobbies() =>
             _lobbyManager.GetDiscoveredLobbies();
 
-        protected System.Collections.Generic.List<LocalLobbyPlayer> GetPlayers() =>
+        protected List<LocalLobbyPlayer> GetPlayers() =>
             _lobbyManager.GetPlayers();
 
-        protected bool AreAllReady() => _lobbyManager.AreAllPlayersReady();
+        protected bool AreAllReady() =>
+            _lobbyManager.AreAllPlayersReady();
 
         #endregion
     }
