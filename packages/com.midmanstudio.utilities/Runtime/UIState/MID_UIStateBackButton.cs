@@ -1,10 +1,14 @@
 // MID_UIStateBackButton.cs
-// Simple back-navigation button — calls GoBack() on the assigned context.
-// Optionally disables itself when there is no history to go back to.
+// Combines back navigation AND state-based visibility in one component.
+// Requires MID_UIElement (CanvasGroup) on the same GameObject.
 //
 // SETUP:
-//   Add to any GameObject with a Button component.
-//   Assign the same MID_UIStateContext SO used by the rest of your UI.
+//   1. Add to a Button GameObject that also has MID_UIElement
+//   2. Assign the MID_UIStateContext SO
+//   3. Use the "Visible In States" checkboxes to choose when the button shows
+//      (leave mask = 0 to always show regardless of state)
+//   4. "Disable When No History" will additionally grey out the button
+//      when there is nothing to go back to
 
 using UnityEngine;
 using UnityEngine.UI;
@@ -13,53 +17,71 @@ using MidManStudio.Core.Logging;
 namespace MidManStudio.Core.UIState
 {
     [RequireComponent(typeof(Button))]
+    [RequireComponent(typeof(MID_UIElement))]
     public class MID_UIStateBackButton : MonoBehaviour
     {
         [Tooltip("The context this button navigates back in.")]
         [SerializeField] private MID_UIStateContext _context;
 
-        [Tooltip("Disables the button automatically when there is no history to return to.")]
+        [Header("Visibility")]
+        [Tooltip("Show this button only when the context state contains ANY of these flags.\n" +
+                 "Set to 0 (no flags selected) to always show regardless of state.")]
+        [SerializeField] private int _showWhenMask;
+
+        [Header("Interactability")]
+        [Tooltip("Disables (greyed out) the button when there is no history to return to.")]
         [SerializeField] private bool _disableWhenNoHistory = true;
 
         [SerializeField] private MID_LogLevel _logLevel = MID_LogLevel.None;
 
-        private Button _button;
+        private Button       _button;
+        private MID_UIElement _element;
+        private bool          _isVisible;
+
+        // ── Properties ────────────────────────────────────────────────────────
+
+        public MID_UIStateContext Context      => _context;
+        public int                ShowWhenMask => _showWhenMask;
 
         // ── Lifecycle ─────────────────────────────────────────────────────────
 
         private void Awake()
         {
-            _button = GetComponent<Button>();
+            _button  = GetComponent<Button>();
+            _element = GetComponent<MID_UIElement>();
             _button.onClick.AddListener(HandleClick);
         }
 
         private void OnEnable()
         {
             if (_context == null) return;
-            _context.OnStateChanged += OnStateChanged;
-            RefreshInteractable();
+            _context.OnStateChanged += HandleStateChanged;
+
+            // Initialise immediately — don't wait for the first state change
+            HandleStateChanged(_context.CurrentState);
         }
 
         private void OnDisable()
         {
             if (_context != null)
-                _context.OnStateChanged -= OnStateChanged;
+                _context.OnStateChanged -= HandleStateChanged;
         }
 
         // ── Public API ────────────────────────────────────────────────────────
 
-        /// <summary>Assign a context at runtime and subscribe to its events.</summary>
+        /// <summary>Swap the context at runtime.</summary>
         public void SetContext(MID_UIStateContext context)
         {
             if (_context != null)
-                _context.OnStateChanged -= OnStateChanged;
+                _context.OnStateChanged -= HandleStateChanged;
 
             _context = context;
 
             if (_context != null)
-                _context.OnStateChanged += OnStateChanged;
-
-            RefreshInteractable();
+            {
+                _context.OnStateChanged += HandleStateChanged;
+                HandleStateChanged(_context.CurrentState);
+            }
         }
 
         // ── Private ───────────────────────────────────────────────────────────
@@ -85,7 +107,28 @@ namespace MidManStudio.Core.UIState
             _context.GoBack();
         }
 
-        private void OnStateChanged(int _) => RefreshInteractable();
+        private void HandleStateChanged(int newState)
+        {
+            RefreshVisibility(newState);
+            RefreshInteractable();
+        }
+
+        private void RefreshVisibility(int state)
+        {
+            // showWhenMask == 0 means "always visible regardless of state"
+            bool shouldShow = _showWhenMask == 0 || (state & _showWhenMask) != 0;
+
+            if (shouldShow == _isVisible) return;
+            _isVisible = shouldShow;
+
+            if (shouldShow) _element.Show();
+            else            _element.Hide();
+
+            MID_Logger.LogDebug(_logLevel,
+                $"BackButton {(shouldShow ? "shown" : "hidden")} " +
+                $"(state={state} mask={_showWhenMask})",
+                nameof(MID_UIStateBackButton));
+        }
 
         private void RefreshInteractable()
         {
