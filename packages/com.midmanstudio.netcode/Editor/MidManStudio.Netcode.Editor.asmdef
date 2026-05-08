@@ -1,3 +1,4 @@
+// packages/com.midmanstudio.netcode/Editor/MidManStudio.Netcode.Editor.asmdef
 {
   "name": "MidManStudio.Netcode.Editor",
   "rootNamespace": "MidManStudio.Core.Netcode.Editor",
