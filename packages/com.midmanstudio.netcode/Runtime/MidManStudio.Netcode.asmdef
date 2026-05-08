@@ -1,0 +1,19 @@
+// packages/com.midmanstudio.netcode/Runtime/MidManStudio.Netcode.asmdef
+// FIXED: moved out of PoolSystems subfolder to Runtime root
+{
+  "name": "MidManStudio.Netcode",
+  "rootNamespace": "MidManStudio.Core.Netcode",
+  "references": [
+    "MidManStudio.Utilities",
+    "Unity.Netcode.Runtime"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}
