@@ -10,19 +10,19 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: b4f5d5ef4a1174ef78c095a5caa2f2c6, type: 3}
-  m_Name: MaScnene
+  m_Name: SceneTypeProvider
   m_EditorClassIdentifier: 
-  packageId: com.stuff
-  displayName: Bigus
+  packageId: com.midDman
+  displayName: MidDMan
   priority: 100
   scenes:
   - enumName: MainMenu
     sceneName: MainMenu
     buildIndex: 0
     networkDependency: 0
-    comment: This be the main menu
+    comment: This main menu scene
   - enumName: Lobby
     sceneName: Lobby
     buildIndex: 1
     networkDependency: 0
-    comment: This be the lobby
+    comment: This lobby scene

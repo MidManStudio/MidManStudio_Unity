@@ -12,6 +12,13 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: beac29e3382d744d09bfbd9449fd57f1, type: 3}
   m_Name: LobbyStateContext
   m_EditorClassIdentifier: 
-  contextDisplayName: Lobby
-  enumTypeName: MidManStudio.Core.UIState.LobbyUIState
+  contextName: Lobby
+  packageId: com.mygame
+  states:
+  - enumName: Lobby
+    comment: 
+  - enumName: Play
+    comment: 
+  - enumName: Loadout
+    comment: 
   _logLevel: 2

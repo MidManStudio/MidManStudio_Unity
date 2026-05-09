@@ -12,6 +12,15 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: beac29e3382d744d09bfbd9449fd57f1, type: 3}
   m_Name: MenuStateContext
   m_EditorClassIdentifier: 
-  contextDisplayName: Menu
-  enumTypeName: MidManStudio.Core.UIState.MenuUIState
+  contextName: Menu
+  packageId: com.manDman
+  states:
+  - enumName: MainMenu
+    comment: 
+  - enumName: Settings
+    comment: 
+  - enumName: Missions
+    comment: 
+  - enumName: Shop
+    comment: 
   _logLevel: 2
