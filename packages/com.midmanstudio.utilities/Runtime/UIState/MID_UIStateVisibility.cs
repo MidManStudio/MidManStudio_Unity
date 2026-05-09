@@ -1,4 +1,4 @@
-// MID_UIStateVisibility.cs
+
 // No changes to runtime logic — multi-object editing is handled in the editor class.
 
 using UnityEngine;

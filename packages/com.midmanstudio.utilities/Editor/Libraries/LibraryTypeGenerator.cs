@@ -1,4 +1,4 @@
-// LibraryTypeGenerator.cs
+
 // Reads all LibraryTypeProviderSO assets and writes LibraryId.cs and LibraryItemId.cs.
 // Replaces magic string keys with typed enum members.
 // Open via: MidManStudio > Utilities > Library Type Generator
@@ -13,7 +13,7 @@ using UnityEditor;
 using UnityEngine;
 using MidManStudio.Core.Libraries.Generator;
 
-namespace MidManStudio.Core.Editor.Libraries
+namespace MidManStudio.Core.EditorUtils.Libraries
 {
     public static class LibraryTypeGeneratorCore
     {

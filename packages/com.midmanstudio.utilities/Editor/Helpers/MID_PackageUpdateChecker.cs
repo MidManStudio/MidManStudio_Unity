@@ -1,4 +1,4 @@
-// MID_PackageUpdateChecker.cs
+
 // Editor-only window that checks GitHub releases for a newer version of
 // com.midmanstudio.utilities and notifies the user.
 //

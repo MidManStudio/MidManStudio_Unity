@@ -1,11 +1,5 @@
-// PackagePoolProviderBootstrapper.cs
 // Editor-only. Runs automatically after import via [InitializeOnLoad].
 // Creates default PoolTypeProvider ScriptableObject assets for the utilities package.
-//
-// Stub enum files are NO LONGER written here — they ship as committed source files
-// inside the package Runtime/PoolSystems/ folder and compile immediately as part of
-// MidManStudio.Utilities without any bootstrapping needed.
-
 #if UNITY_EDITOR
 using System.IO;
 using UnityEditor;

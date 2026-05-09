@@ -1,4 +1,4 @@
-// MID_Button.cs
+
 // Generic animated UI button. Zero game-specific dependencies.
 // Animations implemented with coroutines — no external tween library required.
 //

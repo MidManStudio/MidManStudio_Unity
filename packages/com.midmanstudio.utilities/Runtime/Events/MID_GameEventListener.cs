@@ -1,4 +1,4 @@
-// MID_GameEventListener.cs
+
 // MonoBehaviour that listens to a MID_GameEvent and fires a UnityEvent response.
 // Self-registers/deregisters on Enable/Disable.
 

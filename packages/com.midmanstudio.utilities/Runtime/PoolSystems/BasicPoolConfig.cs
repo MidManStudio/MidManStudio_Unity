@@ -1,4 +1,4 @@
-// BasicPoolConfig.cs
+
 // Pool configuration and stats types used by LocalObjectPool and LocalParticlePool.
 // Must live in Runtime/PoolSystems/ so it compiles inside MidManStudio.Utilities.
 

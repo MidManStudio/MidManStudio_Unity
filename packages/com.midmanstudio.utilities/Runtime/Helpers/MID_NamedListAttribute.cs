@@ -1,4 +1,4 @@
-// MID_NamedListAttribute.cs
+
 // Runtime attribute — must be in Runtime assembly so it can be referenced
 // by both Runtime code (LocalObjectPool, LibrarySO, etc.) and Editor drawers.
 // NamedListDrawer.cs (the PropertyDrawer) stays in the Editor assembly.

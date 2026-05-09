@@ -1,4 +1,4 @@
-﻿// MID_LibraryRegistry.cs
+﻿
 // Singleton registry for MID_LibrarySO assets.
 // Supports both legacy string-key lookups and generated enum lookups.
 // Generated enums: LibraryId, LibraryItemId (from Library Type Generator).

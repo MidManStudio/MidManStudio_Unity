@@ -1,4 +1,4 @@
-// SceneTypeGenerator.cs
+
 // Generates SceneId.cs and SceneRegistry.cs from all SceneTypeProviderSO assets.
 // Open via: MidManStudio > Utilities > Scene Type Generator
 
@@ -12,7 +12,7 @@ using UnityEditor;
 using UnityEngine;
 using MidManStudio.Core.SceneManagement.Generator;
 
-namespace MidManStudio.Core.Editor.SceneManagement
+namespace MidManStudio.Core.EditorTools.SceneManagement
 {
     public static class SceneTypeGeneratorCore
     {

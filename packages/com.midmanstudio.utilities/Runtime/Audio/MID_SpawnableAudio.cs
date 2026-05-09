@@ -1,4 +1,4 @@
-// MID_SpawnableAudio.cs
+
 // Pooled audio object. Supports one-shot, looping-follow, and sequential
 // (flight → collision) playback modes.
 //

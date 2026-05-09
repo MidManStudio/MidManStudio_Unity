@@ -1,4 +1,4 @@
-// MID_UIStateBackButton.cs
+
 // Combines back navigation AND state-based visibility in one component.
 // Requires MID_UIElement (CanvasGroup) on the same GameObject.
 //

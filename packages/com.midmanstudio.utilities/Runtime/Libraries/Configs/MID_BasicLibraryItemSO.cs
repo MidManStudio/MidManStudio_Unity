@@ -1,4 +1,4 @@
-// MID_BasicLibraryItemSO.cs
+
 // Concrete library item for cases that don't need custom data fields.
 // Contains just an id, display name, description, and optional sprite.
 //

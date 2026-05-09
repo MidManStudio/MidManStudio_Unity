@@ -1,4 +1,4 @@
-// MID_UIElement.cs
+
 // Base UI element with CanvasGroup-based show/hide.
 // Propagates visibility events to direct children.
 // Replaces MenuManager and GenericUIElement.

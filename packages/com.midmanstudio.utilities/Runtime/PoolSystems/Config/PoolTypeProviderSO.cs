@@ -1,4 +1,4 @@
-// PoolTypeProviderSO.cs
+
 // One of these lives in every package (and in the user's game project) that wants
 // to contribute entries to the shared PoolableObjectType / PoolableParticleType enums.
 //

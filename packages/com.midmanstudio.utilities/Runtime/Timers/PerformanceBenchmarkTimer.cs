@@ -1,4 +1,3 @@
-// PerformanceBenchmarkTimer.cs
 // Microbenchmark utility for measuring managed code performance.
 // Handles warmup, GC collection, per-iteration timing, and memory tracking.
 // PerformanceBenchmarkRunner is a MonoBehaviour wrapper for scene use.

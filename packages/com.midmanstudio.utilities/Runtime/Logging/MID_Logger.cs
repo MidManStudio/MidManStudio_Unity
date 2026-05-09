@@ -1,4 +1,4 @@
-// MID_Logger.cs
+
 // Level-gated singleton logger.
 // In the Unity Editor, the level prefix (e.g. [INFO]) is rendered in colour using
 // rich-text tags. The rest of the message is always plain text so the console

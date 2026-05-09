@@ -1,5 +1,4 @@
 // ═══════════════════════════════════════════════════════════════════════════════
-// MID_TickDispatcher
 // MidMan Studio — Core Systems
 //
 // A zero-allocation, subscriber-based tick dispatcher that replaces per-

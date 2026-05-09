@@ -1,4 +1,4 @@
-// MID_UIStateContext.cs
+
 // Merged: was two assets (UIStateContextProviderSO + MID_UIStateContext).
 // Now one SO serves as both the code-generation source and the runtime state machine.
 //

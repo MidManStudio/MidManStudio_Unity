@@ -1,4 +1,4 @@
-// MID_UIStateButton.cs
+
 // No changes to runtime logic.
 
 using UnityEngine;

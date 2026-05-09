@@ -1,4 +1,4 @@
-// MID_SusValue.cs
+
 // Subscribable Value
 // Generic observable value container.
 // Subscribe to value changes or any update attempt.

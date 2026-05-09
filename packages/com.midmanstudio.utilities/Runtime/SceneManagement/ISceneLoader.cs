@@ -1,4 +1,4 @@
-// ISceneLoader.cs
+
 // Common interface implemented by both MID_SceneLoader (utilities) and
 // MID_NetworkSceneLoader (netcode). MID_SceneTransitionController talks
 // through this interface so it has no hard dependency on either loader.

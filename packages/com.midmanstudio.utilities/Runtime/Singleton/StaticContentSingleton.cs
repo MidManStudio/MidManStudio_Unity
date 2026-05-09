@@ -1,4 +1,4 @@
-// StaticContentSingleton.cs
+
 // Thread-safe lazy singleton for plain C# classes (not MonoBehaviours).
 // Use for stateless managers, registries, caches, and service locators
 // that don't need a GameObject.

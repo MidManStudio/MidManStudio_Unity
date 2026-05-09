@@ -1,4 +1,4 @@
-// MID_DelayedGameEventListener.cs
+
 // Fires an immediate UnityEvent when the GameEvent is raised, then fires a
 // delayed UnityEvent after _delay seconds using MID_TickDelay (zero allocation).
 // Replaces the old coroutine/Task.Delay pattern.

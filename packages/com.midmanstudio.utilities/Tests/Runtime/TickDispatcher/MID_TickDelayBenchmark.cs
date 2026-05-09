@@ -1,4 +1,4 @@
-// MID_TickDelayBenchmark.cs
+
 // Runtime benchmark: MID_TickDelay vs Coroutine vs Task.Delay
 //
 // ══ GC MEASUREMENT CAVEATS ═══════════════════════════════════════════════

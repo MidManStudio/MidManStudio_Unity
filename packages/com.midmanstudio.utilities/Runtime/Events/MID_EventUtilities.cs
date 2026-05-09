@@ -1,4 +1,4 @@
-// MID_EventUtilities.cs
+
 // Subscription safety helpers for plain C# Action events.
 // Prevents duplicate subscriptions and safe unsubscribes.
 // Use these when managing Action fields directly instead of MID_EventBus.

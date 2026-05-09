@@ -1,4 +1,4 @@
-// PoolTypeGeneratorSettingsSO.cs
+
 // Project-wide settings for the pool type generator.
 // Create via: MidManStudio > Utilities > Pool Type Generator Settings
 

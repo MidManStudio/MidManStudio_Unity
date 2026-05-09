@@ -1,4 +1,4 @@
-// MID_HelperFunctions.cs
+
 // Generic static utility methods for use across all MidManStudio packages.
 //
 // WHAT'S HERE:
@@ -57,17 +57,17 @@ namespace MidManStudio.Core.HelperFunctions
         // ── GameObject helpers ────────────────────────────────────────────────
 
         /// <summary>Destroy all children of a transform.</summary>
-        public static void KillObjChildren(Transform holder)
+        public static void DestroyObjChildren(Transform holder)
         {
             for (int i = holder.childCount - 1; i >= 0; i--)
                 UnityEngine.Object.Destroy(holder.GetChild(i).gameObject);
         }
 
         /// <summary>Destroy all children of multiple transforms.</summary>
-        public static void KillMultipleParentsChildren(List<Transform> holders)
+        public static void DestroyMultipleParentsChildren(List<Transform> holders)
         {
             foreach (var h in holders)
-                KillObjChildren(h);
+                DestroyObjChildren(h);
         }
 
         // ── UI helpers ────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-// LibraryTypeProviderSO.cs
+
 // Contributes library and item entries to the generated LibraryId and LibraryItemId enums.
 // Same provider pattern as pool types — one asset per package, one generator run.
 //

@@ -1,4 +1,4 @@
-﻿// LocalParticleReturn.cs
+﻿
 // Auto-returns a pooled particle GameObject to LocalParticlePool.
 // Automatically added by LocalParticlePool. Uses the generated PoolableParticleType enum.
 

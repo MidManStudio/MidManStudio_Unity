@@ -1,4 +1,4 @@
-// MID_SceneTransitionController.cs
+
 // Abstract base class for scene transition UI controllers.
 // Coordinates MID_SceneLoader (utilities) and optionally a network loader (netcode)
 // through the ISceneLoader interface. Game code subclasses this and overrides the

@@ -1,4 +1,4 @@
-// MID_BaseSO.cs
+
 // Base ScriptableObject for all MidManStudio SO assets.
 // Provides:
 //   - Custom icon per instance (drag any Texture2D into _customIcon in the inspector)

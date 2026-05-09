@@ -1,10 +1,3 @@
-// MID_UIStateContextEditor.cs
-// FIXES:
-//   1. [CanEditMultipleObjects] on all editors
-//   2. DrawPanelConfigRow uses plain Foldout (NOT BeginFoldoutHeaderGroup) for row header
-//   3. GameObject[] arrays drawn with manual DrawArrayProperty helper
-//      that uses plain Foldout — avoids BeginFoldoutHeaderGroup nesting
-//   4. MID_UIStateBackButton editor with state mask checkboxes
 
 #if UNITY_EDITOR
 using System;
@@ -14,7 +7,7 @@ using UnityEditor;
 using UnityEngine;
 using MidManStudio.Core.UIState;
 
-namespace MidManStudio.Core.Editor.UIState
+namespace MidManStudio.Core.EditorUtils.UIState
 {
     // ── Visibility Inspector ──────────────────────────────────────────────────
 

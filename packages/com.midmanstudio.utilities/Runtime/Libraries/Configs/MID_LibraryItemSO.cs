@@ -1,4 +1,4 @@
-// MID_LibraryItemSO.cs
+
 // Abstract base for library items. Subclass to add your own data fields.
 //
 // QUICK START — just need a named item with no extra data?

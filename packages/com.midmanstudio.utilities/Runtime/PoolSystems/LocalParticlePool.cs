@@ -1,4 +1,4 @@
-// LocalParticlePool.cs
+
 // Singleton pool manager for particle GameObjects.
 // Uses the generated PoolableParticleType enum.
 

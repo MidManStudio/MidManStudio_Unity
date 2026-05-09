@@ -1,8 +1,4 @@
-// MID_ScriptUtilitiesWindow.cs
-// FIXED: AssetDatabase.FindAssets search context warning suppressed by passing
-//        a SearchFilter rather than a raw type string, which avoids the internal
-//        Search API deprecation log in Unity 2022.3+.
-// Also switched the search field to use a consistent focus-safe pattern.
+
 
 #if UNITY_EDITOR
 using System;

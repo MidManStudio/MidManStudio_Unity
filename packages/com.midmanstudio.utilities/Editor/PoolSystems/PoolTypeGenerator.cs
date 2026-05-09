@@ -1,4 +1,3 @@
-// PoolTypeGenerator.cs
 // Reads all PoolTypeProviderSO / ParticlePoolTypeProviderSO / NetworkPoolTypeProviderSO
 // assets found anywhere in the project and writes the three generated enum files.
 //

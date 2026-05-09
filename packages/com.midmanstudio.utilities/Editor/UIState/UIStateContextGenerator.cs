@@ -1,11 +1,3 @@
-// UIStateContextGenerator.cs
-// Reads all MID_UIStateContext assets (merged SO) and writes one [Flags] enum
-// file per context into Runtime/UIState/Generated/.
-//
-// CHANGED from previous version:
-//   - Discovers MID_UIStateContext assets instead of UIStateContextProviderSO
-//   - UIStateEntry is now defined in MID_UIStateContext.cs
-//   - UIStateContextProviderSO.cs can be safely deleted
 
 #if UNITY_EDITOR
 using System;
@@ -17,7 +9,7 @@ using UnityEditor;
 using UnityEngine;
 using MidManStudio.Core.UIState;
 
-namespace MidManStudio.Core.Editor.UIState
+namespace MidManStudio.Core.EditorUtils.UIState
 {
     public static class UIStateContextGeneratorCore
     {

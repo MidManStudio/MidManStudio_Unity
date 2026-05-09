@@ -1,4 +1,4 @@
-﻿// LocalPoolReturn.cs
+﻿
 // Auto-returns a pooled GameObject to LocalObjectPool after a configured delay.
 // Automatically added to pooled objects by LocalObjectPool.
 // Uses the generated PoolableObjectType enum.

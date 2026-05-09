@@ -1,4 +1,4 @@
-// LocalObjectPool.cs
+
 // Singleton pool manager for non-particle GameObjects.
 // Uses the generated PoolableObjectType enum. Pool configs use int typeId internally
 // but the public API accepts PoolableObjectType directly.

@@ -1,4 +1,4 @@
-// MID_EventBus.cs
+
 // Typed static event bus. Fire-and-forget global events without ScriptableObject assets.
 // Pairs with MID_SusValue for fire-and-forget vs persistent-value use cases.
 //

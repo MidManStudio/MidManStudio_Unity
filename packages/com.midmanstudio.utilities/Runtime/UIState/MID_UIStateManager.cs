@@ -1,4 +1,4 @@
-// MID_UIStateManager.cs
+
 // Singleton panel manager for a single MID_UIStateContext.
 // Drives GameObject show/hide and UnityEvent callbacks on state transitions.
 

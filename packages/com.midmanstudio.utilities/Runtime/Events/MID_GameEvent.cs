@@ -1,4 +1,4 @@
-// MID_GameEvent.cs
+
 // ScriptableObject-based event channel. Zero coupling between sender and receiver.
 // Create via: MidManStudio > Utilities > Game Event
 //

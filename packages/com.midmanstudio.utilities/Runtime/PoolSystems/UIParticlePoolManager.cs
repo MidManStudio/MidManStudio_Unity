@@ -1,4 +1,4 @@
-// UIParticlePoolManager.cs
+
 // Manages ParticleSystem instances placed directly in the HUD/UI hierarchy.
 // Effects are identified by string keys — no closed enum, fully extensible.
 //

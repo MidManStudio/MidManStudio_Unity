@@ -5,7 +5,7 @@ namespace MidManStudio.Core.Logging
     
 [CreateAssetMenu(fileName="MID_LoggerSettings",
     menuName="MidManStudio/Utilities/Logger Settings", order=140)]
-    public class MID_LoggerSettings : ScriptableObject
+    public class MID_LoggerSettings : MID_BaseSO
     {
         [SerializeField] private MID_LogLevel _defaultLogLevel = MID_LogLevel.Debug;
 

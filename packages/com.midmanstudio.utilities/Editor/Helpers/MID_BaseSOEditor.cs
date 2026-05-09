@@ -1,4 +1,4 @@
-// MID_BaseSOEditor.cs
+
 // Custom editor for MID_BaseSO. Applies the resolved icon to the asset in
 // the Project window whenever the SO is selected or the icon field changes.
 //
@@ -9,7 +9,7 @@ using UnityEditor;
 using UnityEngine;
 using MidManStudio.Core;
 
-namespace MidManStudio.Core.Editor
+namespace MidManStudio.Core.EditorUtils
 {
     [CustomEditor(typeof(MID_BaseSO), editorForChildClasses: true)]
     public class MID_BaseSOEditor : UnityEditor.Editor

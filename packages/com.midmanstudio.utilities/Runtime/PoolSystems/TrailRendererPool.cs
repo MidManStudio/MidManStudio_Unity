@@ -1,4 +1,4 @@
-// TrailRendererPool.cs
+
 // Generic pooled trail renderer manager for utilities package.
 // Manages a fixed pool of TrailRenderer GameObjects.
 // Any moving object can request a trail slot by calling Acquire(),

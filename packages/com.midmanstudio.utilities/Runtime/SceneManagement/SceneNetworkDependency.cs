@@ -1,4 +1,4 @@
-// SceneNetworkDependency.cs
+
 // Describes what network state a scene requires to load.
 
 namespace MidManStudio.Core.SceneManagement

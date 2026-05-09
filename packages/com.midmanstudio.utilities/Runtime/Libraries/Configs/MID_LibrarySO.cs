@@ -1,4 +1,4 @@
-// MID_LibrarySO.cs
+
 // A named collection of MID_LibraryItemSO assets keyed by their ItemId.
 // Register libraries in MID_LibraryRegistry to access them globally.
 //

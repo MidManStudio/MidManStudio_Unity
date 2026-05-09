@@ -1,4 +1,4 @@
-// MID_TickDispatcherBench.cs
+
 // Benchmarks MID_TickDispatcher (managed) against a simulated raw Update() baseline.
 // Native tick dispatcher removed — real-world results showed managed wins below ~500
 // Burst subscribers doing heavy math. Not worth the complexity for typical gameplay code.

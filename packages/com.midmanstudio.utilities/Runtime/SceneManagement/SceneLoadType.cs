@@ -1,4 +1,4 @@
-// SceneLoadType.cs
+
 // How a scene should be loaded.
 
 namespace MidManStudio.Core.SceneManagement
