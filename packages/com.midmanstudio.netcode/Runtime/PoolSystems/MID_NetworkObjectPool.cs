@@ -24,7 +24,8 @@ using UnityEngine;
 using UnityEngine.Assertions;
 using UnityEngine.SceneManagement;
 using MidManStudio.Core.Logging;
-using MidManStudio.Core.Utilities;
+using MidManStudio.Core.Pools;
+using MidManStudio.Core.EditorUtils;
 
 namespace MidManStudio.Core.Netcode
 {

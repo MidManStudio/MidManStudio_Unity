@@ -12,7 +12,7 @@
     "com.midmanstudio.utilities": "1.0.0",
     "com.unity.netcode.gameobjects": "1.7.1",
     "com.unity.burst": "1.8.9",
-    "com.unity.collections": "2.1.4",
+    "com.unity.collections": "2.2.0",
     "com.unity.mathematics": "1.2.6"
   },
   "keywords": ["projectile", "networking", "rust", "simulation", "server-authoritative"],

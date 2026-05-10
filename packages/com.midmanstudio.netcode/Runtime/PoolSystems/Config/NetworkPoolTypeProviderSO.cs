@@ -11,8 +11,9 @@
 
 using System.Collections.Generic;
 using UnityEngine;
-using MidManStudio.Core.Utilities;
+using MidManStudio.Core.Pools;
 using MidManStudio.Core.Pools.Generator;
+using MidManStudio.Core.EditorUtils;
 
 namespace MidManStudio.Core.Netcode.Generator
 {
