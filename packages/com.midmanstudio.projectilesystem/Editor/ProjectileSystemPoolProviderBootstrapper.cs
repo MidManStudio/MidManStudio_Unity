@@ -8,7 +8,7 @@ using UnityEditor;
 using UnityEngine;
 using MidManStudio.Core.Pools.Generator;
 
-namespace MidManStudio.Projectiles.Editor
+namespace MidManStudio.Projectiles.EditorUtils
 {
     [InitializeOnLoad]
     internal static class ProjectileSystemPoolProviderBootstrapper

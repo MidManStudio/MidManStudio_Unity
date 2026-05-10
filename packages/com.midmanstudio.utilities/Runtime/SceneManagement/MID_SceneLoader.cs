@@ -185,7 +185,7 @@ namespace MidManStudio.Core.SceneManagement
             // Attempt to use MID_NetworkConnectionManager if present
             // Uses reflection so this file has no hard dependency on it
             var type = Type.GetType(
-                "MidManStudio.Core.Netcode.MID_NetworkConnectionManager, MidManStudio.Netcode");
+                "MidManStudio.Netcode.MID_NetworkConnectionManager, MidManStudio.Netcode");
             if (type != null)
             {
                 var method = type.GetMethod("ConfirmConnectionAsync",

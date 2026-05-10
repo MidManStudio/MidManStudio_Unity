@@ -38,10 +38,10 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using UnityEngine;
 using MidManStudio.Core.PoolSystems;
-using MidManStudio.InGame.Managers;
+using MidManStudio.Managers;
 using MidManStudio.Core.HelperFunctions;
 
-namespace MidManStudio.Projectiles
+namespace MidManStudio.Projectiles.Network
 {
     // ─────────────────────────────────────────────────────────────────────────
     //  Circular buffer — borrowed pattern from NetworkPredictionComponent

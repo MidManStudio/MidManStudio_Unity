@@ -26,11 +26,11 @@ using System;
 using System.Runtime.InteropServices;
 using UnityEngine;
 using Unity.Netcode;
-using MidManStudio.InGame.ProjectileConfigs;
-using MidManStudio.InGame.Managers;
+using MidManStudio.ProjectileConfigs;
+using MidManStudio.Managers;
 using MidManStudio.Core.HelperFunctions;
 
-namespace MidManStudio.Projectiles
+namespace MidManStudio.Projectiles.Network
 {
     // ─────────────────────────────────────────────────────────────────────────
     //  Network serialisable fire request

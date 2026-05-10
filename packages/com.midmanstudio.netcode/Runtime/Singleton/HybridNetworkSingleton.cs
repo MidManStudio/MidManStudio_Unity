@@ -7,7 +7,7 @@ using UnityEngine;
 using Unity.Netcode;
 using UnityEngine.SceneManagement;
 
-namespace MidManStudio.Core.Netcode
+namespace MidManStudio.Netcode
 {
     /// <summary>
     /// Hybrid singleton: instance is ready in Awake, network features activate

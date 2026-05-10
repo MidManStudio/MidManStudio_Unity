@@ -27,12 +27,12 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 using Unity.Netcode;
-using MidManStudio.InGame.ProjectileConfigs;
-using MidManStudio.InGame.Managers;
+using MidManStudio.ProjectileConfigs;
+using MidManStudio.Managers;
 using MidManStudio.Core.PoolSystems;
 using MidManStudio.Core.HelperFunctions;
 
-namespace MidManStudio.Projectiles
+namespace MidManStudio.Projectiles.Managers
 {
     // ─────────────────────────────────────────────────────────────────────────
     //  Raycast fire data (passed from weapon to handler)

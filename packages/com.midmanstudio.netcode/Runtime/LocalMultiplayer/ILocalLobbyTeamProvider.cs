@@ -3,7 +3,7 @@
 // Implement this in your game and pass it to LocalLobbyManager.SetTeamProvider().
 // If no provider is set the manager still functions — players just have TeamId = -1.
 
-namespace MidManStudio.Core.Netcode.LocalMultiplayer
+namespace MidManStudio.Netcode.LocalMultiplayer
 {
     /// <summary>
     /// Game code implements this to plug custom team logic into LocalLobbyManager.

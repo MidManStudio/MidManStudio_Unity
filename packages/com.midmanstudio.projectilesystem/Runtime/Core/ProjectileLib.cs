@@ -28,7 +28,7 @@ using System;
 using System.Runtime.InteropServices;
 using UnityEngine;
 
-namespace MidManStudio.Projectiles
+namespace MidManStudio.Projectiles.Core
 {
     // ─────────────────────────────────────────────────────────────────────────
     //  2D FFI structs

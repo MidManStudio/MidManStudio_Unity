@@ -15,7 +15,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using MidManStudio.Core.Singleton;
 
-namespace MidManStudio.Projectiles
+namespace MidManStudio.Projectiles.Config
 {
     /// <summary>
     /// Runtime registry mapping ushort configId to ProjectileConfigSO.

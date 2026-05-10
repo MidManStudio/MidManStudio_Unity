@@ -1,25 +1,27 @@
 {
-  "name": "MidManStudio.ProjectileSystem",
-  "rootNamespace": "MidManStudio.Projectiles",
-  "references": [
-    "MidManStudio.Netcode",
-    "Unity.Netcode.Runtime",
-    "Unity.Burst",
-    "Unity.Collections",
-    "Unity.Mathematics"
-  ],
-  "includePlatforms": [],
-  "excludePlatforms": [],
-  "allowUnsafeCode": true,
-  "overrideReferences": false,
-  "precompiledReferences": [],
-  "autoReferenced": true,
-  "defineConstraints": [],
-  "versionDefines": [
-    {
-      "name": "com.unity.netcode.gameobjects",
-      "expression": "1.0.0",
-      "define": "MIDMAN_NGO"
-    }
-  ]
+    "name": "MidManStudio.ProjectileSystem",
+    "rootNamespace": "MidManStudio.Projectiles",
+    "references": [
+        "MidManStudio.Netcode",
+        "Unity.Netcode.Runtime",
+        "Unity.Burst",
+        "Unity.Collections",
+        "Unity.Mathematics",
+        "MidManStudio.Utilities"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [
+        {
+            "name": "com.unity.netcode.gameobjects",
+            "expression": "1.0.0",
+            "define": "MIDMAN_NGO"
+        }
+    ],
+    "noEngineReferences": false
 }

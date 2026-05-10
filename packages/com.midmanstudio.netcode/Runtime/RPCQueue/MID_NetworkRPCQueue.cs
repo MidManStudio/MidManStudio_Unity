@@ -39,7 +39,7 @@ using Unity.Netcode;
 using UnityEngine;
 using MidManStudio.Core.Logging;
 
-namespace MidManStudio.Core.Netcode
+namespace MidManStudio.Netcode
 {
     // ── Payload interface ─────────────────────────────────────────────────────
 

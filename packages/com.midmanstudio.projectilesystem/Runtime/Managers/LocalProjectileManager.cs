@@ -23,7 +23,7 @@ using System.Runtime.InteropServices;
 using UnityEngine;
 using MidManStudio.Core.Singleton;
 
-namespace MidManStudio.Projectiles
+namespace MidManStudio.Projectiles.Managers
 {
     // ─────────────────────────────────────────────────────────────────────────
     //  Lightweight offline damage target registration

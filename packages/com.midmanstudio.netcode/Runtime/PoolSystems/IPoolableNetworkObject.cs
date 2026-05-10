@@ -5,7 +5,7 @@
 
 using UnityEngine;
 
-namespace MidManStudio.Core.Netcode
+namespace MidManStudio.Netcode.Pools
 {
     /// <summary>
     /// Implement on a NetworkBehaviour component on your pooled prefab.

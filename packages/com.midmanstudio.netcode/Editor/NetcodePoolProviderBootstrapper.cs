@@ -6,9 +6,9 @@ using System.IO;
 using UnityEditor;
 using UnityEngine;
 using MidManStudio.Core.Pools.Generator;
-using MidManStudio.Core.Netcode.Generator;
+using MidManStudio.Netcode.Generator;
 
-namespace MidManStudio.Core.Netcode.Editor
+namespace MidManStudio.Netcode.Editor
 {
     [InitializeOnLoad]
     internal static class NetcodePoolProviderBootstrapper

@@ -70,11 +70,17 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Data/ServerProjectileData.cs">
       <Link>Runtime/Data/ServerProjectileData.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Config/ProjectileShapeSO.cs">
+      <Link>Runtime/Config/ProjectileShapeSO.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/LocalProjectileManager.cs">
       <Link>Runtime/Managers/LocalProjectileManager.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Config/ProjectilePatternSO.cs">
       <Link>Runtime/Config/ProjectilePatternSO.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Core/NativeProjectile.cs">
+      <Link>Runtime/Core/NativeProjectile.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/MID_MasterProjectileSystem.cs">
       <Link>Runtime/Managers/MID_MasterProjectileSystem.cs</Link>
@@ -1047,6 +1053,10 @@
     <ProjectReference Include="MidManStudio.Netcode.csproj">
       <Project>{84CDFFFE-B462-E1CA-A62D-0B936D2CE5F1}</Project>
       <Name>MidManStudio.Netcode</Name>
+    </ProjectReference>
+    <ProjectReference Include="MidManStudio.Utilities.csproj">
+      <Project>{4787055D-3001-DCB9-695E-DA6631E522A9}</Project>
+      <Name>MidManStudio.Utilities</Name>
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)/Microsoft.CSharp.targets" />

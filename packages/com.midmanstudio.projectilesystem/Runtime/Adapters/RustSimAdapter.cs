@@ -21,14 +21,14 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-using MidManStudio.InGame.ProjectileConfigs;
-using MidManStudio.InGame.Managers;
+using MidManStudio.ProjectileConfigs;
+using MidManStudio.Managers;
 
-namespace MidManStudio.Projectiles
+namespace MidManStudio.Projectiles.Adapters
 {
     // ─────────────────────────────────────────────────────────────────────────
     //  Damage payload — everything the game damage system needs
-    //  No MidManStudio.InGame enums here — those are game-specific.
+    //  No MidManStudio enums here — those are game-specific.
     //  The game subscribes to OnProjectileHit and casts/routes as needed.
     // ─────────────────────────────────────────────────────────────────────────
 

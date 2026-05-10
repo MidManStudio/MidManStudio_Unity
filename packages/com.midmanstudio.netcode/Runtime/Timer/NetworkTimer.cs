@@ -12,7 +12,7 @@
 //       }
 //   }
 
-namespace MidManStudio.Core.Netcode
+namespace MidManStudio.Netcode
 {
     /// <summary>
     /// Lightweight fixed-interval tick timer for server/client network loops.

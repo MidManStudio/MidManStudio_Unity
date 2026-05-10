@@ -15,7 +15,7 @@ using MidManStudio.Core.Pools;
 using MidManStudio.Core.Pools.Generator;
 using MidManStudio.Core.EditorUtils;
 
-namespace MidManStudio.Core.Netcode.Generator
+namespace MidManStudio.Netcode.Generator
 {
     [CreateAssetMenu(
         fileName = "NetworkPoolTypeProvider",

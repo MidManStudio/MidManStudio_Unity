@@ -8,8 +8,7 @@
 
 using UnityEngine;
 using MidManStudio.Core.Pools;
-
-namespace MidManStudio.Projectiles
+namespace MidManStudio.Projectiles.Visuals
 {
     [RequireComponent(typeof(ProjectileManager))]
     public class TrailObjectPool : MonoBehaviour

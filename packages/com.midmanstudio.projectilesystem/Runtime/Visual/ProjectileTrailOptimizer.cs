@@ -1,9 +1,10 @@
 ﻿using UnityEngine;
-using MidManStudio.InGame.ProjectileConfigs;
+using MidManStudio.ProjectileConfigs;
 using MidManStudio.Core.HelperFunctions;
 using System;
 
-namespace MidManStudio.InGame.ProjectileSystem
+namespace MidManStudio.Projectiles.Visuals
+
 {
     /// <summary>
     /// Optimized trail renderer handler for pooled projectile visuals

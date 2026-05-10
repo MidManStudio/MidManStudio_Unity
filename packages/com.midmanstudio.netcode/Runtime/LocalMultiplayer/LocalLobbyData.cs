@@ -6,7 +6,7 @@
 using System;
 using UnityEngine;
 
-namespace MidManStudio.Core.Netcode.LocalMultiplayer
+namespace MidManStudio.Netcode.LocalMultiplayer
 {
     [Serializable]
     public class LocalLobbyData

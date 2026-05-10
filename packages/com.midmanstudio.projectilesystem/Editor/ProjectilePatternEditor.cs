@@ -11,7 +11,7 @@
 using UnityEngine;
 using UnityEditor;
 
-namespace MidManStudio.Projectiles.Editor
+namespace MidManStudio.Projectiles.EditorTools
 {
     [CustomEditor(typeof(ProjectilePatternSO))]
     public class ProjectilePatternEditor : UnityEditor.Editor

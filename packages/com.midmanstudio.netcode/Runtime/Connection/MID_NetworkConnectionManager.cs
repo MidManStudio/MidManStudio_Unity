@@ -19,7 +19,7 @@ using UnityEngine.Networking;
 using MidManStudio.Core.Logging;
 using MidManStudio.Core.Singleton;
 
-namespace MidManStudio.Core.Netcode
+namespace MidManStudio.Netcode
 {
     public enum ConnectionCheckMethod
     {
@@ -260,7 +260,7 @@ namespace MidManStudio.Core.Netcode
             {
                 using var request = UnityWebRequest.Get(HttpCheckUrl);
                 request.timeout = _timeoutMs / 1000;
-                await request.SendWebRequest();
+                 request.SendWebRequest();
                 if (request.result == UnityWebRequest.Result.Success) return true;
                 if (attempt < 1) await Task.Delay(1000);
             }

@@ -1,10 +1,7 @@
 ﻿using UnityEngine;
-using MidManStudio.InGame.GameItemData;
-using MidManStudio.InGame.ProjectileConfigs;
-using MidManStudio.InGame.Managers;
-using MidManStudio.Core.PoolSystems;
+using MidManStudio.Core.Pools;
 
-namespace MidManStudio.InGame.ProjectileSystem
+namespace MidManStudio.Projectiles.Visuals
 {
     /// <summary>
     /// OPTIMIZED: Simplified projectile visual - NO NetworkBehaviour

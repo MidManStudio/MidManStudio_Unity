@@ -18,11 +18,11 @@
 
 using UnityEngine;
 using Unity.Netcode;
-using MidManStudio.InGame.GameItemData;
-using MidManStudio.InGame.ProjectileConfigs;
-using MidManStudio.InGame.NetworkDataStructures;
+using MidManStudio.GameItemData;
+using MidManStudio.ProjectileConfigs;
+using MidManStudio.NetworkDataStructures;
 
-namespace MidManStudio.Projectiles
+namespace MidManStudio.Projectiles.Data
 {
     /// <summary>
     /// Server-side gameplay data for a single projectile.

@@ -15,7 +15,7 @@
 
 using UnityEngine;
 
-namespace MidManStudio.Projectiles
+namespace MidManStudio.Projectiles.Visuals
 {
     [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
     public sealed class ProjectileRenderer3D : MonoBehaviour

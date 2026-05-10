@@ -9,7 +9,7 @@
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <ProductVersion>10.0.20506</ProductVersion>
     <SchemaVersion>2.0</SchemaVersion>
-    <RootNamespace>MidManStudio.Core.Netcode</RootNamespace>
+    <RootNamespace>MidManStudio.Netcode</RootNamespace>
     <ProjectGuid>{84CDFFFE-B462-E1CA-A62D-0B936D2CE5F1}</ProjectGuid>
     <OutputType>Library</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
@@ -1005,6 +1005,10 @@
     </Reference>
     <Reference Include="Unity.Netcode.Runtime">
       <HintPath>Library/ScriptAssemblies/Unity.Netcode.Runtime.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Unity.Collections">
+      <HintPath>Library/ScriptAssemblies/Unity.Collections.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="UnityEditor.UI">

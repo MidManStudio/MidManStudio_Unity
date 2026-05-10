@@ -15,7 +15,7 @@
 using System;
 using UnityEngine;
 
-namespace MidManStudio.Projectiles
+namespace MidManStudio.Projectiles.Config
 {
     public enum PatternSplineType
     {

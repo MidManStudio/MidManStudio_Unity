@@ -13,9 +13,9 @@ using System.Collections.Generic;
 using UnityEngine;
 using MidManStudio.Core.Logging;
 using MidManStudio.Core.UIState;
-using MidManStudio.Core.Netcode.LocalMultiplayer;
+using MidManStudio.Netcode.LocalMultiplayer;
 
-namespace MidManStudio.Core.Netcode.UI
+namespace MidManStudio.Netcode.UI
 {
     [RequireComponent(typeof(Canvas))]
     public abstract class LocalLobbyUIManager : MonoBehaviour

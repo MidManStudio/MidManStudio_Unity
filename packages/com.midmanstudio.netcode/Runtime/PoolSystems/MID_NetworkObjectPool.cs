@@ -27,7 +27,7 @@ using MidManStudio.Core.Logging;
 using MidManStudio.Core.Pools;
 using MidManStudio.Core.EditorUtils;
 
-namespace MidManStudio.Core.Netcode
+namespace MidManStudio.Netcode.Pools
 {
     // ── Pool config ───────────────────────────────────────────────────────────
 

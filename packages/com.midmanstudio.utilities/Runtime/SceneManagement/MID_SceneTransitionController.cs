@@ -129,7 +129,7 @@ namespace MidManStudio.Core.SceneManagement
             // Game code can call SetNetworkLoader() to inject it directly.
             // This reflection path is a convenience fallback.
             var type = Type.GetType(
-                "MidManStudio.Core.Netcode.SceneManagement.MID_NetworkSceneLoader, MidManStudio.Netcode");
+                "MidManStudio.Netcode.SceneManagement.MID_NetworkSceneLoader, MidManStudio.Netcode");
             if (type == null) return;
 
             var go = FindObjectOfType(type) as MonoBehaviour;

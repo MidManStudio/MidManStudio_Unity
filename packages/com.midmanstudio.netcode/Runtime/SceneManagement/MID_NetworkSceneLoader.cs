@@ -17,7 +17,7 @@ using MidManStudio.Core.Logging;
 using MidManStudio.Core.SceneManagement;
 using SceneEventProgressStatus = Unity.Netcode.SceneEventProgressStatus;
 
-namespace MidManStudio.Core.Netcode.SceneManagement
+namespace MidManStudio.Netcode.SceneManagement
 {
     /// <summary>
     /// NGO-managed scene loader. Host/server only — clients receive scene events automatically.
@@ -325,7 +325,7 @@ namespace MidManStudio.Core.Netcode.SceneManagement
         {
             for (int i = 0; i < UnityEngine.SceneManagement.SceneManager.sceneCountInBuildSettings; i++)
             {
-                string path = UnityEngine.SceneManagement.SceneUtility.GetScenePathByIndex(i);
+                string path = UnityEngine.SceneManagement.SceneUtility.GetScenePathByBuildIndex(i);
                 string name = System.IO.Path.GetFileNameWithoutExtension(path);
                 if (name == sceneName) return i;
             }

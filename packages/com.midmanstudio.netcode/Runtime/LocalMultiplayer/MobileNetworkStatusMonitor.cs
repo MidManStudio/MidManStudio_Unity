@@ -17,7 +17,7 @@ using System.Linq;
 using UnityEngine;
 using MidManStudio.Core.Logging;
 
-namespace MidManStudio.Core.Netcode.LocalMultiplayer
+namespace MidManStudio.Netcode.LocalMultiplayer
 {
     public class MobileNetworkStatusMonitor : MonoBehaviour
     {

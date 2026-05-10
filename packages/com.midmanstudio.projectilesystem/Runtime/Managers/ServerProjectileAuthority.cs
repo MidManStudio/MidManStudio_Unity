@@ -21,11 +21,8 @@ using System;
 using System.Runtime.InteropServices;
 using UnityEngine;
 using Unity.Netcode;
-using MidManStudio.InGame.ProjectileConfigs;
-using MidManStudio.InGame.Managers;
-using MidManStudio.Core.HelperFunctions;
 
-namespace MidManStudio.Projectiles
+namespace MidManStudio.Projectiles.Managers
 {
     // ─────────────────────────────────────────────────────────────────────────
     //  Snapshot structs (sent to clients for reconciliation)

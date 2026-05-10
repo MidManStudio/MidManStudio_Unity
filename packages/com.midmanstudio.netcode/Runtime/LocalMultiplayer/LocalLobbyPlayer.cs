@@ -5,8 +5,7 @@
 using System;
 using Unity.Collections;
 using Unity.Netcode;
-
-namespace MidManStudio.Core.Netcode.LocalMultiplayer
+namespace MidManStudio.Netcode.LocalMultiplayer
 {
     [Serializable]
     public class LocalLobbyPlayer
@@ -17,7 +16,7 @@ namespace MidManStudio.Core.Netcode.LocalMultiplayer
         public bool   IsReady;
         public bool   IsHost;
         public bool   IsBot;
-
+        
         /// <summary>
         /// Game-defined team or slot index. -1 = unassigned.
         /// The lobby system carries this opaquely; game code assigns meaning.
@@ -41,6 +40,7 @@ namespace MidManStudio.Core.Netcode.LocalMultiplayer
 
     public struct NetworkLobbyPlayerData : INetworkSerializable, IEquatable<NetworkLobbyPlayerData>
     {
+        
         public ulong             ClientId;
         public FixedString128Bytes PlayerName;
         public FixedString64Bytes  PlayerIconId;

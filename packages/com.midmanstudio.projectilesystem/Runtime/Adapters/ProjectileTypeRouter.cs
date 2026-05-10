@@ -17,9 +17,9 @@
 //   6. Config.get_Is3D                   → RustSim3D
 //   7. Default                           → RustSim2D
 
-using MidManStudio.InGame.ProjectileConfigs;
+using MidManStudio.ProjectileConfigs;
 
-namespace MidManStudio.Projectiles
+namespace MidManStudio.Projectiles.Adapters
 {
     /// <summary>
     /// Context provided by the weapon system when requesting a projectile spawn.

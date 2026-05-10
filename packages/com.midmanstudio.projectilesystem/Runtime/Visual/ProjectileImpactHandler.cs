@@ -22,7 +22,7 @@ using MidManStudio.Core.Singleton;
 using MidManStudio.Core.Pools;
 using MidManStudio.Core.Logging;
 
-namespace MidManStudio.Projectiles
+namespace MidManStudio.Projectiles.Visuals
 {
     // ── Impact strategy ───────────────────────────────────────────────────────
 

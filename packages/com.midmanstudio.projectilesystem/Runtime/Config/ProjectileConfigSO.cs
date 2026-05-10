@@ -33,8 +33,8 @@
 
 using UnityEngine;
 using System;
-
-namespace MidManStudio.Projectiles
+using MidManStudio.Core.Pools;
+namespace MidManStudio.Projectiles.Config
 {
     [CreateAssetMenu(
         fileName = "ProjectileConfig",

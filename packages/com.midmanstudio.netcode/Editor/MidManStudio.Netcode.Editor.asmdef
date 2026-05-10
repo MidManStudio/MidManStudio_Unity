@@ -1,7 +1,7 @@
 
 {
   "name": "MidManStudio.Netcode.Editor",
-  "rootNamespace": "MidManStudio.Core.Netcode.Editor",
+  "rootNamespace": "MidManStudio.Netcode.Editor",
   "references": [
     "MidManStudio.Utilities",
     "MidManStudio.Utilities.Editor",

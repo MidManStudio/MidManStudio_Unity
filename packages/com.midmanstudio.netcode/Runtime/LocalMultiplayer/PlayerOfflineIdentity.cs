@@ -6,7 +6,7 @@ using System;
 using UnityEngine;
 using MidManStudio.Core.Singleton;
 
-namespace MidManStudio.Core.Netcode.LocalMultiplayer
+namespace MidManStudio.Netcode.LocalMultiplayer
 {
     public class PlayerOfflineIdentity : Singleton<PlayerOfflineIdentity>
     {

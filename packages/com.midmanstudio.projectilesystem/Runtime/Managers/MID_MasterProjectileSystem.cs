@@ -28,10 +28,10 @@ using UnityEngine;
 using Unity.Netcode;
 using MidManStudio.Core.Singleton;
 using MidManStudio.Core.HelperFunctions;
-using MidManStudio.InGame.ProjectileConfigs;
-using MidManStudio.InGame.Managers;
+using MidManStudio.ProjectileConfigs;
+using MidManStudio.Managers;
 
-namespace MidManStudio.Projectiles
+namespace MidManStudio.Projectiles.Managers
 {
     public sealed class MID_MasterProjectileSystem : Singleton<MID_MasterProjectileSystem>
     {

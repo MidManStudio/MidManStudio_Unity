@@ -36,7 +36,7 @@ using Unity.Netcode.Transports.UTP;
 using UnityEngine;
 using MidManStudio.Core.Logging;
 
-namespace MidManStudio.Core.Netcode.LocalMultiplayer
+namespace MidManStudio.Netcode.LocalMultiplayer
 {
     // ── Config passed to StartHosting ─────────────────────────────────────────
 

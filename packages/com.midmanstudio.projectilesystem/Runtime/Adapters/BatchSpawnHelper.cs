@@ -25,9 +25,9 @@ using Unity.Jobs;
 using Unity.Burst;
 using Unity.Mathematics;
 using UnityEngine;
-using MidManStudio.InGame.ProjectileConfigs;
+using MidManStudio.ProjectileConfigs;
 
-namespace MidManStudio.Projectiles
+namespace MidManStudio.Projectiles.Adapters
 {
     // ─────────────────────────────────────────────────────────────────────────
     //  Spawn point — output of pattern library, input to batch builder

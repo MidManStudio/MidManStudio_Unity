@@ -1,18 +1,18 @@
-
 {
-  "name": "MidManStudio.Netcode",
-  "rootNamespace": "MidManStudio.Core.Netcode",
-  "references": [
-    "MidManStudio.Utilities",
-    "Unity.Netcode.Runtime"
-  ],
-  "includePlatforms": [],
-  "excludePlatforms": [],
-  "allowUnsafeCode": false,
-  "overrideReferences": false,
-  "precompiledReferences": [],
-  "autoReferenced": true,
-  "defineConstraints": [],
-  "versionDefines": [],
-  "noEngineReferences": false
+    "name": "MidManStudio.Netcode",
+    "rootNamespace": "MidManStudio.Netcode",
+    "references": [
+        "MidManStudio.Utilities",
+        "Unity.Netcode.Runtime",
+        "Unity.Collections"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
 }

@@ -3,7 +3,7 @@
 // ServerProjectileAuthority, LocalProjectileManager, and BatchSpawnHelper.
 // Kept in its own file so no circular dependencies form at the enum level.
 
-namespace MidManStudio.Projectiles
+namespace MidManStudio.Projectiles.Core
 {
     /// <summary>
     /// Determines how a projectile is simulated and networked.

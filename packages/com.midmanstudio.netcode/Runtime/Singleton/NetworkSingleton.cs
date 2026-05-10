@@ -7,7 +7,7 @@ using UnityEngine;
 using Unity.Netcode;
 using UnityEngine.SceneManagement;
 
-namespace MidManStudio.Core.Netcode
+namespace MidManStudio.Netcode
 {
     /// <summary>
     /// Singleton that inherits from NetworkBehaviour.

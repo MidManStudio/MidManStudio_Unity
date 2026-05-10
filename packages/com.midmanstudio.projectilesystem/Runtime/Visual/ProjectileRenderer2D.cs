@@ -2,7 +2,7 @@
 
 using UnityEngine;
 
-namespace MidManStudio.Projectiles
+namespace MidManStudio.Projectiles.Visuals
 {
     [RequireComponent(typeof(ProjectileManager))]
     public class ProjectileRenderer2D : MonoBehaviour
