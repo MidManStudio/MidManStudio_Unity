@@ -2,7 +2,7 @@
   "name": "MidManStudio.ProjectileSystem",
   "rootNamespace": "MidManStudio.Projectiles",
   "references": [
-    "MidManStudio.Utilities",
+    "MidManStudio.Netcode",
     "Unity.Netcode.Runtime",
     "Unity.Burst",
     "Unity.Collections",

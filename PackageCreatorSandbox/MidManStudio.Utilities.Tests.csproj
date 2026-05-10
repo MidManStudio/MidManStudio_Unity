@@ -66,6 +66,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Tests/Runtime/TickDispatcher/MID_TickDispatcherBench.cs">
       <Link>Tests/Runtime/TickDispatcher/MID_TickDispatcherBench.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Tests/Runtime/Timers/TimerBenchmarkRunner.cs">
+      <Link>Tests/Runtime/Timers/TimerBenchmarkRunner.cs</Link>
+    </Compile>
   </ItemGroup>
   <ItemGroup>
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Tests/Runtime/MidManStudio.Utilities.Tests.asmdef">
@@ -422,7 +425,7 @@
       <Private>False</Private>
     </Reference>
     <Reference Include="Unity.Collections.LowLevel.ILSupport">
-      <HintPath>Library/PackageCache/com.unity.collections@1.2.4/Unity.Collections.LowLevel.ILSupport/Unity.Collections.LowLevel.ILSupport.dll</HintPath>
+      <HintPath>Library/PackageCache/com.unity.collections@2.1.4/Unity.Collections.LowLevel.ILSupport/Unity.Collections.LowLevel.ILSupport.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="Unity.Plastic.Antlr3.Runtime">
