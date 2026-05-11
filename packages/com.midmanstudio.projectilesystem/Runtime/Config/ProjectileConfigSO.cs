@@ -1,39 +1,38 @@
 // ProjectileConfigSO.cs — CORE PACKAGE VERSION
 //
-// This is the lean, game-agnostic projectile configuration for the MID Projectile System.
-// It contains ONLY what the simulation system, renderer, trail system, and network layer need.
+// Lean, game-agnostic projectile configuration base class.
+// Contains ONLY what the simulation system, renderer, trail system,
+// and network layer need.
 //
-// EXTENSION PATTERN — game-specific logic:
+// EXTENSION PATTERN:
 //   Do not modify this file for game-specific fields.
-//   Instead, create a derived class in your game assembly:
+//   Create a derived class in your game assembly:
 //
 //   [CreateAssetMenu(...)]
 //   public class MyGameProjectileConfig : ProjectileConfigSO
 //   {
 //       [Header("Game-Specific")]
-//       public LegendaryTier legendaryTier;
-//       public AudioClip flightSound;
-//       public StatusEffectType statusEffect;
-//       // etc.
+//       public ProjectileType projectileType;
+//       public ProjectileClass projectileClass;
+//
+//       public override bool RequiresPhysicsObject()
+//           => projectileType == ProjectileType.Rocket
+//           || projectileType == ProjectileType.FireBall;
+//
+//       public override bool IsRaycastEligible()
+//           => base.IsRaycastEligible() && projectileClass != ProjectileClass.Exploder;
 //   }
 //
-//   The package systems (BatchSpawnHelper, ProjectileTypeRouter, TrailObjectPool,
-//   ProjectileRenderer2D/3D) only ever reference ProjectileConfigSO — your derived
-//   class slots in transparently because C# polymorphism handles the rest.
-//
-// DAMAGE PROFILES:
-//   Damage is defined as an AnimationCurve over normalised travel distance (0-1).
-//   If the curve is flat (all keys same value), the system detects this and skips
-//   evaluation — effectively a constant. No min/max random range needed.
-//   Use the ProjectileDamageProfileEditor window to visualise and edit curves.
-//
-// TRAIL:
-//   All trail data lives in the TrailConfig struct below.
-//   ProjectileTrailOptimizer reads these fields and applies them only when changed.
+// ROUTING HOOKS:
+//   Override RequiresPhysicsObject() and IsRaycastEligible() to inject
+//   game-specific routing logic into ProjectileTypeRouter without modifying
+//   the package.
 
 using UnityEngine;
 using System;
 using MidManStudio.Core.Pools;
+using MidManStudio.Projectiles.Core;
+
 namespace MidManStudio.Projectiles.Config
 {
     [CreateAssetMenu(
@@ -43,14 +42,10 @@ namespace MidManStudio.Projectiles.Config
     public class ProjectileConfigSO : ScriptableObject
     {
         // ─────────────────────────────────────────────────────────────────────
-        //  Identity (assigned by ProjectileRegistry at registration)
+        //  Identity
         // ─────────────────────────────────────────────────────────────────────
 
-        /// <summary>
-        /// Assigned by ProjectileRegistry when this config is registered.
-        /// Used as the key in C# → Rust config ID lookups.
-        /// Do not set this manually — it is set at runtime by the registry.
-        /// </summary>
+        /// <summary>Assigned by ProjectileRegistry at registration. Do not set manually.</summary>
         [HideInInspector] public ushort ConfigId;
 
         // ─────────────────────────────────────────────────────────────────────
@@ -60,20 +55,59 @@ namespace MidManStudio.Projectiles.Config
         [Header("Simulation")]
 
         [Tooltip("Is this a 3D projectile?\n" +
-                 "FALSE: 2D Rust sim — NativeProjectile, tick_projectiles, check_hits_grid.\n" +
-                 "TRUE:  3D Rust sim — NativeProjectile3D, tick_projectiles_3d, check_hits_grid_3d.")]
+                 "FALSE: 2D Rust sim (NativeProjectile, tick_projectiles).\n" +
+                 "TRUE:  3D Rust sim (NativeProjectile3D, tick_projectiles_3d).")]
         [SerializeField] private bool _is3D = false;
         public bool Is3D => _is3D;
 
         [Tooltip("Override the automatic SimulationMode decision for this config.\n\n" +
-                 "Leave as RustSim2D to let ProjectileTypeRouter decide from weapon context.\n" +
-                 "Override to force a specific mode — e.g. PhysicsObject for a grenade config\n" +
-                 "regardless of the weapon's fire rate.")]
+                 "Leave as RustSim2D to let ProjectileTypeRouter decide automatically.\n" +
+                 "Override to force a specific mode regardless of weapon context.")]
         [SerializeField] private SimulationMode _preferredSimMode = SimulationMode.RustSim2D;
         public SimulationMode PreferredSimMode => _preferredSimMode;
 
-        /// <summary>True when PreferredSimMode is an explicit override (not the default).</summary>
+        /// <summary>True when PreferredSimMode has been explicitly overridden from the default.</summary>
         public bool HasSimModeOverride => _preferredSimMode != SimulationMode.RustSim2D;
+
+        // ─────────────────────────────────────────────────────────────────────
+        //  Routing hooks — override in derived class for game-specific logic
+        // ─────────────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Return true if this projectile type requires Unity physics (Rigidbody2D/3D)
+        /// and therefore cannot be simulated in the Rust tick buffer.
+        ///
+        /// Base implementation always returns false (all projectiles are sim-compatible
+        /// by default). Override in your game-specific derived class to return true for
+        /// rockets, fireballs, bouncy rounds, sticky rounds, etc.
+        ///
+        /// Example override:
+        ///   public override bool RequiresPhysicsObject()
+        ///       => projectileType == ProjectileType.Rocket
+        ///       || extraPhysics == ExtraPhysicsType.Bouncy;
+        /// </summary>
+        public virtual bool RequiresPhysicsObject() => false;
+
+        /// <summary>
+        /// Return true if this projectile is safe for instant hitscan (Raycast mode).
+        ///
+        /// Base implementation: eligible when non-piercing AND 2D.
+        /// Piercing requires per-tick collision counting; raycast has no ongoing state.
+        /// 3D projectiles use the Rust 3D sim, not Physics2D.Raycast.
+        ///
+        /// Override in your derived class to add additional ineligibility conditions
+        /// (e.g. exotic movement types that need ongoing position state):
+        ///   public override bool IsRaycastEligible()
+        ///       => base.IsRaycastEligible()
+        ///       &amp;&amp; movementType == ProjectileMovementType.Straight;
+        /// </summary>
+        public virtual bool IsRaycastEligible()
+        {
+            if (_piercingType != ProjectilePiercingType.None) return false;
+            if (_is3D)                                         return false;
+            if (RequiresPhysicsObject())                       return false;
+            return true;
+        }
 
         // ─────────────────────────────────────────────────────────────────────
         //  Movement (Rust-facing)
@@ -81,23 +115,18 @@ namespace MidManStudio.Projectiles.Config
 
         [Header("Movement")]
 
-        [Tooltip("How this projectile moves. Straight is most performant.\n\n" +
-                 "Wave and Circular require RegisterMovementParams() to be called at startup\n" +
-                 "via ProjectileLib — see ProjectileRegistry for the registration flow.")]
         [SerializeField] private ProjectileMovementType _movementType = ProjectileMovementType.Straight;
         public ProjectileMovementType MovementType => _movementType;
 
-        [Tooltip("Projectile speed in world units per second.\n\n" +
-                 "If MinSpeed == MaxSpeed, a random range is skipped and the value is used directly.\n" +
-                 "Set both to the same value for a deterministic speed.")]
+        [Tooltip("Min speed (world units/sec). If Min == Max, range is skipped.")]
         [SerializeField] private float _minSpeed = 10f;
         [SerializeField] private float _maxSpeed = 10f;
         public float MinSpeed => _minSpeed;
         public float MaxSpeed => _maxSpeed;
 
         /// <summary>
-        /// Resolves speed — skips Random.Range when min == max.
-        /// Call this at spawn time, store the result in NativeProjectile.Vx/Vy.
+        /// Resolve speed — skips Random.Range when min == max (deterministic).
+        /// Call once at spawn time; store result in NativeProjectile.
         /// </summary>
         public float ResolveSpeed()
         {
@@ -107,17 +136,17 @@ namespace MidManStudio.Projectiles.Config
                 : UnityEngine.Random.Range(_minSpeed, _maxSpeed);
         }
 
-        [Tooltip("Maximum lifetime in seconds before the projectile is automatically killed.")]
+        [Tooltip("Maximum lifetime in seconds before the projectile is killed.")]
         [SerializeField] private float _lifetime = 3f;
         public float Lifetime => _lifetime;
 
-        [Tooltip("Gravity / downward acceleration applied each tick (maps to Rust NativeProjectile.ay).\n" +
-                 "0 = no gravity. Positive = falls down. Used by Arching movement type.")]
+        [Tooltip("Gravity / downward acceleration (maps to Rust NativeProjectile.Ay).\n" +
+                 "0 = no gravity. Positive = falls down. Used by Arching movement.")]
         [SerializeField] private float _gravityScale = 0f;
         public float GravityScale => _gravityScale;
 
-        [Tooltip("Maximum travel distance in world units. Projectile is killed when exceeded.\n" +
-                 "Also used to normalise distance for damage profile evaluation (0 = spawn, 1 = max range).")]
+        [Tooltip("Maximum travel distance in world units. Also used to normalise\n" +
+                 "distance for damage curve evaluation (0 = spawn, 1 = max range).")]
         [SerializeField] private float _maxRange = 50f;
         public float MaxRange => _maxRange;
 
@@ -130,8 +159,7 @@ namespace MidManStudio.Projectiles.Config
         [SerializeField] private ProjectilePiercingType _piercingType = ProjectilePiercingType.None;
         public ProjectilePiercingType PiercingType => _piercingType;
 
-        [Tooltip("Maximum number of targets this projectile can hit before dying.\n" +
-                 "Only relevant when PiercingType is Piecer or Random.")]
+        [Tooltip("Maximum targets hit before dying. Only relevant when PiercingType != None.")]
         [SerializeField, Range(1, 16)] private byte _maxCollisions = 1;
         public byte MaxCollisions => _maxCollisions;
 
@@ -141,9 +169,8 @@ namespace MidManStudio.Projectiles.Config
 
         [Header("Scale Growth (Optional)")]
 
-        [Tooltip("Enable scale growth — projectile starts small and grows to full size.\n" +
-                 "FALSE (default): ScaleSpeed = 0 — Rust skips tick_scale entirely. Zero CPU cost.\n" +
-                 "TRUE: ScaleX starts at SpawnScale, grows to FullSize at GrowthSpeed.")]
+        [Tooltip("Enable scale growth. FALSE (default): ScaleSpeed=0, Rust skips tick_scale (zero cost).\n" +
+                 "TRUE: grows from SpawnScale to FullSize at GrowthSpeed.")]
         [SerializeField] private bool _useScaleGrowth = false;
         public bool UseScaleGrowth => _useScaleGrowth;
 
@@ -158,45 +185,33 @@ namespace MidManStudio.Projectiles.Config
         public float GrowthSpeed        => _growthSpeed;
 
         // ─────────────────────────────────────────────────────────────────────
-        //  Damage profile (C#-only — never goes to Rust)
+        //  Damage profile (C#-only)
         // ─────────────────────────────────────────────────────────────────────
 
         [Header("Damage Profile")]
 
-        [Tooltip("Damage as a function of normalised travel distance (x = 0 to 1).\n\n" +
-                 "x=0 = point-blank, x=1 = max range (MaxRange field above).\n" +
-                 "Flat curve = constant damage regardless of distance.\n\n" +
-                 "Use Window > MidMan > Damage Profile Editor to visualise this curve.")]
+        [Tooltip("Damage as a function of normalised travel distance (x=0 to 1).\n" +
+                 "Flat curve = constant damage. Use Damage Profile Editor to visualise.")]
         [SerializeField] private AnimationCurve _damageCurve =
             AnimationCurve.Constant(0f, 1f, 25f);
         public AnimationCurve DamageCurve => _damageCurve;
 
-        [Tooltip("Headshot damage multiplier applied on top of the damage curve value.\n" +
-                 "1.0 = no headshot bonus.")]
+        [Tooltip("Headshot multiplier on top of damage curve. 1.0 = no bonus.")]
         [SerializeField, Range(1f, 5f)] private float _headshotMultiplier = 2f;
         public float HeadshotMultiplier => _headshotMultiplier;
 
-        [Tooltip("Chance (0-1) to deal a critical hit. 0 = never crit, 1 = always crit.")]
+        [Tooltip("Chance (0-1) to roll a critical hit.")]
         [SerializeField, Range(0f, 1f)] private float _critChance = 0f;
         public float CritChance => _critChance;
 
-        [Tooltip("Damage multiplier when a critical hit is rolled.")]
+        [Tooltip("Damage multiplier when a crit is rolled.")]
         [SerializeField, Range(1f, 5f)] private float _critMultiplier = 1.5f;
         public float CritMultiplier => _critMultiplier;
 
-        /// <summary>
-        /// Evaluate the damage curve at a normalised travel distance.
-        /// Clamps distance to 0-1. Returns raw curve value before crit/headshot.
-        /// </summary>
+        /// <summary>Evaluate the damage curve at a normalised travel distance.</summary>
         public float EvaluateDamage(float normalisedDistance)
-        {
-            return _damageCurve.Evaluate(Mathf.Clamp01(normalisedDistance));
-        }
+            => _damageCurve.Evaluate(Mathf.Clamp01(normalisedDistance));
 
-        /// <summary>
-        /// True when the damage curve is constant across its full range.
-        /// Callers can skip curve evaluation and use DamageCurve.Evaluate(0) directly.
-        /// </summary>
         public bool IsDamageConstant()
         {
             if (_damageCurve.length == 0) return true;
@@ -206,12 +221,12 @@ namespace MidManStudio.Projectiles.Config
         }
 
         // ─────────────────────────────────────────────────────────────────────
-        //  Visual (C#-only — never goes to Rust)
+        //  Visual (C#-only)
         // ─────────────────────────────────────────────────────────────────────
 
         [Header("Visual")]
 
-        [Tooltip("Sprite drawn for this projectile. Null = trail-only (no quad rendered).")]
+        [Tooltip("Sprite drawn for this projectile. Null = trail-only.")]
         [SerializeField] private Sprite _sprite;
         public Sprite ProjectileSprite => _sprite;
 
@@ -224,7 +239,7 @@ namespace MidManStudio.Projectiles.Config
         public ProjectileShapeSO CustomShape => _customShape;
 
         // ─────────────────────────────────────────────────────────────────────
-        //  Trail (C#-only — consumed by ProjectileTrailOptimizer)
+        //  Trail (C#-only)
         // ─────────────────────────────────────────────────────────────────────
 
         [Header("Trail")]
@@ -254,38 +269,34 @@ namespace MidManStudio.Projectiles.Config
         public float TrailEndWidth   => _trailEndWidth;
 
         [Tooltip("Minimum world-space distance between trail vertices.\n" +
-                 "Higher values = fewer vertices = better performance.\n" +
-                 "Default 0.1 is a good starting point for fast projectiles.")]
+                 "Higher = fewer vertices = better performance.")]
         [SerializeField, Range(0.01f, 2f)] private float _trailMinVertexDistance = 0.1f;
         public float TrailMinVertexDistance => _trailMinVertexDistance;
 
-        [Tooltip("Number of cap vertices on the trail end. 0 = flat cap, 2-4 = smooth rounded cap.")]
+        [Tooltip("Number of cap vertices on the trail end. 0 = flat, 2-4 = rounded.")]
         [SerializeField, Range(0, 4)] private int _trailCapVertices = 2;
         public int TrailCapVertices => _trailCapVertices;
 
-        [Tooltip("Shared trail material flag — use one material instance across all projectiles\n" +
-                 "of this type for better draw call batching.")]
+        [Tooltip("Share one material instance across all projectiles of this type for better batching.")]
         [SerializeField] private bool _useSharedTrailMaterial = true;
         public bool UseSharedTrailMaterial => _useSharedTrailMaterial;
 
         // ─────────────────────────────────────────────────────────────────────
-        //  Impact (C#-only — consumed by ProjectileImpactHandler)
+        //  Impact (C#-only)
         // ─────────────────────────────────────────────────────────────────────
 
         [Header("Impact")]
 
-        [Tooltip("Particle pool type for the impact effect. Resolved at runtime by LocalParticlePool.")]
         [SerializeField] private PoolableParticleType _impactEffectType;
         public PoolableParticleType ImpactEffectType => _impactEffectType;
 
         // ─────────────────────────────────────────────────────────────────────
-        //  Spawn params helper — consumed by BatchSpawnHelper
+        //  RustSpawnParams helper
         // ─────────────────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Produces the minimal Rust-facing spawn parameters from this config.
-        /// Called once per spawn event by BatchSpawnHelper, not per projectile.
-        /// speedOverride: pass > 0 to override the config's speed resolution.
+        /// Produces minimal Rust-facing spawn parameters from this config.
+        /// Called once per spawn event by BatchSpawnHelper.
         /// </summary>
         public RustSpawnParams GetRustSpawnParams(float speedOverride = -1f)
         {
@@ -328,7 +339,6 @@ namespace MidManStudio.Projectiles.Config
         /// <summary>
         /// Register movement params with Rust for Wave or Circular movement types.
         /// Called by ProjectileRegistry after assigning ConfigId.
-        /// No-op for other movement types.
         /// </summary>
         public void RegisterMovementParams()
         {
@@ -348,7 +358,6 @@ namespace MidManStudio.Projectiles.Config
             }
         }
 
-        /// <summary>Unregister movement params from Rust on config unload.</summary>
         public void UnregisterMovementParams()
         {
             switch (_movementType)
