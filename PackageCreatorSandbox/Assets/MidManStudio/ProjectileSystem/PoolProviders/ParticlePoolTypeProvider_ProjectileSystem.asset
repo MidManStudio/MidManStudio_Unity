@@ -1,0 +1,36 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 0}
+  m_Name: ParticlePoolTypeProvider_ProjectileSystem
+  m_EditorClassIdentifier: MidManStudio.Utilities:MidManStudio.Core.Pools.Generator:ParticlePoolTypeProviderSO
+  packageId: com.midmanstudio.projectilesystem
+  displayName: MidMan Projectile System
+  priority: 10
+  entries:
+  - entryName: Projectile_Impact
+    comment: Generic hit / impact particle
+    explicitOffset: 0
+  - entryName: Projectile_Explosion_Small
+    comment: Small explosion
+    explicitOffset: 1
+  - entryName: Projectile_Explosion_Medium
+    comment: Medium explosion
+    explicitOffset: 2
+  - entryName: Projectile_Explosion_Large
+    comment: Large explosion
+    explicitOffset: 3
+  - entryName: Projectile_Headshot
+    comment: Headshot / critical hit particle
+    explicitOffset: 4
+  - entryName: Projectile_Tracer
+    comment: Tracer round particle
+    explicitOffset: 5

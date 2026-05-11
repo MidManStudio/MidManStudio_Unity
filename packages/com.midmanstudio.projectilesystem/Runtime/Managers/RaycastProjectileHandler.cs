@@ -46,7 +46,7 @@ namespace MidManStudio.Projectiles.Managers
 
         [Tooltip("Pool type used for the travelling visual projectile GameObject.")]
         [SerializeField] private PoolableObjectType _visualPoolType
-            = PoolableObjectType.ProjectileVisual_;
+            = PoolableObjectType.ProjectileVisual;
 
         [Header("Server Validation")]
         [Tooltip("Max world-unit tolerance between client-reported and server-verified hit point.")]

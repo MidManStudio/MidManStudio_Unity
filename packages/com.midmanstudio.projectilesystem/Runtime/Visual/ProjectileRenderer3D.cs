@@ -13,6 +13,8 @@
 // Scale:
 //   Uses ScaleX (uniform — ScaleX == ScaleY == ScaleZ for all Rust sim projectiles).
 
+using MidManStudio.Projectiles.Config;
+using MidManStudio.Projectiles.Core;
 using UnityEngine;
 
 namespace MidManStudio.Projectiles.Visuals

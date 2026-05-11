@@ -32,7 +32,7 @@ using UnityEngine;
 using System;
 using MidManStudio.Core.Pools;
 using MidManStudio.Projectiles.Core;
-
+using SimulationMode = MidManStudio.Projectiles.Core.SimulationMode;
 namespace MidManStudio.Projectiles.Config
 {
     [CreateAssetMenu(

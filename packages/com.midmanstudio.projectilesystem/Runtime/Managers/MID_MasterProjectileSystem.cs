@@ -16,7 +16,7 @@ using MidManStudio.Projectiles.Config;
 using MidManStudio.Projectiles.Adapters;
 using MidManStudio.Projectiles.Visuals;
 using MidManStudio.Projectiles.Network;
-
+using SimulationMode = MidManStudio.Projectiles.Core.SimulationMode;
 namespace MidManStudio.Projectiles.Managers
 {
     public sealed class MID_MasterProjectileSystem : Singleton<MID_MasterProjectileSystem>

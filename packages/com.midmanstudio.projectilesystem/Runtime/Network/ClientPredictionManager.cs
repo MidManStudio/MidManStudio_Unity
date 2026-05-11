@@ -18,6 +18,7 @@ using MidManStudio.Projectiles.Core;
 using MidManStudio.Projectiles.Config;
 using MidManStudio.Projectiles.Managers;
 using MidManStudio.Projectiles.Visuals;
+using Unity.Netcode;
 
 namespace MidManStudio.Projectiles.Network
 {
@@ -125,7 +126,7 @@ namespace MidManStudio.Projectiles.Network
 
         [Header("Visual Pool")]
         [SerializeField] private PoolableObjectType _visualPoolType
-            = PoolableObjectType.ProjectileVisual_;
+            = PoolableObjectType.ProjectileVisual;
 
         [Header("Local Player")]
         [Tooltip("Set at runtime via SetLocalPlayerMidId() from your player manager.")]

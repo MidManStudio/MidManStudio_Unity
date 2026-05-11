@@ -377,7 +377,7 @@ namespace MidManStudio.Projectiles.Network
             if (IsServer) return;
             Prediction?.ReconcileSnapshot(snapshots2D, count2D, snapshots3D, count3D);
         }
-
+        [ClientRpc]
         internal void SendSnapshotClientRpc(
             ProjectileSnapshot2D[] snapshots2D, int count2D,
             ProjectileSnapshot3D[] snapshots3D, int count3D,

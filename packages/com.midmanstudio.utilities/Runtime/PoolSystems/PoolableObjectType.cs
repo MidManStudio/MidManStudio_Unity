@@ -13,6 +13,6 @@ namespace MidManStudio.Core.Pools
         Trail = 1, // Pooled trail renderer object [pinned]
 
         // ── My Game  [com.mygame]  (block 100–199)  priority=100  ──────────────────────────
-        Mugen = 100, // Something cool
+        ProjectileVisual = 100, // Something cool
     }
 }

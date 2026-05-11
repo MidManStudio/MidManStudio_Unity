@@ -14,6 +14,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using MidManStudio.Core.Singleton;
+using MidManStudio.Projectiles.Core;
 
 namespace MidManStudio.Projectiles.Config
 {

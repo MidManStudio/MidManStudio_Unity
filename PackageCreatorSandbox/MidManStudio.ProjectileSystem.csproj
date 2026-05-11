@@ -76,6 +76,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/LocalProjectileManager.cs">
       <Link>Runtime/Managers/LocalProjectileManager.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Core/ProjectileManager.cs">
+      <Link>Runtime/Core/ProjectileManager.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Config/ProjectilePatternSO.cs">
       <Link>Runtime/Config/ProjectilePatternSO.cs</Link>
     </Compile>
@@ -93,6 +96,9 @@
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Network/ClientPredictionManager.cs">
       <Link>Runtime/Network/ClientPredictionManager.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Network/ClientProjectileVisualManager.cs">
+      <Link>Runtime/Network/ClientProjectileVisualManager.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Config/ProjectileRegistry.cs">
       <Link>Runtime/Config/ProjectileRegistry.cs</Link>
@@ -115,6 +121,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/ServerProjectileAuthority.cs">
       <Link>Runtime/Managers/ServerProjectileAuthority.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Core/RustSpawnParams.cs">
+      <Link>Runtime/Core/RustSpawnParams.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Config/ProjectileConfigSO.cs">
       <Link>Runtime/Config/ProjectileConfigSO.cs</Link>
     </Compile>
@@ -126,9 +135,6 @@
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Core/ProjectileLib.cs">
       <Link>Runtime/Core/ProjectileLib.cs</Link>
-    </Compile>
-    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Visual/ProjectileTrailOptimizer.cs">
-      <Link>Runtime/Visual/ProjectileTrailOptimizer.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/RaycastProjectileHandler.cs">
       <Link>Runtime/Managers/RaycastProjectileHandler.cs</Link>

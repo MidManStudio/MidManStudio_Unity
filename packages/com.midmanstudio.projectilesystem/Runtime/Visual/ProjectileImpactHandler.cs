@@ -21,6 +21,7 @@ using UnityEngine;
 using MidManStudio.Core.Singleton;
 using MidManStudio.Core.Pools;
 using MidManStudio.Core.Logging;
+using MidManStudio.Projectiles.Config;
 
 namespace MidManStudio.Projectiles.Visuals
 {

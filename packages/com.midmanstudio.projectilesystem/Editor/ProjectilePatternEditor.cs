@@ -10,6 +10,7 @@
 #if UNITY_EDITOR
 using UnityEngine;
 using UnityEditor;
+using MidManStudio.Projectiles.Config;
 
 namespace MidManStudio.Projectiles.EditorTools
 {

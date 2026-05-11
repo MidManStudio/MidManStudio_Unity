@@ -1,5 +1,7 @@
 // ProjectileRenderer2D.cs
 
+using MidManStudio.Projectiles.Config;
+using MidManStudio.Projectiles.Core;
 using UnityEngine;
 
 namespace MidManStudio.Projectiles.Visuals
