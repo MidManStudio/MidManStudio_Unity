@@ -1,13 +1,16 @@
 // TrailObjectPool.cs
 // Projectile-specific trail coordinator.
 // Delegates all TrailRenderer lifecycle to TrailRendererPool (utilities package).
-// This class only handles the mapping between projectile IDs and trail slots,
-// and reads projectile config to build TrailConfig structs.
+// Maps projectile IDs to trail slots and reads ProjectileConfigSO for trail config.
 //
-// Called by ProjectileManager every FixedUpdate via SyncToSimulation().
+// Called by LocalProjectileManager / ServerProjectileAuthority every FixedUpdate
+// via SyncToSimulation().
 
 using UnityEngine;
 using MidManStudio.Core.Pools;
+using MidManStudio.Projectiles.Core;
+using MidManStudio.Projectiles.Config;
+
 namespace MidManStudio.Projectiles.Visuals
 {
     [RequireComponent(typeof(ProjectileManager))]
@@ -19,7 +22,7 @@ namespace MidManStudio.Projectiles.Visuals
         [SerializeField] private TrailRendererPool _trailPool;
 
         [Tooltip("Extra seconds a trail lingers after its projectile dies.\n" +
-                 "Overrides TrailRendererPool.FadePad for projectile trails.")]
+                 "Overrides the natural fade from TrailRendererPool.")]
         [SerializeField] private float _fadePad = 0.12f;
 
         // projId → trail slot index in TrailRendererPool
@@ -39,11 +42,11 @@ namespace MidManStudio.Projectiles.Visuals
                     "trails will not render. Add TrailRendererPool to the scene.");
         }
 
-        // ── Called by ProjectileManager ───────────────────────────────────────
+        // ── Called by sim managers ────────────────────────────────────────────
 
         /// <summary>
-        /// Sync active projectile positions to their trail slots.
-        /// Call every FixedUpdate from ProjectileManager.
+        /// Sync active 2D projectile positions to their trail slots.
+        /// Call every FixedUpdate.
         /// </summary>
         public void SyncToSimulation(NativeProjectile[] projs, int count)
         {
@@ -69,8 +72,8 @@ namespace MidManStudio.Projectiles.Visuals
         }
 
         /// <summary>
-        /// Notify that a projectile has died so its trail slot can begin fading.
-        /// Called from ProjectileManager.CompactDeadSlots.
+        /// Notify that a projectile has died so its trail slot can fade out.
+        /// Called by the sim manager during CompactDeadSlots.
         /// </summary>
         public void NotifyDead(uint projId)
         {
@@ -80,7 +83,7 @@ namespace MidManStudio.Projectiles.Visuals
             _projToSlot.Remove(projId);
         }
 
-        /// <summary>Release all currently active trail slots (e.g. on scene unload).</summary>
+        /// <summary>Release all active trail slots (e.g. on scene unload).</summary>
         public void ReleaseAll()
         {
             if (_trailPool == null) return;
@@ -101,10 +104,13 @@ namespace MidManStudio.Projectiles.Visuals
 
         private static TrailConfig BuildTrailConfig(ProjectileConfigSO cfg)
         {
+            // Determine gradient: use override if enabled, otherwise null (material default).
+            Gradient gradient = cfg.UseGradientOverride ? cfg.TrailGradient : null;
+
             return new TrailConfig
             {
                 Material      = cfg.TrailMaterial,
-                ColorGradient = cfg.TrailColorGradient,
+                ColorGradient = gradient,
                 Time          = cfg.TrailTime > 0f ? cfg.TrailTime : 0.25f,
                 StartWidth    = cfg.TrailStartWidth,
                 EndWidth      = cfg.TrailEndWidth,
