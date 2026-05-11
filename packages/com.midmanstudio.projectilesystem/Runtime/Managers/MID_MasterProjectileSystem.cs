@@ -1,35 +1,21 @@
 // MID_MasterProjectileSystem.cs
 // Top-level orchestrator. Single entry point for all projectile fire events.
-//
-// Responsibilities:
-//   - Initialise all subsystems in correct order
-//   - Expose Fire() as the ONLY external entry point for spawning projectiles
-//   - Route fire events to the correct handler based on SimulationMode
-//   - Expose RegisterTarget / DeactivateTarget for collision registration
-//   - Expose SaveState / RestoreState for reconciliation support
-//   - Tear down cleanly on destroy
-//
-// Setup (attach this MonoBehaviour to a persistent GameObject):
-//   1. Assign all serialized references in inspector
-//   2. Call SetLocalPlayerMidId() from your player spawn flow
-//   3. Register all ProjectileConfigSO assets with ProjectileRegistry (auto or manual)
-//   4. Weapon scripts call Fire() — nothing else needs to know about subsystems
-//
-// Fire flow summary:
-//   Offline  → LocalProjectileManager.Spawn2D/3D()
-//   Raycast  → RaycastProjectileHandler (weapon owns the cast, passes result)
-//   RustSim  → BatchSpawnHelper → ServerProjectileAuthority (server)
-//              ClientPredictionManager (client prediction visual)
-//              MID_ProjectileNetworkBridge.FireServerRpc (client → server)
-//   Physics  → ObjectNetSync path (existing, unchanged)
+// Physics-object projectiles use MID_NetworkObjectPool (com.midmanstudio.netcode).
+// Rust sim projectiles use BatchSpawnHelper + ServerProjectileAuthority.
+// Offline projectiles use LocalProjectileManager.
 
 using System;
 using UnityEngine;
 using Unity.Netcode;
+using MidManStudio.Core.Logging;
 using MidManStudio.Core.Singleton;
-using MidManStudio.Core.HelperFunctions;
-using MidManStudio.ProjectileConfigs;
-using MidManStudio.Managers;
+using MidManStudio.Core.Pools;
+using MidManStudio.Netcode.Pools;
+using MidManStudio.Projectiles.Core;
+using MidManStudio.Projectiles.Config;
+using MidManStudio.Projectiles.Adapters;
+using MidManStudio.Projectiles.Visuals;
+using MidManStudio.Projectiles.Network;
 
 namespace MidManStudio.Projectiles.Managers
 {
@@ -51,13 +37,17 @@ namespace MidManStudio.Projectiles.Managers
         [SerializeField] private TrailObjectPool             _trailPool;
         [SerializeField] private ProjectileImpactHandler     _impactHandler;
 
+        [Header("Network Object Pool (Physics Projectiles)")]
+        [Tooltip("MID_NetworkObjectPool for physics-based networked projectiles (rockets, grenades, etc.).\n" +
+                 "Required only when using PhysicsObject SimulationMode via SpawnPhysicsProjectile().")]
+        [SerializeField] private MID_NetworkObjectPool       _networkObjectPool;
+
         [Header("Mode")]
-        [Tooltip("True = networked multiplayer. False = offline/local only.\n" +
-                 "Set automatically based on NetworkManager state if left default.")]
+        [Tooltip("Force offline regardless of NetworkManager state.")]
         [SerializeField] private bool _forceOfflineMode = false;
 
         [Header("Debug")]
-        [SerializeField] private bool _enableLogs = false;
+        [SerializeField] private MID_LogLevel _logLevel = MID_LogLevel.Info;
 
         #endregion
 
@@ -91,22 +81,21 @@ namespace MidManStudio.Projectiles.Managers
         {
             if (_initialised) return;
 
-            // 1. Validate Rust struct sizes (catastrophic if wrong — crash loudly)
             try
             {
                 ProjectileLib.ValidateStructSizes();
             }
             catch (InvalidOperationException ex)
             {
-                Debug.LogError($"[MID_MasterProjectileSystem] Fatal: {ex.Message}");
+                MID_Logger.LogError(_logLevel,
+                    $"Fatal struct size mismatch: {ex.Message}",
+                    nameof(MID_MasterProjectileSystem));
                 enabled = false;
                 return;
             }
 
-            // 2. Initialise batch spawn helper (pins temp buffers)
             BatchSpawnHelper.Initialise();
 
-            // 3. Wire subsystem references
             if (_authority != null)
             {
                 _authority.TrailPool     = _trailPool;
@@ -115,17 +104,17 @@ namespace MidManStudio.Projectiles.Managers
 
             if (_networkBridge != null)
             {
-                _networkBridge.Authority    = _authority;
-                _networkBridge.Prediction   = _predictionManager;
+                _networkBridge.Authority      = _authority;
+                _networkBridge.Prediction     = _predictionManager;
                 _networkBridge.RaycastHandler = _raycastHandler;
                 _networkBridge.ImpactHandler  = _impactHandler;
             }
 
-            // 4. Subscribe to adapter events → RPC forwarding
-            // (MID_ProjectileNetworkBridge subscribes its own OnNetworkSpawn)
-
             _initialised = true;
-            Log("Initialised. Mode: " + (IsNetworked ? "Networked" : "Offline"));
+
+            MID_Logger.LogInfo(_logLevel,
+                $"Initialised. Mode: {(IsNetworked ? "Networked" : "Offline")}",
+                nameof(MID_MasterProjectileSystem));
         }
 
         private void OnDestroy()
@@ -138,11 +127,6 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Public API — Identity
 
-        /// <summary>
-        /// Set the local player's MID ID so ClientPredictionManager knows
-        /// which prediction visuals belong to this client.
-        /// Call from your player spawn or login flow.
-        /// </summary>
         public void SetLocalPlayerMidId(ulong midId)
         {
             _predictionManager?.SetLocalPlayerMidId(midId);
@@ -153,19 +137,11 @@ namespace MidManStudio.Projectiles.Managers
         #region Public API — Fire
 
         /// <summary>
-        /// Primary entry point for ALL projectile fire events.
+        /// Primary entry point for all projectile fire events.
+        /// Routes to the correct sub-system based on SimulationMode.
         ///
-        /// The weapon script calls this with:
-        ///   - configId:    registered config from ProjectileRegistry
-        ///   - spawnPoints: pre-computed from ProjectilePatternSO.SampleDirections()
-        ///                  transformed to world space at the barrel
-        ///   - context:     fire rate, owner info, damage multiplier etc.
-        ///
-        /// Routing:
-        ///   Offline  → LocalProjectileManager
-        ///   Raycast  → RegisterRaycastFire() (weapon did the cast, passes result here)
-        ///   RustSim  → client fires FireServerRpc; server spawns into buffer
-        ///   Physics  → caller handles ObjectNetSync directly (unchanged path)
+        /// PhysicsObject mode: call SpawnPhysicsProjectile() separately —
+        /// the weapon knows its PoolableNetworkObjectType.
         /// </summary>
         public void Fire(
             ushort           configId,
@@ -173,18 +149,28 @@ namespace MidManStudio.Projectiles.Managers
             int              count,
             WeaponFireContext context)
         {
-            if (!_initialised) { LogWarning("Fire() called before initialisation."); return; }
+            if (!_initialised)
+            {
+                MID_Logger.LogWarning(_logLevel,
+                    "Fire() called before initialisation.",
+                    nameof(MID_MasterProjectileSystem));
+                return;
+            }
 
             var cfg = _registry != null ? _registry.Get(configId) : null;
             if (cfg == null)
             {
-                LogWarning($"Fire(): configId {configId} not registered.");
+                MID_Logger.LogWarning(_logLevel,
+                    $"Fire(): configId {configId} not registered.",
+                    nameof(MID_MasterProjectileSystem));
                 return;
             }
 
             var routing = ProjectileTypeRouter.Route(cfg, context);
 
-            Log($"Fire: configId={configId} mode={routing.Mode} count={count}");
+            MID_Logger.LogDebug(_logLevel,
+                $"Fire: configId={configId} mode={routing.Mode} count={count}",
+                nameof(MID_MasterProjectileSystem));
 
             switch (routing.Mode)
             {
@@ -198,13 +184,18 @@ namespace MidManStudio.Projectiles.Managers
                     break;
 
                 case SimulationMode.Raycast:
-                    LogWarning("Fire() called with Raycast mode — use RegisterRaycastFire() instead.");
+                    MID_Logger.LogWarning(_logLevel,
+                        "Fire() called with Raycast mode — use RegisterRaycastFire() instead.",
+                        nameof(MID_MasterProjectileSystem));
                     break;
 
                 case SimulationMode.PhysicsObject:
-                    // Caller handles ObjectNetSync.Initialize() + NetworkObject.Spawn()
-                    // This system does not manage physics objects.
-                    LogWarning("PhysicsObject mode — caller must spawn NetworkObject directly.");
+                    // Physics projectiles are managed by MID_NetworkObjectPool.
+                    // Call SpawnPhysicsProjectile(type, pos, rot) from your weapon script.
+                    MID_Logger.LogWarning(_logLevel,
+                        "PhysicsObject mode — call SpawnPhysicsProjectile() with the correct " +
+                        "PoolableNetworkObjectType from your weapon script.",
+                        nameof(MID_MasterProjectileSystem));
                     break;
             }
         }
@@ -212,52 +203,42 @@ namespace MidManStudio.Projectiles.Managers
         // ── Offline ────────────────────────────────────────────────────────────
 
         private void FireLocal(
-            ushort           configId,
-            SpawnPoint[]     spawnPoints,
-            int              count,
-            WeaponFireContext context,
-            ProjectileConfigSO cfg)
+            ushort configId, SpawnPoint[] spawnPoints, int count,
+            WeaponFireContext context, ProjectileConfigSO cfg)
         {
             if (_localManager == null)
             {
-                LogWarning("FireLocal: LocalProjectileManager not assigned.");
+                MID_Logger.LogWarning(_logLevel,
+                    "FireLocal: LocalProjectileManager not assigned.",
+                    nameof(MID_MasterProjectileSystem));
                 return;
             }
 
             if (cfg.Is3D)
-            {
                 _localManager.Spawn3D(spawnPoints, count, configId,
                     (uint)context.OwnerMidId, context.DamageMultiplier);
-            }
             else
-            {
                 _localManager.Spawn2D(spawnPoints, count, configId,
                     (uint)context.OwnerMidId, context.DamageMultiplier);
-            }
         }
 
         // ── Networked Rust sim ─────────────────────────────────────────────────
 
         private void FireNetworkedSim(
-            ushort           configId,
-            SpawnPoint[]     spawnPoints,
-            int              count,
-            WeaponFireContext context,
-            ProjectileConfigSO cfg,
-            RoutingResult    routing)
+            ushort configId, SpawnPoint[] spawnPoints, int count,
+            WeaponFireContext context, ProjectileConfigSO cfg, RoutingResult routing)
         {
             if (_networkBridge == null)
             {
-                LogWarning("FireNetworkedSim: NetworkBridge not assigned.");
+                MID_Logger.LogWarning(_logLevel,
+                    "FireNetworkedSim: NetworkBridge not assigned.",
+                    nameof(MID_MasterProjectileSystem));
                 return;
             }
 
-            // Use the first spawn point's direction as the canonical direction for RPC
             Vector3 origin    = count > 0 ? spawnPoints[0].Origin    : Vector3.zero;
             Vector3 direction = count > 0 ? spawnPoints[0].Direction : Vector3.forward;
             float   speed     = count > 0 ? spawnPoints[0].Speed     : cfg.ResolveSpeed();
-
-            int serverTick = _networkBridge.GetServerTick();
 
             var request = new ProjectileFireRequest
             {
@@ -272,39 +253,85 @@ namespace MidManStudio.Projectiles.Managers
                 IsBotOwner             = context.IsBotOwner,
                 WeaponLevel            = context.WeaponLevel,
                 DamageMultiplier       = context.DamageMultiplier,
-                ClientFireTick         = serverTick
+                ClientFireTick         = _networkBridge.GetServerTick()
             };
 
-            if (IsServer)
-            {
-                // Server fires directly into the authority — no RPC round trip
-                _networkBridge.FireServerRpc(request);
-            }
-            else
-            {
-                // Client: send RPC to server, spawn local prediction visual
-                _networkBridge.FireServerRpc(request);
-
-                // Client-side prediction visual is spawned when
-                // SpawnConfirmedClientRpc comes back. No visual spawned speculatively
-                // to avoid double-visual if server rejects.
-                // If you want zero-latency local visual, spawn speculatively here
-                // and reconcile on SpawnConfirmed.
-            }
+            // Server fires directly; client sends RPC.
+            _networkBridge.FireServerRpc(request);
         }
 
         #endregion
 
-        #region Public API — Raycast (weapon-owned cast)
+        #region Public API — Physics Network Object Pool
 
         /// <summary>
-        /// Called by a weapon script after it has already cast the ray itself.
-        /// The weapon passes the result — this system handles visual + RPC.
+        /// Spawn a physics-based networked projectile (rocket, grenade, etc.)
+        /// using MID_NetworkObjectPool from com.midmanstudio.netcode.
         ///
-        /// Online server: RaycastProjectileHandler validates and broadcasts.
-        /// Online client: sends RaycastFireServerRpc with hit data.
-        /// Offline:       RaycastProjectileHandler.OfflineHandleFire().
+        /// Server only. The weapon script provides the pool type because only
+        /// the game layer knows which NetworkObject prefab a given weapon uses.
+        ///
+        /// Usage:
+        ///   var netObj = MID_MasterProjectileSystem.Instance
+        ///       .SpawnPhysicsProjectile(PoolableNetworkObjectType.Rocket, pos, rot);
+        ///   // The NetworkObject is already spawned; apply velocity from your script.
         /// </summary>
+        public NetworkObject SpawnPhysicsProjectile(
+            PoolableNetworkObjectType type,
+            Vector3                   position,
+            Quaternion                rotation)
+        {
+            if (!IsServer)
+            {
+                MID_Logger.LogWarning(_logLevel,
+                    "SpawnPhysicsProjectile must be called on the server.",
+                    nameof(MID_MasterProjectileSystem));
+                return null;
+            }
+
+            if (_networkObjectPool == null)
+            {
+                MID_Logger.LogError(_logLevel,
+                    "SpawnPhysicsProjectile: MID_NetworkObjectPool not assigned. " +
+                    "Assign it in the inspector on MID_MasterProjectileSystem.",
+                    nameof(MID_MasterProjectileSystem));
+                return null;
+            }
+
+            var netObj = _networkObjectPool.GetNetworkObject(type, position, rotation);
+            if (netObj == null)
+            {
+                MID_Logger.LogError(_logLevel,
+                    $"SpawnPhysicsProjectile: pool returned null for type {type}.",
+                    nameof(MID_MasterProjectileSystem));
+                return null;
+            }
+
+            netObj.Spawn();
+
+            MID_Logger.LogDebug(_logLevel,
+                $"SpawnPhysicsProjectile: type={type} pos={position}",
+                nameof(MID_MasterProjectileSystem));
+
+            return netObj;
+        }
+
+        /// <summary>
+        /// Return a physics projectile to the pool when it expires or hits.
+        /// Call BEFORE Despawn().
+        /// </summary>
+        public void ReturnPhysicsProjectile(
+            NetworkObject             netObj,
+            PoolableNetworkObjectType type)
+        {
+            if (_networkObjectPool == null || netObj == null) return;
+            _networkObjectPool.ReturnNetworkObject(netObj, type);
+        }
+
+        #endregion
+
+        #region Public API — Raycast
+
         public void RegisterRaycastFire(
             RaycastFireResult result,
             ushort            configId,
@@ -330,7 +357,6 @@ namespace MidManStudio.Projectiles.Managers
             }
             else
             {
-                // Client sends RPC with hit data — server validates
                 _networkBridge?.RaycastFireServerRpc(
                     new ProjectileFireRequest
                     {
@@ -349,7 +375,7 @@ namespace MidManStudio.Projectiles.Managers
                     result.IsHeadshot,
                     result.HitTargetNetworkId);
 
-                // Immediately spawn local visual so the shooter sees instant feedback
+                // Immediate local cosmetic visual for shooter — no wait for RPC round-trip.
                 _raycastHandler?.OfflineHandleFire(
                     result, configId, (uint)context.OwnerMidId, 1f);
             }
@@ -359,44 +385,26 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Public API — Targets
 
-        /// <summary>
-        /// Register a 2D collision target with the server sim.
-        /// Call from each damageable character's FixedUpdate (or TickDispatcher Tick_0_05).
-        /// Online: only meaningful on server (ServerProjectileAuthority owns targets).
-        /// Offline: registers with LocalProjectileManager.
-        /// </summary>
         public void RegisterTarget2D(in CollisionTarget target)
         {
-            if (!IsNetworked)
-            {
-                // Offline: handled via LocalProjectileManager.RegisterTarget()
-                return;
-            }
-
-            if (IsServer)
-                _authority?.RegisterTarget2D(target);
+            if (IsServer) _authority?.RegisterTarget2D(target);
         }
 
-        /// <summary>Register a 3D collision target.</summary>
         public void RegisterTarget3D(in CollisionTarget3D target)
         {
-            if (!IsNetworked) return;
             if (IsServer) _authority?.RegisterTarget3D(target);
         }
 
-        /// <summary>Deactivate a 2D target (e.g. player died).</summary>
         public void DeactivateTarget2D(uint targetId)
         {
             if (IsServer) _authority?.DeactivateTarget2D(targetId);
         }
 
-        /// <summary>Deactivate a 3D target.</summary>
         public void DeactivateTarget3D(uint targetId)
         {
             if (IsServer) _authority?.DeactivateTarget3D(targetId);
         }
 
-        /// <summary>Remove all targets (scene teardown).</summary>
         public void ClearAllTargets()
         {
             if (IsServer) _authority?.ClearAllTargets();
@@ -406,33 +414,20 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Public API — State (reconciliation)
 
-        /// <summary>
-        /// Snapshot 2D sim state for client reconciliation.
-        /// Called by ClientPredictionManager — not typically called by game code.
-        /// </summary>
-        public int SaveState2D(byte[] buf) =>
-            _authority?.SaveState2D(buf) ?? 0;
-
-        /// <summary>Restore 2D sim state from snapshot.</summary>
-        public int RestoreState2D(byte[] buf, int byteCount) =>
-            _authority?.RestoreState2D(buf, byteCount) ?? 0;
+        public int SaveState2D(byte[] buf)    => _authority?.SaveState2D(buf) ?? 0;
+        public int RestoreState2D(byte[] buf, int byteCount)
+            => _authority?.RestoreState2D(buf, byteCount) ?? 0;
 
         #endregion
 
-        #region Public API — Guided Projectile Homing
+        #region Public API — Guided Homing
 
-        /// <summary>
-        /// Update homing direction for a guided 2D projectile.
-        /// Call from a TickDispatcher subscriber (Tick_0_1 is sufficient).
-        /// Online: server only. Offline: updates local sim directly.
-        /// </summary>
         public void SetHomingDirection2D(uint projId, Vector2 worldDir)
         {
             if (IsServer || !IsNetworked)
                 _authority?.SetAcceleration2D(projId, worldDir);
         }
 
-        /// <summary>Update homing direction for a guided 3D projectile.</summary>
         public void SetHomingDirection3D(uint projId, Vector3 worldDir)
         {
             if (IsServer || !IsNetworked)
@@ -446,25 +441,16 @@ namespace MidManStudio.Projectiles.Managers
         [ContextMenu("Log System Status")]
         private void LogStatus()
         {
-            Debug.Log(
+            MID_Logger.LogInfo(_logLevel,
                 $"=== MID_MasterProjectileSystem ===\n" +
                 $"Initialised:   {_initialised}\n" +
                 $"Networked:     {IsNetworked}\n" +
                 $"Is Server:     {IsServer}\n" +
                 $"Active 2D:     {_authority?.ActiveCount2D ?? _localManager?.ActiveCount2D ?? 0}\n" +
                 $"Active 3D:     {_authority?.ActiveCount3D ?? 0}\n" +
-                $"Registry:      {_registry?.Count ?? 0} configs\n");
-        }
-
-        private void Log(string msg)
-        {
-            if (_enableLogs)
-                MID_HelperFunctions.LogDebug(msg, nameof(MID_MasterProjectileSystem));
-        }
-
-        private void LogWarning(string msg)
-        {
-            MID_HelperFunctions.LogWarning(msg, nameof(MID_MasterProjectileSystem));
+                $"Registry:      {_registry?.Count ?? 0} configs\n" +
+                $"NetObjPool:    {(_networkObjectPool != null ? "assigned" : "not assigned")}",
+                nameof(MID_MasterProjectileSystem));
         }
 
         #endregion
