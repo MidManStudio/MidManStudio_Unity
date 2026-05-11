@@ -1,34 +1,27 @@
-// ServerProjectileData.cs — UPDATE
+// ServerProjectileData.cs
+// Server-side gameplay data for a single projectile.
+// Lives in RustSimAdapter._projData, keyed by projectileId_u32.
+// Contains everything the damage system needs — nothing Rust needs.
+// Position is owned by Rust (NativeProjectile.X/Y) — never duplicated here.
 //
-// Changes from plan:
-//   + projectileId_u32 (uint) — matches NativeProjectile.proj_id exactly
-//   + configId (ushort)       — matches NativeProjectile.config_id
-//   + is3D (bool)
-//   + isCrit (bool)           — pre-rolled at spawn, applied in RustSimAdapter
-//   + critChance (float)      — cached from config so RustSimAdapter doesn't need config ref
-//   + CloneForSpawn()         — creates per-projectile copy from a template
-//   - REMOVED UpdatePosition() — position is owned by Rust, C# never moves it
-//   - REMOVED Vector2 position/direction/velocity (Rust owns these)
-//   + Vector3 position3D / direction3D for 3D spawns (spawn-time only, not updated)
-//   All damage fields KEPT — these never go to Rust
-//   All owner/kill/weapon type fields KEPT
+// GAME-SPECIFIC ATTRIBUTION:
+//   KillTypeRaw, DamageTypeRaw, WeaponTypeRaw are stored as int.
+//   Cast them to your game's enums in your damage/kill handler:
+//     var killType = (MyGame.KillType)data.KillTypeRaw;
 //
-// ServerProjectileData is C#-only game data that lives alongside NativeProjectile.
-// Rust does not know this struct exists.
+// EXTENSION PATTERN:
+//   Subclass ServerProjectileData in your game assembly to add strongly-typed
+//   game fields without modifying this package file.
 
 using UnityEngine;
-using Unity.Netcode;
-using MidManStudio.GameItemData;
-using MidManStudio.ProjectileConfigs;
-using MidManStudio.NetworkDataStructures;
+using MidManStudio.Projectiles.Config;
+using MidManStudio.Projectiles.Core;
 
 namespace MidManStudio.Projectiles.Data
 {
     /// <summary>
     /// Server-side gameplay data for a single projectile.
-    /// Lives in RustSimAdapter._projData, keyed by projectileId_u32.
-    /// Contains everything the damage system needs — nothing Rust needs.
-    /// Position is owned by Rust (NativeProjectile.x/y) — never duplicated here.
+    /// Keyed by projectileId_u32 in RustSimAdapter.
     /// </summary>
     public class ServerProjectileData
     {
@@ -36,17 +29,14 @@ namespace MidManStudio.Projectiles.Data
         //  Identity — links this to the Rust NativeProjectile
         // ─────────────────────────────────────────────────────────────────────
 
-        /// Matches NativeProjectile.proj_id. Primary key in RustSimAdapter dictionary.
+        /// Matches NativeProjectile.ProjId. Primary key in RustSimAdapter dictionary.
         public uint   projectileId_u32;
 
-        /// Matches NativeProjectile.config_id. Used for config lookups on hit.
+        /// Matches NativeProjectile.ConfigId. Used for config lookups on hit.
         public ushort configId;
 
         /// True if this projectile uses the 3D sim buffer (NativeProjectile3D).
-        public bool is3D;
-
-        /// The enum name — used by ProjectileConfigManager.GetProjectileConfig().
-        public MID_AllProjectileNames projectileName;
+        public bool   is3D;
 
         // ─────────────────────────────────────────────────────────────────────
         //  Owner identity
@@ -68,47 +58,46 @@ namespace MidManStudio.Projectiles.Data
         //  Damage (C# only — Rust never reads these)
         // ─────────────────────────────────────────────────────────────────────
 
-        /// Multiplier from power-ups or abilities. Applied in RustSimAdapter.ComputeDamage.
+        /// Multiplier from power-ups or abilities.
         public float damageMultiplier;
 
         /// Pre-rolled crit flag. Set once at spawn by ServerProjectileAuthority.
-        /// RustSimAdapter applies CritMultiplier when true.
         public bool isCrit;
 
         /// Cached crit chance from config (avoids config lookup per spawn).
         public float critChance;
 
         // ─────────────────────────────────────────────────────────────────────
-        //  Collision tracking (C# only — Rust tracks alive/collision_count
-        //  separately in NativeProjectile.collision_count)
+        //  Collision tracking
         // ─────────────────────────────────────────────────────────────────────
 
         /// Remaining pierce-through collisions. Decremented by RustSimAdapter.HandlePiercing.
-        /// When 0, projectile is killed after the next hit.
         public byte collisionsRemaining;
 
-        /// Set true by RustSimAdapter when the projectile should die.
-        /// ServerProjectileAuthority reads this flag to set NativeProjectile.alive = 0.
+        /// Set true by RustSimAdapter when this projectile should die.
         public bool hasHit;
 
         // ─────────────────────────────────────────────────────────────────────
-        //  Spawn position (stored for distance-based damage curve, not updated)
-        //  Actual current position lives in NativeProjectile.x/y(/z) — Rust owns it.
+        //  Spawn position (stored for range falloff; not updated — Rust owns pos)
         // ─────────────────────────────────────────────────────────────────────
 
-        /// World-space spawn origin. Used to compute max range falloff if needed.
         public Vector2 spawnPosition2D;
         public Vector3 spawnPosition3D;
 
         // ─────────────────────────────────────────────────────────────────────
-        //  Game-specific attribution (passed through to ProjectileHitPayload)
-        //  These are game-layer enums — the package treats them as opaque ints.
-        //  MID_ProjectileNetworkBridge reads them from the payload for RPCs.
+        //  Game-specific attribution — stored as raw int.
+        //  Cast to your game's enums in your damage/kill handler.
+        //  Example: var killType = (MyGame.KillType)data.KillTypeRaw;
         // ─────────────────────────────────────────────────────────────────────
 
-        public MID_PlayerKillTypeAndPoints    killType;
-        public MID_PlayerAndBotDamageType     damageType;
-        public MID_WhatWeaponDamagedPlayer    weaponType;
+        /// Game kill-type ID. Cast to your game's KillType enum.
+        public int KillTypeRaw;
+
+        /// Game damage-type ID. Cast to your game's DamageType enum.
+        public int DamageTypeRaw;
+
+        /// Game weapon-type ID. Cast to your game's WeaponType enum.
+        public int WeaponTypeRaw;
 
         // ─────────────────────────────────────────────────────────────────────
         //  Construction
@@ -116,23 +105,31 @@ namespace MidManStudio.Projectiles.Data
 
         /// <summary>
         /// Create ServerProjectileData from a spawn request.
-        /// Call this once per weapon fire event to create a template,
-        /// then call CloneForSpawn() for each individual projectile in the batch.
+        /// Call once per weapon fire to create a template, then CloneForSpawn()
+        /// per projectile in the batch.
         /// </summary>
+        /// <param name="ownerMidId">MID ID of the firing entity.</param>
+        /// <param name="firedById">NetworkObject ID of the weapon/character.</param>
+        /// <param name="isBot">True if owner is a bot.</param>
+        /// <param name="level">Weapon level.</param>
+        /// <param name="spawnPos2D">World-space spawn origin (2D).</param>
+        /// <param name="damageMultiplierIn">Damage multiplier from power-ups.</param>
+        /// <param name="config">ProjectileConfigSO for piercing/crit initialisation.</param>
+        /// <param name="killTypeRaw">Game kill-type as raw int (default 0).</param>
+        /// <param name="damageTypeRaw">Game damage-type as raw int (default 0).</param>
+        /// <param name="weaponTypeRaw">Game weapon-type as raw int (default 0).</param>
         public ServerProjectileData(
-            MID_AllProjectileNames  name,
-            ulong                   ownerMidId,
-            ulong                   firedById,
-            bool                    isBot,
-            byte                    level,
-            Vector2                 spawnPos2D,
-            float                   damageMultiplierIn,
-            ProjectileConfigSO      config,
-            MID_PlayerKillTypeAndPoints  killTypeIn  = default,
-            MID_PlayerAndBotDamageType   damageTypeIn = default,
-            MID_WhatWeaponDamagedPlayer  weaponTypeIn = default)
+            ulong              ownerMidId,
+            ulong              firedById,
+            bool               isBot,
+            byte               level,
+            Vector2            spawnPos2D,
+            float              damageMultiplierIn,
+            ProjectileConfigSO config,
+            int                killTypeRaw   = 0,
+            int                damageTypeRaw = 0,
+            int                weaponTypeRaw = 0)
         {
-            projectileName         = name;
             ownerClientId          = ownerMidId;
             firedByNetworkObjectId = firedById;
             isBotOwner             = isBot;
@@ -140,11 +137,10 @@ namespace MidManStudio.Projectiles.Data
             spawnPosition2D        = spawnPos2D;
             damageMultiplier       = damageMultiplierIn;
             critChance             = config != null ? config.CritChance : 0f;
-            killType               = killTypeIn;
-            damageType             = damageTypeIn;
-            weaponType             = weaponTypeIn;
+            KillTypeRaw            = killTypeRaw;
+            DamageTypeRaw          = damageTypeRaw;
+            WeaponTypeRaw          = weaponTypeRaw;
 
-            // Piercing — initialised from config
             if (config != null)
             {
                 switch (config.PiercingType)
@@ -159,6 +155,9 @@ namespace MidManStudio.Projectiles.Data
                         collisionsRemaining = (byte)UnityEngine.Random.Range(
                             1, config.MaxCollisions + 1);
                         break;
+                    default:
+                        collisionsRemaining = 1;
+                        break;
                 }
             }
             else
@@ -166,8 +165,7 @@ namespace MidManStudio.Projectiles.Data
                 collisionsRemaining = 1;
             }
 
-            // isCrit and projectileId_u32 are set per-projectile in CloneForSpawn
-            isCrit          = false;
+            isCrit           = false;
             projectileId_u32 = 0;
             configId         = 0;
             hasHit           = false;
@@ -180,47 +178,37 @@ namespace MidManStudio.Projectiles.Data
 
         /// <summary>
         /// Create a per-projectile clone from this template.
-        /// Called by ServerProjectileAuthority.NotifyBatchSpawned2D/3D for each
-        /// projectile in the batch.
-        /// Crit is NOT rolled here — ServerProjectileAuthority rolls it after
-        /// CloneForSpawn so it can apply per-projectile randomness.
+        /// Called by ServerProjectileAuthority for each projectile in the batch.
+        /// isCrit is NOT rolled here — the authority rolls it after CloneForSpawn.
         /// </summary>
         public ServerProjectileData CloneForSpawn(uint projId, ushort cfgId)
         {
             var clone = (ServerProjectileData)MemberwiseClone();
-            clone.projectileId_u32   = projId;
-            clone.configId           = cfgId;
-            clone.hasHit             = false;
-            clone.isCrit             = false; // rolled by caller after this returns
+            clone.projectileId_u32 = projId;
+            clone.configId         = cfgId;
+            clone.hasHit           = false;
+            clone.isCrit           = false;
             return clone;
         }
 
-        /// <summary>
-        /// Convenience overload — also sets is3D and 3D spawn position.
-        /// </summary>
+        /// <summary>Overload that also sets is3D and 3D spawn position.</summary>
         public ServerProjectileData CloneForSpawn3D(
             uint projId, ushort cfgId, Vector3 spawnPos3D)
         {
             var clone = CloneForSpawn(projId, cfgId);
-            clone.is3D           = true;
+            clone.is3D            = true;
             clone.spawnPosition3D = spawnPos3D;
             return clone;
         }
 
         // ─────────────────────────────────────────────────────────────────────
-        //  Expiry check (C# side only — Rust manages lifetime and collision_count
-        //  in NativeProjectile. This is a secondary C# check for cases where
-        //  game logic kills a projectile before Rust does, e.g. entering a zone.)
+        //  Expiry check
         // ─────────────────────────────────────────────────────────────────────
 
         /// <summary>
         /// True if C# game logic has determined this projectile should die.
         /// Does NOT check Rust state — call after checking NativeProjectile.Alive.
         /// </summary>
-        public bool IsDead()
-        {
-            if (hasHit && collisionsRemaining <= 0) return true;
-            return false;
-        }
+        public bool IsDead() => hasHit && collisionsRemaining <= 0;
     }
 }
