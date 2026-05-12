@@ -1,18 +1,24 @@
 {
-    "name": "MidManStudio.Netcode",
-    "rootNamespace": "MidManStudio.Netcode",
-    "references": [
-        "MidManStudio.Utilities",
-        "Unity.Netcode.Runtime",
-        "Unity.Collections"
-    ],
-    "includePlatforms": [],
-    "excludePlatforms": [],
-    "allowUnsafeCode": false,
-    "overrideReferences": false,
-    "precompiledReferences": [],
-    "autoReferenced": true,
-    "defineConstraints": [],
-    "versionDefines": [],
-    "noEngineReferences": false
+  "name": "MidManStudio.Netcode",
+  "rootNamespace": "MidManStudio.Netcode",
+  "references": [
+    "MidManStudio.Utilities",
+    "Unity.Netcode.Runtime",
+    "Unity.Collections"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [
+    {
+      "name": "com.unity.netcode.gameobjects",
+      "expression": "1.0.0",
+      "define": "MIDMAN_NGO"
+    }
+  ],
+  "noEngineReferences": false
 }
