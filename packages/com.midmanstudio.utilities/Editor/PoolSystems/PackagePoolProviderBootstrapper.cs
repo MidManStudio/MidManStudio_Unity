@@ -37,11 +37,11 @@ namespace MidManStudio.Core.EditorUtils
 
         private static bool EnsureUtilitiesObjectProvider()
         {
-            const string path = UtilitiesDir + "/PoolTypeProvider_Utilities.asset";
+            const string path = UtilitiesDir + "/ObjectPoolTypeProvider_Utilities.asset";
             if (File.Exists(path)) return false;
 
             EnsureDir(UtilitiesDir);
-            var so = ScriptableObject.CreateInstance<PoolTypeProviderSO>();
+            var so = ScriptableObject.CreateInstance<ObjectPoolTypeProviderSO>();
             so.packageId   = "com.midmanstudio.utilities";
             so.displayName = "MidMan Studio Utilities";
             so.priority    = 0;

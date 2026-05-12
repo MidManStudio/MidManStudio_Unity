@@ -14,4 +14,7 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/UiState/Scene/LobbyStateTest.unity
     guid: 568db367a73d949f4a157b0160263385
+  - enabled: 1
+    path: Assets/Projectile/Scene/ProjectileScenes.unity
+    guid: c0f17054e6c854bb99b02364180f26fc
   m_configObjects: {}

@@ -9,7 +9,7 @@ namespace MidManStudio.Projectiles
 {
     [CreateAssetMenu(
         fileName = "ProjectileShape",
-        menuName  = "MidManStudio/Netcode/Projectile Shape",
+        menuName  = "MidManStudio/Projectile System/Projectile Shape",
         order     = 12)]
     public class ProjectileShapeSO : ScriptableObject
     {

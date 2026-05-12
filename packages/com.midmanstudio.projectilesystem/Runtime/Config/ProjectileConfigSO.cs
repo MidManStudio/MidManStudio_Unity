@@ -37,7 +37,7 @@ namespace MidManStudio.Projectiles.Config
 {
     [CreateAssetMenu(
         fileName = "ProjectileConfig",
-        menuName  = "MidManStudio/Netcode/Projectile System/Projectile Config",
+        menuName  = "MidManStudio/Projectile System/Projectile Config",
         order     = 10)]
     public class ProjectileConfigSO : ScriptableObject
     {

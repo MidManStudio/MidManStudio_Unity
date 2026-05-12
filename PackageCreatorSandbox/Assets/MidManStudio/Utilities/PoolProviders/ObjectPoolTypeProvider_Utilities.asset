@@ -9,8 +9,8 @@ MonoBehaviour:
   m_GameObject: {fileID: 0}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: dcc2231f205794c88aebcd2d552a96fa, type: 3}
-  m_Name: PoolTypeProvider_Utilities
+  m_Script: {fileID: 11500000, guid: 8d0842531818647cbae62d16025a9af8, type: 3}
+  m_Name: ObjectPoolTypeProvider_Utilities
   m_EditorClassIdentifier: 
   packageId: com.midmanstudio.utilities
   displayName: MidMan Studio Utilities

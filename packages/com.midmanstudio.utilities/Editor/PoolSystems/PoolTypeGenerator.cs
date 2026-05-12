@@ -187,7 +187,7 @@ namespace MidManStudio.Core.Pools.Generator
             var guids = AssetDatabase.FindAssets("t:PoolTypeProviderSO");
             foreach (var g in guids)
             {
-                var asset = AssetDatabase.LoadAssetAtPath<PoolTypeProviderSO>(
+                var asset = AssetDatabase.LoadAssetAtPath<ObjectPoolTypeProviderSO>(
                     AssetDatabase.GUIDToAssetPath(g));
                 if (asset == null) continue;
                 list.Add(new ProviderData
@@ -603,7 +603,7 @@ namespace MidManStudio.Core.Pools.Generator
             EditorGUILayout.LabelField("Discovered Providers", EditorStyles.boldLabel);
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
 
-            DrawProviderGroup<PoolTypeProviderSO>(
+            DrawProviderGroup<ObjectPoolTypeProviderSO>(
                 "Object Pool", ref _showObjectProviders,
                 a => (a.packageId, a.displayName, a.priority, a.EntryCount));
 
@@ -624,7 +624,7 @@ namespace MidManStudio.Core.Pools.Generator
             EditorGUILayout.LabelField("Create a provider for your game:", EditorStyles.miniLabel);
             EditorGUILayout.BeginHorizontal();
             if (GUILayout.Button("+ Object Provider"))
-                CreateProvider<PoolTypeProviderSO>("PoolTypeProvider_MyGame.asset");
+                CreateProvider<ObjectPoolTypeProviderSO>("PoolTypeProvider_MyGame.asset");
             if (GUILayout.Button("+ Particle Provider"))
                 CreateProvider<ParticlePoolTypeProviderSO>("ParticlePoolTypeProvider_MyGame.asset");
             if (GUILayout.Button("+ Network Provider (needs netcode package)"))

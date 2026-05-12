@@ -1,37 +1,37 @@
 {
-  "name": "MidManStudio.ProjectileSystem.Tests",
-  "rootNamespace": "TestGame",
-  "references": [
-    "MidManStudio.ProjectileSystem",
-    "MidManStudio.Utilities",
-    "MidManStudio.Netcode",
-    "Unity.Netcode.Runtime",
-    "Unity.Cinemachine",
-    "Unity.TextMeshPro",
-    "Unity.Burst",
-    "Unity.Collections",
-    "Unity.Mathematics",
-    "UnityEngine.TestRunner",
-    "UnityEditor.TestRunner"
-  ],
-  "includePlatforms": [],
-  "excludePlatforms": [],
-  "allowUnsafeCode": false,
-  "overrideReferences": false,
-  "precompiledReferences": [],
-  "autoReferenced": false,
-  "defineConstraints": [],
-  "versionDefines": [
-    {
-      "name": "com.unity.netcode.gameobjects",
-      "expression": "1.0.0",
-      "define": "MIDMAN_NGO"
-    },
-    {
-      "name": "com.unity.cinemachine",
-      "expression": "2.0.0",
-      "define": "MIDMAN_CINEMACHINE"
-    }
-  ],
-  "noEngineReferences": false
+    "name": "MidManStudio.ProjectileSystem.Tests",
+    "rootNamespace": "TestGame",
+    "references": [
+        "MidManStudio.ProjectileSystem",
+        "MidManStudio.Utilities",
+        "MidManStudio.Netcode",
+        "Unity.Netcode.Runtime",
+        "Unity.TextMeshPro",
+        "Unity.Burst",
+        "Unity.Collections",
+        "Unity.Mathematics",
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner",
+        "Cinemachine"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [
+        {
+            "name": "com.unity.netcode.gameobjects",
+            "expression": "1.0.0",
+            "define": "MIDMAN_NGO"
+        },
+        {
+            "name": "com.unity.cinemachine",
+            "expression": "2.0.0",
+            "define": "MIDMAN_CINEMACHINE"
+        }
+    ],
+    "noEngineReferences": false
 }

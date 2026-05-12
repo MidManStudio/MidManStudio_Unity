@@ -7,27 +7,27 @@ using System.IO;
 using UnityEditor;
 using UnityEngine;
 using MidManStudio.Core.Pools.Generator;
-
+using MidManStudio.Netcode.Generator;
 namespace MidManStudio.Projectiles.EditorUtils
 {
     [InitializeOnLoad]
     internal static class ProjectileSystemPoolProviderBootstrapper
     {
         private const string ProjectileDir =
-            "Assets/MidManStudio/Netcode/ProjectileSystem/PoolProviders";
+            "Assets/MidManStudio/ProjectileSystem/PoolProviders";
 
         static ProjectileSystemPoolProviderBootstrapper()
         {
             EditorApplication.delayCall += EnsureProviders;
         }
 
-        [MenuItem("MidManStudio/Netcode/Internal/Recreate Projectile Pool Providers", priority = 100)]
+        [MenuItem("MidManStudio/Projectile System/Internal/Recreate Projectile Pool Providers", priority = 100)]
         public static void EnsureProviders()
         {
             bool changed = false;
             changed |= EnsureObjectProvider();
             changed |= EnsureParticleProvider();
-
+            changed |= EnsureNetworkObjectProvider();
             if (changed)
             {
                 AssetDatabase.SaveAssets();
@@ -39,11 +39,11 @@ namespace MidManStudio.Projectiles.EditorUtils
         private static bool EnsureObjectProvider()
         {
             const string path =
-                ProjectileDir + "/PoolTypeProvider_ProjectileSystem.asset";
+                ProjectileDir + "/ObjectPoolTypeProvider_ProjectileSystem.asset";
             if (File.Exists(path)) return false;
 
             EnsureDir(ProjectileDir);
-            var so = ScriptableObject.CreateInstance<PoolTypeProviderSO>();
+            var so = ScriptableObject.CreateInstance<ObjectPoolTypeProviderSO>();
             so.packageId   = "com.midmanstudio.projectilesystem";
             so.displayName = "MidMan Projectile System";
             so.priority    = 10;
@@ -118,6 +118,27 @@ namespace MidManStudio.Projectiles.EditorUtils
                 explicitOffset = 5
             });
 
+            AssetDatabase.CreateAsset(so, path);
+            return true;
+        }
+
+        private static bool EnsureNetworkObjectProvider()
+        {
+            const string path =
+                ProjectileDir + "/NetworkObjectPoolTypeProvider_ProjectileSystem.asset";
+            if (File.Exists(path)) return false;
+
+            EnsureDir(ProjectileDir);
+            var so = ScriptableObject.CreateInstance<NetworkPoolTypeProviderSO>();
+            so.packageId = "com.midmanstudio.projectilesystem";
+            so.displayName = "MidMan Projectile System";
+            so.priority = 10;
+            so.entries.Add(new PoolEntryDefinition
+            {
+                entryName = "BaseProjectileBlueprint",
+                comment = "Base Network Projectile Blueprint for Managed Projectiles",
+                explicitOffset = 0
+            });
             AssetDatabase.CreateAsset(so, path);
             return true;
         }

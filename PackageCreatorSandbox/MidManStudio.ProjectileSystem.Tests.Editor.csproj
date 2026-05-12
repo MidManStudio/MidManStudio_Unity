@@ -9,11 +9,11 @@
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <ProductVersion>10.0.20506</ProductVersion>
     <SchemaVersion>2.0</SchemaVersion>
-    <RootNamespace>MidManStudio.Projectiles.Editor</RootNamespace>
-    <ProjectGuid>{4D561553-0D92-1F75-3066-5081EBC70193}</ProjectGuid>
+    <RootNamespace>MidManStudio.Projectiles.EditorTools</RootNamespace>
+    <ProjectGuid>{FDC01FAA-8CDA-20C7-DA51-19847859F930}</ProjectGuid>
     <OutputType>Library</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
-    <AssemblyName>MidManStudio.ProjectileSystem.Editor</AssemblyName>
+    <AssemblyName>MidManStudio.ProjectileSystem.Tests.Editor</AssemblyName>
     <TargetFrameworkVersion>v4.7.1</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <BaseDirectory>.</BaseDirectory>
@@ -61,19 +61,13 @@
     <Analyzer Include="/Applications/Unity/Hub/Editor/2022.3.13f1/Unity.app/Contents/Tools/Unity.SourceGenerators/Unity.Properties.SourceGenerator.dll" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Editor/ProjectileSystemPoolProviderBootstrapper.cs">
-      <Link>Editor/ProjectileSystemPoolProviderBootstrapper.cs</Link>
-    </Compile>
-    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Editor/ProjectileShapeEditor.cs">
-      <Link>Editor/ProjectileShapeEditor.cs</Link>
-    </Compile>
-    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Editor/ProjectilePatternEditor.cs">
-      <Link>Editor/ProjectilePatternEditor.cs</Link>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Editor/ProjectileSystemBenchmarkWindow.cs">
+      <Link>Tests/Editor/ProjectileSystemBenchmarkWindow.cs</Link>
     </Compile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Editor/MidManStudio.ProjectileSystem.Editor.asmdef">
-      <Link>Editor/MidManStudio.ProjectileSystem.Editor.asmdef</Link>
+    <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Editor/MidManStudio.ProjectileSystem.Tests.Editor.asmdef">
+      <Link>Tests/Editor/MidManStudio.ProjectileSystem.Tests.Editor.asmdef</Link>
     </None>
   </ItemGroup>
   <ItemGroup>
@@ -1003,17 +997,17 @@
       <Project>{BB4937FE-DB90-7A2A-BFC7-D91559400942}</Project>
       <Name>MidManStudio.ProjectileSystem</Name>
     </ProjectReference>
+    <ProjectReference Include="MidManStudio.ProjectileSystem.Editor.csproj">
+      <Project>{4D561553-0D92-1F75-3066-5081EBC70193}</Project>
+      <Name>MidManStudio.ProjectileSystem.Editor</Name>
+    </ProjectReference>
+    <ProjectReference Include="MidManStudio.ProjectileSystem.Tests.csproj">
+      <Project>{0F2E2D92-E0CD-5EA0-E705-FD75425ACBCA}</Project>
+      <Name>MidManStudio.ProjectileSystem.Tests</Name>
+    </ProjectReference>
     <ProjectReference Include="MidManStudio.Utilities.csproj">
       <Project>{4787055D-3001-DCB9-695E-DA6631E522A9}</Project>
       <Name>MidManStudio.Utilities</Name>
-    </ProjectReference>
-    <ProjectReference Include="MidManStudio.Utilities.Editor.csproj">
-      <Project>{6E3DF1B7-1C05-E76A-F52D-ABDA991229D8}</Project>
-      <Name>MidManStudio.Utilities.Editor</Name>
-    </ProjectReference>
-    <ProjectReference Include="MidManStudio.Netcode.csproj">
-      <Project>{84CDFFFE-B462-E1CA-A62D-0B936D2CE5F1}</Project>
-      <Name>MidManStudio.Netcode</Name>
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)/Microsoft.CSharp.targets" />

@@ -126,7 +126,7 @@ namespace MidManStudio.Projectiles.Network
 
         [Header("Visual Pool")]
         [SerializeField] private PoolableObjectType _visualPoolType
-            = PoolableObjectType.ProjectileVisual;
+            = PoolableObjectType.Projectile_Visual2D;
 
         [Header("Local Player")]
         [Tooltip("Set at runtime via SetLocalPlayerMidId() from your player manager.")]

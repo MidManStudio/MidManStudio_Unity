@@ -4,7 +4,8 @@
   "references": [
     "MidManStudio.ProjectileSystem",
     "MidManStudio.Utilities",
-    "MidManStudio.Utilities.Editor"
+    "MidManStudio.Utilities.Editor",
+    "MidManStudio.Netcode"
   ],
   "includePlatforms": ["Editor"],
   "excludePlatforms": [],

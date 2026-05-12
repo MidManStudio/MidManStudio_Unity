@@ -24,33 +24,13 @@ using MidManStudio.Core.EditorUtils;
 
 namespace MidManStudio.Core.Pools.Generator
 {
-    [System.Serializable]
-    public class PoolEntryDefinition : IArrayElementTitle
-    {
-        [Tooltip("Becomes the enum member name. Use PascalCase. No spaces.")]
-        public string entryName;
-
-        [Tooltip("Optional inline comment written next to the enum member.")]
-        public string comment;
-
-        [Tooltip("-1 = auto-assigned by generator.\n" +
-                 ">=0 = pinned to this offset within the provider's block.\n" +
-                 "Pin entries that are referenced in serialised inspector fields\n" +
-                 "so their integer value never changes.")]
-        public int explicitOffset = -1;
-
-        // IArrayElementTitle
-        public string Name =>
-            string.IsNullOrWhiteSpace(entryName) ? "Unnamed Entry" : entryName;
-    }
-
     // ─────────────────────────────────────────────────────────────────────────
     //  Object pool provider
     // ─────────────────────────────────────────────────────────────────────────
 
 [CreateAssetMenu(fileName="PoolTypeProvider",
     menuName="MidManStudio/Utilities/Pool Type Provider (Object)", order=160)]
-    public class PoolTypeProviderSO : ScriptableObject
+    public class ObjectPoolTypeProviderSO : ScriptableObject
     {
         [Header("Identity")]
         [Tooltip("Reverse-domain package ID. Must be unique across all providers.\n" +
@@ -75,26 +55,4 @@ namespace MidManStudio.Core.Pools.Generator
         public int EntryCount => entries?.Count ?? 0;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    //  Particle pool provider (identical shape, separate type so the generator
-    //  can find them independently)
-    // ─────────────────────────────────────────────────────────────────────────
-
-[CreateAssetMenu(fileName="ParticlePoolTypeProvider",
-    menuName="MidManStudio/Utilities/Pool Type Provider (Particle)", order=170)]
-    public class ParticlePoolTypeProviderSO : ScriptableObject
-    {
-        [Header("Identity")]
-        public string packageId   = "com.mygame";
-        public string displayName = "My Game";
-
-        [Header("Block Priority")]
-        public int priority = 100;
-
-        [Header("Entries")]
-        [MID_NamedList]
-        public List<PoolEntryDefinition> entries = new List<PoolEntryDefinition>();
-
-        public int EntryCount => entries?.Count ?? 0;
-    }
 }

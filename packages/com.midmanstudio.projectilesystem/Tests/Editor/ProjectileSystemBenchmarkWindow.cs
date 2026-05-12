@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 using TestGame;
+using MidManStudio.Projectiles.Adapters;
 
 namespace MidManStudio.Projectiles.EditorTools
 {
@@ -35,7 +36,7 @@ namespace MidManStudio.Projectiles.EditorTools
 
         // ── Menu item ─────────────────────────────────────────────────────────
 
-        [MenuItem("MidManStudio/Utilities/Tests/Projectile System Bench", priority = 122)]
+        [MenuItem("MidManStudio/Projectile System/Tests/Projectile System Bench", priority = 122)]
         public static void Open()
         {
             var w = GetWindow<ProjectileSystemBenchmarkWindow>("Projectile Bench");
@@ -247,9 +248,9 @@ namespace MidManStudio.Projectiles.EditorTools
                         double worst   = System.Math.Max(g.A.AvgMs, g.B.AvgMs);
 
                         TimeBar("Rust FFI ", g.A.AvgMs, worst, ColRust,
-                            $"{g.A.AvgMs * 1000:F1}µs  {g.A.ThroughputKPerMs:F1}k projs/ms");
+                            $"{g.A.AvgMs * 1000:F1}µs  {g.A_Tick.ThroughputKPerMs:F1}k projs/ms");
                         TimeBar("C# Loop  ", g.B.AvgMs, worst, ColManaged,
-                            $"{g.B.AvgMs * 1000:F1}µs  {g.B.ThroughputKPerMs:F1}k projs/ms");
+                            $"{g.B.AvgMs * 1000:F1}µs  {g.B_Tick.ThroughputKPerMs:F1}k projs/ms");
 
                         if (speedup > 0)
                         {

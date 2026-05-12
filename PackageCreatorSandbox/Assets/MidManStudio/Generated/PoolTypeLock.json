@@ -11,11 +11,58 @@
             "value": 1
         },
         {
-            "packageId": "com.mygame",
-            "name": "Mugen",
+            "packageId": "com.midmanstudio.projectilesystem",
+            "name": "Projectile_Visual2D",
             "value": 100
+        },
+        {
+            "packageId": "com.midmanstudio.projectilesystem",
+            "name": "Projectile_Visual3D",
+            "value": 101
+        },
+        {
+            "packageId": "com.midmanstudio.projectilesystem",
+            "name": "Projectile_Flipbook",
+            "value": 102
         }
     ],
-    "particleEntries": [],
-    "networkEntries": []
+    "particleEntries": [
+        {
+            "packageId": "com.midmanstudio.projectilesystem",
+            "name": "Projectile_Impact",
+            "value": 100
+        },
+        {
+            "packageId": "com.midmanstudio.projectilesystem",
+            "name": "Projectile_Explosion_Small",
+            "value": 101
+        },
+        {
+            "packageId": "com.midmanstudio.projectilesystem",
+            "name": "Projectile_Explosion_Medium",
+            "value": 102
+        },
+        {
+            "packageId": "com.midmanstudio.projectilesystem",
+            "name": "Projectile_Explosion_Large",
+            "value": 103
+        },
+        {
+            "packageId": "com.midmanstudio.projectilesystem",
+            "name": "Projectile_Headshot",
+            "value": 104
+        },
+        {
+            "packageId": "com.midmanstudio.projectilesystem",
+            "name": "Projectile_Tracer",
+            "value": 105
+        }
+    ],
+    "networkEntries": [
+        {
+            "packageId": "com.midmanstudio.netcode",
+            "name": "NetProjectileBlueprint",
+            "value": 0
+        }
+    ]
 }

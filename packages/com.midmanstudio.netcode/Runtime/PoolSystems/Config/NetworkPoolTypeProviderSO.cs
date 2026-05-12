@@ -19,7 +19,7 @@ namespace MidManStudio.Netcode.Generator
 {
     [CreateAssetMenu(
         fileName = "NetworkPoolTypeProvider",
-        menuName = "MidManStudio/Neycode/Pool Type Provider (Network Object)", order = 0)]
+        menuName = "MidManStudio/Netcode/Pool Type Provider (Network Object)", order = 0)]
     public class NetworkPoolTypeProviderSO : ScriptableObject
     {
         [Header("Identity")]

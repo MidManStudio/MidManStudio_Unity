@@ -127,11 +127,11 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/UIState/MID_UIStateVisibility.cs">
       <Link>Runtime/UIState/MID_UIStateVisibility.cs</Link>
     </Compile>
-    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/Config/PoolTypeProviderSO.cs">
-      <Link>Runtime/PoolSystems/Config/PoolTypeProviderSO.cs</Link>
-    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Logging/MID_LogLevel.cs">
       <Link>Runtime/Logging/MID_LogLevel.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/Config/PoolEntryDefinition.cs">
+      <Link>Runtime/PoolSystems/Config/PoolEntryDefinition.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/TrailRendererPool.cs">
       <Link>Runtime/PoolSystems/TrailRendererPool.cs</Link>
@@ -144,6 +144,9 @@
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Audio/MID_SpawnableAudio.cs">
       <Link>Runtime/Audio/MID_SpawnableAudio.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/Config/ParticlePoolTypeProviderSO.cs">
+      <Link>Runtime/PoolSystems/Config/ParticlePoolTypeProviderSO.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/LocalPoolReturn.cs">
       <Link>Runtime/PoolSystems/LocalPoolReturn.cs</Link>
@@ -183,6 +186,9 @@
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Helpers/MID_NamedListAttribute.cs">
       <Link>Runtime/Helpers/MID_NamedListAttribute.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/Config/ObjectPoolTypeProviderSO.cs">
+      <Link>Runtime/PoolSystems/Config/ObjectPoolTypeProviderSO.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Events/MID_EventBus.cs">
       <Link>Runtime/Events/MID_EventBus.cs</Link>
