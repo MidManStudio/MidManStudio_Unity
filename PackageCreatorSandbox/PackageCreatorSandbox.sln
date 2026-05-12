@@ -13,6 +13,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MidManStudio.ProjectileSyst
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MidManStudio.Netcode.Editor", "MidManStudio.Netcode.Editor.csproj", "{B10CFE63-F697-16DD-D05F-D578F54A647B}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Assembly-CSharp-Editor", "Assembly-CSharp-Editor.csproj", "{AEE4261A-002F-C1F5-3127-2906BDFFB4DD}"
+EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MidManStudio.Utilities.Tests", "MidManStudio.Utilities.Tests.csproj", "{DE95755C-1BF2-1292-9C32-AB84A9DB8EEF}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Assembly-CSharp", "Assembly-CSharp.csproj", "{31983F8B-66D7-6191-C007-A70B0DEA8AF3}"
@@ -47,6 +49,10 @@ Global
 		{B10CFE63-F697-16DD-D05F-D578F54A647B}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B10CFE63-F697-16DD-D05F-D578F54A647B}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B10CFE63-F697-16DD-D05F-D578F54A647B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AEE4261A-002F-C1F5-3127-2906BDFFB4DD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AEE4261A-002F-C1F5-3127-2906BDFFB4DD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AEE4261A-002F-C1F5-3127-2906BDFFB4DD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AEE4261A-002F-C1F5-3127-2906BDFFB4DD}.Release|Any CPU.Build.0 = Release|Any CPU
 		{DE95755C-1BF2-1292-9C32-AB84A9DB8EEF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{DE95755C-1BF2-1292-9C32-AB84A9DB8EEF}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{DE95755C-1BF2-1292-9C32-AB84A9DB8EEF}.Release|Any CPU.ActiveCfg = Release|Any CPU
