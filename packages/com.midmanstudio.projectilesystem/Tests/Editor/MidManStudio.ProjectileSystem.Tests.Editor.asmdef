@@ -1,0 +1,21 @@
+{
+  "name": "MidManStudio.ProjectileSystem.Tests.Editor",
+  "rootNamespace": "MidManStudio.Projectiles.EditorTools",
+  "references": [
+    "MidManStudio.ProjectileSystem",
+    "MidManStudio.ProjectileSystem.Editor",
+    "MidManStudio.ProjectileSystem.Tests",
+    "MidManStudio.Utilities"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": false,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}
