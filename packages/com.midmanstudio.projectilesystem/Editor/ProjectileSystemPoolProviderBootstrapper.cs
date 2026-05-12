@@ -14,14 +14,14 @@ namespace MidManStudio.Projectiles.EditorUtils
     internal static class ProjectileSystemPoolProviderBootstrapper
     {
         private const string ProjectileDir =
-            "Assets/MidManStudio/ProjectileSystem/PoolProviders";
+            "Assets/MidManStudio/Netcode/ProjectileSystem/PoolProviders";
 
         static ProjectileSystemPoolProviderBootstrapper()
         {
             EditorApplication.delayCall += EnsureProviders;
         }
 
-        [MenuItem("MidManStudio/Internal/Recreate Projectile Pool Providers")]
+        [MenuItem("MidManStudio/Netcode/Internal/Recreate Projectile Pool Providers", priority = 100)]
         public static void EnsureProviders()
         {
             bool changed = false;

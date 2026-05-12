@@ -29,7 +29,7 @@ namespace MidManStudio.Projectiles.Config
 
     [CreateAssetMenu(
         fileName = "ProjectilePattern",
-        menuName  = "MidMan/Projectile System/Projectile Pattern",
+        menuName  = "MidManStudio/Netcode/Projectile System/Projectile Pattern",
         order     = 11)]
     public class ProjectilePatternSO : ScriptableObject
     {

@@ -9,8 +9,8 @@ namespace MidManStudio.Projectiles
 {
     [CreateAssetMenu(
         fileName = "ProjectileShape",
-        menuName  = "MidMan/Projectile Shape",
-        order     = 11)]
+        menuName  = "MidManStudio/Netcode/Projectile Shape",
+        order     = 12)]
     public class ProjectileShapeSO : ScriptableObject
     {
         public enum Preset

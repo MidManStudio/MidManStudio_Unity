@@ -21,7 +21,7 @@ namespace MidManStudio.Netcode.Editor
             EditorApplication.delayCall += EnsureProviders;
         }
 
-        [MenuItem("MidManStudio/Internal/Recreate Netcode Pool Providers")]
+        [MenuItem("MidManStudio/Netcode/Internal/Recreate Netcode Pool Providers", priority = 100)]
         public static void EnsureProviders()
         {
             bool changed = EnsureNetcodeNetworkProvider();
