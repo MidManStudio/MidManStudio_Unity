@@ -1,8 +1,3 @@
-
-// Singleton pool manager for non-particle GameObjects.
-// Uses the generated PoolableObjectType enum. Pool configs use int typeId internally
-// but the public API accepts PoolableObjectType directly.
-
 using System.Collections.Generic;
 using UnityEngine;
 using MidManStudio.Core.Logging;
@@ -18,19 +13,19 @@ namespace MidManStudio.Core.Pools
         [SerializeField] private MID_LogLevel _logLevel = MID_LogLevel.Info;
 
         [Header("Pool Configuration")]
-        [Tooltip("Add one entry per poolable prefab. Set typeId to match a PoolableObjectType value.")]
+        [Tooltip("Add one entry per poolable prefab.")]
         [MID_NamedList]
         [SerializeField] private List<BasicPoolConfig> poolConfigs = new List<BasicPoolConfig>();
 
         [Header("Auto-Registration")]
-        [SerializeField] private int  autoRegisterPrewarmCount = 10;
-        [SerializeField] private int  autoRegisterMaxPoolSize  = 20;
-        [SerializeField] private bool enableAutoRegistration   = true;
+        [SerializeField] private int autoRegisterPrewarmCount = 10;
+        [SerializeField] private int autoRegisterMaxPoolSize = 20;
+        [SerializeField] private bool enableAutoRegistration = true;
 
         [Header("Monitor (read-only)")]
-        [SerializeField] private int             totalPooledObjects;
-        [SerializeField] private int             totalActiveObjects;
-        [SerializeField] private int             childrenCount;
+        [SerializeField] private int totalPooledObjects;
+        [SerializeField] private int totalActiveObjects;
+        [SerializeField] private int childrenCount;
         [SerializeField] private List<PoolStats> poolStatistics = new List<PoolStats>();
 
         #endregion
@@ -39,14 +34,13 @@ namespace MidManStudio.Core.Pools
 
         private bool _initialized;
 
-        // Keyed by the int value of PoolableObjectType
-        private readonly Dictionary<int, Queue<GameObject>> _pooledObjects  = new();
-        private readonly Dictionary<int, BasicPoolConfig>   _typeConfigs    = new();
-        private readonly Dictionary<int, GameObject>        _typePrefabs    = new();
-        private readonly HashSet<int>                       _registeredTypes = new();
-        private readonly Dictionary<int, int>               _totalSpawned   = new();
-        private readonly Dictionary<int, int>               _activeCount    = new();
-        private readonly Dictionary<GameObject, int>        _prefabToType   = new();
+        private readonly Dictionary<PoolableObjectType, Queue<GameObject>> _pooledObjects = new();
+        private readonly Dictionary<PoolableObjectType, BasicPoolConfig> _typeConfigs = new();
+        private readonly Dictionary<PoolableObjectType, GameObject> _typePrefabs = new();
+        private readonly HashSet<PoolableObjectType> _registeredTypes = new();
+        private readonly Dictionary<PoolableObjectType, int> _totalSpawned = new();
+        private readonly Dictionary<PoolableObjectType, int> _activeCount = new();
+        private readonly Dictionary<GameObject, PoolableObjectType> _prefabToType = new();
 
         #endregion
 
@@ -85,7 +79,6 @@ namespace MidManStudio.Core.Pools
                 $"Object pool ready — {poolConfigs.Count} type(s) registered.",
                 nameof(LocalObjectPool), nameof(CallInitializePool));
 
-            // Chain particle pool init
             if (!LocalParticlePool.Instance.HasBeenInitialized())
                 LocalParticlePool.Instance.CallInitializePool();
         }
@@ -93,28 +86,18 @@ namespace MidManStudio.Core.Pools
         // ── Get ───────────────────────────────────────────────────────────────
 
         public GameObject GetObject(PoolableObjectType type, Vector3 position, Quaternion rotation)
-            => GetObject((int)type, position, rotation);
-
-        public GameObject GetObject(PoolableObjectType type, Vector2 position, Quaternion rotation)
-            => GetObject((int)type, new Vector3(position.x, position.y, 0f), rotation);
-
-        /// <summary>
-        /// Raw int overload — use when working with dynamically resolved type IDs.
-        /// Prefer the PoolableObjectType overloads in normal code.
-        /// </summary>
-        public GameObject GetObject(int typeId, Vector3 position, Quaternion rotation)
         {
-            if (!EnsureRegistered(typeId)) return null;
+            if (!EnsureRegistered(type)) return null;
 
-            var pool = _pooledObjects[typeId];
+            var pool = _pooledObjects[type];
             bool isNew = pool.Count == 0;
 
             var obj = isNew
-                ? CreateInstance(_typeConfigs[typeId])
+                ? CreateInstance(_typeConfigs[type])
                 : pool.Dequeue();
 
-            if (isNew) _totalSpawned[typeId]++;
-            _activeCount[typeId]++;
+            if (isNew) _totalSpawned[type]++;
+            _activeCount[type]++;
 
             obj.transform.SetParent(null);
             obj.transform.position = position;
@@ -122,39 +105,36 @@ namespace MidManStudio.Core.Pools
             obj.SetActive(true);
 
             MID_Logger.LogDebug(_logLevel,
-                $"Get {(PoolableObjectType)typeId} | id={obj.GetInstanceID()} " +
-                $"new={isNew} active={_activeCount[typeId]} pool={pool.Count}",
+                $"Get {type} | id={obj.GetInstanceID()} " +
+                $"new={isNew} active={_activeCount[type]} pool={pool.Count}",
                 nameof(LocalObjectPool), nameof(GetObject));
 
             return obj;
         }
 
+        public GameObject GetObject(PoolableObjectType type, Vector2 position, Quaternion rotation)
+            => GetObject(type, new Vector3(position.x, position.y, 0f), rotation);
+
         // ── Return ────────────────────────────────────────────────────────────
 
         public void ReturnObject(GameObject obj, PoolableObjectType type)
-            => ReturnObject(obj, (int)type, decrement: true);
-
-        public void ReturnObject(GameObject obj, int typeId)
-            => ReturnObject(obj, typeId, decrement: true);
-
-        private void ReturnObject(GameObject obj, int typeId, bool decrement)
         {
-            if (!_registeredTypes.Contains(typeId))
+            if (!_registeredTypes.Contains(type))
             {
                 if (enableAutoRegistration)
                 {
-                    var prefab = FindPrefabForType(typeId);
+                    var prefab = FindPrefabForType(type);
                     if (prefab != null)
                     {
                         MID_Logger.LogWarning(_logLevel,
-                            $"Auto-registering {typeId} during return.",
+                            $"Auto-registering {type} during return.",
                             nameof(LocalObjectPool));
-                        AddType(typeId, prefab, autoRegisterPrewarmCount, autoRegisterMaxPoolSize);
+                        AddType(type, prefab, autoRegisterPrewarmCount, autoRegisterMaxPoolSize);
                     }
                     else
                     {
                         MID_Logger.LogError(_logLevel,
-                            $"Return failed — type {typeId} not registered, no prefab. Destroying.",
+                            $"Return failed — {type} not registered, no prefab. Destroying.",
                             nameof(LocalObjectPool));
                         Destroy(obj);
                         return;
@@ -163,28 +143,27 @@ namespace MidManStudio.Core.Pools
                 else
                 {
                     MID_Logger.LogError(_logLevel,
-                        $"Return failed — type {typeId} not registered. Destroying.",
+                        $"Return failed — {type} not registered. Destroying.",
                         nameof(LocalObjectPool));
                     Destroy(obj);
                     return;
                 }
             }
 
-            var pool   = _pooledObjects[typeId];
-            var config = _typeConfigs[typeId];
+            var pool = _pooledObjects[type];
+            var config = _typeConfigs[type];
 
             if (pool.Count >= config.maxPoolSize)
             {
                 MID_Logger.LogWarning(_logLevel,
-                    $"Pool full for type {typeId} — destroying overflow.",
+                    $"Pool full for {type} — destroying overflow.",
                     nameof(LocalObjectPool));
-                if (decrement) _activeCount[typeId]--;
+                if (_activeCount.ContainsKey(type)) _activeCount[type]--;
                 Destroy(obj);
                 return;
             }
 
-            if (decrement && _activeCount.ContainsKey(typeId))
-                _activeCount[typeId]--;
+            if (_activeCount.ContainsKey(type)) _activeCount[type]--;
 
             ResetObject(obj);
             obj.transform.SetParent(transform);
@@ -192,23 +171,18 @@ namespace MidManStudio.Core.Pools
             pool.Enqueue(obj);
 
             MID_Logger.LogDebug(_logLevel,
-                $"Returned {typeId} | id={obj.GetInstanceID()} pool={pool.Count}",
+                $"Returned {type} | id={obj.GetInstanceID()} pool={pool.Count}",
                 nameof(LocalObjectPool));
         }
 
         // ── Registration ──────────────────────────────────────────────────────
 
-        /// <summary>Register a new type at runtime using the generated enum.</summary>
         public void AddType(PoolableObjectType type, GameObject prefab,
                             int prewarm = 5, int maxSize = 15)
-            => AddType((int)type, prefab, prewarm, maxSize);
-
-        /// <summary>Register a new type at runtime using a raw int ID.</summary>
-        public void AddType(int typeId, GameObject prefab, int prewarm = 5, int maxSize = 15)
         {
-            if (_registeredTypes.Contains(typeId))
+            if (_registeredTypes.Contains(type))
             {
-                MID_Logger.LogWarning(_logLevel, $"Type {typeId} already registered.",
+                MID_Logger.LogWarning(_logLevel, $"{type} already registered.",
                     nameof(LocalObjectPool));
                 return;
             }
@@ -216,31 +190,29 @@ namespace MidManStudio.Core.Pools
             if (_prefabToType.ContainsKey(prefab))
             {
                 MID_Logger.LogError(_logLevel,
-                    $"Prefab '{prefab.name}' already registered as type {_prefabToType[prefab]}. " +
-                    $"Cannot re-register as {typeId}.",
+                    $"Prefab '{prefab.name}' already registered as {_prefabToType[prefab]}. " +
+                    $"Cannot re-register as {type}.",
                     nameof(LocalObjectPool));
                 return;
             }
 
             var config = new BasicPoolConfig
             {
-                typeId       = typeId,
-                displayName  = prefab.name,
-                prefab       = prefab,
+                objectType = type,
+                displayName = prefab.name,
+                prefab = prefab,
                 prewarmCount = prewarm,
-                maxPoolSize  = maxSize
+                maxPoolSize = maxSize
             };
 
             RegisterInternal(config);
             MID_Logger.LogInfo(_logLevel,
-                $"Runtime registered type {typeId} prewarm={prewarm} max={maxSize}.",
+                $"Runtime registered {type} prewarm={prewarm} max={maxSize}.",
                 nameof(LocalObjectPool));
         }
 
-        public bool IsRegistered(PoolableObjectType type)  => _registeredTypes.Contains((int)type);
-        public bool IsRegistered(int typeId)                => _registeredTypes.Contains(typeId);
+        public bool IsRegistered(PoolableObjectType type) => _registeredTypes.Contains(type);
 
-        /// <summary>Return every active pooled object back to its pool.</summary>
         public void ReturnAllActive()
         {
             int count = 0;
@@ -258,9 +230,9 @@ namespace MidManStudio.Core.Pools
         public void ClearPool()
         {
             int total = 0;
-            foreach (var typeId in _registeredTypes)
+            foreach (var type in _registeredTypes)
             {
-                var pool = _pooledObjects[typeId];
+                var pool = _pooledObjects[type];
                 while (pool.Count > 0)
                 {
                     var obj = pool.Dequeue();
@@ -286,8 +258,8 @@ namespace MidManStudio.Core.Pools
 
         private bool ValidateConfigs()
         {
-            var seenTypes   = new HashSet<int>();
-            var seenPrefabs = new Dictionary<GameObject, int>();
+            var seenTypes = new HashSet<PoolableObjectType>();
+            var seenPrefabs = new Dictionary<GameObject, PoolableObjectType>();
 
             foreach (var cfg in poolConfigs)
             {
@@ -299,10 +271,10 @@ namespace MidManStudio.Core.Pools
                     continue;
                 }
 
-                if (seenTypes.Contains(cfg.typeId))
+                if (seenTypes.Contains(cfg.objectType))
                 {
                     MID_Logger.LogError(_logLevel,
-                        $"Duplicate typeId {cfg.typeId} in pool configs.",
+                        $"Duplicate objectType {cfg.objectType} in pool configs.",
                         nameof(LocalObjectPool));
                     return false;
                 }
@@ -310,14 +282,14 @@ namespace MidManStudio.Core.Pools
                 if (seenPrefabs.ContainsKey(cfg.prefab))
                 {
                     MID_Logger.LogError(_logLevel,
-                        $"Prefab '{cfg.prefab.name}' assigned to both typeId " +
-                        $"{seenPrefabs[cfg.prefab]} and {cfg.typeId}.",
+                        $"Prefab '{cfg.prefab.name}' assigned to both {seenPrefabs[cfg.prefab]} " +
+                        $"and {cfg.objectType}.",
                         nameof(LocalObjectPool));
                     return false;
                 }
 
-                seenTypes.Add(cfg.typeId);
-                seenPrefabs[cfg.prefab] = cfg.typeId;
+                seenTypes.Add(cfg.objectType);
+                seenPrefabs[cfg.prefab] = cfg.objectType;
             }
 
             return true;
@@ -327,23 +299,31 @@ namespace MidManStudio.Core.Pools
         {
             if (config.prefab == null) return;
 
-            _registeredTypes.Add(config.typeId);
-            _typeConfigs[config.typeId]   = config;
-            _typePrefabs[config.typeId]   = config.prefab;
-            _pooledObjects[config.typeId] = new Queue<GameObject>(config.maxPoolSize);
-            _totalSpawned[config.typeId]  = 0;
-            _activeCount[config.typeId]   = 0;
-            _prefabToType[config.prefab]  = config.typeId;
+            _registeredTypes.Add(config.objectType);
+            _typeConfigs[config.objectType] = config;
+            _typePrefabs[config.objectType] = config.prefab;
+            _pooledObjects[config.objectType] = new Queue<GameObject>(config.maxPoolSize);
+            _totalSpawned[config.objectType] = 0;
+            _activeCount[config.objectType] = 0;
+            _prefabToType[config.prefab] = config.objectType;
 
             MID_Logger.LogDebug(_logLevel,
-                $"Registered typeId={config.typeId} prefab={config.prefab.name} " +
+                $"Registered {config.objectType} prefab={config.prefab.name} " +
                 $"prewarm={config.prewarmCount} max={config.maxPoolSize}",
                 nameof(LocalObjectPool));
 
             for (int i = 0; i < config.prewarmCount; i++)
             {
                 var obj = CreateInstance(config);
-                ReturnObject(obj, config.typeId, decrement: false);
+                // Return without decrementing — object was never "active"
+                var pool = _pooledObjects[config.objectType];
+                if (pool.Count < config.maxPoolSize)
+                {
+                    ResetObject(obj);
+                    obj.transform.SetParent(transform);
+                    obj.SetActive(false);
+                    pool.Enqueue(obj);
+                }
             }
         }
 
@@ -353,65 +333,63 @@ namespace MidManStudio.Core.Pools
 
             var lr = obj.GetComponent<LocalPoolReturn>()
                   ?? obj.AddComponent<LocalPoolReturn>();
-            lr.SetOriginalType((PoolableObjectType)config.typeId);
+            lr.SetOriginalType(config.objectType);
 
             MID_Logger.LogDebug(_logLevel,
-                $"Created instance typeId={config.typeId} id={obj.GetInstanceID()}",
+                $"Created instance {config.objectType} id={obj.GetInstanceID()}",
                 nameof(LocalObjectPool));
 
             return obj;
         }
 
-        private bool EnsureRegistered(int typeId)
+        private bool EnsureRegistered(PoolableObjectType type)
         {
-            if (_registeredTypes.Contains(typeId)) return true;
+            if (_registeredTypes.Contains(type)) return true;
 
             if (!enableAutoRegistration)
             {
                 MID_Logger.LogError(_logLevel,
-                    $"Type {typeId} not registered and auto-registration is disabled.",
+                    $"{type} not registered and auto-registration is disabled.",
                     nameof(LocalObjectPool));
                 return false;
             }
 
-            var prefab = FindPrefabForType(typeId);
+            var prefab = FindPrefabForType(type);
             if (prefab == null)
             {
                 MID_Logger.LogError(_logLevel,
-                    $"Type {typeId} not registered and no matching prefab found.",
+                    $"{type} not registered and no matching prefab found.",
                     nameof(LocalObjectPool));
                 return false;
             }
 
             MID_Logger.LogWarning(_logLevel,
-                $"Auto-registering type {typeId} with prefab {prefab.name}.",
+                $"Auto-registering {type} with prefab {prefab.name}.",
                 nameof(LocalObjectPool));
-            AddType(typeId, prefab, autoRegisterPrewarmCount, autoRegisterMaxPoolSize);
+            AddType(type, prefab, autoRegisterPrewarmCount, autoRegisterMaxPoolSize);
             return true;
         }
 
         private static void ResetObject(GameObject obj)
-{
-    obj.transform.position   = Vector3.zero;
-    obj.transform.rotation   = Quaternion.identity;
-    obj.transform.localScale = Vector3.one;
-
-    var rb2d = obj.GetComponent<Rigidbody2D>();
-    if (rb2d != null) { rb2d.velocity = Vector2.zero; rb2d.angularVelocity = 0f; }
-
-    var rb3d = obj.GetComponent<Rigidbody>();
-    if (rb3d != null) { rb3d.velocity = Vector3.zero; rb3d.angularVelocity = Vector3.zero; }
-
-    foreach (var trail in obj.GetComponentsInChildren<TrailRenderer>())
-        trail?.Clear();
-}
-
-        private GameObject FindPrefabForType(int typeId)
         {
-            // Try to match by display name containing the enum member name
-            string typeName = ((PoolableObjectType)typeId).ToString();
+            obj.transform.position = Vector3.zero;
+            obj.transform.rotation = Quaternion.identity;
+            obj.transform.localScale = Vector3.one;
+
+            var rb2d = obj.GetComponent<Rigidbody2D>();
+            if (rb2d != null) { rb2d.velocity = Vector2.zero; rb2d.angularVelocity = 0f; }
+
+            var rb3d = obj.GetComponent<Rigidbody>();
+            if (rb3d != null) { rb3d.velocity = Vector3.zero; rb3d.angularVelocity = Vector3.zero; }
+
+            foreach (var trail in obj.GetComponentsInChildren<TrailRenderer>())
+                trail?.Clear();
+        }
+
+        private GameObject FindPrefabForType(PoolableObjectType type)
+        {
             foreach (var cfg in poolConfigs)
-                if (cfg.prefab != null && cfg.prefab.name.Contains(typeName))
+                if (cfg.objectType == type && cfg.prefab != null)
                     return cfg.prefab;
             return null;
         }
@@ -421,20 +399,20 @@ namespace MidManStudio.Core.Pools
             poolStatistics.Clear();
             totalPooledObjects = 0;
             totalActiveObjects = 0;
-            childrenCount      = transform.childCount;
+            childrenCount = transform.childCount;
 
-            foreach (var typeId in _registeredTypes)
+            foreach (var type in _registeredTypes)
             {
-                var cfg      = _typeConfigs[typeId];
-                int available = _pooledObjects[typeId].Count;
-                int spawned   = _totalSpawned.GetValueOrDefault(typeId, 0);
-                int active    = _activeCount.GetValueOrDefault(typeId, 0);
+                var cfg = _typeConfigs[type];
+                int available = _pooledObjects[type].Count;
+                int spawned = _totalSpawned.GetValueOrDefault(type, 0);
+                int active = _activeCount.GetValueOrDefault(type, 0);
 
                 totalPooledObjects += available;
                 totalActiveObjects += active;
 
                 poolStatistics.Add(new PoolStats(
-                    cfg.prefab != null ? cfg.prefab.name : $"type_{typeId}",
+                    cfg.prefab != null ? cfg.prefab.name : type.ToString(),
                     spawned, active, available, cfg.maxPoolSize));
             }
         }

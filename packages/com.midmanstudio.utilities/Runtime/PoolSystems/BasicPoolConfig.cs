@@ -1,7 +1,3 @@
-
-// Pool configuration and stats types used by LocalObjectPool and LocalParticlePool.
-// Must live in Runtime/PoolSystems/ so it compiles inside MidManStudio.Utilities.
-
 using System;
 using UnityEngine;
 using MidManStudio.Core.EditorUtils;
@@ -11,8 +7,8 @@ namespace MidManStudio.Core.Pools
     [Serializable]
     public class BasicPoolConfig : IArrayElementTitle
     {
-        [Tooltip("Integer value matching a PoolableObjectType enum member.")]
-        public int typeId;
+        [Tooltip("Pool type for this entry.")]
+        public PoolableObjectType objectType;
 
         [Tooltip("Human-readable label shown in the inspector.")]
         public string displayName;
@@ -25,18 +21,17 @@ namespace MidManStudio.Core.Pools
         [Min(1)]
         public int maxPoolSize = 15;
 
-        // IArrayElementTitle
         public string Name =>
             !string.IsNullOrWhiteSpace(displayName) ? displayName :
-            prefab != null                           ? prefab.name :
-                                                      $"Type_{typeId}";
+            prefab != null ? prefab.name :
+                                                       objectType.ToString();
     }
 
     [Serializable]
     public class ParticlePoolConfig : IArrayElementTitle
     {
-        [Tooltip("Integer value matching a PoolableParticleType enum member.")]
-        public int typeId;
+        [Tooltip("Particle pool type for this entry.")]
+        public PoolableParticleType particleType;
 
         [Tooltip("Human-readable label shown in the inspector.")]
         public string displayName;
@@ -53,31 +48,28 @@ namespace MidManStudio.Core.Pools
         [Min(0.1f)]
         public float defaultLifetime = 5f;
 
-        // IArrayElementTitle
         public string Name =>
             !string.IsNullOrWhiteSpace(displayName) ? displayName :
-            prefab != null                           ? prefab.name :
-                                                      $"Type_{typeId}";
+            prefab != null ? prefab.name :
+                                                       particleType.ToString();
     }
-
-    // ── Inspector monitor structs ─────────────────────────────────────────────
 
     [Serializable]
     public class PoolStats
     {
         public string typeName;
-        public int    totalSpawned;
-        public int    activeCount;
-        public int    availableInPool;
-        public int    maxPoolSize;
+        public int totalSpawned;
+        public int activeCount;
+        public int availableInPool;
+        public int maxPoolSize;
 
         public PoolStats(string name, int spawned, int active, int available, int max)
         {
-            typeName        = name;
-            totalSpawned    = spawned;
-            activeCount     = active;
+            typeName = name;
+            totalSpawned = spawned;
+            activeCount = active;
             availableInPool = available;
-            maxPoolSize     = max;
+            maxPoolSize = max;
         }
     }
 
@@ -85,18 +77,18 @@ namespace MidManStudio.Core.Pools
     public class ParticlePoolStats
     {
         public string typeName;
-        public int    totalSpawned;
-        public int    activeCount;
-        public int    availableInPool;
-        public int    maxPoolSize;
+        public int totalSpawned;
+        public int activeCount;
+        public int availableInPool;
+        public int maxPoolSize;
 
         public ParticlePoolStats(string name, int spawned, int active, int available, int max)
         {
-            typeName        = name;
-            totalSpawned    = spawned;
-            activeCount     = active;
+            typeName = name;
+            totalSpawned = spawned;
+            activeCount = active;
             availableInPool = available;
-            maxPoolSize     = max;
+            maxPoolSize = max;
         }
     }
 }

@@ -34,19 +34,19 @@ namespace MidManStudio.Netcode.Pools
     [System.Serializable]
     public class NetworkPoolConfig : IArrayElementTitle
     {
-        [Tooltip("Must match a PoolableNetworkObjectType generated enum value.")]
-        public int typeId;
+        [Tooltip("Network pool type for this entry.")]
+        public PoolableNetworkObjectType networkType;
 
         [Tooltip("Inspector label only.")]
         public string displayName;
 
         public GameObject prefab;
-        public int        prewarmCount = 5;
+        public int prewarmCount = 5;
 
         public string Name =>
             !string.IsNullOrWhiteSpace(displayName) ? displayName :
-            prefab != null                           ? prefab.name :
-                                                       $"NetPool_{typeId}";
+            prefab != null ? prefab.name :
+                                                       networkType.ToString();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -54,22 +54,23 @@ namespace MidManStudio.Netcode.Pools
     public class MID_NetworkObjectPool : NetworkBehaviour
     {
         private static MID_NetworkObjectPool _instance;
-        public  static MID_NetworkObjectPool Singleton => _instance;
+        public static MID_NetworkObjectPool Singleton => _instance;
 
         [Header("Pool Configuration")]
         [MID_NamedList]
-        [SerializeField] private List<NetworkPoolConfig> pooledPrefabsList
+        [SerializeField]
+        private List<NetworkPoolConfig> pooledPrefabsList
             = new List<NetworkPoolConfig>();
 
         [Header("Debug")]
         [SerializeField] private MID_LogLevel _logLevel = MID_LogLevel.Info;
 
-        private readonly HashSet<int>                          _registeredTypes = new();
-        private readonly Dictionary<int, Queue<NetworkObject>> _pooledObjects   = new();
-        private readonly Dictionary<int, GameObject>           _typePrefabs     = new();
+        private readonly HashSet<PoolableNetworkObjectType> _registeredTypes = new();
+        private readonly Dictionary<PoolableNetworkObjectType, Queue<NetworkObject>> _pooledObjects = new();
+        private readonly Dictionary<PoolableNetworkObjectType, GameObject> _typePrefabs = new();
 
         private Scene _targetScene;
-        private bool  _initialized;
+        private bool _initialized;
 
         // ── Unity / NGO lifecycle ─────────────────────────────────────────────
 
@@ -80,7 +81,7 @@ namespace MidManStudio.Netcode.Pools
                 Destroy(gameObject);
                 return;
             }
-            _instance    = this;
+            _instance = this;
             _targetScene = gameObject.scene;
         }
 
@@ -123,54 +124,42 @@ namespace MidManStudio.Netcode.Pools
                 config.prefab.GetComponent<NetworkObject>(),
                 $"[MID_NetworkObjectPool] '{config.prefab.name}' has no NetworkObject.");
 
-            _registeredTypes.Add(config.typeId);
-            _typePrefabs[config.typeId]   = config.prefab;
-            _pooledObjects[config.typeId] = new Queue<NetworkObject>();
+            _registeredTypes.Add(config.networkType);
+            _typePrefabs[config.networkType] = config.prefab;
+            _pooledObjects[config.networkType] = new Queue<NetworkObject>();
 
             NetworkManager.Singleton.PrefabHandler.AddHandler(
                 config.prefab,
-                new PooledPrefabHandler(config.typeId, this));
+                new PooledPrefabHandler(config.networkType, this));
 
-            // Prewarm
             for (int i = 0; i < config.prewarmCount; i++)
             {
-                var obj    = CreateInstance(config.prefab);
+                var obj = CreateInstance(config.prefab);
                 var netObj = obj.GetComponent<NetworkObject>();
                 ResetObject(netObj);
-                EnqueueObject(netObj, config.typeId);
+                EnqueueObject(netObj, config.networkType);
             }
 
             MID_Logger.LogDebug(_logLevel,
-                $"Registered typeId={config.typeId} prefab={config.prefab.name} " +
+                $"Registered {config.networkType} prefab={config.prefab.name} " +
                 $"prewarm={config.prewarmCount}",
                 nameof(MID_NetworkObjectPool));
         }
 
         // ── Public API ────────────────────────────────────────────────────────
 
-        /// <summary>
-        /// Retrieve a network object from the pool.
-        /// Must be called on the server. Spawn the returned NetworkObject yourself.
-        /// </summary>
         public NetworkObject GetNetworkObject(PoolableNetworkObjectType type,
                                               Vector3 position, Quaternion rotation)
-            => GetNetworkObject((int)type, position, rotation);
-
-        public NetworkObject GetNetworkObject(PoolableNetworkObjectType type)
-            => GetNetworkObject((int)type, Vector3.zero, Quaternion.identity);
-
-        public NetworkObject GetNetworkObject(int typeId,
-                                              Vector3 position, Quaternion rotation)
         {
-            if (!_registeredTypes.Contains(typeId))
+            if (!_registeredTypes.Contains(type))
             {
                 MID_Logger.LogError(_logLevel,
-                    $"Type {typeId} not registered.",
+                    $"{type} not registered.",
                     nameof(MID_NetworkObjectPool), nameof(GetNetworkObject));
                 return null;
             }
 
-            var queue = _pooledObjects[typeId];
+            var queue = _pooledObjects[type];
             NetworkObject netObj;
 
             if (queue.Count > 0)
@@ -179,7 +168,7 @@ namespace MidManStudio.Netcode.Pools
             }
             else
             {
-                netObj = CreateInstance(_typePrefabs[typeId]).GetComponent<NetworkObject>();
+                netObj = CreateInstance(_typePrefabs[type]).GetComponent<NetworkObject>();
                 ResetObject(netObj);
             }
 
@@ -187,9 +176,7 @@ namespace MidManStudio.Netcode.Pools
             netObj.transform.position = position;
             netObj.transform.rotation = rotation;
 
-            // Notify the object it is being retrieved
-            foreach (var poolable in
-                netObj.GetComponents<IPoolableNetworkObject>())
+            foreach (var poolable in netObj.GetComponents<IPoolableNetworkObject>())
             {
                 try { poolable.OnPoolRetrieve(); }
                 catch (System.Exception e)
@@ -201,22 +188,16 @@ namespace MidManStudio.Netcode.Pools
             }
 
             MID_Logger.LogDebug(_logLevel,
-                $"Get typeId={typeId} id={netObj.NetworkObjectId} " +
-                $"pool={queue.Count}",
+                $"Get {type} id={netObj.NetworkObjectId} pool={queue.Count}",
                 nameof(MID_NetworkObjectPool), nameof(GetNetworkObject));
 
             return netObj;
         }
 
-        /// <summary>
-        /// Return a network object to the pool.
-        /// Call BEFORE Despawn().
-        /// </summary>
-        public void ReturnNetworkObject(NetworkObject netObj,
-                                        PoolableNetworkObjectType type)
-            => ReturnNetworkObject(netObj, (int)type);
+        public NetworkObject GetNetworkObject(PoolableNetworkObjectType type)
+            => GetNetworkObject(type, Vector3.zero, Quaternion.identity);
 
-        public void ReturnNetworkObject(NetworkObject netObj, int typeId)
+        public void ReturnNetworkObject(NetworkObject netObj, PoolableNetworkObjectType type)
         {
             if (netObj == null)
             {
@@ -225,37 +206,34 @@ namespace MidManStudio.Netcode.Pools
                 return;
             }
 
-            if (!_registeredTypes.Contains(typeId))
+            if (!_registeredTypes.Contains(type))
             {
                 MID_Logger.LogError(_logLevel,
-                    $"Type {typeId} not registered — destroying.",
+                    $"{type} not registered — destroying.",
                     nameof(MID_NetworkObjectPool));
                 Destroy(netObj.gameObject);
                 return;
             }
 
             ResetObject(netObj);
-            EnqueueObject(netObj, typeId);
+            EnqueueObject(netObj, type);
 
             MID_Logger.LogDebug(_logLevel,
-                $"Returned typeId={typeId} id={netObj.NetworkObjectId} " +
-                $"pool={_pooledObjects[typeId].Count}",
+                $"Returned {type} id={netObj.NetworkObjectId} pool={_pooledObjects[type].Count}",
                 nameof(MID_NetworkObjectPool));
         }
 
         public bool IsRegistered(PoolableNetworkObjectType type)
-            => _registeredTypes.Contains((int)type);
-        public bool IsRegistered(int typeId)
-            => _registeredTypes.Contains(typeId);
+            => _registeredTypes.Contains(type);
 
         // ── Pool management ───────────────────────────────────────────────────
 
         public void ClearPool()
         {
-            foreach (var typeId in _registeredTypes)
+            foreach (var type in _registeredTypes)
             {
                 if (NetworkManager.Singleton?.PrefabHandler != null &&
-                    _typePrefabs.TryGetValue(typeId, out var prefab))
+                    _typePrefabs.TryGetValue(type, out var prefab))
                     NetworkManager.Singleton.PrefabHandler.RemoveHandler(prefab);
             }
 
@@ -283,7 +261,6 @@ namespace MidManStudio.Netcode.Pools
         {
             if (netObj == null) return;
 
-            // Notify via interface — game code handles its own state
             foreach (var poolable in netObj.GetComponents<IPoolableNetworkObject>())
             {
                 try { poolable.OnPoolReset(); }
@@ -294,38 +271,37 @@ namespace MidManStudio.Netcode.Pools
                 }
             }
 
-            // Universal transform reset
             netObj.transform.SetParent(null);
-            netObj.transform.position   = Vector3.zero;
-            netObj.transform.rotation   = Quaternion.identity;
+            netObj.transform.position = Vector3.zero;
+            netObj.transform.rotation = Quaternion.identity;
             netObj.transform.localScale = Vector3.one;
         }
 
-        private void EnqueueObject(NetworkObject netObj, int typeId)
+        private void EnqueueObject(NetworkObject netObj, PoolableNetworkObjectType type)
         {
             netObj.gameObject.SetActive(false);
-            _pooledObjects[typeId].Enqueue(netObj);
+            _pooledObjects[type].Enqueue(netObj);
         }
 
         // ── NGO prefab handler ────────────────────────────────────────────────
 
         private class PooledPrefabHandler : INetworkPrefabInstanceHandler
         {
-            private readonly int                    _typeId;
-            private readonly MID_NetworkObjectPool  _pool;
+            private readonly PoolableNetworkObjectType _type;
+            private readonly MID_NetworkObjectPool _pool;
 
-            public PooledPrefabHandler(int typeId, MID_NetworkObjectPool pool)
+            public PooledPrefabHandler(PoolableNetworkObjectType type, MID_NetworkObjectPool pool)
             {
-                _typeId = typeId;
-                _pool   = pool;
+                _type = type;
+                _pool = pool;
             }
 
             NetworkObject INetworkPrefabInstanceHandler.Instantiate(
                 ulong ownerClientId, Vector3 position, Quaternion rotation)
-                => _pool.GetNetworkObject(_typeId, position, rotation);
+                => _pool.GetNetworkObject(_type, position, rotation);
 
             void INetworkPrefabInstanceHandler.Destroy(NetworkObject netObj)
-                => _pool.ReturnNetworkObject(netObj, _typeId);
+                => _pool.ReturnNetworkObject(netObj, _type);
         }
     }
 }

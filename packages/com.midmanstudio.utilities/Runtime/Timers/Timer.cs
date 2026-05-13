@@ -482,25 +482,49 @@ namespace MidManStudio.Core.Timers
             OnValueChanged.Invoke(_currentValue);
         }
     }
+
+    /// <summary>
+    /// Lightweight fixed-interval tick timer for use in utility systems.
+    /// NOTE: com.midmanstudio.netcode has its own NetworkTimer with PascalCase
+    /// properties (MinTimeBetweenTicks, CurrentTick, LerpFraction) — prefer that
+    /// one for all networked code. This version lives here for utility-only contexts
+    /// that cannot take a netcode dependency.
+    /// </summary>
     public class NetworkTimer
     {
         private float timer;
-        public float minTimeBtwTicks { get; private set; }
-        public int currentTick { get; private set; }
-        public float lerpFraction => timer / minTimeBtwTicks;
 
+        /// <summary>Seconds between ticks (1 / serverTickRate). Always > 0.</summary>
+        public float minTimeBtwTicks { get; private set; }
+
+        /// <summary>Total ticks fired since creation or last Reset().</summary>
+        public int currentTick { get; private set; }
+
+        /// <summary>
+        /// Fractional progress toward the next tick [0, 1].
+        /// Useful for client-side interpolation.
+        /// </summary>
+        public float lerpFraction => minTimeBtwTicks > 0f ? timer / minTimeBtwTicks : 0f;
+
+        /// <param name="serverTickRate">
+        /// Ticks per second (e.g. 60).
+        /// Zero or negative values fall back to 60 fps (1/60 s interval).
+        /// </param>
         public NetworkTimer(float serverTickRate)
         {
-            minTimeBtwTicks = 1f / serverTickRate;
+            // Guard against divide-by-zero — fall back to 60 Hz
+            minTimeBtwTicks = serverTickRate > 0f ? 1f / serverTickRate : 1f / 60f;
             timer = 0f;
             currentTick = 0;
         }
 
-        public void Update(float deltaTime)
-        {
-            timer += deltaTime;
-        }
+        /// <summary>Advance the timer. Call once per Update or FixedUpdate.</summary>
+        public void Update(float deltaTime) => timer += deltaTime;
 
+        /// <summary>
+        /// Returns true and advances the tick counter if enough time has elapsed.
+        /// Call in a while loop to handle multiple ticks in one frame.
+        /// </summary>
         public bool ShouldTick()
         {
             if (timer >= minTimeBtwTicks)
@@ -512,12 +536,21 @@ namespace MidManStudio.Core.Timers
             return false;
         }
 
+        /// <summary>Reset accumulator and tick counter to zero.</summary>
         public void Reset()
         {
             timer = 0f;
             currentTick = 0;
         }
+
+        /// <summary>Change tick rate at runtime (resets accumulator).</summary>
+        public void SetTickRate(float tickRate)
+        {
+            minTimeBtwTicks = tickRate > 0f ? 1f / tickRate : 1f / 60f;
+            timer = 0f;
+        }
     }
+
     /// <summary>
     /// Helper class to create common timer configurations
     /// </summary>

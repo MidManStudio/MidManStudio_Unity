@@ -141,6 +141,9 @@
     </Compile>
   </ItemGroup>
   <ItemGroup>
+    <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Plugins/Native/Windows/projectile_core.dll">
+      <Link>Runtime/Plugins/Native/Windows/projectile_core.dll</Link>
+    </None>
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/MidManStudio.ProjectileSystem.asmdef">
       <Link>Runtime/MidManStudio.ProjectileSystem.asmdef</Link>
     </None>

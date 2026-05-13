@@ -1,4 +1,4 @@
-// Reads all PoolTypeProviderSO / ParticlePoolTypeProviderSO / NetworkPoolTypeProviderSO
+// Reads all ObjectPoolTypeProviderSO / ParticlePoolTypeProviderSO / NetworkPoolTypeProviderSO
 // assets found anywhere in the project and writes the three generated enum files.
 //
 // NetworkPoolTypeProviderSO is loaded via SerializedObject reflection so this
@@ -184,7 +184,7 @@ namespace MidManStudio.Core.Pools.Generator
         private static List<ProviderData> CollectObjectProviders()
         {
             var list  = new List<ProviderData>();
-            var guids = AssetDatabase.FindAssets("t:PoolTypeProviderSO");
+            var guids = AssetDatabase.FindAssets("t:ObjectPoolTypeProviderSO");
             foreach (var g in guids)
             {
                 var asset = AssetDatabase.LoadAssetAtPath<ObjectPoolTypeProviderSO>(
@@ -801,7 +801,7 @@ namespace MidManStudio.Core.Pools.Generator
     {
         private static readonly HashSet<string> WatchedTypeNames = new()
         {
-            "PoolTypeProviderSO",
+            "ObjectPoolTypeProviderSO",
             "ParticlePoolTypeProviderSO",
             "NetworkPoolTypeProviderSO",
             "PoolTypeGeneratorSettingsSO"

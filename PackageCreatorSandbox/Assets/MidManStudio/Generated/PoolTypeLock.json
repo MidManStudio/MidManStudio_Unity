@@ -60,9 +60,9 @@
     ],
     "networkEntries": [
         {
-            "packageId": "com.midmanstudio.netcode",
-            "name": "NetProjectileBlueprint",
-            "value": 0
+            "packageId": "com.midmanstudio.projectilesystem",
+            "name": "BaseProjectileBlueprint",
+            "value": 100
         }
     ]
 }
