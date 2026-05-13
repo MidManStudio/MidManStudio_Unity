@@ -163,3 +163,4 @@ jobs:
           git add packages/com.midmanstudio.projectilesystem/Runtime/Plugins/Native/
           git diff --staged --quiet && echo "no changes" || git commit -m "ci: rebuild native libs [skip ci]"
           git push
+
