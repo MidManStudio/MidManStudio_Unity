@@ -5,7 +5,9 @@ on:
     paths:
       - 'rust_lib/**'
   workflow_dispatch:
+
 jobs:
+  # ── macOS (universal x86_64 + arm64) ────────────────────────────────────────
   build-macos:
     runs-on: macos-latest
     steps:
@@ -28,6 +30,7 @@ jobs:
           path: rust_lib/projectile_core/libprojectile_core.dylib
           retention-days: 1
 
+  # ── Windows x64 ─────────────────────────────────────────────────────────────
   build-windows:
     runs-on: ubuntu-latest
     steps:
@@ -52,6 +55,7 @@ jobs:
           path: rust_lib/projectile_core/target/x86_64-pc-windows-gnu/release/projectile_core.dll
           retention-days: 1
 
+  # ── Linux x64 ───────────────────────────────────────────────────────────────
   build-linux:
     runs-on: ubuntu-latest
     steps:
@@ -65,6 +69,7 @@ jobs:
           path: rust_lib/projectile_core/target/release/libprojectile_core.so
           retention-days: 1
 
+  # ── Android (arm64, armv7, x86_64) ──────────────────────────────────────────
   build-android:
     runs-on: ubuntu-latest
     steps:
@@ -89,6 +94,7 @@ jobs:
           path: rust_lib/projectile_core/android-out/
           retention-days: 1
 
+  # ── iOS (device + simulator) ─────────────────────────────────────────────────
   build-ios:
     runs-on: macos-latest
     steps:
@@ -116,14 +122,62 @@ jobs:
           path: rust_lib/projectile_core/libprojectile_core_sim.a
           retention-days: 1
 
+  # ── WebGL (wasm32-unknown-emscripten → .a staticlib for Unity) ───────────────
+  #
+  # Unity WebGL links native plugins as Emscripten static libraries (.a).
+  # P/Invoke calls resolve via __Internal (same mechanism as iOS).
+  # Our Rust code compiles cleanly for WASM:
+  #   - config_store.rs dispatches to thread_local!+RefCell (no RwLock)
+  #   - simd.rs / simulation.rs / collision.rs all fall through to scalar paths
+  #   - No threading, no std::fs, no network — clean WASM-compatible subset
+  #
+  # Profile: release-wasm uses opt-level="s" (size) — saves ~15-20% .a size
+  # vs opt-level=3 with negligible throughput difference at Unity WebGL scale.
+  build-webgl:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Emscripten SDK
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.59
+          # emsdk adds emcc/em++ to PATH; Rust's wasm32-unknown-emscripten
+          # target automatically uses emcc as the linker when it's in PATH.
+          no-cache: false
+
+      - name: Verify emcc
+        run: emcc --version
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-emscripten
+
+      - name: Build staticlib for Unity WebGL
+        working-directory: rust_lib/projectile_core
+        run: |
+          cargo build \
+            --profile release-wasm \
+            --target wasm32-unknown-emscripten
+        # Output: target/wasm32-unknown-emscripten/release-wasm/libprojectile_core.a
+        # Unity only needs the .a — the .wasm produced by cdylib is not used.
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-webgl
+          path: rust_lib/projectile_core/target/wasm32-unknown-emscripten/release-wasm/libprojectile_core.a
+          retention-days: 1
+
+  # ── Commit all built libs into the Unity package ─────────────────────────────
   commit-to-repo:
-    needs: [build-macos, build-windows, build-linux, build-android, build-ios]
+    needs: [build-macos, build-windows, build-linux, build-android, build-ios, build-webgl]
     if: always()
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with: { name: native-macos,       path: dl/macos }
         continue-on-error: true
@@ -142,25 +196,37 @@ jobs:
       - uses: actions/download-artifact@v4
         with: { name: native-ios-sim,     path: dl/ios-sim }
         continue-on-error: true
+      - uses: actions/download-artifact@v4
+        with: { name: native-webgl,       path: dl/webgl }
+        continue-on-error: true
+
       - name: Copy libs into package
         run: |
           copy_if() {
             [ -f "$1" ] && { mkdir -p "$(dirname "$2")"; cp "$1" "$2"; echo "copied $2"; } || echo "missing $1"
           }
           PLUG=packages/com.midmanstudio.projectilesystem/Runtime/Plugins/Native
+
           copy_if dl/macos/libprojectile_core.dylib           "$PLUG/macOS/libprojectile_core.dylib"
           copy_if dl/windows/projectile_core.dll              "$PLUG/Windows/projectile_core.dll"
           copy_if dl/linux/libprojectile_core.so              "$PLUG/Linux/libprojectile_core.so"
+
           for ABI in arm64-v8a armeabi-v7a x86_64; do
             copy_if "dl/android/$ABI/libprojectile_core.so"  "$PLUG/Android/$ABI/libprojectile_core.so"
           done
+
           copy_if dl/ios-device/libprojectile_core.a          "$PLUG/iOS/libprojectile_core.a"
           copy_if dl/ios-sim/libprojectile_core_sim.a         "$PLUG/iOS/libprojectile_core_sim.a"
+
+          # WebGL: Unity links this .a via Emscripten during its build step.
+          # No runtime loading — resolved at Unity build time via __Internal.
+          copy_if dl/webgl/libprojectile_core.a               "$PLUG/WebGL/libprojectile_core.a"
+
       - name: Commit
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add packages/com.midmanstudio.projectilesystem/Runtime/Plugins/Native/
-          git diff --staged --quiet && echo "no changes" || git commit -m "ci: rebuild native libs [skip ci]"
+          git diff --staged --quiet && echo "no changes" || \
+            git commit -m "ci: rebuild native libs [skip ci]"
           git push
-
