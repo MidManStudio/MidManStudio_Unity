@@ -5,7 +5,8 @@ edition = "2021"
 
 [lib]
 name = "projectile_core"
-crate-type = ["cdylib", "staticlib"]
+# Added "rlib" so cargo bench and cargo test can "see" your code as a Rust library
+crate-type = ["cdylib", "staticlib", "rlib"]
 
 [features]
 default = []
