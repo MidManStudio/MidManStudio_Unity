@@ -10,17 +10,37 @@ crate-type = ["cdylib", "staticlib"]
 [features]
 default = []
 # Force scalar fallback — disables all SIMD paths and RwLock-based config store.
-# Enable this for WebGL/WASM builds or for debugging.
+# Enabled automatically for WASM targets via cfg; this flag enables it explicitly
+# for debugging on x86 or for platforms where SIMD is undesirable.
 scalar-math = []
 
-[dependencies]
-lazy_static = { version = "1.5", optional = true }
-
+# ── Non-WASM only: lazy_static for RwLock-based config store ──────────────────
+# WASM uses thread_local! + RefCell (see config_store.rs) — no lazy_static needed.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 lazy_static = "1.5"
 
+# ── Dev / bench dependencies ──────────────────────────────────────────────────
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name    = "sim_bench"
+harness = false
+
+# ── Release profile — desktop / mobile ───────────────────────────────────────
 [profile.release]
-opt-level = 3
-lto = true
+opt-level      = 3
+lto            = true
+codegen-units  = 1
+panic          = "abort"
+
+# ── WebGL release profile — optimise for code size, not raw throughput ────────
+# Unity WebGL budgets are tight; "s" shaves ~15-20% off .wasm vs opt-level=3
+# with negligible throughput loss at the projectile counts Unity games need.
+# cargo build --profile release-wasm --target wasm32-unknown-emscripten
+[profile.release-wasm]
+inherits      = "release"
+opt-level     = "s"
+lto           = true
 codegen-units = 1
-panic = "abort"
+panic         = "abort"
