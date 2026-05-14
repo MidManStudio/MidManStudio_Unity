@@ -2,7 +2,9 @@
 // Complete FFI layer for projectile_core Rust native library.
 // ALL P/Invoke bindings live here. Nothing else uses DllImport.
 //
-// iOS: IL2CPP links the static lib as __Internal.
+// Platform DLL resolution:
+//   iOS / WebGL : "__Internal" — resolved at link time by Xcode / Emscripten.
+//   All others  : "projectile_core" — loaded at runtime from Plugins/Native/.
 //
 // Struct size reference (must match Rust repr(C) exactly):
 //   NativeProjectile    = 72 bytes   (2D)
@@ -83,46 +85,31 @@ namespace MidManStudio.Projectiles.Core
     [StructLayout(LayoutKind.Explicit, Size = 84)]
     public struct NativeProjectile3D
     {
-        // ── Position ─────────────────────────────────────────────────────────
         [FieldOffset(0)]  public float X;
         [FieldOffset(4)]  public float Y;
         [FieldOffset(8)]  public float Z;
-
-        // ── Velocity ─────────────────────────────────────────────────────────
         [FieldOffset(12)] public float Vx;
         [FieldOffset(16)] public float Vy;
         [FieldOffset(20)] public float Vz;
-
-        // ── Acceleration / homing / oscillation axis ──────────────────────────
         [FieldOffset(24)] public float Ax;
         [FieldOffset(28)] public float Ay;
         [FieldOffset(32)] public float Az;
-
-        // ── Scale ─────────────────────────────────────────────────────────────
         [FieldOffset(36)] public float ScaleX;
         [FieldOffset(40)] public float ScaleY;
         [FieldOffset(44)] public float ScaleZ;
         [FieldOffset(48)] public float ScaleTarget;
         [FieldOffset(52)] public float ScaleSpeed;
-
-        // ── Lifetime & travel ─────────────────────────────────────────────────
         [FieldOffset(56)] public float Lifetime;
         [FieldOffset(60)] public float MaxLifetime;
         [FieldOffset(64)] public float TravelDist;
         [FieldOffset(68)] public float TimerT;
-
-        // ── Identity ──────────────────────────────────────────────────────────
         [FieldOffset(72)] public ushort ConfigId;
         [FieldOffset(74)] public ushort OwnerId;
         [FieldOffset(76)] public uint   ProjId;
-
-        // ── Flags ──────────────────────────────────────────────────────────────
         [FieldOffset(80)] public byte CollisionCount;
         [FieldOffset(81)] public byte MovementType;
         [FieldOffset(82)] public byte PiercingType;
         [FieldOffset(83)] public byte Alive;
-
-        // ── Convenience helpers ───────────────────────────────────────────────
 
         public bool    IsAlive         => Alive != 0;
         public float   CollisionRadius => ScaleX * 0.5f;
@@ -180,7 +167,6 @@ namespace MidManStudio.Projectiles.Core
     //  Shared enums
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// <summary>Spawn pattern for the legacy spawn_pattern entry point.</summary>
     public enum PatternId : byte
     {
         Single  = 0,
@@ -190,11 +176,6 @@ namespace MidManStudio.Projectiles.Core
         Ring8   = 4
     }
 
-    /// <summary>
-    /// Projectile movement type byte constants.
-    /// Values must match Rust simulation.rs constants exactly.
-    /// Use ProjectileLib.MovementTypes (fetched from Rust at startup) to validate.
-    /// </summary>
     public enum ProjectileMovementType : byte
     {
         Straight  = 0,
@@ -205,7 +186,6 @@ namespace MidManStudio.Projectiles.Core
         Circular  = 5
     }
 
-    /// <summary>Piercing capability. Must match Rust PiercingType constants.</summary>
     public enum ProjectilePiercingType : byte
     {
         None   = 0,
@@ -214,15 +194,9 @@ namespace MidManStudio.Projectiles.Core
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  Movement type constant cache — NOT a static class (CS0708 fix)
-    //  Fetched from Rust at startup so C# and Rust always agree.
+    //  Movement type constant cache
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Movement type byte constants fetched from Rust at startup.
-    /// Access via ProjectileLib.MovementTypes after calling
-    /// ProjectileLib.FetchMovementTypeConstants().
-    /// </summary>
     public class MovementTypeConstants
     {
         public byte Straight  { get; internal set; }
@@ -263,13 +237,19 @@ namespace MidManStudio.Projectiles.Core
 
     public static class ProjectileLib
     {
-#if UNITY_IOS && !UNITY_EDITOR
+        // ── DLL name resolution ───────────────────────────────────────────────
+        //
+        // iOS  : static lib linked by Xcode → __Internal
+        // WebGL: static lib linked by Emscripten → __Internal
+        //        (Unity WebGL P/Invoke resolves via the same __Internal mechanism)
+        // All others: runtime loaded from Plugins/Native/<platform>/
+        //
+#if (UNITY_IOS || UNITY_WEBGL) && !UNITY_EDITOR
         private const string DLL = "__Internal";
 #else
         private const string DLL = "projectile_core";
 #endif
 
-        /// <summary>Movement type byte constants fetched from Rust at startup.</summary>
         public static readonly MovementTypeConstants MovementTypes = new MovementTypeConstants();
 
         // ── Layout validation ─────────────────────────────────────────────────
@@ -398,7 +378,6 @@ namespace MidManStudio.Projectiles.Core
             MovementTypes.Teleport = movement_type_teleport();
             MovementTypes.Wave     = movement_type_wave();
             MovementTypes.Circular = movement_type_circular();
-
             MovementTypes.Validate();
         }
 
@@ -412,31 +391,31 @@ namespace MidManStudio.Projectiles.Core
             bool ok = true;
 
             ok &= Check("NativeProjectile (2D)",
-                System.Runtime.InteropServices.Marshal.SizeOf<NativeProjectile>(),
+                Marshal.SizeOf<NativeProjectile>(),
                 projectile_struct_size(), 72);
 
             ok &= Check("HitResult (2D)",
-                System.Runtime.InteropServices.Marshal.SizeOf<HitResult>(),
+                Marshal.SizeOf<HitResult>(),
                 hit_result_struct_size(), 24);
 
             ok &= Check("CollisionTarget (2D)",
-                System.Runtime.InteropServices.Marshal.SizeOf<CollisionTarget>(),
+                Marshal.SizeOf<CollisionTarget>(),
                 collision_target_struct_size(), 20);
 
             ok &= Check("SpawnRequest",
-                System.Runtime.InteropServices.Marshal.SizeOf<SpawnRequest>(),
+                Marshal.SizeOf<SpawnRequest>(),
                 spawn_request_struct_size(), 32);
 
             ok &= Check("NativeProjectile3D",
-                System.Runtime.InteropServices.Marshal.SizeOf<NativeProjectile3D>(),
+                Marshal.SizeOf<NativeProjectile3D>(),
                 projectile3d_struct_size(), 84);
 
             ok &= Check("HitResult3D",
-                System.Runtime.InteropServices.Marshal.SizeOf<HitResult3D>(),
+                Marshal.SizeOf<HitResult3D>(),
                 hit_result3d_struct_size(), 28);
 
             ok &= Check("CollisionTarget3D",
-                System.Runtime.InteropServices.Marshal.SizeOf<CollisionTarget3D>(),
+                Marshal.SizeOf<CollisionTarget3D>(),
                 collision_target3d_struct_size(), 24);
 
             FetchMovementTypeConstants();
