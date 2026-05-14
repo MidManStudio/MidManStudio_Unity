@@ -1,0 +1,13 @@
+{
+  "build": "1",
+  "branch": "master",
+  "commit": "c41c210",
+  "date": "2026-05-14T15:52:04.758165Z",
+  "rust_version": "rustc 1.95.0 (59807616e 2026-04-14)",
+  "note": "manual benchmark run",
+  "groups": [],
+  "summary": {
+    "total": 0,
+    "groups": 0
+  }
+}
