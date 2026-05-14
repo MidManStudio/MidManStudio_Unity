@@ -1,3 +1,13 @@
+# .github/workflows/bench-projectile.yml
+#
+# Criterion benchmarks for projectile_core — simulation tick + collision.
+# Triggers: push to main touching rust_lib/, or manual dispatch.
+#
+# Outputs
+#   • GitHub Step Summary — markdown table (visible in Actions UI)
+#   • .github/bench-results/projectile-bench-results.json  (data, committed)
+#   • .github/bench-results/index.html                     (dashboard, committed)
+
 name: Projectile Core — Benchmarks
 
 on:
@@ -8,7 +18,7 @@ on:
   workflow_dispatch:
     inputs:
       note:
-        description: 'Context for this run'
+        description: 'Context for this run (e.g. "after SSE2 collision patch")'
         required: false
         default: 'manual benchmark run'
 
@@ -80,8 +90,10 @@ jobs:
               with open(e_file, 'r') as f:
                   e_data = json.load(f)
 
-              group_id = b_data.get('group_id', 'Unknown')
-              bench_id = b_data.get('function_id', b_data.get('value_str', 'Result'))
+              group_id = b_data.get('group_id') or 'Unknown'
+              
+              # SAFELY EXTRACT NAME: Fallback through keys and cast to string to prevent NoneType errors
+              bench_id = str(b_data.get('function_id') or b_data.get('value_str') or 'Base')
               
               # Mean time in nanoseconds
               mean_ns = e_data['mean']['point_estimate']
@@ -90,7 +102,7 @@ jobs:
 
               # Throughput Calculation
               thrpt_str = "—"
-              tp_raw = b_data.get('throughput')
+              tp_raw = b_data.get('throughput', [])
               # Criterion throughput can be a single dict or a list containing a dict
               tp = tp_raw[0] if isinstance(tp_raw, list) and len(tp_raw) > 0 else tp_raw
               
@@ -106,7 +118,7 @@ jobs:
                       thrpt_str = f"{per_sec:.2f} elem/s"
 
               results_list.append({
-                  'group': group_id,
+                  'group': str(group_id),
                   'name': bench_id,
                   'mean_ns': mean_ns,
                   'low': f"{low_ns/1_000_000:.3f} ms",
@@ -122,9 +134,9 @@ jobs:
                   groups_map[r['group']] = []
               groups_map[r['group']].append(r)
 
-          # Sort benches within groups numerically if possible
+          # Sort benches within groups safely (ignores strings, safely parses floats/ints)
           for g in groups_map:
-              groups_map[g].sort(key=lambda x: (float(x['name']) if x['name'].isdigit() else x['name']))
+              groups_map[g].sort(key=lambda x: (float(x['name']) if x['name'].replace('.','',1).isdigit() else x['name']))
 
           final_groups = [{'name': k, 'benches': v} for k, v in groups_map.items()]
 
@@ -148,6 +160,12 @@ jobs:
               tpl_path = '.github/projectile-bench-template.html'
               tpl = open(tpl_path).read() if os.path.exists(tpl_path) else '<html><body><pre>__BENCH_DATA_JSON__</pre></body></html>'
               html = tpl.replace('__BENCH_DATA_JSON__', json.dumps(data))
+              html = html.replace('BUILD_NUM_PLACEHOLDER',  data['build'])
+              html = html.replace('BRANCH_PLACEHOLDER',     data['branch'])
+              html = html.replace('COMMIT_PLACEHOLDER',     data['commit'])
+              html = html.replace('DATE_PLACEHOLDER',       data['date'][:10])
+              html = html.replace('RUST_VERSION_PLACEHOLDER', data['rust_version'])
+              
               with open(f'{OUT_DIR}/index.html', 'w') as f: f.write(html)
           except Exception as e:
               print(f"HTML update failed: {e}")
@@ -172,8 +190,8 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add .github/bench-results/
-          git diff --staged --quiet && echo "no changes" || \
-            git commit -m "ci: update bench results #${{ github.run_number }} [skip ci]"
+          git diff --staged --quiet && echo "no changes to commit" || \
+            git commit -m "ci: update projectile bench results — build #${{ github.run_number }} [skip ci]"
           git push
 
       - name: Upload raw criterion report
