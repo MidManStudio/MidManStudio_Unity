@@ -122,46 +122,31 @@ jobs:
           path: rust_lib/projectile_core/libprojectile_core_sim.a
           retention-days: 1
 
-  # ── WebGL (wasm32-unknown-emscripten → .a staticlib for Unity) ───────────────
-  #
-  # Unity WebGL links native plugins as Emscripten static libraries (.a).
-  # P/Invoke calls resolve via __Internal (same mechanism as iOS).
-  # Our Rust code compiles cleanly for WASM:
-  #   - config_store.rs dispatches to thread_local!+RefCell (no RwLock)
-  #   - simd.rs / simulation.rs / collision.rs all fall through to scalar paths
-  #   - No threading, no std::fs, no network — clean WASM-compatible subset
-  #
-  # Profile: release-wasm uses opt-level="s" (size) — saves ~15-20% .a size
-  # vs opt-level=3 with negligible throughput difference at Unity WebGL scale.
+  # ── WebGL (wasm32-unknown-emscripten) ────────────────────────────────────────
   build-webgl:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Setup Emscripten SDK
         uses: mymindstorm/setup-emsdk@v14
         with:
           version: 3.1.59
-          # emsdk adds emcc/em++ to PATH; Rust's wasm32-unknown-emscripten
-          # target automatically uses emcc as the linker when it's in PATH.
           no-cache: false
-
-      - name: Verify emcc
-        run: emcc --version
-
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-emscripten
-
       - name: Build staticlib for Unity WebGL
         working-directory: rust_lib/projectile_core
         run: |
-          cargo build \
+          # Use --lib to ignore criterion/benchmarks on WASM
+          # Increase memory for LTO to prevent silent crashes
+          RUST_BACKTRACE=1 cargo build \
+            --lib \
             --profile release-wasm \
-            --target wasm32-unknown-emscripten
-        # Output: target/wasm32-unknown-emscripten/release-wasm/libprojectile_core.a
-        # Unity only needs the .a — the .wasm produced by cdylib is not used.
-
+            --target wasm32-unknown-emscripten \
+            --verbose
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
       - uses: actions/upload-artifact@v4
         with:
           name: native-webgl
@@ -177,7 +162,6 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/download-artifact@v4
         with: { name: native-macos,       path: dl/macos }
         continue-on-error: true
@@ -206,20 +190,14 @@ jobs:
             [ -f "$1" ] && { mkdir -p "$(dirname "$2")"; cp "$1" "$2"; echo "copied $2"; } || echo "missing $1"
           }
           PLUG=packages/com.midmanstudio.projectilesystem/Runtime/Plugins/Native
-
           copy_if dl/macos/libprojectile_core.dylib           "$PLUG/macOS/libprojectile_core.dylib"
           copy_if dl/windows/projectile_core.dll              "$PLUG/Windows/projectile_core.dll"
           copy_if dl/linux/libprojectile_core.so              "$PLUG/Linux/libprojectile_core.so"
-
           for ABI in arm64-v8a armeabi-v7a x86_64; do
             copy_if "dl/android/$ABI/libprojectile_core.so"  "$PLUG/Android/$ABI/libprojectile_core.so"
           done
-
           copy_if dl/ios-device/libprojectile_core.a          "$PLUG/iOS/libprojectile_core.a"
           copy_if dl/ios-sim/libprojectile_core_sim.a         "$PLUG/iOS/libprojectile_core_sim.a"
-
-          # WebGL: Unity links this .a via Emscripten during its build step.
-          # No runtime loading — resolved at Unity build time via __Internal.
           copy_if dl/webgl/libprojectile_core.a               "$PLUG/WebGL/libprojectile_core.a"
 
       - name: Commit
