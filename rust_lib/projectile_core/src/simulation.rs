@@ -134,7 +134,6 @@ unsafe fn tick_straight_or_arching_x4(
     let mut x  = _mm_set_ps(projs[3].x,  projs[2].x,  projs[1].x,  projs[0].x);
     let mut y  = _mm_set_ps(projs[3].y,  projs[2].y,  projs[1].y,  projs[0].y);
 
-    // LLVM emits vfmadd231ps on FMA3 CPUs (Haswell+)
     vx = _mm_add_ps(vx, _mm_mul_ps(ax, dt4));
     vy = _mm_add_ps(vy, _mm_mul_ps(ay, dt4));
     x  = _mm_add_ps(x,  _mm_mul_ps(vx, dt4));
@@ -183,9 +182,10 @@ unsafe fn tick_straight_or_arching_x4(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  2D scalar path
+//  2D scalar path (non-x86 or remainder after SSE2 batch)
 // ─────────────────────────────────────────────────────────────────────────────
 
+#[allow(dead_code)]
 fn tick_all_scalar(projs: &mut [NativeProjectile], dt: f32) -> i32 {
     let mut died = 0_i32;
     for p in projs.iter_mut() {
@@ -511,6 +511,7 @@ unsafe fn tick_straight_or_arching_x4_3d(
 //  3D scalar path
 // ─────────────────────────────────────────────────────────────────────────────
 
+#[allow(dead_code)]
 fn tick_all_3d_scalar(projs: &mut [NativeProjectile3D], dt: f32) -> i32 {
     let mut died = 0_i32;
     for p in projs.iter_mut() {
