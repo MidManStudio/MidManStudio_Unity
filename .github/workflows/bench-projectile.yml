@@ -1,0 +1,231 @@
+# .github/workflows/bench-projectile.yml
+#
+# Criterion benchmarks for projectile_core — simulation tick + collision.
+# Triggers: push to main touching rust_lib/, or manual dispatch.
+#
+# Outputs
+#   • GitHub Step Summary — markdown table (visible in Actions UI)
+#   • .github/bench-results/projectile-bench-results.json  (data, committed)
+#   • .github/bench-results/index.html                     (dashboard, committed)
+
+name: Projectile Core — Benchmarks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'rust_lib/projectile_core/**'
+  workflow_dispatch:
+    inputs:
+      note:
+        description: 'Context for this run (e.g. "after SSE2 collision patch")'
+        required: false
+        default: 'manual benchmark run'
+
+permissions:
+  contents: write
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Get Rust version
+        id: rustver
+        run: echo "ver=$(rustc --version)" >> $GITHUB_OUTPUT
+
+      - name: Cache cargo registry + build
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            rust_lib/projectile_core/target/
+          key: bench-projectile-${{ hashFiles('rust_lib/projectile_core/Cargo.toml') }}-${{ steps.rustver.outputs.ver }}
+          restore-keys: bench-projectile-
+
+      - name: Run Criterion benchmarks
+        working-directory: rust_lib/projectile_core
+        run: |
+          cargo bench 2>&1 | tee ../../bench-raw.txt
+        env:
+          CARGO_TERM_COLOR: always
+
+      - name: Parse results → JSON + HTML + Step Summary
+        env:
+          BUILD_NUM:    ${{ github.run_number }}
+          BRANCH:       ${{ github.ref_name }}
+          COMMIT:       ${{ github.sha }}
+          RUN_NOTE:     ${{ inputs.note || 'push trigger' }}
+          RUST_VER:     ${{ steps.rustver.outputs.ver }}
+        run: |
+          python3 - << 'PYEOF'
+          import re, json, os, sys, datetime
+
+          RE_ANSI = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+          # Matches: "group/name   time:  [low  mean  high]"
+          RE_TIME = re.compile(
+              r'^(.+?)\s{2,}time:\s+\[\s*([\d.]+)\s+(\S+)\s+([\d.]+)\s+(\S+)\s+([\d.]+)\s+(\S+)\s*\]',
+              re.MULTILINE,
+          )
+          # Matches: "thrpt:  [low  mean  high]"
+          RE_THRPT = re.compile(
+              r'thrpt:\s+\[\s*([\d.]+)\s+(\S+)\s+([\d.]+)\s+(\S+)\s+([\d.]+)\s+(\S+)\s*\]',
+              re.MULTILINE,
+          )
+
+          UNIT_NS = {'ns': 1, 'µs': 1_000, 'us': 1_000, 'ms': 1_000_000, 's': 1_000_000_000}
+
+          def to_ns(val, unit):
+              return float(val) * UNIT_NS.get(unit, 1)
+
+          def fmt_unit(val, unit):
+              return f"{float(val):.3f} {unit}"
+
+          try:
+              raw = open('bench-raw.txt', encoding='utf-8', errors='replace').read()
+          except FileNotFoundError:
+              print('bench-raw.txt not found', file=sys.stderr)
+              sys.exit(1)
+
+          text = RE_ANSI.sub('', raw)
+
+          # Collect timing + throughput lines in order
+          # Build list of (full_name, low, mean, high, low_ns, mean_ns, high_ns, thrpt_str)
+          results = []
+          lines = text.splitlines(keepends=True)
+          i = 0
+          for m in RE_TIME.finditer(text):
+              full_name = m.group(1).strip()
+              low  = fmt_unit(m.group(2), m.group(3))
+              mean = fmt_unit(m.group(4), m.group(5))
+              high = fmt_unit(m.group(6), m.group(7))
+              low_ns  = to_ns(m.group(2), m.group(3))
+              mean_ns = to_ns(m.group(4), m.group(5))
+              high_ns = to_ns(m.group(6), m.group(7))
+
+              # Look for throughput on the next ~3 lines after this match
+              rest = text[m.end():m.end() + 300]
+              tm = RE_THRPT.search(rest)
+              thrpt_str = ''
+              if tm:
+                  thrpt_str = fmt_unit(tm.group(4), tm.group(5))  # mean thrpt
+
+              results.append({
+                  'full_name': full_name,
+                  'low':  low,
+                  'mean': mean,
+                  'high': high,
+                  'low_ns':  low_ns,
+                  'mean_ns': mean_ns,
+                  'high_ns': high_ns,
+                  'thrpt': thrpt_str,
+              })
+
+          # Group by first path component  (e.g. "tick_2d/50000" → group "tick_2d")
+          groups_map = {}
+          groups_order = []
+          for r in results:
+              parts = r['full_name'].split('/')
+              group = parts[0] if len(parts) >= 2 else r['full_name']
+              name  = '/'.join(parts[1:]) if len(parts) >= 2 else r['full_name']
+              if group not in groups_map:
+                  groups_map[group] = []
+                  groups_order.append(group)
+              groups_map[group].append({
+                  'name':    name,
+                  'low':     r['low'],
+                  'mean':    r['mean'],
+                  'high':    r['high'],
+                  'low_ns':  r['low_ns'],
+                  'mean_ns': r['mean_ns'],
+                  'high_ns': r['high_ns'],
+                  'thrpt':   r['thrpt'],
+              })
+
+          groups = [{'name': g, 'benches': groups_map[g]} for g in groups_order]
+          total  = sum(len(g['benches']) for g in groups)
+
+          data = {
+              'build':        os.environ['BUILD_NUM'],
+              'branch':       os.environ['BRANCH'],
+              'commit':       os.environ['COMMIT'][:7],
+              'date':         datetime.datetime.utcnow().isoformat() + 'Z',
+              'rust_version': os.environ['RUST_VER'],
+              'note':         os.environ['RUN_NOTE'],
+              'groups':       groups,
+              'summary':      {'total': total, 'groups': len(groups)},
+          }
+
+          os.makedirs('.github/bench-results', exist_ok=True)
+
+          # ── Write JSON ─────────────────────────────────────────────────────
+          with open('.github/bench-results/projectile-bench-results.json', 'w') as f:
+              json.dump(data, f, indent=2)
+
+          # ── Inject data into HTML template ─────────────────────────────────
+          try:
+              tpl = open('.github/projectile-bench-template.html',
+                         encoding='utf-8').read()
+          except FileNotFoundError:
+              tpl = '<html><body><pre>__BENCH_DATA_JSON__</pre></body></html>'
+
+          html = tpl
+          html = html.replace('__BENCH_DATA_JSON__',    json.dumps(data))
+          html = html.replace('BUILD_NUM_PLACEHOLDER',  data['build'])
+          html = html.replace('BRANCH_PLACEHOLDER',     data['branch'])
+          html = html.replace('COMMIT_PLACEHOLDER',     data['commit'])
+          html = html.replace('DATE_PLACEHOLDER',       data['date'][:10])
+          html = html.replace('RUST_VERSION_PLACEHOLDER', data['rust_version'])
+
+          with open('.github/bench-results/index.html', 'w', encoding='utf-8') as f:
+              f.write(html)
+
+          # ── GitHub Step Summary ─────────────────────────────────────────────
+          summary_path = os.environ.get('GITHUB_STEP_SUMMARY', '/dev/null')
+          with open(summary_path, 'a') as s:
+              s.write(f'## ⚡ Projectile Core — Benchmark Results\n\n')
+              s.write(f'**Build:** #{data["build"]} &nbsp; ')
+              s.write(f'**Commit:** `{data["commit"]}` &nbsp; ')
+              s.write(f'**Rust:** `{data["rust_version"]}`\n\n')
+              if data['note']:
+                  s.write(f'> {data["note"]}\n\n')
+
+              for g in groups:
+                  s.write(f'### `{g["name"]}`\n\n')
+                  s.write('| Benchmark | Low | **Mean** | High | Throughput |\n')
+                  s.write('|---|---|---|---|---|\n')
+                  for b in g['benches']:
+                      thrpt = b['thrpt'] if b['thrpt'] else '—'
+                      s.write(f'| `{b["name"]}` | {b["low"]} | **{b["mean"]}** | {b["high"]} | {thrpt} |\n')
+                  s.write('\n')
+
+              s.write(f'*{total} benchmarks across {len(groups)} groups*\n')
+
+          print(f'Parsed {total} benchmarks across {len(groups)} groups.')
+          PYEOF
+
+      - name: Commit results
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .github/bench-results/
+          git diff --staged --quiet && echo "no changes to commit" || \
+            git commit -m "ci: update projectile bench results — build #${{ github.run_number }} [skip ci]"
+          git push
+
+      - name: Upload raw criterion report
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-criterion-${{ github.run_number }}
+          path: |
+            bench-raw.txt
+            rust_lib/projectile_core/target/criterion/
+          retention-days: 30
