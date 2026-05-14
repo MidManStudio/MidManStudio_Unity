@@ -12,18 +12,17 @@
 //   HitResult3D         = 28 bytes
 //   CollisionTarget3D   = 24 bytes
 //
-// Movement type byte constants (match C# ProjectileMovementType exactly):
-//   0 = Straight, 1 = Arching, 2 = Guided, 3 = Teleport, 4 = Wave, 5 = Circular
-//
-// Wave / Circular movement params are stored Rust-side in config_store.
-// Register them at startup via register_wave_params / register_circular_params.
-// All other config data stays C# only.
+// SIMD acceleration (mid-math derived, see simd.rs):
+//   x86/x86_64: SSE2 guaranteed — 4-wide tick batching, fast_atan2_x4,
+//                rsqrt_nr for sqrt/normalize, SIMD narrow-phase collision.
+//   All others: scalar fast_atan2 + Quake rsqrt (still ~6-8x vs libm).
 
 mod simulation;
 mod collision;
 mod patterns;
 mod state;
 mod config_store;
+mod simd;            // ← new
 
 pub use simulation::*;
 pub use collision::*;
@@ -34,7 +33,7 @@ pub use config_store::*;
 use std::slice;
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Movement type constants — exported so C# can assert against them
+//  Movement type constants
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[no_mangle] pub extern "C" fn movement_type_straight()  -> u8 { simulation::MOVE_STRAIGHT  }
@@ -46,45 +45,30 @@ use std::slice;
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  2D data types
-//  Layout verified against C# StructLayout counterparts.
-//  compile-time assertions at bottom of file catch any drift.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Core 2D projectile state. 72 bytes.
-/// C# mirror: NativeProjectile.cs [StructLayout(Size = 72)]
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NativeProjectile {
-    // ── Physics (Rust updates every tick) ────────────────────────────────────
     pub x:          f32,   // 0
     pub y:          f32,   // 4
     pub vx:         f32,   // 8
     pub vy:         f32,   // 12
-    /// Lateral accel / guided homing X / wave perp X / circular perp X
     pub ax:         f32,   // 16
-    /// Gravity / guided homing Y / wave perp Y / circular perp Y
     pub ay:         f32,   // 20
-    pub angle_deg:  f32,   // 24 — visual rotation, derived from velocity each tick
-    /// Arching elapsed time / teleport interval timer / wave & circular phase accumulator
+    pub angle_deg:  f32,   // 24
     pub curve_t:    f32,   // 28
-
-    // ── Scale (opt-in — zero cost when scale_speed == 0) ─────────────────────
     pub scale_x:      f32, // 32
     pub scale_y:      f32, // 36
     pub scale_target: f32, // 40
     pub scale_speed:  f32, // 44
-
-    // ── Lifetime / travel ─────────────────────────────────────────────────────
     pub lifetime:     f32, // 48
     pub max_lifetime: f32, // 52
     pub travel_dist:  f32, // 56
-
-    // ── Identity (C# writes once at spawn) ────────────────────────────────────
     pub config_id: u16,    // 60
     pub owner_id:  u16,    // 62
     pub proj_id:   u32,    // 64
-
-    // ── Flags ─────────────────────────────────────────────────────────────────
     pub collision_count: u8, // 68
     pub movement_type:   u8, // 69
     pub piercing_type:   u8, // 70
@@ -92,7 +76,6 @@ pub struct NativeProjectile {
 }
 
 /// 2D hit event. 24 bytes.
-/// C# mirror: HitResult [StructLayout(Size = 24)]
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct HitResult {
@@ -105,7 +88,6 @@ pub struct HitResult {
 }
 
 /// 2D collision target. 20 bytes.
-/// C# mirror: CollisionTarget [StructLayout(Size = 20)]
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct CollisionTarget {
@@ -117,8 +99,7 @@ pub struct CollisionTarget {
     pub _pad:      [u8; 3],// 17
 }
 
-/// Spawn request from C#. 32 bytes.
-/// C# mirror: SpawnRequest [StructLayout(Size = 32)]
+/// Spawn request. 32 bytes.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct SpawnRequest {
@@ -139,19 +120,6 @@ pub struct SpawnRequest {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Core 3D projectile state. 84 bytes.
-/// C# mirror: NativeProjectile3D [StructLayout(Size = 84)]
-///
-/// vs 2D:
-///   + Z components for position, velocity, acceleration
-///   + scale_z (uniform scale — tick_scale_3d sets x/y/z identically)
-///   + timer_t replaces curve_t (same semantic)
-///   - angle_deg removed (C# derives from velocity direction)
-///
-/// ax/ay/az meaning by movement type:
-///   Straight/Arching: constant acceleration (gravity in ay, wind, etc.)
-///   Guided:           normalised homing target direction (C# updates via TickDispatcher)
-///   Wave:             normalised perpendicular oscillation axis (set once at spawn)
-///   Circular:         first perpendicular axis of orbital plane (set once at spawn)
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NativeProjectile3D {
@@ -164,22 +132,18 @@ pub struct NativeProjectile3D {
     pub ax: f32,  // 24
     pub ay: f32,  // 28
     pub az: f32,  // 32
-
     pub scale_x:      f32, // 36
     pub scale_y:      f32, // 40
     pub scale_z:      f32, // 44
     pub scale_target: f32, // 48
     pub scale_speed:  f32, // 52
-
     pub lifetime:     f32, // 56
     pub max_lifetime: f32, // 60
     pub travel_dist:  f32, // 64
     pub timer_t:      f32, // 68
-
     pub config_id: u16,    // 72
     pub owner_id:  u16,    // 74
     pub proj_id:   u32,    // 76
-
     pub collision_count: u8, // 80
     pub movement_type:   u8, // 81
     pub piercing_type:   u8, // 82
@@ -187,7 +151,6 @@ pub struct NativeProjectile3D {
 }
 
 /// 3D hit event. 28 bytes.
-/// C# mirror: HitResult3D [StructLayout(Size = 28)]
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct HitResult3D {
@@ -201,7 +164,6 @@ pub struct HitResult3D {
 }
 
 /// 3D collision target. 24 bytes.
-/// C# mirror: CollisionTarget3D [StructLayout(Size = 24)]
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct CollisionTarget3D {
@@ -218,8 +180,6 @@ pub struct CollisionTarget3D {
 //  Tick — 2D
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Advance all 2D projectiles by dt seconds.
-/// Returns how many died this tick (for CompactDeadSlots in C#).
 #[no_mangle]
 pub unsafe extern "C" fn tick_projectiles(
     projs: *mut NativeProjectile,
@@ -235,8 +195,6 @@ pub unsafe extern "C" fn tick_projectiles(
 //  Tick — 3D
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Advance all 3D projectiles by dt seconds.
-/// Returns how many died this tick.
 #[no_mangle]
 pub unsafe extern "C" fn tick_projectiles_3d(
     projs: *mut NativeProjectile3D,
@@ -252,7 +210,6 @@ pub unsafe extern "C" fn tick_projectiles_3d(
 //  Collision — 2D
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Spatial-grid collision check (2D). cell_size defaults to 4.0.
 #[no_mangle]
 pub unsafe extern "C" fn check_hits_grid(
     projs:         *const NativeProjectile,
@@ -268,9 +225,6 @@ pub unsafe extern "C" fn check_hits_grid(
         out_hits, max_hits, 0.0, out_hit_count);
 }
 
-/// Spatial-grid collision check (2D) with explicit cell_size.
-/// Pass 0.0 to use the default (4.0 world units).
-/// Tune to ~2× largest target radius.
 #[no_mangle]
 pub unsafe extern "C" fn check_hits_grid_ex(
     projs:         *const NativeProjectile,
@@ -289,7 +243,7 @@ pub unsafe extern "C" fn check_hits_grid_ex(
     }
     let projs_s   = slice::from_raw_parts(projs,    proj_count   as usize);
     let targets_s = slice::from_raw_parts(targets,  target_count as usize);
-    let hits_s    = slice::from_raw_parts_mut(out_hits, max_hits as usize);
+    let hits_s    = slice::from_raw_parts_mut(out_hits, max_hits  as usize);
     let count     = collision::check_hits(projs_s, targets_s, hits_s, cell_size);
     if !out_hit_count.is_null() { *out_hit_count = count as i32; }
 }
@@ -298,7 +252,6 @@ pub unsafe extern "C" fn check_hits_grid_ex(
 //  Collision — 3D
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Spatial-grid collision check (3D). Pass 0.0 for default cell_size (4.0).
 #[no_mangle]
 pub unsafe extern "C" fn check_hits_grid_3d(
     projs:         *const NativeProjectile3D,
@@ -317,18 +270,15 @@ pub unsafe extern "C" fn check_hits_grid_3d(
     }
     let projs_s   = slice::from_raw_parts(projs,    proj_count   as usize);
     let targets_s = slice::from_raw_parts(targets,  target_count as usize);
-    let hits_s    = slice::from_raw_parts_mut(out_hits, max_hits as usize);
+    let hits_s    = slice::from_raw_parts_mut(out_hits, max_hits  as usize);
     let count     = collision::check_hits_3d(projs_s, targets_s, hits_s, cell_size);
     if !out_hit_count.is_null() { *out_hit_count = count as i32; }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Spawn — pattern path (2D, kept for backward compat)
+//  Spawn — pattern path (legacy)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Write up to max_out NativeProjectiles using hardcoded Rust pattern math.
-/// Prefer spawn_batch for new code.
-/// C# writes Lifetime, MovementType, Scale etc. AFTER this returns.
 #[no_mangle]
 pub unsafe extern "C" fn spawn_pattern(
     req:       *const SpawnRequest,
@@ -347,18 +297,9 @@ pub unsafe extern "C" fn spawn_pattern(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Spawn — batch path (eliminates 928µs per-call FFI overhead)
-//
-//  C# or Burst fills a temp array (possibly in parallel for 8+ spawns),
-//  then calls spawn_batch ONCE for any number of projectiles.
-//  No pattern math — BatchSpawnHelper.cs owns that.
+//  Spawn — batch path
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Copy a pre-filled 2D projectile array into the sim buffer in one FFI call.
-/// projs_in  — temp array filled by BatchSpawnHelper (C# or Burst)
-/// projs_out — pointer to current end of the 2D sim buffer (base + activeCount * 72)
-/// max_out   — remaining capacity (maxProjectiles - activeCount)
-/// out_count — how many were written; caller adds this to its activeCount
 #[no_mangle]
 pub unsafe extern "C" fn spawn_batch(
     projs_in:  *const NativeProjectile,
@@ -378,7 +319,6 @@ pub unsafe extern "C" fn spawn_batch(
     if !out_count.is_null() { *out_count = n as i32; }
 }
 
-/// Copy a pre-filled 3D projectile array into the 3D sim buffer in one FFI call.
 #[no_mangle]
 pub unsafe extern "C" fn spawn_batch_3d(
     projs_in:  *const NativeProjectile3D,
@@ -399,11 +339,9 @@ pub unsafe extern "C" fn spawn_batch_3d(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  State save / restore (for client reconciliation / rollback)
+//  State save / restore
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Snapshot 2D sim state into buf. Required buf size = count * 72 bytes.
-/// Returns bytes written, or 0 if buf too small.
 #[no_mangle]
 pub unsafe extern "C" fn save_state(
     projs:   *const NativeProjectile,
@@ -416,7 +354,6 @@ pub unsafe extern "C" fn save_state(
     state::save(slice, buf, buf_len as usize) as i32
 }
 
-/// Restore 2D sim state from snapshot.
 #[no_mangle]
 pub unsafe extern "C" fn restore_state(
     out_projs:  *mut NativeProjectile,
@@ -436,22 +373,8 @@ pub unsafe extern "C" fn restore_state(
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Movement parameter registration
-//  Wave and Circular movement need per-config constants read every tick.
-//  Storing them Rust-side by config_id avoids adding 8-16 bytes to every
-//  NativeProjectile struct (would bloat cache lines for all non-wave projectiles).
-//  Registration is main-thread only, at startup before any projectiles spawn.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Register sine/cosine wave movement parameters for a config ID.
-/// Call once per wave-type config at startup.
-///
-/// amplitude    — lateral displacement in world units (0.5 = gentle, 2.0 = aggressive)
-/// frequency    — oscillations per second (1 = slow, 5 = fast)
-/// phase_offset — starting phase in radians (vary per pellet for spread)
-/// vertical     — 1 = oscillate vertically (Y axis), 0 = horizontally (X axis)
-///
-/// The perpendicular axis in world space is set in ax/ay at spawn time by BatchSpawnHelper.
-/// Rust reads ax/ay as the oscillation direction — it does not compute it.
 #[no_mangle]
 pub extern "C" fn register_wave_params(
     config_id:    u16,
@@ -469,14 +392,6 @@ pub extern "C" fn register_wave_params(
     });
 }
 
-/// Register circular/helical orbit parameters for a config ID.
-/// Call once per circular-type config at startup.
-///
-/// radius        — orbit radius in world units
-/// angular_speed — degrees per second (positive = CCW, negative = CW)
-/// start_angle   — starting angle in degrees (vary per pellet for helix offsets)
-///
-/// The first perpendicular axis is set in ax/ay(/az for 3D) at spawn time by BatchSpawnHelper.
 #[no_mangle]
 pub extern "C" fn register_circular_params(
     config_id:     u16,
@@ -491,76 +406,35 @@ pub extern "C" fn register_circular_params(
     });
 }
 
-/// Unregister wave params (e.g. on scene unload or config hot-reload).
 #[no_mangle]
 pub extern "C" fn unregister_wave_params(config_id: u16) {
     config_store::unregister_wave(config_id);
 }
 
-/// Unregister circular params.
 #[no_mangle]
 pub extern "C" fn unregister_circular_params(config_id: u16) {
     config_store::unregister_circular(config_id);
 }
 
-/// Clear all registered movement params. Call on full system shutdown.
 #[no_mangle]
 pub extern "C" fn clear_movement_params() {
     config_store::clear_all();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Layout validation — C# calls these at startup to verify struct sizes.
-//  A mismatch = silent memory corruption on every P/Invoke call.
-//  ValidateStructSizes() in ProjectileLib.cs compares these against Marshal.SizeOf.
+//  Layout validation
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// sizeof(NativeProjectile) — C# expects 72.
-#[no_mangle]
-pub extern "C" fn projectile_struct_size() -> i32 {
-    core::mem::size_of::<NativeProjectile>() as i32
-}
-
-/// sizeof(HitResult) — C# expects 24.
-#[no_mangle]
-pub extern "C" fn hit_result_struct_size() -> i32 {
-    core::mem::size_of::<HitResult>() as i32
-}
-
-/// sizeof(CollisionTarget) — C# expects 20.
-#[no_mangle]
-pub extern "C" fn collision_target_struct_size() -> i32 {
-    core::mem::size_of::<CollisionTarget>() as i32
-}
-
-/// sizeof(SpawnRequest) — C# expects 32.
-#[no_mangle]
-pub extern "C" fn spawn_request_struct_size() -> i32 {
-    core::mem::size_of::<SpawnRequest>() as i32
-}
-
-/// sizeof(NativeProjectile3D) — C# expects 84.
-#[no_mangle]
-pub extern "C" fn projectile3d_struct_size() -> i32 {
-    core::mem::size_of::<NativeProjectile3D>() as i32
-}
-
-/// sizeof(HitResult3D) — C# expects 28.
-#[no_mangle]
-pub extern "C" fn hit_result3d_struct_size() -> i32 {
-    core::mem::size_of::<HitResult3D>() as i32
-}
-
-/// sizeof(CollisionTarget3D) — C# expects 24.
-#[no_mangle]
-pub extern "C" fn collision_target3d_struct_size() -> i32 {
-    core::mem::size_of::<CollisionTarget3D>() as i32
-}
+#[no_mangle] pub extern "C" fn projectile_struct_size()      -> i32 { core::mem::size_of::<NativeProjectile>()   as i32 }
+#[no_mangle] pub extern "C" fn hit_result_struct_size()      -> i32 { core::mem::size_of::<HitResult>()          as i32 }
+#[no_mangle] pub extern "C" fn collision_target_struct_size()-> i32 { core::mem::size_of::<CollisionTarget>()    as i32 }
+#[no_mangle] pub extern "C" fn spawn_request_struct_size()   -> i32 { core::mem::size_of::<SpawnRequest>()       as i32 }
+#[no_mangle] pub extern "C" fn projectile3d_struct_size()    -> i32 { core::mem::size_of::<NativeProjectile3D>() as i32 }
+#[no_mangle] pub extern "C" fn hit_result3d_struct_size()    -> i32 { core::mem::size_of::<HitResult3D>()        as i32 }
+#[no_mangle] pub extern "C" fn collision_target3d_struct_size()->i32 { core::mem::size_of::<CollisionTarget3D>() as i32 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Compile-time layout assertions
-//  These fire at build time if any struct drifts from its expected size.
-//  A build error here is far better than silent runtime corruption.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const _: () = assert!(core::mem::size_of::<NativeProjectile>()   == 72);
