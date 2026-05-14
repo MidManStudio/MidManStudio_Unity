@@ -138,8 +138,8 @@ jobs:
       - name: Build staticlib for Unity WebGL
         working-directory: rust_lib/projectile_core
         run: |
-          # 1. EMCC_SKIP_WASM_OPT=1 prevents the 'Unknown option --enable-bulk-memory-opt' toolchain crash.
-          # 2. --lib ensures we only build the code, ignoring criterion and benchmarks.
+          # 1. EMCC_SKIP_WASM_OPT skips the crashing Binaryen pass (Unity will do this anyway).
+          # 2. --lib ignores the sim_bench/criterion files for this target.
           cargo build \
             --lib \
             --profile release-wasm \
