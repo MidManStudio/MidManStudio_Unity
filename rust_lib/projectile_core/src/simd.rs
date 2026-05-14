@@ -43,12 +43,16 @@ pub(crate) mod sse2 {
 
     // ── Compile-time constant builder ─────────────────────────────────────────
     // Source: mid-math/src/sse2.rs  m128_from_f32x4
-    // Used for polynomial coefficients and sign masks without runtime _mm_set_ps.
+    //
+    // NOTE: NOT marked `const fn` — SIMD types (e.g. __m128) are not
+    // const-evaluable on stable Rust.  The function is always inlined
+    // at the call site via #[inline(always)], which is equivalent for
+    // our use-case (non-const call sites only).
 
-    /// Build a `__m128` from `[f32; 4]` at compile time.
+    /// Build a `__m128` from `[f32; 4]`.
     /// Lane layout: a[0] = lane0, a[3] = lane3.
     #[inline(always)]
-    pub const fn m128_from_f32x4(a: [f32; 4]) -> __m128 {
+    pub fn m128_from_f32x4(a: [f32; 4]) -> __m128 {
         // SAFETY: [f32;4] and __m128 are both 16 bytes; every f32 bit pattern is valid.
         unsafe { core::mem::transmute(a) }
     }
@@ -139,16 +143,19 @@ pub(crate) mod sse2 {
 
         // Horner-form polynomial: atan(a) for a ∈ [0,1]
         // Source pattern: mid-math acos_approx structure
-        let s  = _mm_mul_ps(a, a);                          // a²
+        // NOTE: m128_from_f32x4 is a regular fn (not const fn); SIMD types
+        //       are not const-evaluable on stable Rust.  The compiler inlines
+        //       the transmute and generates identical code.
+        let s  = _mm_mul_ps(a, a);                              // a²
         let c0 = m128_from_f32x4([-0.0464964749_f32; 4]);
         let c1 = m128_from_f32x4([ 0.15931422_f32;  4]);
         let c2 = m128_from_f32x4([-0.327622764_f32; 4]);
 
         // ((c0·s + c1)·s + c2)·s·a + a
-        let t  = _mm_add_ps(_mm_mul_ps(c0, s), c1);         // c0·s + c1
-        let t  = _mm_add_ps(_mm_mul_ps(t,  s), c2);         // t·s + c2
-        let t  = _mm_mul_ps(_mm_mul_ps(t,  s), a);          // t·s·a
-        let poly = _mm_add_ps(t, a);                         // + a
+        let t  = _mm_add_ps(_mm_mul_ps(c0, s), c1);             // c0·s + c1
+        let t  = _mm_add_ps(_mm_mul_ps(t,  s), c2);             // t·s + c2
+        let t  = _mm_mul_ps(_mm_mul_ps(t,  s), a);              // t·s·a
+        let poly = _mm_add_ps(t, a);                             // + a
 
         // Reflect: if |y| > |x|, result = PI/2 - poly
         let ay_gt_ax = _mm_cmpgt_ps(ay, ax);
@@ -213,12 +220,14 @@ pub fn fast_sqrt(x: f32) -> f32 {
 }
 
 /// Fast 2D vector length: sqrt(dx² + dy²).
+#[allow(dead_code)]
 #[inline(always)]
 pub fn fast_length_2d(dx: f32, dy: f32) -> f32 {
     fast_sqrt(dx * dx + dy * dy)
 }
 
 /// Fast 3D vector length: sqrt(dx² + dy² + dz²).
+#[allow(dead_code)]
 #[inline(always)]
 pub fn fast_length_3d(dx: f32, dy: f32, dz: f32) -> f32 {
     fast_sqrt(dx * dx + dy * dy + dz * dz)
@@ -251,4 +260,4 @@ pub fn fast_atan2(y: f32, x: f32) -> f32 {
     let r = if ay > ax     { FRAC_PI_2 - r } else { r };
     let r = if x  < 0.0   { PI - r }        else { r };
     if y < 0.0 { -r } else { r }
-}
+            }
