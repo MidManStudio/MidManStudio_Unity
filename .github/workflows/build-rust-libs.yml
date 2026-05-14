@@ -123,6 +123,23 @@ jobs:
           retention-days: 1
 
   # ── WebGL (wasm32-unknown-emscripten) ────────────────────────────────────────
+  #
+  # FIX: Use `cargo rustc --crate-type staticlib` instead of `cargo build --lib`.
+  #
+  # Why the old approach failed:
+  #   Cargo.toml declares crate-type = ["cdylib", "staticlib"].  When cargo build
+  #   sees cdylib on wasm32-unknown-emscripten it asks emcc to link a SIDE_MODULE,
+  #   which unconditionally runs wasm-opt.  The wasm-opt bundled with emsdk 3.1.59
+  #   does not recognise --enable-bulk-memory-opt, so the link step exits 1.
+  #   EMCC_SKIP_WASM_OPT=1 is not honoured for side-module link steps in that SDK
+  #   version.
+  #
+  # Why the fix works:
+  #   --crate-type staticlib forces only the staticlib output.  A staticlib is a
+  #   plain .a archive of LLVM bitcode / .o files assembled by llvm-ar — no emcc
+  #   link step, no wasm-opt invocation.  Unity WebGL only needs the .a anyway;
+  #   it links everything together at the IL2CPP / emcc stage itself.
+  # ─────────────────────────────────────────────────────────────────────────────
   build-webgl:
     runs-on: ubuntu-latest
     steps:
@@ -138,15 +155,12 @@ jobs:
       - name: Build staticlib for Unity WebGL
         working-directory: rust_lib/projectile_core
         run: |
-          # 1. EMCC_SKIP_WASM_OPT skips the crashing Binaryen pass (Unity will do this anyway).
-          # 2. --lib ignores the sim_bench/criterion files for this target.
-          cargo build \
+          cargo rustc \
             --lib \
             --profile release-wasm \
             --target wasm32-unknown-emscripten \
-            --verbose
+            --crate-type staticlib
         env:
-          EMCC_SKIP_WASM_OPT: 1
           NODE_OPTIONS: "--max-old-space-size=8192"
       - uses: actions/upload-artifact@v4
         with:
