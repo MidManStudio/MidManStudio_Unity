@@ -1,8 +1,8 @@
 {
-  "build": "1",
+  "build": "2",
   "branch": "master",
-  "commit": "c41c210",
-  "date": "2026-05-14T15:52:04.758165Z",
+  "commit": "a14b2a7",
+  "date": "2026-05-14T15:54:12.747099Z",
   "rust_version": "rustc 1.95.0 (59807616e 2026-04-14)",
   "note": "manual benchmark run",
   "groups": [],
