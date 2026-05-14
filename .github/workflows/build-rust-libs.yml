@@ -138,14 +138,15 @@ jobs:
       - name: Build staticlib for Unity WebGL
         working-directory: rust_lib/projectile_core
         run: |
-          # Use --lib to ignore criterion/benchmarks on WASM
-          # Increase memory for LTO to prevent silent crashes
-          RUST_BACKTRACE=1 cargo build \
+          # 1. EMCC_SKIP_WASM_OPT=1 prevents the 'Unknown option --enable-bulk-memory-opt' toolchain crash.
+          # 2. --lib ensures we only build the code, ignoring criterion and benchmarks.
+          cargo build \
             --lib \
             --profile release-wasm \
             --target wasm32-unknown-emscripten \
             --verbose
         env:
+          EMCC_SKIP_WASM_OPT: 1
           NODE_OPTIONS: "--max-old-space-size=8192"
       - uses: actions/upload-artifact@v4
         with:
