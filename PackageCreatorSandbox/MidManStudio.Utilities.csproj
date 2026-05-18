@@ -238,6 +238,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/UIState/Generated/LobbyUIState.cs">
       <Link>Runtime/UIState/Generated/LobbyUIState.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/UIState/Generated/ProjLobbyUIState.cs">
+      <Link>Runtime/UIState/Generated/ProjLobbyUIState.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Ui/MID_Button.cs">
       <Link>Runtime/Ui/MID_Button.cs</Link>
     </Compile>

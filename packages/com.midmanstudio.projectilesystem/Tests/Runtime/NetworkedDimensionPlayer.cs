@@ -75,8 +75,9 @@ namespace TestGame
         {
             _rb = GetComponent<Rigidbody>();
             ApplyRigidbodyConstraints(Dimension.TwoD);
+           
         }
-
+      
         #endregion
 
         #region NGO Lifecycle
@@ -84,7 +85,11 @@ namespace TestGame
         public override void OnNetworkSpawn()
         {
             base.OnNetworkSpawn();
-
+            if (DimensionCameraController.HasInstance)
+            {
+                _vcam2D = DimensionCameraController.Instance._2d_Cam;
+                _vcam3D = DimensionCameraController.Instance._3d_Cam;
+            }
             // Only the owner drives cameras — deactivate on all others
             ActivateVCam(_vcam2D, IsOwner);   // start in 2D
             ActivateVCam(_vcam3D, false);
@@ -174,12 +179,14 @@ namespace TestGame
 
         private void HandleFire()
         {
-            if (!Input.GetMouseButton(0))  return;
-            if (Time.time < _nextFireTime) return;
-            if (_shotPoint == null)        return;
+            if (Input.GetKeyDown(KeyCode.F))
+            {
+                if (Time.time < _nextFireTime) return;
+                if (_shotPoint == null) return;
 
-            _nextFireTime = Time.time + 1f / Mathf.Max(_fireRate, 0.01f);
-            Fire();
+                _nextFireTime = Time.time + 1f / Mathf.Max(_fireRate, 0.01f);
+                Fire();
+            }
         }
 
         private void Fire()
@@ -311,6 +318,7 @@ namespace TestGame
         private static void ActivateVCam(CinemachineVirtualCamera vcam, bool active)
         {
             if (vcam != null) vcam.gameObject.SetActive(active);
+         
         }
 
         private void ApplyTint(Color col)

@@ -132,7 +132,7 @@ namespace TestGame
             if (_projRenderer3D != null) _projRenderer3D.enabled = (target == Dimension.ThreeD);
 
             // Notify player controller
-            FindFirstObjectByType<DimensionPlayer>()?.OnDimensionChanged(target);
+            FindFirstObjectByType<NetworkedDimensionPlayer>()?.OnDimensionChanged(target);
         }
 
         private void Apply2D(bool instant)

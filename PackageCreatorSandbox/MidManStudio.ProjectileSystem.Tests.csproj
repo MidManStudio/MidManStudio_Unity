@@ -61,9 +61,6 @@
     <Analyzer Include="/Applications/Unity/Hub/Editor/2022.3.13f1/Unity.app/Contents/Tools/Unity.SourceGenerators/Unity.Properties.SourceGenerator.dll" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/DimensionPlayer.cs">
-      <Link>Tests/Runtime/DimensionPlayer.cs</Link>
-    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/DimensionCameraController.cs">
       <Link>Tests/Runtime/DimensionCameraController.cs</Link>
     </Compile>

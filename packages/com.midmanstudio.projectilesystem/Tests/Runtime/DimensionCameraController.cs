@@ -14,11 +14,12 @@
 using UnityEngine;
 using Cinemachine;
 using MidManStudio.Core.Logging;
+using MidManStudio.Core.Singleton;
 
 namespace TestGame
 {
     [RequireComponent(typeof(Camera))]
-    public class DimensionCameraController : MonoBehaviour
+    public class DimensionCameraController : Singleton<DimensionCameraController>
     {
         #region Inspector
 
@@ -41,6 +42,9 @@ namespace TestGame
         [Header("Debug")]
         [SerializeField] private MID_LogLevel _logLevel = MID_LogLevel.Info;
 
+
+        public CinemachineVirtualCamera _2d_Cam;
+        public CinemachineVirtualCamera _3d_Cam;
         #endregion
 
         #region Private State
@@ -53,7 +57,7 @@ namespace TestGame
 
         #region Unity Lifecycle
 
-        private void Awake()
+        private new void Awake()
         {
             if (_mainCamera == null) _mainCamera = GetComponent<Camera>();
             if (_brain      == null) _brain       = GetComponent<CinemachineBrain>();

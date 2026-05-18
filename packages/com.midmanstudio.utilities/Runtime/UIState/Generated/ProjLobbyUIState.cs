@@ -2,24 +2,26 @@
 // DO NOT edit manually.
 // Regenerate via: MidManStudio > Utilities > UI State Context Generator
 // Generated: 2026-05-18 17:40:57
-// Context: Lobby  Package: com.mygame
+// Context: ProjLobby  Package: com.test.proj
 
 using System;
 
 namespace MidManStudio.Core.UIState
 {
     /// <summary>
-    /// UI states for the Lobby context.
+    /// UI states for the ProjLobby context.
     /// [Flags] — combine with | for multi-state visibility.
     /// AUTO-GENERATED — do not edit.
     /// </summary>
     [Flags]
-    public enum LobbyUIState
+    public enum ProjLobbyUIState
     {
         None = 0,
 
-        Lobby = 1, // bit 0
-        Play = 2, // bit 1
-        Loadout = 4, // bit 2
+        Browse = 1, // bit 0
+        NetworkCheck = 2, // bit 1
+        InLobby = 4, // bit 2
+        Loading = 8, // bit 3
+        Game = 16, // bit 4
     }
 }
