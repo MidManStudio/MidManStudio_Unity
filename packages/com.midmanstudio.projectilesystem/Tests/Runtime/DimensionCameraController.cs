@@ -1,9 +1,12 @@
-// packages/com.midmanstudio.projectilesystem/Tests/Runtime/DimensionCameraController.cs
-// REWRITTEN:
-//   - No longer sets camera position directly (Cinemachine handles it via vcams)
-//   - Exposes RegisterPlayerCams() called by NetworkedDimensionPlayer.OnNetworkSpawn()
-//   - Activates correct vcam when dimension changes
-//   - Handles orthographic ↔ perspective switch for Cinemachine Brain
+// DimensionCameraController.cs
+//
+// FIXES vs original:
+//   + Added static Instance property so NetworkedDimensionPlayer.OnNetworkSpawn
+//     can call DimensionCameraController.Instance.RegisterPlayerCams() without a
+//     compile error (original had no Instance — was not a Singleton).
+//   + Subscription to DimensionManager.OnDimensionChanged now uses HasInstance
+//     guard to avoid null-ref on scene teardown.
+//   + ApplyProjectionImmediate called in Start uses current Dimension, not hardcoded TwoD.
 
 using UnityEngine;
 using Cinemachine;
@@ -14,6 +17,9 @@ namespace TestGame
     [RequireComponent(typeof(Camera))]
     public class DimensionCameraController : MonoBehaviour
     {
+        // Simple static instance — one main camera, one controller.
+        public static DimensionCameraController Instance { get; private set; }
+
         #region Inspector
 
         [Header("References (auto-found if null)")]
@@ -21,13 +27,13 @@ namespace TestGame
         [SerializeField] private CinemachineBrain _brain;
 
         [Header("2D Camera Settings")]
-        [SerializeField] private float _orthoSize        = 8f;
-        [SerializeField] private float _blendDuration2D  = 0.45f;
-        [SerializeField] private float _orthoLerpSpeed   = 6f;
+        [SerializeField] private float _orthoSize       = 8f;
+        [SerializeField] private float _blendDuration2D = 0.45f;
+        [SerializeField] private float _orthoLerpSpeed  = 6f;
 
         [Header("3D Camera Settings")]
-        [SerializeField] private float _fieldOfView      = 60f;
-        [SerializeField] private float _blendDuration3D  = 0.45f;
+        [SerializeField] private float _fieldOfView     = 60f;
+        [SerializeField] private float _blendDuration3D = 0.45f;
 
         [Header("Debug")]
         [SerializeField] private MID_LogLevel _logLevel = MID_LogLevel.Info;
@@ -36,7 +42,6 @@ namespace TestGame
 
         #region State
 
-        // Set by NetworkedDimensionPlayer.OnNetworkSpawn (owner only)
         private CinemachineVirtualCamera _registeredVcam2D;
         private CinemachineVirtualCamera _registeredVcam3D;
 
@@ -50,6 +55,14 @@ namespace TestGame
 
         private void Awake()
         {
+            // Enforce single instance — if a second exists, remove it
+            if (Instance != null && Instance != this)
+            {
+                Destroy(this);
+                return;
+            }
+            Instance = this;
+
             if (_mainCamera == null) _mainCamera = GetComponent<Camera>();
             if (_brain      == null) _brain       = GetComponent<CinemachineBrain>();
             _targetOrthoSize = _orthoSize;
@@ -57,25 +70,27 @@ namespace TestGame
 
         private void OnEnable()
         {
-            if (DimensionManager.Instance != null)
+            if (DimensionManager.HasInstance)
                 DimensionManager.Instance.OnDimensionChanged += HandleDimensionChanged;
         }
 
         private void OnDisable()
         {
-            if (DimensionManager.Instance != null)
+            if (DimensionManager.HasInstance)
                 DimensionManager.Instance.OnDimensionChanged -= HandleDimensionChanged;
         }
 
         private void Start()
         {
-            // Apply projection for the start dimension without a lerp
-            ApplyProjectionImmediate(Dimension.TwoD);
+            // Apply projection for the current start dimension without Cinemachine blending
+            Dimension start = DimensionManager.HasInstance
+                ? DimensionManager.Instance.Current
+                : Dimension.TwoD;
+            ApplyProjectionImmediate(start);
         }
 
         private void Update()
         {
-            // Smooth orthographic size transitions in 2D mode
             if (!_lerpingOrtho || _mainCamera == null || !_mainCamera.orthographic) return;
 
             _mainCamera.orthographicSize = Mathf.Lerp(
@@ -90,19 +105,18 @@ namespace TestGame
             }
         }
 
+        private void OnDestroy()
+        {
+            if (Instance == this) Instance = null;
+        }
+
         #endregion
 
         #region Public API — Player Registration
 
         /// <summary>
         /// Called by NetworkedDimensionPlayer.OnNetworkSpawn() for the local owner.
-        /// Registers the player's Cinemachine virtual cameras so the controller can
-        /// activate the right one when the dimension changes.
-        ///
-        /// vcam2D: overhead / side-scroll cam (Follow = player root).
-        /// vcam3D: first-person cam on HeadPivot — Body/Aim = Do Nothing.
-        ///         Follow and LookAt do not need to be set (inherits parent transform).
-        /// followTarget2D: player root transform (for vcam2D Follow/LookAt).
+        /// Wires the player's virtual cameras and activates the correct one immediately.
         /// </summary>
         public void RegisterPlayerCams(
             CinemachineVirtualCamera vcam2D,
@@ -112,14 +126,12 @@ namespace TestGame
             _registeredVcam2D = vcam2D;
             _registeredVcam3D = vcam3D;
 
-            // Wire 2D cam follow — the 3D FPS cam inherits HeadPivot and needs no target
             if (_registeredVcam2D != null && followTarget2D != null)
             {
                 _registeredVcam2D.Follow = followTarget2D;
                 _registeredVcam2D.LookAt = followTarget2D;
             }
 
-            // Activate the correct cam for the current dimension immediately
             RefreshVcamState();
 
             MID_Logger.LogInfo(_logLevel,
@@ -130,11 +142,14 @@ namespace TestGame
         /// <summary>Called by NetworkedDimensionPlayer.OnNetworkDespawn().</summary>
         public void UnregisterPlayerCams()
         {
+            // Deactivate before clearing so Cinemachine doesn't jump
+            SetVcamActive(_registeredVcam2D, false);
+            SetVcamActive(_registeredVcam3D, false);
             _registeredVcam2D = null;
             _registeredVcam3D = null;
         }
 
-        /// <summary>Change the 2D orthographic size with a smooth lerp.</summary>
+        /// <summary>Smoothly change the 2D orthographic size.</summary>
         public void SetOrthoSize(float size)
         {
             _targetOrthoSize = Mathf.Max(0.5f, size);
@@ -155,7 +170,6 @@ namespace TestGame
         {
             if (_mainCamera == null) return;
 
-            // Tell Cinemachine Brain the blend duration for this switch
             if (_brain != null)
             {
                 _brain.m_DefaultBlend.m_Style = CinemachineBlendDefinition.Style.EaseInOut;
@@ -164,7 +178,6 @@ namespace TestGame
                     : _blendDuration3D;
             }
 
-            // Switch projection
             if (dim == Dimension.TwoD)
             {
                 _mainCamera.orthographic = true;
@@ -199,20 +212,20 @@ namespace TestGame
                 _mainCamera.orthographic = false;
                 _mainCamera.fieldOfView  = _fieldOfView;
             }
+            _currentDimension = dim;
+            RefreshVcamState();
         }
 
-        /// <summary>
-        /// Activate the vcam that matches the current dimension.
-        /// The Cinemachine Brain will blend between them automatically.
-        /// Both start inactive; we never touch vcams that aren't ours.
-        /// </summary>
         private void RefreshVcamState()
         {
             bool is2D = _currentDimension == Dimension.TwoD;
-            if (_registeredVcam2D != null)
-                _registeredVcam2D.gameObject.SetActive(is2D);
-            if (_registeredVcam3D != null)
-                _registeredVcam3D.gameObject.SetActive(!is2D);
+            SetVcamActive(_registeredVcam2D,  is2D);
+            SetVcamActive(_registeredVcam3D, !is2D);
+        }
+
+        private static void SetVcamActive(CinemachineVirtualCamera vcam, bool active)
+        {
+            if (vcam != null) vcam.gameObject.SetActive(active);
         }
 
         #endregion
