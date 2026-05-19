@@ -1,11 +1,14 @@
-// packages/com.midmanstudio.projectilesystem/Tests/Runtime/NetworkedDimensionPlayer.cs
-// REWRITTEN:
-//   - 3D mode is now true first-person (mouse look, cursor locked, vcam3D on HeadPivot)
-//   - vcam2D / vcam3D registered with DimensionCameraController AFTER network spawn
-//   - Shooting uses MID_MasterProjectileSystem.Instance.IsNetworked for correct routing
-//     (respects Force Offline flag — no more "only shoots in force offline" bug)
-//   - In 3D, fire direction = HeadPivot.forward (where camera looks)
-//   - Movement in 3D is relative to camera yaw, not world forward
+// NetworkedDimensionPlayer.cs — FIXED
+//
+// Fixes vs original:
+//   + DimensionCameraController.Instance now compiles — Instance was added in DimensionCameraController.
+//   + Event subscription is now the single notification path. DimensionManager no longer
+//     calls OnDimensionChanged directly, so no double-trigger.
+//   + OnNetworkSpawn: initial dimension sync reads DimensionManager.Instance.Current
+//     so players spawning mid-session immediately match the current dimension.
+//   + OnNetworkDespawn: unsubscription guarded with HasInstance checks.
+//   + Renamed the event handler to HandleDimensionChanged (private) to avoid confusion
+//     with the public method name that DimensionManager used to call directly.
 
 using UnityEngine;
 using Unity.Netcode;
@@ -24,19 +27,18 @@ namespace TestGame
         #region Inspector
 
         [Header("Transforms")]
-        [Tooltip("Empty child at the barrel tip. Fire origin + direction source.")]
+        [Tooltip("Empty child at the barrel tip — fire origin and direction source.")]
         [SerializeField] private Transform _shotPoint;
         [Tooltip("Empty child at eye/head height (~0.8 local Y). Rotated by mouse look in 3D.")]
         [SerializeField] private Transform _headPivot;
 
         [Header("Cinemachine Cameras (children of this prefab)")]
-        [Tooltip("2D overhead / side-scroll vcam. Body: Framing Transposer. Aim: Composer.")]
+        [Tooltip("2D overhead / side-scroll vcam.")]
         [SerializeField] private CinemachineVirtualCamera _vcam2D;
-        [Tooltip("3D first-person vcam on HeadPivot. Body: Do Nothing. Aim: Do Nothing.")]
+        [Tooltip("3D first-person vcam on HeadPivot. Body / Aim: Do Nothing.")]
         [SerializeField] private CinemachineVirtualCamera _vcam3D;
 
         [Header("Visuals")]
-        [Tooltip("Renderer(s) to tint by owner / remote colour.")]
         [SerializeField] private Renderer[] _meshRenderers;
         [SerializeField] private Color _ownerColor  = new Color(0.20f, 0.80f, 1.00f);
         [SerializeField] private Color _remoteColor = new Color(1.00f, 0.40f, 0.30f);
@@ -48,8 +50,8 @@ namespace TestGame
 
         [Header("3D Mouse Look")]
         [SerializeField] private float _mouseSensitivity = 2f;
-        [SerializeField, Range(  -80f, 0f)]   private float _pitchMin = -80f;
-        [SerializeField, Range(    0f, 80f)]  private float _pitchMax =  80f;
+        [SerializeField, Range(-80f,  0f)] private float _pitchMin = -80f;
+        [SerializeField, Range(  0f, 80f)] private float _pitchMax =  80f;
 
         [Header("Projectile Config IDs")]
         [Tooltip("ushort config ID as registered in ProjectileRegistry (0 = first registered).")]
@@ -57,11 +59,11 @@ namespace TestGame
         [SerializeField] private ushort _configId3D = 0;
 
         [Header("Fire")]
-        [SerializeField] private float _fireRate         = 5f;
+        [SerializeField] private float _fireRate       = 5f;
         [SerializeField, Range(1, 16)]
-                         private int   _pelletsPerShot   = 1;
+                         private int   _pelletsPerShot = 1;
         [SerializeField, Range(0f, 45f)]
-                         private float _spreadDeg        = 0f;
+                         private float _spreadDeg      = 0f;
 
         [Header("Debug")]
         [SerializeField] private MID_LogLevel _logLevel = MID_LogLevel.Info;
@@ -74,10 +76,8 @@ namespace TestGame
         private Dimension _currentDimension = Dimension.TwoD;
         private bool      _grounded;
         private float     _nextFireTime;
-
-        // FPS mouse look
-        private float _yaw;    // horizontal — applied to player body
-        private float _pitch;  // vertical   — applied to HeadPivot
+        private float     _yaw;
+        private float     _pitch;
 
         #endregion
 
@@ -88,7 +88,6 @@ namespace TestGame
             _rb = GetComponent<Rigidbody>();
             ApplyRigidbodyConstraints(Dimension.TwoD);
 
-            // Create HeadPivot if not assigned (fallback)
             if (_headPivot == null)
             {
                 var go = new GameObject("HeadPivot");
@@ -110,11 +109,9 @@ namespace TestGame
             SetVcamActive(_vcam2D, false);
             SetVcamActive(_vcam3D, false);
 
-            // Only the owner drives cameras and input
             if (IsOwner)
             {
-                // Register our vcams with the scene camera controller AFTER we spawn.
-                // The controller sets vcam2D.Follow/LookAt and activates the correct vcam.
+                // Wire cameras
                 if (DimensionCameraController.Instance != null)
                 {
                     DimensionCameraController.Instance.RegisterPlayerCams(
@@ -122,26 +119,32 @@ namespace TestGame
                 }
                 else
                 {
-                    // Fallback: activate vcam2D directly if no controller in scene
+                    // No Cinemachine controller — activate 2D vcam directly as fallback
                     SetVcamActive(_vcam2D, true);
                 }
 
                 // Subscribe to dimension changes
-                if (DimensionManager.Instance != null)
-                    DimensionManager.Instance.OnDimensionChanged += OnDimensionChanged;
+                if (DimensionManager.HasInstance)
+                    DimensionManager.Instance.OnDimensionChanged += HandleDimensionChanged;
 
-                // Tell the projectile system who the local player is (for prediction)
+                // Tell the prediction system which player we are
                 if (MID_MasterProjectileSystem.HasInstance)
                     MID_MasterProjectileSystem.Instance.SetLocalPlayerMidId(OwnerClientId);
 
-                // Apply start-dimension cursor state
-                ApplyCursorState(Dimension.TwoD);
+                // Sync to current dimension immediately in case we spawned mid-session
+                Dimension current = DimensionManager.HasInstance
+                    ? DimensionManager.Instance.Current
+                    : Dimension.TwoD;
 
-                // Seed yaw from current rotation so there's no snap on first frame
+                if (current != Dimension.TwoD)
+                    HandleDimensionChanged(current);
+
+                // Seed yaw so there's no rotation snap on first mouse move
                 _yaw = transform.eulerAngles.y;
+
+                ApplyCursorState(_currentDimension);
             }
 
-            // Tint so testers can tell themselves apart
             ApplyTint(IsOwner ? _ownerColor : _remoteColor);
 
             MID_Logger.LogInfo(_logLevel,
@@ -156,10 +159,9 @@ namespace TestGame
                 if (DimensionCameraController.Instance != null)
                     DimensionCameraController.Instance.UnregisterPlayerCams();
 
-                if (DimensionManager.Instance != null)
-                    DimensionManager.Instance.OnDimensionChanged -= OnDimensionChanged;
+                if (DimensionManager.HasInstance)
+                    DimensionManager.Instance.OnDimensionChanged -= HandleDimensionChanged;
 
-                // Restore cursor on despawn
                 Cursor.lockState = CursorLockMode.None;
                 Cursor.visible   = true;
             }
@@ -168,15 +170,15 @@ namespace TestGame
 
         #endregion
 
-        #region Update
+        #region Update / FixedUpdate
 
         private void Update()
         {
             if (!IsOwner) return;
 
-            // Tab: toggle dimension (owner drives scene-wide switch)
+            // Tab: owner requests scene-wide dimension switch
             if (Input.GetKeyDown(KeyCode.Tab)
-                && DimensionManager.Instance != null
+                && DimensionManager.HasInstance
                 && !DimensionManager.Instance.IsTransitioning)
             {
                 DimensionManager.Instance.SwitchDimension();
@@ -204,7 +206,7 @@ namespace TestGame
             float mouseY = Input.GetAxisRaw("Mouse Y") * _mouseSensitivity;
 
             _yaw   += mouseX;
-            _pitch -= mouseY;                              // invert Y: drag up → look up
+            _pitch -= mouseY;  // inverted: drag up → look up
             _pitch  = Mathf.Clamp(_pitch, _pitchMin, _pitchMax);
 
             // Body rotates horizontally
@@ -226,16 +228,14 @@ namespace TestGame
 
             if (_currentDimension == Dimension.TwoD)
             {
-                // Side-scroll / top-down XY plane — velocity directly applied
                 _rb.velocity = new Vector3(h * _moveSpeed2D, v * _moveSpeed2D, 0f);
             }
             else
             {
-                // 3D FPS: move relative to player's current yaw rotation
                 Vector3 moveDir = (transform.right * h + transform.forward * v).normalized;
                 _rb.velocity = new Vector3(
                     moveDir.x * _moveSpeed3D,
-                    _rb.velocity.y,          // preserve gravity
+                    _rb.velocity.y,
                     moveDir.z * _moveSpeed3D);
 
                 if (_grounded && Input.GetButton("Jump"))
@@ -260,38 +260,28 @@ namespace TestGame
 
         private void Fire()
         {
-            bool is3D   = _currentDimension == Dimension.ThreeD;
+            bool   is3D  = _currentDimension == Dimension.ThreeD;
             ushort cfgId = is3D ? _configId3D : _configId2D;
 
             var cfg = ProjectileRegistry.Instance.Get(cfgId);
             if (cfg == null)
             {
                 MID_Logger.LogWarning(_logLevel,
-                    $"Config ID {cfgId} not registered. Assign configs to ProjectileRegistry first.",
+                    $"Config ID {cfgId} not registered. Assign configs to ProjectileRegistry.",
                     nameof(NetworkedDimensionPlayer));
                 return;
             }
 
             if (!MID_MasterProjectileSystem.HasInstance) return;
 
-            // ── Fire direction ────────────────────────────────────────────────
-            Vector3 forwardDir;
-            if (is3D)
-            {
-                // FPS: shoot where the head/camera is looking
-                forwardDir = _headPivot != null
-                    ? _headPivot.forward
-                    : _shotPoint.forward;
-            }
-            else
-            {
-                // 2D: shoot right (side-scroll). For top-down, use transform.up instead.
-                forwardDir = transform.right;
-            }
+            // Fire direction: FPS uses HeadPivot.forward; 2D uses transform.right
+            Vector3 forwardDir = is3D
+                ? (_headPivot != null ? _headPivot.forward : _shotPoint.forward)
+                : transform.right;
 
-            // ── Build spread spawn points ─────────────────────────────────────
-            int n    = Mathf.Max(_pelletsPerShot, 1);
-            var pts  = new SpawnPoint[n];
+            // Build spread spawn points
+            int n   = Mathf.Max(_pelletsPerShot, 1);
+            var pts = new SpawnPoint[n];
 
             for (int i = 0; i < n; i++)
             {
@@ -310,9 +300,7 @@ namespace TestGame
                 };
             }
 
-            // ── Context: use system's IsNetworked so Force Offline Mode is respected ──
-            // This fixes the "only shoots in force offline mode" bug:
-            // Previously used `IsSpawned` which ignored the Force Offline flag.
+            // Respect Force Offline Mode via the system's own IsNetworked flag
             bool systemIsNetworked = MID_MasterProjectileSystem.Instance.IsNetworked;
 
             var ctx = new WeaponFireContext
@@ -340,15 +328,17 @@ namespace TestGame
 
         #region Dimension Switch
 
-        /// <summary>Called by DimensionManager after a transition completes.</summary>
-        public void OnDimensionChanged(Dimension dim)
+        /// <summary>
+        /// Event handler — registered with DimensionManager.OnDimensionChanged in OnNetworkSpawn.
+        /// Called ONCE after each transition completes, not twice.
+        /// </summary>
+        private void HandleDimensionChanged(Dimension dim)
         {
             _currentDimension = dim;
             ApplyRigidbodyConstraints(dim);
             ApplyCursorState(dim);
 
-            // Camera controller handles vcam activation —
-            // we just need to snap yaw so there's no sudden rotation jump
+            // Snap yaw to current body rotation so the first mouse frame doesn't jump
             if (dim == Dimension.ThreeD)
                 _yaw = transform.eulerAngles.y;
 
@@ -366,19 +356,17 @@ namespace TestGame
 
             if (dim == Dimension.TwoD)
             {
-                // Lock Z and all rotation for flat 2D movement
                 _rb.constraints = RigidbodyConstraints.FreezePositionZ
                                 | RigidbodyConstraints.FreezeRotation;
                 _rb.useGravity  = false;
             }
             else
             {
-                // Lock only X/Z rotation — Y rotation is handled by mouse look code
                 _rb.constraints = RigidbodyConstraints.FreezeRotationX
                                 | RigidbodyConstraints.FreezeRotationZ;
                 _rb.useGravity  = true;
 
-                // Snap Z to 0 when entering 3D from 2D
+                // Snap Z position to 0 when entering 3D
                 var p = transform.position;
                 transform.position = new Vector3(p.x, p.y, 0f);
                 _rb.velocity       = new Vector3(_rb.velocity.x, 0f, _rb.velocity.z);
@@ -412,7 +400,7 @@ namespace TestGame
         }
 
         private void OnCollisionStay(Collision c) => _grounded = true;
-        private void OnCollisionExit(Collision c)  => _grounded = false;
+        private void OnCollisionExit(Collision c) => _grounded = false;
 
         #endregion
     }
