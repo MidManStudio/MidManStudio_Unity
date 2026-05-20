@@ -1255,7 +1255,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!114 &621665753
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1520,7 +1520,7 @@ MonoBehaviour:
   _historySize: 32
   _visualPoolType: 100
   _localPlayerMidId: 0
-  _enableLogs: 0
+  _enableLogs: 1
 --- !u!4 &696260602
 Transform:
   m_ObjectHideFlags: 0
@@ -1566,7 +1566,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 40797f63a1a884abb9cd9e883a4608b0, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _atlasMaterial: {fileID: 2100000, guid: 2b58234129cd7419c8a7acf71dc1328c, type: 2}
+  _atlasMaterial: {fileID: 2100000, guid: 8e2bd416c1769401bac71c1f8d976a94, type: 2}
   _forceDrawMesh: 0
 --- !u!114 &702222381
 MonoBehaviour:
@@ -1789,7 +1789,7 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 10754, guid: 0000000000000000f000000000000000, type: 0}
+  - {fileID: 2100000, guid: 2b58234129cd7419c8a7acf71dc1328c, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -1829,7 +1829,7 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: -0.21945533, y: -0.13965338, z: -0.023342056}
-  m_LocalScale: {x: 10, y: 1, z: 10}
+  m_LocalScale: {x: 20, y: 1, z: 20}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
@@ -1859,7 +1859,7 @@ Transform:
   m_GameObject: {fileID: 821142151}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 1.3, y: 1, z: -4}
+  m_LocalPosition: {x: 0, y: 1, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -2493,7 +2493,12 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _logLevel: 2
-  poolConfigs: []
+  poolConfigs:
+  - objectType: 100
+    displayName: 
+    prefab: {fileID: 6515030138356718256, guid: 22491bbceb1054b0d80857197f990b2e, type: 3}
+    prewarmCount: 1
+    maxPoolSize: 10
   autoRegisterPrewarmCount: 10
   autoRegisterMaxPoolSize: 20
   enableAutoRegistration: 1
@@ -2709,7 +2714,7 @@ MonoBehaviour:
   _hitValidationTolerance: 2
   _serverRaycastLayers:
     serializedVersion: 2
-    m_Bits: 4294967295
+    m_Bits: 1
   _logLevel: 2
 --- !u!4 &997175227
 Transform:
@@ -3981,6 +3986,47 @@ Transform:
   - {fileID: 592136887}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1369724536
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1369724538}
+  - component: {fileID: 1369724537}
+  m_Layer: 0
+  m_Name: SkyBox
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!45 &1369724537
+Skybox:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1369724536}
+  m_Enabled: 1
+  m_CustomSkybox: {fileID: 10304, guid: 0000000000000000f000000000000000, type: 0}
+--- !u!4 &1369724538
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1369724536}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1409959735
 GameObject:
   m_ObjectHideFlags: 0
@@ -5042,7 +5088,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: dd1a92aed7ae145e6bdd7907f3b956ac, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _atlasMaterial: {fileID: 2100000, guid: 2b58234129cd7419c8a7acf71dc1328c, type: 2}
+  _atlasMaterial: {fileID: 2100000, guid: 8e2bd416c1769401bac71c1f8d976a94, type: 2}
   _maxQuads: 512
   _fadeInFraction: 0.1
   _fadeOutFraction: 0.15
@@ -5907,8 +5953,6 @@ MonoBehaviour:
   _fieldOfView: 60
   _blendDuration3D: 0.45
   _logLevel: 2
-  _2d_Cam: {fileID: 1355406129}
-  _3d_Cam: {fileID: 947529268}
 --- !u!1 &2109726919
 GameObject:
   m_ObjectHideFlags: 0
@@ -6268,3 +6312,4 @@ SceneRoots:
   - {fileID: 340358863}
   - {fileID: 595672452}
   - {fileID: 769737936}
+  - {fileID: 1369724538}

@@ -13,7 +13,6 @@
 //   TrailRendererPool.Instance.SetPosition(slot, transform.position);
 //   TrailRendererPool.Instance.Release(slot);
 
-using System.Collections.Generic;
 using UnityEngine;
 using MidManStudio.Core.Logging;
 using MidManStudio.Core.Singleton;

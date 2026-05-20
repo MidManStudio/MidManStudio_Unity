@@ -141,6 +141,12 @@
     </Compile>
   </ItemGroup>
   <ItemGroup>
+    <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Shaders/InstancedProjectile.shader">
+      <Link>Runtime/Shaders/InstancedProjectile.shader</Link>
+    </None>
+    <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Shaders/InstancedProjectile_URP.shader">
+      <Link>Runtime/Shaders/InstancedProjectile_URP.shader</Link>
+    </None>
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Plugins/Native/Windows/projectile_core.dll">
       <Link>Runtime/Plugins/Native/Windows/projectile_core.dll</Link>
     </None>

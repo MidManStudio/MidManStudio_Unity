@@ -59,7 +59,7 @@ MonoBehaviour:
   _useSprite: 1
   _customShape: {fileID: 11400000, guid: 7c99cd4d02d7d4ff998cdebcbe3f8592, type: 2}
   _hasTrail: 1
-  _trailMaterial: {fileID: 2100000, guid: 2b58234129cd7419c8a7acf71dc1328c, type: 2}
+  _trailMaterial: {fileID: 2100000, guid: 8e2bd416c1769401bac71c1f8d976a94, type: 2}
   _useGradientOverride: 1
   _trailGradient:
     serializedVersion: 2
