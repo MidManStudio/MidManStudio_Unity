@@ -2,6 +2,15 @@
 // Client-side cosmetic projectile visual.
 // Spawned from LocalObjectPool (utilities). No NetworkBehaviour.
 // Trail is configured directly from ProjectileConfigSO package properties.
+//
+// FIX: ApplyTrailOptimised had the condition
+//        if (!_trailConfigured || _cachedConfigId != _cachedConfigId)
+//      The second operand is always false (comparing a field to itself), so trail
+//      settings were never re-applied on a pool-recycled object with a different
+//      config.  Changed to simply:
+//        if (!_trailConfigured)
+//      _trailConfigured is reset to false in CleanupForPoolReturn(), so every
+//      freshly-acquired pool object re-applies the full trail config from the SO.
 
 using UnityEngine;
 using MidManStudio.Core.Logging;
@@ -34,7 +43,6 @@ namespace MidManStudio.Projectiles.Visuals
 
         private ProjectileConfigSO _config;
 
-        // Change-detection caches — prevent redundant renderer assignments on pooled reuse
         private Sprite _cachedSprite;
         private Color  _cachedSpriteColor = Color.white;
         private bool   _trailConfigured;
@@ -58,12 +66,7 @@ namespace MidManStudio.Projectiles.Visuals
         /// <summary>
         /// Initialise for client-side display from a registered config ID.
         /// Called by ClientPredictionManager and RaycastProjectileHandler.
-        /// Uses ProjectileRegistry to look up the config — no game-specific enums.
         /// </summary>
-        /// <param name="configId">Registered ushort config ID from ProjectileRegistry.</param>
-        /// <param name="origin">World-space spawn origin.</param>
-        /// <param name="direction">Normalised travel direction.</param>
-        /// <param name="speed">Travel speed in world units/sec (cosmetic only).</param>
         public void InitializeClientVisual(
             ushort  configId,
             Vector3 origin,
@@ -73,14 +76,16 @@ namespace MidManStudio.Projectiles.Visuals
             if (localPoolReturn == null)
                 localPoolReturn = GetComponent<LocalPoolReturn>();
 
-            // Only re-fetch config if the configId actually changed (pool reuse).
-            if (!_initialised || _cachedConfigId != configId)
+            bool configChanged = !_initialised || _cachedConfigId != configId;
+
+            if (configChanged)
             {
                 _config = ProjectileRegistry.HasInstance
                     ? ProjectileRegistry.Instance.Get(configId)
                     : null;
 
-                _cachedConfigId = configId;
+                _cachedConfigId  = configId;
+                _trailConfigured = false;   // force trail re-apply whenever config changes
             }
 
             if (_config == null)
@@ -90,12 +95,10 @@ namespace MidManStudio.Projectiles.Visuals
                     nameof(ProjectileVisual_));
             }
 
-            // Transform
             transform.position = origin;
             if (direction.sqrMagnitude > 0.001f)
                 transform.rotation = Quaternion.LookRotation(Vector3.forward, direction);
 
-            // Apply visuals
             ApplySpriteOptimised(_config?.ProjectileSprite);
             ApplyTrailOptimised(_config);
 
@@ -106,16 +109,14 @@ namespace MidManStudio.Projectiles.Visuals
                 nameof(ProjectileVisual_));
         }
 
-        /// <summary>
-        /// Immediately return to LocalObjectPool and reset all state.
-        /// </summary>
+        /// <summary>Immediately return to LocalObjectPool and reset all state.</summary>
         public void ReturnToPoolImmediate()
         {
             if (this == null) return;
             CleanupForPoolReturn();
 
             if (localPoolReturn != null)
-                localPoolReturn.ReturnToPoolNow();   // correct method name
+                localPoolReturn.ReturnToPoolNow();
         }
 
         /// <summary>Hide visuals without returning to pool (e.g. on server-confirmed hit).</summary>
@@ -129,10 +130,6 @@ namespace MidManStudio.Projectiles.Visuals
 
         #region Visual Setup
 
-        /// <summary>
-        /// Only reassign the sprite if it has actually changed.
-        /// Prevents redundant GPU state changes on pooled objects.
-        /// </summary>
         private void ApplySpriteOptimised(Sprite sprite)
         {
             if (projectileSpriteRend == null) return;
@@ -149,10 +146,6 @@ namespace MidManStudio.Projectiles.Visuals
             }
         }
 
-        /// <summary>
-        /// Configure the TrailRenderer from ProjectileConfigSO package properties.
-        /// Only re-applies when the config actually changed (pool reuse guard).
-        /// </summary>
         private void ApplyTrailOptimised(ProjectileConfigSO cfg)
         {
             if (projectileTrailRend == null) return;
@@ -165,8 +158,12 @@ namespace MidManStudio.Projectiles.Visuals
                 return;
             }
 
-            // Re-apply only when config changed
-            if (!_trailConfigured || _cachedConfigId != _cachedConfigId)
+            // FIX: was "_trailConfigured || _cachedConfigId != _cachedConfigId"
+            //      — second operand was always false so recycled objects never
+            //        got trail settings re-applied.  Now we simply check the flag
+            //        which is reset to false in CleanupForPoolReturn() and also
+            //        whenever the configId changes (see InitializeClientVisual).
+            if (!_trailConfigured)
             {
                 if (cfg.TrailMaterial != null)
                 {
@@ -185,12 +182,11 @@ namespace MidManStudio.Projectiles.Visuals
                 projectileTrailRend.numCapVertices     = cfg.TrailCapVertices;
                 projectileTrailRend.minVertexDistance  = cfg.TrailMinVertexDistance;
 
-                // Performance defaults — never light or shadow trail renderers
-                projectileTrailRend.shadowCastingMode          = UnityEngine.Rendering.ShadowCastingMode.Off;
-                projectileTrailRend.receiveShadows              = false;
-                projectileTrailRend.generateLightingData        = false;
-                projectileTrailRend.motionVectorGenerationMode  = MotionVectorGenerationMode.ForceNoMotion;
-                projectileTrailRend.alignment                   = LineAlignment.View;
+                projectileTrailRend.shadowCastingMode         = UnityEngine.Rendering.ShadowCastingMode.Off;
+                projectileTrailRend.receiveShadows             = false;
+                projectileTrailRend.generateLightingData       = false;
+                projectileTrailRend.motionVectorGenerationMode = MotionVectorGenerationMode.ForceNoMotion;
+                projectileTrailRend.alignment                  = LineAlignment.View;
 
                 _trailConfigured = true;
             }
@@ -208,7 +204,7 @@ namespace MidManStudio.Projectiles.Visuals
         {
             _initialised     = false;
             _config          = null;
-            _trailConfigured = false;
+            _trailConfigured = false;   // ensure trail re-applies on next use
             _cachedSprite    = null;
             _cachedSpriteColor = Color.white;
 
