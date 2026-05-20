@@ -1,14 +1,20 @@
 // BatchSpawnHelper.cs
 // Spawn path decider and batch builder.
 //
-// Problem: Rust spawn_pattern has ~928µs per-call FFI overhead.
-// Spawning 8 shotgun pellets individually = 8 × 928µs = 7.4ms wasted on FFI.
+// FIX: SpawnBatch2D and SpawnBatch3D now call Initialise() themselves if the
+//      pins haven't been allocated yet, instead of logging an error and returning 0.
+//      This removes the dependency on call-order between static initialisation
+//      and whichever MonoBehaviour happens to call Initialise() in its Awake.
 //
-// Solution:
-//   1. C# or Burst builds ALL spawn structs in one array.
-//   2. Call spawn_batch ONCE — single FFI crossing for any number of projectiles.
-//   3. For 8+ projectiles, BurstSpawnJob fills the array in parallel.
-//   4. For < 8 projectiles, a C# loop fills the array (Burst overhead > gain).
+//      Root cause of "BatchSpawnHelper not initialized" + "no projectiles written":
+//        MID_ProjectileNetworkBridge.FireServerRpc calls SpawnBatch2D directly.
+//        Unity's Awake execution order is not deterministic across scenes and
+//        prefabs — SpawnBatch2D could be reached before any manager's Awake ran
+//        Initialise().  Self-initialisation makes this impossible.
+//
+//      Shutdown() behaviour is unchanged — it should still be called once on
+//      scene teardown by whichever manager owns the lifecycle.  Calling it from
+//      multiple OnDestroy methods is safe because it guards with _pinsAllocated.
 
 using System;
 using System.Runtime.InteropServices;
@@ -23,13 +29,11 @@ using MidManStudio.Projectiles.Config;
 namespace MidManStudio.Projectiles.Adapters
 {
     // ─────────────────────────────────────────────────────────────────────────
-    //  Spawn point — output of pattern library, input to batch builder
+    //  Spawn point
     // ─────────────────────────────────────────────────────────────────────────
 
     /// <summary>
     /// A single spawn point produced by a shot pattern calculation.
-    /// The pattern library fills an array of these; BatchSpawnHelper maps
-    /// them to NativeProjectile structs.
     /// </summary>
     public struct SpawnPoint
     {
@@ -55,15 +59,18 @@ namespace MidManStudio.Projectiles.Adapters
         /// </summary>
         public const int BurstThreshold = 8;
 
-        private static readonly NativeProjectile[] _temp2D = new NativeProjectile[256];
+        private static readonly NativeProjectile[]   _temp2D = new NativeProjectile[256];
         private static readonly NativeProjectile3D[] _temp3D = new NativeProjectile3D[256];
         private static GCHandle _pin2D;
         private static GCHandle _pin3D;
-        private static bool _pinsAllocated;
+        private static bool     _pinsAllocated;
 
         // ── Initialisation ────────────────────────────────────────────────────
 
-        /// <summary>Pin temp buffers. Call before any spawn.</summary>
+        /// <summary>
+        /// Pin temp buffers. Safe to call multiple times — subsequent calls are no-ops.
+        /// Called automatically by SpawnBatch2D/3D if not already initialised.
+        /// </summary>
         public static void Initialise()
         {
             if (_pinsAllocated) return;
@@ -72,7 +79,7 @@ namespace MidManStudio.Projectiles.Adapters
             _pinsAllocated = true;
         }
 
-        /// <summary>Unpin temp buffers. Call on shutdown.</summary>
+        /// <summary>Unpin temp buffers. Call once on shutdown / scene teardown.</summary>
         public static void Shutdown()
         {
             if (!_pinsAllocated) return;
@@ -85,25 +92,23 @@ namespace MidManStudio.Projectiles.Adapters
 
         /// <summary>
         /// Spawn a batch of 2D projectiles from pre-computed spawn points.
-        /// config parameter is optional context; all sim params come from rustParams.
+        /// Self-initialises if Initialise() has not been called yet.
         /// </summary>
         public static int SpawnBatch2D(
-            SpawnPoint[] spawnPoints,
-            int count,
+            SpawnPoint[]    spawnPoints,
+            int             count,
             ProjectileConfigSO config,      // optional; params come from rustParams
             RustSpawnParams rustParams,
-            ushort configId,
-            ushort ownerId,
-            uint nextProjId,
-            IntPtr projsOutPtr,
-            int bufferRemaining,
-            float latencyCompensation = 0f)
+            ushort          configId,
+            ushort          ownerId,
+            uint            nextProjId,
+            IntPtr          projsOutPtr,
+            int             bufferRemaining,
+            float           latencyCompensation = 0f)
         {
+            // FIX: self-initialise — no longer an error if Initialise() wasn't called.
             if (!_pinsAllocated)
-            {
-                Debug.LogError("[BatchSpawnHelper] Not initialised — call Initialise() first.");
-                return 0;
-            }
+                Initialise();
 
             int n = Mathf.Min(count, Mathf.Min(_temp2D.Length, bufferRemaining));
             if (n <= 0) return 0;
@@ -136,22 +141,24 @@ namespace MidManStudio.Projectiles.Adapters
 
         // ── 3D Spawn ──────────────────────────────────────────────────────────
 
+        /// <summary>
+        /// Spawn a batch of 3D projectiles from pre-computed spawn points.
+        /// Self-initialises if Initialise() has not been called yet.
+        /// </summary>
         public static int SpawnBatch3D(
-            SpawnPoint[] spawnPoints,
-            int count,
+            SpawnPoint[]    spawnPoints,
+            int             count,
             RustSpawnParams rustParams,
-            ushort configId,
-            ushort ownerId,
-            uint nextProjId,
-            IntPtr projsOutPtr,
-            int bufferRemaining,
-            float latencyCompensation = 0f)
+            ushort          configId,
+            ushort          ownerId,
+            uint            nextProjId,
+            IntPtr          projsOutPtr,
+            int             bufferRemaining,
+            float           latencyCompensation = 0f)
         {
+            // FIX: self-initialise.
             if (!_pinsAllocated)
-            {
-                Debug.LogError("[BatchSpawnHelper] Not initialised — call Initialise() first.");
-                return 0;
-            }
+                Initialise();
 
             int n = Mathf.Min(count, Mathf.Min(_temp3D.Length, bufferRemaining));
             if (n <= 0) return 0;
@@ -194,28 +201,28 @@ namespace MidManStudio.Projectiles.Adapters
                 float speed = pts[i].Speed > 0f ? pts[i].Speed : p.Speed;
                 _temp2D[i] = new NativeProjectile
                 {
-                    X = pts[i].Origin.x,
-                    Y = pts[i].Origin.y,
-                    Vx = pts[i].Direction.x * speed,
-                    Vy = pts[i].Direction.y * speed,
-                    Ax = 0f,
-                    Ay = p.GravityAy,
-                    AngleDeg = Mathf.Atan2(pts[i].Direction.y, pts[i].Direction.x) * Mathf.Rad2Deg,
-                    CurveT = 0f,
-                    ScaleX = p.ScaleStart,
-                    ScaleY = p.ScaleStart,
-                    ScaleTarget = p.ScaleTarget,
-                    ScaleSpeed = p.ScaleSpeed,
-                    Lifetime = p.Lifetime,
-                    MaxLifetime = p.Lifetime,
-                    TravelDist = 0f,
-                    ConfigId = configId,
-                    OwnerId = ownerId,
-                    ProjId = baseId + (uint)i,
+                    X            = pts[i].Origin.x,
+                    Y            = pts[i].Origin.y,
+                    Vx           = pts[i].Direction.x * speed,
+                    Vy           = pts[i].Direction.y * speed,
+                    Ax           = 0f,
+                    Ay           = p.GravityAy,
+                    AngleDeg     = Mathf.Atan2(pts[i].Direction.y, pts[i].Direction.x) * Mathf.Rad2Deg,
+                    CurveT       = 0f,
+                    ScaleX       = p.ScaleStart,
+                    ScaleY       = p.ScaleStart,
+                    ScaleTarget  = p.ScaleTarget,
+                    ScaleSpeed   = p.ScaleSpeed,
+                    Lifetime     = p.Lifetime,
+                    MaxLifetime  = p.Lifetime,
+                    TravelDist   = 0f,
+                    ConfigId     = configId,
+                    OwnerId      = ownerId,
+                    ProjId       = baseId + (uint)i,
                     CollisionCount = 0,
                     MovementType = p.MovementType,
                     PiercingType = p.PiercingType,
-                    Alive = 1
+                    Alive        = 1
                 };
             }
         }
@@ -229,31 +236,31 @@ namespace MidManStudio.Projectiles.Adapters
                 float speed = pts[i].Speed > 0f ? pts[i].Speed : p.Speed;
                 _temp3D[i] = new NativeProjectile3D
                 {
-                    X = pts[i].Origin.x,
-                    Y = pts[i].Origin.y,
-                    Z = pts[i].Origin.z,
-                    Vx = pts[i].Direction.x * speed,
-                    Vy = pts[i].Direction.y * speed,
-                    Vz = pts[i].Direction.z * speed,
-                    Ax = 0f,
-                    Ay = p.GravityAy,
-                    Az = 0f,
-                    ScaleX = p.ScaleStart,
-                    ScaleY = p.ScaleStart,
-                    ScaleZ = p.ScaleStart,
-                    ScaleTarget = p.ScaleTarget,
-                    ScaleSpeed = p.ScaleSpeed,
-                    Lifetime = p.Lifetime,
-                    MaxLifetime = p.Lifetime,
-                    TravelDist = 0f,
-                    TimerT = 0f,
-                    ConfigId = configId,
-                    OwnerId = ownerId,
-                    ProjId = baseId + (uint)i,
+                    X            = pts[i].Origin.x,
+                    Y            = pts[i].Origin.y,
+                    Z            = pts[i].Origin.z,
+                    Vx           = pts[i].Direction.x * speed,
+                    Vy           = pts[i].Direction.y * speed,
+                    Vz           = pts[i].Direction.z * speed,
+                    Ax           = 0f,
+                    Ay           = p.GravityAy,
+                    Az           = 0f,
+                    ScaleX       = p.ScaleStart,
+                    ScaleY       = p.ScaleStart,
+                    ScaleZ       = p.ScaleStart,
+                    ScaleTarget  = p.ScaleTarget,
+                    ScaleSpeed   = p.ScaleSpeed,
+                    Lifetime     = p.Lifetime,
+                    MaxLifetime  = p.Lifetime,
+                    TravelDist   = 0f,
+                    TimerT       = 0f,
+                    ConfigId     = configId,
+                    OwnerId      = ownerId,
+                    ProjId       = baseId + (uint)i,
                     CollisionCount = 0,
                     MovementType = p.MovementType,
                     PiercingType = p.PiercingType,
-                    Alive = 1
+                    Alive        = 1
                 };
             }
         }
@@ -270,24 +277,21 @@ namespace MidManStudio.Projectiles.Adapters
 
             new BurstFill2DJob
             {
-                SpawnPoints = nativePts,
-                Out = nativeOut,
+                SpawnPoints  = nativePts,
+                Out          = nativeOut,
                 DefaultSpeed = p.Speed,
                 MovementType = p.MovementType,
                 PiercingType = p.PiercingType,
-                GravityAy = p.GravityAy,
-                Lifetime = p.Lifetime,
-                ScaleStart = p.ScaleStart,
-                ScaleTarget = p.ScaleTarget,
-                ScaleSpeed = p.ScaleSpeed,
-                ConfigId = configId,
-                OwnerId = ownerId,
-                BaseId = baseId
+                GravityAy    = p.GravityAy,
+                Lifetime     = p.Lifetime,
+                ScaleStart   = p.ScaleStart,
+                ScaleTarget  = p.ScaleTarget,
+                ScaleSpeed   = p.ScaleSpeed,
+                ConfigId     = configId,
+                OwnerId      = ownerId,
+                BaseId       = baseId
             }.Schedule(n, 64).Complete();
 
-            // Copy only the n elements that were written — NOT the full _temp2D length.
-            // NativeArray.CopyTo(T[]) requires exact length match; use the explicit
-            // NativeArray<T>.Copy overload that takes element counts instead.
             NativeArray<NativeProjectile>.Copy(nativeOut, 0, _temp2D, 0, n);
         }
 
@@ -301,22 +305,21 @@ namespace MidManStudio.Projectiles.Adapters
 
             new BurstFill3DJob
             {
-                SpawnPoints = nativePts,
-                Out = nativeOut,
+                SpawnPoints  = nativePts,
+                Out          = nativeOut,
                 DefaultSpeed = p.Speed,
                 MovementType = p.MovementType,
                 PiercingType = p.PiercingType,
-                GravityAy = p.GravityAy,
-                Lifetime = p.Lifetime,
-                ScaleStart = p.ScaleStart,
-                ScaleTarget = p.ScaleTarget,
-                ScaleSpeed = p.ScaleSpeed,
-                ConfigId = configId,
-                OwnerId = ownerId,
-                BaseId = baseId
+                GravityAy    = p.GravityAy,
+                Lifetime     = p.Lifetime,
+                ScaleStart   = p.ScaleStart,
+                ScaleTarget  = p.ScaleTarget,
+                ScaleSpeed   = p.ScaleSpeed,
+                ConfigId     = configId,
+                OwnerId      = ownerId,
+                BaseId       = baseId
             }.Schedule(n, 64).Complete();
 
-            // Same fix as FillBurst2D — copy only n elements, not full buffer length.
             NativeArray<NativeProjectile3D>.Copy(nativeOut, 0, _temp3D, 0, n);
         }
     }
@@ -328,52 +331,52 @@ namespace MidManStudio.Projectiles.Adapters
     [BurstCompile]
     public struct BurstFill2DJob : IJobParallelFor
     {
-        [ReadOnly] public NativeArray<SpawnPoint> SpawnPoints;
+        [ReadOnly]  public NativeArray<SpawnPoint>       SpawnPoints;
         [WriteOnly] public NativeArray<NativeProjectile> Out;
 
-        public float DefaultSpeed;
-        public byte MovementType;
-        public byte PiercingType;
-        public float GravityAy;
-        public float Lifetime;
-        public float ScaleStart;
-        public float ScaleTarget;
-        public float ScaleSpeed;
+        public float  DefaultSpeed;
+        public byte   MovementType;
+        public byte   PiercingType;
+        public float  GravityAy;
+        public float  Lifetime;
+        public float  ScaleStart;
+        public float  ScaleTarget;
+        public float  ScaleSpeed;
         public ushort ConfigId;
         public ushort OwnerId;
-        public uint BaseId;
+        public uint   BaseId;
 
         [BurstCompile]
         public void Execute(int i)
         {
-            var pt = SpawnPoints[i];
+            var   pt  = SpawnPoints[i];
             float spd = pt.Speed > 0f ? pt.Speed : DefaultSpeed;
             float ang = math.atan2(pt.Direction.y, pt.Direction.x) * math.degrees(1f);
 
             Out[i] = new NativeProjectile
             {
-                X = pt.Origin.x,
-                Y = pt.Origin.y,
-                Vx = pt.Direction.x * spd,
-                Vy = pt.Direction.y * spd,
-                Ax = 0f,
-                Ay = GravityAy,
-                AngleDeg = ang,
-                CurveT = 0f,
-                ScaleX = ScaleStart,
-                ScaleY = ScaleStart,
-                ScaleTarget = ScaleTarget,
-                ScaleSpeed = ScaleSpeed,
-                Lifetime = Lifetime,
-                MaxLifetime = Lifetime,
-                TravelDist = 0f,
-                ConfigId = ConfigId,
-                OwnerId = OwnerId,
-                ProjId = BaseId + (uint)i,
+                X              = pt.Origin.x,
+                Y              = pt.Origin.y,
+                Vx             = pt.Direction.x * spd,
+                Vy             = pt.Direction.y * spd,
+                Ax             = 0f,
+                Ay             = GravityAy,
+                AngleDeg       = ang,
+                CurveT         = 0f,
+                ScaleX         = ScaleStart,
+                ScaleY         = ScaleStart,
+                ScaleTarget    = ScaleTarget,
+                ScaleSpeed     = ScaleSpeed,
+                Lifetime       = Lifetime,
+                MaxLifetime    = Lifetime,
+                TravelDist     = 0f,
+                ConfigId       = ConfigId,
+                OwnerId        = OwnerId,
+                ProjId         = BaseId + (uint)i,
                 CollisionCount = 0,
-                MovementType = MovementType,
-                PiercingType = PiercingType,
-                Alive = 1
+                MovementType   = MovementType,
+                PiercingType   = PiercingType,
+                Alive          = 1
             };
         }
     }
@@ -381,54 +384,54 @@ namespace MidManStudio.Projectiles.Adapters
     [BurstCompile]
     public struct BurstFill3DJob : IJobParallelFor
     {
-        [ReadOnly] public NativeArray<SpawnPoint> SpawnPoints;
+        [ReadOnly]  public NativeArray<SpawnPoint>         SpawnPoints;
         [WriteOnly] public NativeArray<NativeProjectile3D> Out;
 
-        public float DefaultSpeed;
-        public byte MovementType;
-        public byte PiercingType;
-        public float GravityAy;
-        public float Lifetime;
-        public float ScaleStart;
-        public float ScaleTarget;
-        public float ScaleSpeed;
+        public float  DefaultSpeed;
+        public byte   MovementType;
+        public byte   PiercingType;
+        public float  GravityAy;
+        public float  Lifetime;
+        public float  ScaleStart;
+        public float  ScaleTarget;
+        public float  ScaleSpeed;
         public ushort ConfigId;
         public ushort OwnerId;
-        public uint BaseId;
+        public uint   BaseId;
 
         [BurstCompile]
         public void Execute(int i)
         {
-            var pt = SpawnPoints[i];
+            var   pt  = SpawnPoints[i];
             float spd = pt.Speed > 0f ? pt.Speed : DefaultSpeed;
 
             Out[i] = new NativeProjectile3D
             {
-                X = pt.Origin.x,
-                Y = pt.Origin.y,
-                Z = pt.Origin.z,
-                Vx = pt.Direction.x * spd,
-                Vy = pt.Direction.y * spd,
-                Vz = pt.Direction.z * spd,
-                Ax = 0f,
-                Ay = GravityAy,
-                Az = 0f,
-                ScaleX = ScaleStart,
-                ScaleY = ScaleStart,
-                ScaleZ = ScaleStart,
-                ScaleTarget = ScaleTarget,
-                ScaleSpeed = ScaleSpeed,
-                Lifetime = Lifetime,
-                MaxLifetime = Lifetime,
-                TravelDist = 0f,
-                TimerT = 0f,
-                ConfigId = ConfigId,
-                OwnerId = OwnerId,
-                ProjId = BaseId + (uint)i,
+                X              = pt.Origin.x,
+                Y              = pt.Origin.y,
+                Z              = pt.Origin.z,
+                Vx             = pt.Direction.x * spd,
+                Vy             = pt.Direction.y * spd,
+                Vz             = pt.Direction.z * spd,
+                Ax             = 0f,
+                Ay             = GravityAy,
+                Az             = 0f,
+                ScaleX         = ScaleStart,
+                ScaleY         = ScaleStart,
+                ScaleZ         = ScaleStart,
+                ScaleTarget    = ScaleTarget,
+                ScaleSpeed     = ScaleSpeed,
+                Lifetime       = Lifetime,
+                MaxLifetime    = Lifetime,
+                TravelDist     = 0f,
+                TimerT         = 0f,
+                ConfigId       = ConfigId,
+                OwnerId        = OwnerId,
+                ProjId         = BaseId + (uint)i,
                 CollisionCount = 0,
-                MovementType = MovementType,
-                PiercingType = PiercingType,
-                Alive = 1
+                MovementType   = MovementType,
+                PiercingType   = PiercingType,
+                Alive          = 1
             };
         }
     }
