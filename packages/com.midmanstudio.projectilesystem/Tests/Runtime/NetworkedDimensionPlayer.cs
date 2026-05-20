@@ -1,14 +1,10 @@
-// NetworkedDimensionPlayer.cs — FIXED
+// NetworkedDimensionPlayer.cs
 //
-// Fixes vs original:
-//   + DimensionCameraController.Instance now compiles — Instance was added in DimensionCameraController.
-//   + Event subscription is now the single notification path. DimensionManager no longer
-//     calls OnDimensionChanged directly, so no double-trigger.
-//   + OnNetworkSpawn: initial dimension sync reads DimensionManager.Instance.Current
-//     so players spawning mid-session immediately match the current dimension.
-//   + OnNetworkDespawn: unsubscription guarded with HasInstance checks.
-//   + Renamed the event handler to HandleDimensionChanged (private) to avoid confusion
-//     with the public method name that DimensionManager used to call directly.
+// FIX: Changed fire input from Input.GetMouseButton(0) to Input.GetKey(KeyCode.F).
+//      Mouse button 0 was conflicting with editor clicks and was unintuitive for
+//      quick sandbox testing.  F fires on hold (continuous fire at _fireRate),
+//      matching the original mouse-button behaviour.  Change _fireKey in the
+//      inspector if you want a different key.
 
 using UnityEngine;
 using Unity.Netcode;
@@ -27,15 +23,11 @@ namespace TestGame
         #region Inspector
 
         [Header("Transforms")]
-        [Tooltip("Empty child at the barrel tip — fire origin and direction source.")]
         [SerializeField] private Transform _shotPoint;
-        [Tooltip("Empty child at eye/head height (~0.8 local Y). Rotated by mouse look in 3D.")]
         [SerializeField] private Transform _headPivot;
 
-        [Header("Cinemachine Cameras (children of this prefab)")]
-        [Tooltip("2D overhead / side-scroll vcam.")]
+        [Header("Cinemachine Cameras")]
         [SerializeField] private CinemachineVirtualCamera _vcam2D;
-        [Tooltip("3D first-person vcam on HeadPivot. Body / Aim: Do Nothing.")]
         [SerializeField] private CinemachineVirtualCamera _vcam3D;
 
         [Header("Visuals")]
@@ -54,16 +46,18 @@ namespace TestGame
         [SerializeField, Range(  0f, 80f)] private float _pitchMax =  80f;
 
         [Header("Projectile Config IDs")]
-        [Tooltip("ushort config ID as registered in ProjectileRegistry (0 = first registered).")]
         [SerializeField] private ushort _configId2D = 0;
         [SerializeField] private ushort _configId3D = 0;
 
         [Header("Fire")]
-        [SerializeField] private float _fireRate       = 5f;
+        [SerializeField] private float   _fireRate       = 5f;
         [SerializeField, Range(1, 16)]
-                         private int   _pelletsPerShot = 1;
+                         private int     _pelletsPerShot = 1;
         [SerializeField, Range(0f, 45f)]
-                         private float _spreadDeg      = 0f;
+                         private float   _spreadDeg      = 0f;
+        // FIX: exposed fire key so it can be changed in the inspector without
+        //      modifying code.  Defaults to F for easy sandbox testing.
+        [SerializeField] private KeyCode _fireKey        = KeyCode.F;
 
         [Header("Debug")]
         [SerializeField] private MID_LogLevel _logLevel = MID_LogLevel.Info;
@@ -105,13 +99,11 @@ namespace TestGame
         {
             base.OnNetworkSpawn();
 
-            // Both vcams start hidden; DimensionCameraController activates the right one
             SetVcamActive(_vcam2D, false);
             SetVcamActive(_vcam3D, false);
 
             if (IsOwner)
             {
-                // Wire cameras
                 if (DimensionCameraController.Instance != null)
                 {
                     DimensionCameraController.Instance.RegisterPlayerCams(
@@ -119,19 +111,15 @@ namespace TestGame
                 }
                 else
                 {
-                    // No Cinemachine controller — activate 2D vcam directly as fallback
                     SetVcamActive(_vcam2D, true);
                 }
 
-                // Subscribe to dimension changes
                 if (DimensionManager.HasInstance)
                     DimensionManager.Instance.OnDimensionChanged += HandleDimensionChanged;
 
-                // Tell the prediction system which player we are
                 if (MID_MasterProjectileSystem.HasInstance)
                     MID_MasterProjectileSystem.Instance.SetLocalPlayerMidId(OwnerClientId);
 
-                // Sync to current dimension immediately in case we spawned mid-session
                 Dimension current = DimensionManager.HasInstance
                     ? DimensionManager.Instance.Current
                     : Dimension.TwoD;
@@ -139,9 +127,7 @@ namespace TestGame
                 if (current != Dimension.TwoD)
                     HandleDimensionChanged(current);
 
-                // Seed yaw so there's no rotation snap on first mouse move
                 _yaw = transform.eulerAngles.y;
-
                 ApplyCursorState(_currentDimension);
             }
 
@@ -176,7 +162,6 @@ namespace TestGame
         {
             if (!IsOwner) return;
 
-            // Tab: owner requests scene-wide dimension switch
             if (Input.GetKeyDown(KeyCode.Tab)
                 && DimensionManager.HasInstance
                 && !DimensionManager.Instance.IsTransitioning)
@@ -198,7 +183,7 @@ namespace TestGame
 
         #endregion
 
-        #region Mouse Look (3D FPS)
+        #region Mouse Look (3D)
 
         private void HandleMouseLook()
         {
@@ -206,13 +191,11 @@ namespace TestGame
             float mouseY = Input.GetAxisRaw("Mouse Y") * _mouseSensitivity;
 
             _yaw   += mouseX;
-            _pitch -= mouseY;  // inverted: drag up → look up
+            _pitch -= mouseY;
             _pitch  = Mathf.Clamp(_pitch, _pitchMin, _pitchMax);
 
-            // Body rotates horizontally
             transform.rotation = Quaternion.Euler(0f, _yaw, 0f);
 
-            // Head pivot rotates vertically — vcam3D (child of HeadPivot) follows
             if (_headPivot != null)
                 _headPivot.localRotation = Quaternion.Euler(_pitch, 0f, 0f);
         }
@@ -249,9 +232,12 @@ namespace TestGame
 
         private void HandleFire()
         {
-            if (!Input.GetMouseButton(0))  return;
-            if (Time.time < _nextFireTime) return;
-            if (_shotPoint == null)        return;
+            // FIX: use _fireKey (default F) instead of mouse button 0.
+            // GetKey = hold to fire continuously at _fireRate.
+            // Change _fireKey in the inspector to remap without editing code.
+            if (!Input.GetKey(_fireKey))    return;
+            if (Time.time < _nextFireTime)  return;
+            if (_shotPoint == null)         return;
             if (!ProjectileRegistry.HasInstance) return;
 
             _nextFireTime = Time.time + 1f / Mathf.Max(_fireRate, 0.01f);
@@ -274,12 +260,10 @@ namespace TestGame
 
             if (!MID_MasterProjectileSystem.HasInstance) return;
 
-            // Fire direction: FPS uses HeadPivot.forward; 2D uses transform.right
             Vector3 forwardDir = is3D
                 ? (_headPivot != null ? _headPivot.forward : _shotPoint.forward)
                 : transform.right;
 
-            // Build spread spawn points
             int n   = Mathf.Max(_pelletsPerShot, 1);
             var pts = new SpawnPoint[n];
 
@@ -300,7 +284,6 @@ namespace TestGame
                 };
             }
 
-            // Respect Force Offline Mode via the system's own IsNetworked flag
             bool systemIsNetworked = MID_MasterProjectileSystem.Instance.IsNetworked;
 
             var ctx = new WeaponFireContext
@@ -320,7 +303,7 @@ namespace TestGame
             MID_MasterProjectileSystem.Instance.Fire(cfgId, pts, n, ctx);
 
             MID_Logger.LogDebug(_logLevel,
-                $"Fire — cfgId={cfgId} n={n} dir={forwardDir:F2} networked={ctx.IsNetworked}",
+                $"Fire — key={_fireKey} cfgId={cfgId} n={n} dir={forwardDir:F2} networked={ctx.IsNetworked}",
                 nameof(NetworkedDimensionPlayer));
         }
 
@@ -328,17 +311,12 @@ namespace TestGame
 
         #region Dimension Switch
 
-        /// <summary>
-        /// Event handler — registered with DimensionManager.OnDimensionChanged in OnNetworkSpawn.
-        /// Called ONCE after each transition completes, not twice.
-        /// </summary>
         private void HandleDimensionChanged(Dimension dim)
         {
             _currentDimension = dim;
             ApplyRigidbodyConstraints(dim);
             ApplyCursorState(dim);
 
-            // Snap yaw to current body rotation so the first mouse frame doesn't jump
             if (dim == Dimension.ThreeD)
                 _yaw = transform.eulerAngles.y;
 
@@ -366,7 +344,6 @@ namespace TestGame
                                 | RigidbodyConstraints.FreezeRotationZ;
                 _rb.useGravity  = true;
 
-                // Snap Z position to 0 when entering 3D
                 var p = transform.position;
                 transform.position = new Vector3(p.x, p.y, 0f);
                 _rb.velocity       = new Vector3(_rb.velocity.x, 0f, _rb.velocity.z);
