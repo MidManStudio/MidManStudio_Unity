@@ -2,6 +2,12 @@
 // Server-only. Owns the Rust sim buffers (2D and 3D).
 // Runs tick + collision every FixedUpdate.
 // Sends position snapshots every N ticks for client reconciliation.
+//
+// FIX: Added TrailPool?.SyncToSimulation(_projs2D, _count2D) after Tick2D so
+//      trail renderer positions are updated every physics step on the server
+//      (and in offline/host-mode where the server IS the local machine).
+//      Without this call the TrailObjectPool never moved trail renderers and
+//      all trails appeared frozen at their spawn origin.
 
 using System;
 using System.Runtime.InteropServices;
@@ -57,7 +63,6 @@ namespace MidManStudio.Projectiles.Managers
 
     // ─────────────────────────────────────────────────────────────────────────
     //  ServerProjectileAuthority
-    //  NOT sealed — game layer subclasses to override headshot detection.
     // ─────────────────────────────────────────────────────────────────────────
 
     public class ServerProjectileAuthority : MonoBehaviour
@@ -88,7 +93,7 @@ namespace MidManStudio.Projectiles.Managers
         #region Owned References
 
         public RustSimAdapter              Adapter       { get; private set; }
-        public TrailObjectPool             TrailPool      { get; set; }
+        public TrailObjectPool             TrailPool     { get; set; }
         public MID_ProjectileNetworkBridge NetworkBridge { get; set; }
 
         #endregion
@@ -204,6 +209,10 @@ namespace MidManStudio.Projectiles.Managers
             {
                 Tick2D(dt);
                 Collision2D();
+                // FIX: sync trail renderer positions every physics step.
+                // Without this the TrailObjectPool never moved its renderers
+                // and all trails appeared frozen at their spawn origin.
+                TrailPool?.SyncToSimulation(_projs2D, _count2D);
                 CompactDead2D();
             }
 
@@ -234,14 +243,13 @@ namespace MidManStudio.Projectiles.Managers
 
             for (int i = 0; i < hitCount; i++)
             {
-                ref var h  = ref _hits2D[i];
+                ref var h   = ref _hits2D[i];
                 int     idx = (int)h.ProjIndex;
                 if (idx < 0 || idx >= _count2D) continue;
 
                 bool headshot = CheckHeadshot2D(in h);
                 Adapter.ProcessHit(in h, headshot);
 
-                // If adapter removed it (non-piercer / piercing exhausted) → kill in buffer
                 if (!Adapter.IsRegistered(h.ProjId))
                 {
                     if (idx < _count2D) _projs2D[idx].Alive = 0;
@@ -485,7 +493,7 @@ namespace MidManStudio.Projectiles.Managers
             {
                 if (_projs2D[i].ProjId != projId) continue;
                 Vector2 n = accelDir.normalized;
-                _projs2D[i].Ax = n.x;   // Pascal case — matches NativeProjectile field
+                _projs2D[i].Ax = n.x;
                 _projs2D[i].Ay = n.y;
                 return;
             }
@@ -497,7 +505,7 @@ namespace MidManStudio.Projectiles.Managers
             {
                 if (_projs3D[i].ProjId != projId) continue;
                 Vector3 n = accelDir.normalized;
-                _projs3D[i].Ax = n.x;   // Pascal case — matches NativeProjectile3D field
+                _projs3D[i].Ax = n.x;
                 _projs3D[i].Ay = n.y;
                 _projs3D[i].Az = n.z;
                 return;
@@ -511,7 +519,7 @@ namespace MidManStudio.Projectiles.Managers
         public int SaveState2D(byte[] buf)
         {
             if (buf == null || buf.Length < _count2D * 72) return 0;
-            var pin = GCHandle.Alloc(buf, GCHandleType.Pinned);
+            var pin     = GCHandle.Alloc(buf, GCHandleType.Pinned);
             int written = ProjectileLib.save_state(
                 _pinProjs2D.AddrOfPinnedObject(), _count2D,
                 pin.AddrOfPinnedObject(), buf.Length);
@@ -536,14 +544,6 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Headshot Detection — Virtual Hooks
 
-        // Override in a game-side derived class:
-        //
-        //   public class MyServerProjectileAuthority : ServerProjectileAuthority
-        //   {
-        //       protected override bool CheckHeadshot2D(in HitResult hit)
-        //           => hit.HitY > GetHeadZoneY(hit.TargetId);
-        //   }
-
         protected virtual bool CheckHeadshot2D(in HitResult   hit) => false;
         protected virtual bool CheckHeadshot3D(in HitResult3D hit) => false;
 
@@ -553,7 +553,7 @@ namespace MidManStudio.Projectiles.Managers
 
         private void OnAdapterProjectileDied(uint projId)
         {
-            // TrailPool notification happens in CompactDead — don't double-notify here.
+            // Trail notification happens in CompactDead — no double-notify needed here.
         }
 
         #endregion
