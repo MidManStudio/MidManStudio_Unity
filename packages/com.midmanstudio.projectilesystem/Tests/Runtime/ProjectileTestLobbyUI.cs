@@ -1,22 +1,14 @@
 // packages/com.midmanstudio.projectilesystem/Tests/Runtime/ProjectileTestLobbyUI.cs
-// Concrete subclass of LocalLobbyUIManager for the projectile system test scene.
 //
-// SETUP:
-//   1. Create a Canvas GameObject in the lobby scene.
-//      Add Canvas, CanvasScaler, GraphicRaycaster, and this component.
-//   2. Build child panel GameObjects: PanelNetworkCheck, PanelBrowse, PanelHosting,
-//      PanelJoining, PanelLoading — wire them to the inspector fields.
-//   3. Add LocalLobbyManager and MobileNetworkStatusMonitor to the scene and
-//      assign them in the inherited inspector fields.
-//   4. The _lobbyContext field (from LocalLobbyUIManager) is optional for this
-//      implementation — panels are driven by the virtual hook overrides instead.
-//
-// PANEL BUTTON NAMING CONVENTION expected by this script:
-//   PanelBrowse  : Button "HostButton", TMP_InputField "NameInput", Text "StatusText"
-//   PanelHosting : Button "StartButton", Button "ReadyButton", Button "LeaveButton"
-//   PanelJoining : Button "ReadyButton", Button "LeaveButton"
-//   LobbyEntry prefab : two TMP_Text children (Name, PlayerCount), one Button (Join)
-//   PlayerEntry prefab: three TMP_Text children (Name, Role, Ready)
+// CHANGES vs original:
+//   + Uses LobbyEntryCard and PlayerEntryCard components instead of raw TMP_Text arrays.
+//   + _lobbyEntries and _playerEntries now keyed to their card component directly.
+//   + OnLobbyDiscovered: Instantiate → card.Populate(data, JoinLobby)
+//   + OnPlayerJoined:    Instantiate → card.Populate(player)
+//   + OnPlayerReadyChanged: card.Refresh(player) — no card teardown
+//   + OnLobbyRemoved: Destroy card GameObject
+//   + OnPlayerLeft:   Destroy card GameObject
+//   + _hostButton label auto-generates lobby name from player name.
 
 using System.Collections.Generic;
 using UnityEngine;
@@ -32,153 +24,149 @@ namespace TestGame
     [RequireComponent(typeof(Canvas))]
     public class ProjectileTestLobbyUI : LocalLobbyUIManager
     {
-        #region Inspector
+        // ── Panels ────────────────────────────────────────────────────────────
 
-        [Header("Panels  — wire GameObjects here")]
+        [Header("Panels — wire GameObjects here")]
         [SerializeField] private GameObject _panelNetworkCheck;
         [SerializeField] private GameObject _panelBrowse;
         [SerializeField] private GameObject _panelHosting;
         [SerializeField] private GameObject _panelJoining;
         [SerializeField] private GameObject _panelLoading;
 
+        // ── Browse panel ──────────────────────────────────────────────────────
+
         [Header("Browse Panel")]
         [SerializeField] private Button         _hostButton;
         [SerializeField] private TMP_InputField _playerNameInput;
         [SerializeField] private TMP_Text       _networkStatusText;
         [SerializeField] private Transform      _lobbyListContainer;
-        [SerializeField] private GameObject     _lobbyEntryPrefab;
+        [Tooltip("Prefab must have a LobbyEntryCard component.")]
+        [SerializeField] private LobbyEntryCard _lobbyEntryCardPrefab;
 
-        [Header("In-Lobby Panel  (Hosting + Joining share these)")]
-        [SerializeField] private TMP_Text   _lobbyTitleText;
-        [SerializeField] private Transform  _playerListContainer;
-        [SerializeField] private GameObject _playerEntryPrefab;
-        [SerializeField] private Button     _startButton;    // host-only
-        [SerializeField] private Button     _readyButton;
-        [SerializeField] private Button     _leaveButton;
-        [SerializeField] private TMP_Text   _readyButtonLabel;
+        // ── In-lobby panels (Hosting + Joining) ───────────────────────────────
+
+        [Header("In-Lobby Panels (Hosting + Joining share these)")]
+        [SerializeField] private TMP_Text  _lobbyTitleText;
+        [SerializeField] private Transform _playerListContainer;
+        [Tooltip("Prefab must have a PlayerEntryCard component.")]
+        [SerializeField] private PlayerEntryCard _playerEntryCardPrefab;
+        [SerializeField] private Button    _startButton;
+        [SerializeField] private Button    _readyButton;
+        [SerializeField] private Button    _leaveButton;
+        [SerializeField] private TMP_Text  _readyButtonLabel;
+
+        // ── Network Check panel ───────────────────────────────────────────────
 
         [Header("Network Check Panel")]
-        [SerializeField] private TMP_Text   _noNetworkText;
-        [SerializeField] private Button     _openWifiButton;
-        [SerializeField] private Button     _openHotspotButton;
+        [SerializeField] private TMP_Text _noNetworkText;
+        [SerializeField] private Button   _openWifiButton;
+        [SerializeField] private Button   _openHotspotButton;
+
+        // ── Loading panel ─────────────────────────────────────────────────────
 
         [Header("Loading Panel")]
-        [SerializeField] private TMP_Text   _loadingText;
+        [SerializeField] private TMP_Text _loadingText;
+
+        // ── Lobby config ──────────────────────────────────────────────────────
 
         [Header("Lobby Config")]
-        [SerializeField] private int  _maxPlayers  = 4;
-        [SerializeField] private int  _serverPort   = 7777;
-        [SerializeField] private int  _broadcastPort = 7778;
+        [SerializeField] private int _maxPlayers   = 4;
+        [SerializeField] private int _serverPort   = 7777;
+        [SerializeField] private int _broadcastPort = 7778;
 
-        #endregion
+        // ─────────────────────────────────────────────────────────────────────
+        //  State
+        // ─────────────────────────────────────────────────────────────────────
 
-        #region Private State
+        // Key → card component (not the raw GO; the card owns the GO)
+        private readonly Dictionary<string, LobbyEntryCard> _lobbyCards
+            = new Dictionary<string, LobbyEntryCard>(8);
 
-        private readonly Dictionary<string, GameObject> _lobbyEntries  = new(8);
-        private readonly Dictionary<ulong, GameObject>  _playerEntries = new(8);
+        private readonly Dictionary<ulong, PlayerEntryCard> _playerCards
+            = new Dictionary<ulong, PlayerEntryCard>(8);
+
         private bool _localReady;
 
-        #endregion
-
-        #region Lifecycle
+        // ─────────────────────────────────────────────────────────────────────
+        //  Lifecycle
+        // ─────────────────────────────────────────────────────────────────────
 
         protected override void Awake()
         {
             base.Awake();
 
-            // Wire Browse panel
             _hostButton?.onClick.AddListener(OnHostClicked);
-            _playerNameInput?.onEndEdit.AddListener(name => RequestPlayerName(name));
+            _playerNameInput?.onEndEdit.AddListener(RequestPlayerName);
 
-            // Wire In-Lobby panel
             _startButton?.onClick.AddListener(OnStartClicked);
             _readyButton?.onClick.AddListener(OnReadyClicked);
             _leaveButton?.onClick.AddListener(OnLeaveClicked);
 
-            // Wire Network Check panel
-            _openWifiButton?   .onClick.AddListener(OpenWifi);
-            _openHotspotButton?.onClick.AddListener(OpenHotspot);
+            _openWifiButton?   .onClick.AddListener(() => _lobbyManager?.OpenWiFiSettings());
+            _openHotspotButton?.onClick.AddListener(() => _lobbyManager?.OpenHotspotSettings());
 
-            // Start hidden; Start() will navigate to the correct panel
             SetAllPanelsHidden();
         }
 
         private void Start()
         {
             RequestStartSearch();
-            // Defer to first network status update — but default to Browse if no monitor
             ShowPanel(_panelBrowse);
         }
 
-        protected override void OnDestroy()
-        {
-            base.OnDestroy();
-        }
-
-        #endregion
-
-        #region LocalLobbyUIManager Virtual Hooks
+        // ─────────────────────────────────────────────────────────────────────
+        //  LocalLobbyUIManager hooks
+        // ─────────────────────────────────────────────────────────────────────
 
         protected override void OnLobbyDiscovered(LocalLobbyData lobby)
         {
-            if (_lobbyEntries.ContainsKey(lobby.Key)) return;
-            if (_lobbyListContainer == null || _lobbyEntryPrefab == null) return;
+            if (_lobbyCards.ContainsKey(lobby.Key)) return;
+            if (_lobbyListContainer == null || _lobbyEntryCardPrefab == null) return;
 
-            var entry = Instantiate(_lobbyEntryPrefab, _lobbyListContainer);
-            _lobbyEntries[lobby.Key] = entry;
-
-            var texts = entry.GetComponentsInChildren<TMP_Text>(true);
-            if (texts.Length > 0) texts[0].text = lobby.LobbyName;
-            if (texts.Length > 1)
-                texts[1].text = $"{lobby.CurrentPlayers}/{lobby.MaxPlayers}";
-
-            var btn = entry.GetComponentInChildren<Button>(true);
-            if (btn != null)
-            {
-                var captured = lobby;
-                btn.onClick.AddListener(() => JoinLobby(captured));
-            }
+            var card = Instantiate(_lobbyEntryCardPrefab, _lobbyListContainer);
+            card.Populate(lobby, JoinLobby);
+            _lobbyCards[lobby.Key] = card;
 
             MID_Logger.LogDebug(_logLevel,
-                $"Lobby entry added: {lobby}",
-                nameof(ProjectileTestLobbyUI));
+                $"Lobby card added: {lobby}", nameof(ProjectileTestLobbyUI));
         }
 
         protected override void OnLobbyRemoved(string lobbyKey)
         {
-            if (!_lobbyEntries.TryGetValue(lobbyKey, out var go)) return;
-            Destroy(go);
-            _lobbyEntries.Remove(lobbyKey);
+            if (!_lobbyCards.TryGetValue(lobbyKey, out var card)) return;
+            if (card != null) Destroy(card.gameObject);
+            _lobbyCards.Remove(lobbyKey);
         }
 
         protected override void OnPlayerJoined(LocalLobbyPlayer player)
         {
-            if (_playerListContainer == null || _playerEntryPrefab == null) return;
-            if (_playerEntries.ContainsKey(player.ClientId)) return;
+            if (_playerCards.ContainsKey(player.ClientId)) return;
+            if (_playerListContainer == null || _playerEntryCardPrefab == null) return;
 
-            var entry = Instantiate(_playerEntryPrefab, _playerListContainer);
-            _playerEntries[player.ClientId] = entry;
-            RefreshPlayerEntry(entry, player);
+            var card = Instantiate(_playerEntryCardPrefab, _playerListContainer);
+            card.Populate(player);
+            _playerCards[player.ClientId] = card;
 
             RefreshStartButton();
 
             MID_Logger.LogDebug(_logLevel,
-                $"Player entry added: {player}",
-                nameof(ProjectileTestLobbyUI));
+                $"Player card added: {player}", nameof(ProjectileTestLobbyUI));
         }
 
         protected override void OnPlayerLeft(ulong clientId)
         {
-            if (!_playerEntries.TryGetValue(clientId, out var go)) return;
-            Destroy(go);
-            _playerEntries.Remove(clientId);
+            if (!_playerCards.TryGetValue(clientId, out var card)) return;
+            if (card != null) Destroy(card.gameObject);
+            _playerCards.Remove(clientId);
             RefreshStartButton();
         }
 
         protected override void OnPlayerReadyChanged(LocalLobbyPlayer player)
         {
-            if (!_playerEntries.TryGetValue(player.ClientId, out var go)) return;
-            RefreshPlayerEntry(go, player);
+            // Refresh the existing card in-place — no teardown needed.
+            if (_playerCards.TryGetValue(player.ClientId, out var card))
+                card.Refresh(player);
+
             RefreshStartButton();
         }
 
@@ -187,17 +175,14 @@ namespace TestGame
             if (success)
             {
                 ShowPanel(_panelHosting);
-                if (_lobbyTitleText != null)
-                    _lobbyTitleText.text = $"Hosting: {_lobbyManager?.PlayerName}'s Test Lobby";
+                string name = _lobbyManager?.PlayerName ?? "Host";
+                SetText(_lobbyTitleText, $"Hosting: {name}'s Test Lobby");
                 SetStartButtonVisible(true);
             }
             else
             {
                 ShowPanel(_panelBrowse);
                 SetStatusText("Host failed — check WiFi / hotspot.");
-                MID_Logger.LogWarning(_logLevel,
-                    "Host failed.",
-                    nameof(ProjectileTestLobbyUI));
             }
         }
 
@@ -206,23 +191,19 @@ namespace TestGame
             if (success)
             {
                 ShowPanel(_panelJoining);
-                if (_lobbyTitleText != null)
-                    _lobbyTitleText.text = "In Lobby";
+                SetText(_lobbyTitleText, "In Lobby");
                 SetStartButtonVisible(false);
             }
             else
             {
                 ShowPanel(_panelBrowse);
                 SetStatusText("Join failed — host may have left.");
-                MID_Logger.LogWarning(_logLevel,
-                    "Join failed.",
-                    nameof(ProjectileTestLobbyUI));
             }
         }
 
         protected override void OnLobbyDisbanded()
         {
-            ClearPlayerList();
+            ClearPlayerCards();
             ShowPanel(_panelBrowse);
             SetStatusText("Lobby disbanded by host.");
         }
@@ -231,21 +212,16 @@ namespace TestGame
         {
             SetStatusText(FriendlyStatus(status));
 
-            bool hasLAN = status is "WIFI_CONNECTED" or "HOTSPOT";
+            bool hasLan = status is "WIFI_CONNECTED" or "HOTSPOT";
 
-            if (!hasLAN)
+            if (!hasLan && (IsShowingPanel(_panelBrowse) || IsShowingPanel(_panelNetworkCheck)))
             {
-                // Only jump to network check if we're in Browse, not mid-lobby
-                if (IsShowingPanel(_panelBrowse) || IsShowingPanel(_panelNetworkCheck))
-                {
-                    ShowPanel(_panelNetworkCheck);
-                    if (_noNetworkText != null)
-                        _noNetworkText.text = status == "MOBILE_DATA"
-                            ? "WiFi required for LAN play.\nMobile data cannot host or join."
-                            : "No network connection detected.";
-                }
+                ShowPanel(_panelNetworkCheck);
+                SetText(_noNetworkText, status == "MOBILE_DATA"
+                    ? "WiFi required for LAN play.\nMobile data cannot host or join."
+                    : "No network connection detected.");
             }
-            else if (IsShowingPanel(_panelNetworkCheck))
+            else if (hasLan && IsShowingPanel(_panelNetworkCheck))
             {
                 ShowPanel(_panelBrowse);
             }
@@ -258,24 +234,21 @@ namespace TestGame
                 nameof(ProjectileTestLobbyUI));
 
             ShowPanel(_panelLoading);
-            if (_loadingText != null) _loadingText.text = "Starting test session…";
+            SetText(_loadingText, "Starting test session…");
 
-            // Disable this UI root so the game scene takes over.
-            // The game scene must be loaded by a SceneManager call in your game code.
-            // For the test: just deactivate after a short delay.
             Invoke(nameof(HideUI), 0.5f);
         }
 
-        #endregion
-
-        #region Button Handlers
+        // ─────────────────────────────────────────────────────────────────────
+        //  Button handlers
+        // ─────────────────────────────────────────────────────────────────────
 
         private void OnHostClicked()
         {
             ShowPanel(_panelLoading);
-            if (_loadingText != null) _loadingText.text = "Starting host…";
+            SetText(_loadingText, "Starting host…");
 
-            string playerName = (_playerNameInput != null && !string.IsNullOrWhiteSpace(_playerNameInput.text))
+            string playerName = (!string.IsNullOrWhiteSpace(_playerNameInput?.text))
                 ? _playerNameInput.text.Trim()
                 : "Player";
 
@@ -297,7 +270,7 @@ namespace TestGame
         private void JoinLobby(LocalLobbyData lobby)
         {
             ShowPanel(_panelLoading);
-            if (_loadingText != null) _loadingText.text = $"Joining {lobby.LobbyName}…";
+            SetText(_loadingText, $"Joining {lobby.LobbyName}…");
             RequestJoin(lobby);
         }
 
@@ -305,10 +278,7 @@ namespace TestGame
         {
             if (!AreAllReady())
             {
-                MID_Logger.LogWarning(_logLevel,
-                    "Cannot start — not all players are ready.",
-                    nameof(ProjectileTestLobbyUI));
-                SetStatusText("All players must be ready to start.");
+                SetStatusText("All players must be ready before starting.");
                 return;
             }
             RequestGameStart();
@@ -320,20 +290,17 @@ namespace TestGame
                 || !NetworkManager.Singleton.IsConnectedClient) return;
 
             _localReady = !_localReady;
-            ulong localId = NetworkManager.Singleton.LocalClientId;
-            RequestSetReady(localId, _localReady);
-
-            if (_readyButtonLabel != null)
-                _readyButtonLabel.text = _localReady ? "Unready" : "Ready";
+            ulong id = NetworkManager.Singleton.LocalClientId;
+            RequestSetReady(id, _localReady);
+            SetText(_readyButtonLabel, _localReady ? "Unready" : "Ready");
         }
 
         private void OnLeaveClicked()
         {
             _localReady = false;
-            if (_readyButtonLabel != null) _readyButtonLabel.text = "Ready";
-
-            ClearPlayerList();
-            ClearLobbyList();
+            SetText(_readyButtonLabel, "Ready");
+            ClearPlayerCards();
+            ClearLobbyCards();
 
             if (_lobbyManager != null && _lobbyManager.IsHosting)
                 RequestStopHosting();
@@ -343,19 +310,9 @@ namespace TestGame
             ShowPanel(_panelBrowse);
         }
 
-        private void OpenWifi()
-        {
-            _lobbyManager?.OpenWiFiSettings();
-        }
-
-        private void OpenHotspot()
-        {
-            _lobbyManager?.OpenHotspotSettings();
-        }
-
-        #endregion
-
-        #region UI Helpers
+        // ─────────────────────────────────────────────────────────────────────
+        //  UI helpers
+        // ─────────────────────────────────────────────────────────────────────
 
         private void ShowPanel(GameObject active)
         {
@@ -375,59 +332,46 @@ namespace TestGame
             _panelLoading     ?.SetActive(false);
         }
 
-        private bool IsShowingPanel(GameObject panel)
-            => panel != null && panel.activeSelf;
-
-        private void RefreshPlayerEntry(GameObject entry, LocalLobbyPlayer player)
-        {
-            if (entry == null) return;
-            var texts = entry.GetComponentsInChildren<TMP_Text>(true);
-            if (texts.Length > 0) texts[0].text = player.PlayerName + (player.IsBot ? " [BOT]" : "");
-            if (texts.Length > 1) texts[1].text = player.IsHost ? "HOST" : "Player";
-            if (texts.Length > 2)
-            {
-                texts[2].text  = player.IsReady ? "✓ Ready" : "…";
-                texts[2].color = player.IsReady
-                    ? new Color(0.3f, 1f, 0.4f)
-                    : new Color(0.8f, 0.8f, 0.8f);
-            }
-        }
+        private bool IsShowingPanel(GameObject p) => p != null && p.activeSelf;
 
         private void RefreshStartButton()
         {
             bool canStart = AreAllReady() && GetPlayers().Count >= 1;
-            if (_startButton != null)
-                _startButton.interactable = canStart;
+            if (_startButton != null) _startButton.interactable = canStart;
         }
 
-        private void SetStartButtonVisible(bool visible)
+        private void SetStartButtonVisible(bool v)
         {
-            if (_startButton != null)
-                _startButton.gameObject.SetActive(visible);
+            if (_startButton != null) _startButton.gameObject.SetActive(v);
         }
 
         private void SetStatusText(string msg)
         {
-            if (_networkStatusText != null)
-                _networkStatusText.text = msg;
-            MID_Logger.LogDebug(_logLevel, $"[Status] {msg}", nameof(ProjectileTestLobbyUI));
+            SetText(_networkStatusText, msg);
+            MID_Logger.LogDebug(_logLevel, $"[Status] {msg}",
+                nameof(ProjectileTestLobbyUI));
         }
 
-        private void ClearPlayerList()
+        private void ClearPlayerCards()
         {
-            foreach (var go in _playerEntries.Values)
-                if (go != null) Destroy(go);
-            _playerEntries.Clear();
+            foreach (var c in _playerCards.Values)
+                if (c != null) Destroy(c.gameObject);
+            _playerCards.Clear();
         }
 
-        private void ClearLobbyList()
+        private void ClearLobbyCards()
         {
-            foreach (var go in _lobbyEntries.Values)
-                if (go != null) Destroy(go);
-            _lobbyEntries.Clear();
+            foreach (var c in _lobbyCards.Values)
+                if (c != null) Destroy(c.gameObject);
+            _lobbyCards.Clear();
         }
 
         private void HideUI() => gameObject.SetActive(false);
+
+        private static void SetText(TMP_Text t, string v)
+        {
+            if (t != null) t.text = v;
+        }
 
         private static string FriendlyStatus(string raw) => raw switch
         {
@@ -437,7 +381,5 @@ namespace TestGame
             "NO_NETWORK"     => "No Network ✗",
             _                => raw
         };
-
-        #endregion
     }
 }
