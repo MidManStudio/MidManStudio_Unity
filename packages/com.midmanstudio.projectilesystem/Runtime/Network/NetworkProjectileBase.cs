@@ -1,317 +1,333 @@
 // packages/com.midmanstudio.projectilesystem/Runtime/Network/NetworkProjectileBase.cs
 //
-// Base NetworkBehaviour for physics-driven projectiles (grenades, rockets,
-// bouncy rounds, sticky bombs — anything that needs a Rigidbody + PhysicsMaterial).
+// Extracted sync scaffolding from your Projectile.cs.
+// Extends NetworkTransform — that IS the position sync.
+// Owns ONLY:
+//   - Identity NetworkVariables (owner, firedBy, velocity, visualSynch, isBotOwned, weaponLevel, serverIsActualOwner)
+//   - OnNetworkSpawn  → get visual from LocalObjectPool, call Initialize
+//   - OnNetworkDespawn → ReturnToPoolImmediate
+//   - OnNetworkTransformStateUpdated → forward position tick to visual
+//   - HasHitObjectClientRpc
+//   - NotifyCollisionClientRpc   (your DoSometingOnCollisionClientRpc equivalent)
+//   - SpawnImpactEffectClientRpc (your SpawnCoolProjectilCollisionEffectClientRpc equivalent)
+//   - SpawnKillEffectClientRpc   (your SpawnPlayerKillEffectClientRpc equivalent)
+//   - DestroyProjectile()
+//   - InitialiseProjectile() — sets all NetworkVariables, starts lifetime clock
+//   - Virtual hooks for game layer
 //
-// PACKAGE RESPONSIBILITY:
-//   - Lifetime management (server kills projectile after _lifetime seconds)
-//   - Owner identity forwarded from the fire event
-//   - OnImpact virtual callback (server-side; override for damage logic)
-//   - Pool-safe despawn via MID_NetworkObjectPool
-//   - Disabled on clients that are not the server (simulation is server-only)
-//
-// GAME RESPONSIBILITY (derive from this in your game assembly):
-//   - Add [RequireComponent(typeof(Rigidbody))] and your PhysicsMaterial
-//   - Override OnImpact() to apply damage / spawn VFX
-//   - Override OnProjectileExpired() if you need custom expiry behaviour
-//   - Set _applyInitialForce=true and tune _initialSpeed for rocket-style launches
-//
-// SPAWN PATH:
-//   Server calls MID_MasterProjectileSystem.Instance.SpawnPhysicsProjectile(type, pos, rot)
-//   which returns the NetworkObject already spawned.
-//   Then cast: var proj = netObj.GetComponent<NetworkProjectileBase>();
-//              proj.InitialiseProjectile(ownerMidId, firedByNetObjId, configId, speed, dir);
-//
-// POOL RETURN:
-//   Call ReturnToPool() from OnImpact or anywhere else — safe to call multiple times.
-//   Internally guards against double-return with _returned flag.
+// YOUR GAME LAYER (derive from this in your game assembly):
+//   - Config lookup, damage, collision, explosion, effects — all yours
+//   - Override OnProjectileInitialised() to set Rigidbody velocity etc.
+//   - Override OnImpactServer() to call ExplodeProjectile() etc.
+//   - Override OnCollisionNotifiedClient() for audio/particles
+//   - Override OnSpawnImpactEffectClient() for LocalParticlePool call
+//   - Override OnSpawnKillEffectClient() to Instantiate kill effect
 
-using System;
 using UnityEngine;
 using Unity.Netcode;
+using Unity.Netcode.Components;
 using MidManStudio.Core.Pools;
 using MidManStudio.Netcode.Pools;
-using MidManStudio.Core.Logging;
 
 namespace MidManStudio.Projectiles.Network
 {
-    // ─────────────────────────────────────────────────────────────────────────
-    //  Impact payload passed to OnImpact
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Data available when a physics projectile collides with something.
-    /// Passed to OnImpact() on the server.
-    /// </summary>
-    public struct PhysicsProjectileImpact
-    {
-        /// <summary>World-space contact point.</summary>
-        public Vector3 ContactPoint;
-
-        /// <summary>Inward surface normal at the contact point.</summary>
-        public Vector3 ContactNormal;
-
-        /// <summary>The Collider that was hit.</summary>
-        public Collider HitCollider;
-
-        /// <summary>
-        /// NetworkObject attached to the hit collider (or a parent), if any.
-        /// Null when hitting static geometry.
-        /// </summary>
-        public NetworkObject HitNetworkObject;
-
-        /// <summary>
-        /// NetworkObjectId of the hit target, or 0 for static geometry.
-        /// Safe to serialise into RPCs.
-        /// </summary>
-        public ulong HitNetworkObjectId;
-
-        /// <summary>Relative speed of the projectile at impact (magnitude of collision.relativeVelocity).</summary>
-        public float ImpactSpeed;
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    //  NetworkProjectileBase
-    // ─────────────────────────────────────────────────────────────────────────
-
     [DisallowMultipleComponent]
-    public class NetworkProjectileBase : NetworkBehaviour
+    public class NetworkProjectileBase : NetworkTransform
     {
-        // ── Inspector ─────────────────────────────────────────────────────────
+        // ─────────────────────────────────────────────────────────────────────
+        //  Inspector
+        // ─────────────────────────────────────────────────────────────────────
 
         [Header("Lifetime")]
-        [Tooltip("Server kills this projectile after this many seconds regardless of impact.")]
-        [SerializeField] protected float _lifetime = 8f;
+        public float TimeToLive = 8f;
 
-        [Header("Initial Velocity (optional)")]
-        [Tooltip("If true, Initialise() applies an initial force in the fire direction.\n" +
-                 "Set false if your weapon script applies velocity directly on the Rigidbody.")]
-        [SerializeField] private bool  _applyInitialForce = true;
+        [Tooltip("Distance threshold: visual lerps to hit point; returns to pool when within this.")]
+        public float EolPositionDelta = 0.20f;
 
-        [Header("Pool")]
-        [Tooltip("Pool type to return to on impact or expiry.\n" +
-                 "Must match the type used in MID_MasterProjectileSystem.SpawnPhysicsProjectile().")]
-        [SerializeField] private PoolableNetworkObjectType _poolType
+        [Header("Visual Pool")]
+        [Tooltip("Same PoolableObjectType you pass to LocalObjectPool in your Projectile.cs.")]
+        [SerializeField] private PoolableObjectType _visualPoolType
+            = PoolableObjectType.Projectile_Visual2D;
+
+        [Header("Network Object Pool")]
+        [SerializeField] private PoolableNetworkObjectType _networkPoolType
             = PoolableNetworkObjectType.BaseProjectileBlueprint;
 
-        [Header("Impact")]
-        [Tooltip("Minimum relative impact speed to trigger OnImpact.\n" +
-                 "Prevents micro-collision spam on rough geometry.")]
-        [SerializeField] private float _minImpactSpeed = 0.5f;
-
-        [Tooltip("Seconds after first impact before the projectile is returned to pool.\n" +
-                 "A small delay lets the impact VFX ClientRpc arrive before despawn.")]
-        [SerializeField] private float _postImpactDelay = 0.12f;
-
-        [Header("Debug")]
-        [SerializeField] protected MID_LogLevel _logLevel = MID_LogLevel.None;
-
-        // ── Owner identity — written by InitialiseProjectile() ─────────────
-
-        /// <summary>MID ID of the player or bot that fired this projectile.</summary>
-        public ulong OwnerMidId             { get; private set; }
-
-        /// <summary>NetworkObjectId of the weapon / character that fired.</summary>
-        public ulong FiredByNetworkObjectId { get; private set; }
-
-        /// <summary>Registered projectile config ID (for damage lookups).</summary>
-        public ushort ConfigId              { get; private set; }
-
-        /// <summary>True once InitialiseProjectile() has been called.</summary>
-        public bool IsInitialised           { get; private set; }
-
-        // ── Internal state ────────────────────────────────────────────────────
-
-        private Rigidbody _rb;
-        private float     _spawnTime;
-        private bool      _returned;        // guard against double-return
-        private bool      _impactHandled;   // guard against multiple OnImpact calls
-
         // ─────────────────────────────────────────────────────────────────────
-        //  Unity lifecycle
+        //  NetworkVariables
+        //  Extracted 1-to-1 from your Projectile.cs NetworkVariables block.
+        //  Names kept identical so grep/search works across both files.
         // ─────────────────────────────────────────────────────────────────────
 
-        protected virtual void Awake()
-        {
-            _rb = GetComponent<Rigidbody>();
-        }
+        [Header("Network Variables")]
+        [SerializeField]
+        private NetworkVariable<ulong> n_ProjectilesOwner
+            = new NetworkVariable<ulong>();
 
-        // NGO calls this each time the object is spawned from the pool.
+        [SerializeField]
+        private NetworkVariable<ulong> n_FiredByNetworkObjectId
+            = new NetworkVariable<ulong>();
+
+        [SerializeField]
+        private NetworkVariable<float> n_BulletVelocity
+            = new NetworkVariable<float>();
+
+        private NetworkVariable<bool> n_EnableVisualSynch
+            = new NetworkVariable<bool>(true);
+
+        private NetworkVariable<bool> n_IsBotOwned
+            = new NetworkVariable<bool>();
+
+        private NetworkVariable<byte> n_CurrentWeaponLevel
+            = new NetworkVariable<byte>();
+
+        private NetworkVariable<bool> n_ServerIsActualyOwner
+            = new NetworkVariable<bool>();
+
+        // ─────────────────────────────────────────────────────────────────────
+        //  Accessors — read by derived class
+        // ─────────────────────────────────────────────────────────────────────
+
+        protected ulong  OwnerMidId               => n_ProjectilesOwner.Value;
+        protected ulong  FiredByNetObjId           => n_FiredByNetworkObjectId.Value;
+        protected float  BulletVelocity            => n_BulletVelocity.Value;
+        protected bool   VisualSynchEnabled        => n_EnableVisualSynch.Value;
+        protected bool   IsBotOwned                => n_IsBotOwned.Value;
+        protected byte   WeaponLevel               => n_CurrentWeaponLevel.Value;
+        protected bool   ServerIsActuallyOwner     => n_ServerIsActualyOwner.Value;
+
+        // ─────────────────────────────────────────────────────────────────────
+        //  Visual reference — your existing ProjectileVisual via interface
+        // ─────────────────────────────────────────────────────────────────────
+
+        protected INetworkProjectileVisual ProjectileVisualInstance { get; private set; }
+        private   GameObject               _visualGO;
+
+        // ─────────────────────────────────────────────────────────────────────
+        //  Internal state
+        // ─────────────────────────────────────────────────────────────────────
+
+        private float _endOfLifeTime;
+        private bool  _initialised;
+        private bool  _destroying;
+
+        // ─────────────────────────────────────────────────────────────────────
+        //  NGO lifecycle
+        // ─────────────────────────────────────────────────────────────────────
+
         public override void OnNetworkSpawn()
         {
+            _destroying  = false;
+            _initialised = false;
+
+            // Get visual from pool — mirrors your Projectile.cs OnNetworkSpawn
+            _visualGO = LocalObjectPool.Instance.GetObject(
+                _visualPoolType, transform.position, transform.rotation);
+
+            ProjectileVisualInstance = _visualGO != null
+                ? _visualGO.GetComponent<INetworkProjectileVisual>()
+                : null;
+
             base.OnNetworkSpawn();
-            _spawnTime     = Time.time;
-            _returned      = false;
-            _impactHandled = false;
-            IsInitialised  = false;
-
-            // Only the server runs the lifetime timer and physics simulation.
-            // Clients receive position via NetworkTransform (add that component
-            // to your derived class prefab — not included here so the base
-            // class has no mandatory Netcode component dependencies).
-            if (!IsServer) return;
-
-            // Lifetime watchdog
-            Invoke(nameof(OnProjectileExpiredInternal), _lifetime);
         }
 
         public override void OnNetworkDespawn()
         {
-            CancelInvoke();
+            // Return visual — mirrors your Projectile.cs OnNetworkDespawn
+            if (ProjectileVisualInstance != null)
+            {
+                if (_visualGO != null)
+                    _visualGO.transform.SetParent(null);
+
+                ProjectileVisualInstance.ReturnToPoolImmediate();
+                ProjectileVisualInstance = null;
+                _visualGO                = null;
+            }
+
             base.OnNetworkDespawn();
         }
 
         // ─────────────────────────────────────────────────────────────────────
-        //  Public initialisation API
+        //  Update — server lifetime watchdog
+        //  Mirrors HandleServerUpdate() in your Projectile.cs
         // ─────────────────────────────────────────────────────────────────────
 
-        /// <summary>
-        /// Initialise a freshly-spawned physics projectile.
-        /// Call on server immediately after SpawnPhysicsProjectile() returns.
-        /// </summary>
-        /// <param name="ownerMidId">MID ID of the firing entity.</param>
-        /// <param name="firedByNetObjId">NetworkObjectId of the weapon / character.</param>
-        /// <param name="configId">Registered ProjectileConfigSO ID.</param>
-        /// <param name="speed">Launch speed (world units/s).</param>
-        /// <param name="direction">Normalised launch direction.</param>
+        protected override void Update()
+        {
+            if (!IsSpawned) return;
+
+            if (IsServer)
+            {
+                base.Update(); // NetworkTransform tick
+
+                if (_initialised
+                    && NetworkManager.ServerTime.TimeAsFloat >= _endOfLifeTime)
+                {
+                    DestroyProjectile();
+                }
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        //  NetworkTransform override
+        //  Mirrors OnNetworkTransformStateUpdated in your Projectile.cs exactly.
+        // ─────────────────────────────────────────────────────────────────────
+
+        protected override void OnNetworkTransformStateUpdated(
+            ref NetworkTransformState oldState,
+            ref NetworkTransformState newState)
+        {
+            if (newState.HasPositionChange
+                && ProjectileVisualInstance != null
+                && n_EnableVisualSynch.Value)
+            {
+                ProjectileVisualInstance.UpdatePositionInterpolator(
+                    newState.GetPosition(),
+                    newState.GetNetworkTick());
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        //  Initialise
+        //  Call on server right after SpawnPhysicsProjectile() returns.
+        //  Sets all NetworkVariables then calls Initialize on the visual.
+        //  Mirrors InitializeServerProjectile() in your Projectile.cs.
+        // ─────────────────────────────────────────────────────────────────────
+
         public virtual void InitialiseProjectile(
             ulong  ownerMidId,
-            ulong  firedByNetObjId,
-            ushort configId,
-            float  speed,
-            Vector3 direction)
+            ulong  firedByNetworkObjectId,
+            float  bulletVelocity,
+            bool   isBotOwned          = false,
+            byte   weaponLevel         = 0,
+            bool   serverIsActualOwner = false,
+            bool   enableVisualSynch   = true)
         {
             if (!IsServer) return;
 
-            OwnerMidId             = ownerMidId;
-            FiredByNetworkObjectId = firedByNetObjId;
-            ConfigId               = configId;
-            IsInitialised          = true;
+            // Write NetworkVariables
+            n_ProjectilesOwner.Value       = ownerMidId;
+            n_FiredByNetworkObjectId.Value = firedByNetworkObjectId;
+            n_BulletVelocity.Value         = bulletVelocity;
+            n_IsBotOwned.Value             = isBotOwned;
+            n_CurrentWeaponLevel.Value     = weaponLevel;
+            n_ServerIsActualyOwner.Value   = serverIsActualOwner;
+            n_EnableVisualSynch.Value      = enableVisualSynch;
 
-            if (_applyInitialForce && _rb != null)
+            // Lifetime clock — mirrors EndOfLifeTime = NetworkManager.ServerTime.TimeAsFloat + TimeToLive
+            _endOfLifeTime = NetworkManager.ServerTime.TimeAsFloat + TimeToLive;
+
+            // Parent visual under this transform on server
+            // Mirrors ProjectileVisualInstance.transform.SetParent(transform) in your code
+            if (_visualGO != null)
+                _visualGO.transform.SetParent(transform);
+
+            _initialised = true;
+
+            // Let derived class do config lookup, set Rigidbody velocity, etc.
+            OnProjectileInitialised();
+
+            // Now call Initialize on the visual — derived class knows projectile name/config
+            // so it does this call itself inside OnProjectileInitialised if needed,
+            // OR we call the virtual below so base can wire it generically.
+            InitialiseVisual();
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        //  Destroy
+        //  Mirrors DestroyProjectile() in your Projectile.cs.
+        //  Pattern: notify clients → virtual hook → return visual → Despawn.
+        // ─────────────────────────────────────────────────────────────────────
+
+        protected void DestroyProjectile()
+        {
+            if (!IsServer || !IsSpawned || _destroying) return;
+            _destroying = true;
+
+            // Mirrors DoSometingOnCollisionClientRpc call in your DestroyProjectile()
+            NotifyCollisionClientRpc();
+
+            // Virtual: derived class calls ExplodeProjectile(), SpawnKillEffectClientRpc, etc.
+            OnImpactServer();
+
+            // Mirrors CleanupVisualImmediate() + HasHitObjectClientRpc call in your code
+            if (ProjectileVisualInstance != null)
             {
-                _rb.velocity = Vector3.zero;
-                _rb.angularVelocity = Vector3.zero;
-                _rb.AddForce(direction.normalized * speed, ForceMode.VelocityChange);
+                ProjectileVisualInstance.ReturnToPoolImmediate();
+                ProjectileVisualInstance = null;
+                _visualGO                = null;
             }
 
-            MID_Logger.LogDebug(_logLevel,
-                $"InitialiseProjectile: owner={ownerMidId} cfgId={configId} spd={speed:F1}",
-                nameof(NetworkProjectileBase));
+            HasHitObjectClientRpc(transform.position, NetworkManager.ServerTime.Tick);
+
+            NetworkObject.Despawn();
         }
 
         // ─────────────────────────────────────────────────────────────────────
-        //  Pool return
+        //  RPCs — extracted 1-to-1 from your Projectile.cs
         // ─────────────────────────────────────────────────────────────────────
 
-        /// <summary>
-        /// Return this projectile to MID_NetworkObjectPool.
-        /// Safe to call multiple times — subsequent calls are no-ops.
-        /// Can be called from OnImpact, a coroutine, or external code.
-        /// </summary>
-        public void ReturnToPool()
+        /// Mirrors HasHitObjectClientRpc in your Projectile.cs.
+        [ClientRpc]
+        private void HasHitObjectClientRpc(
+            Vector3 position, int tick,
+            ClientRpcParams p = default)
         {
-            if (_returned) return;
-            _returned = true;
-
-            CancelInvoke();
-
-            if (!IsServer) return;
-
-            if (MID_MasterProjectileSystem.HasInstance)
-                MID_MasterProjectileSystem.Instance.ReturnPhysicsProjectile(
-                    NetworkObject, _poolType);
-            else
-                NetworkObject.Despawn();
-
-            MID_Logger.LogDebug(_logLevel,
-                $"ReturnToPool: netId={NetworkObjectId}",
-                nameof(NetworkProjectileBase));
+            if (ProjectileVisualInstance != null)
+                ProjectileVisualInstance.SetHitPosition(position, tick);
         }
 
-        // ─────────────────────────────────────────────────────────────────────
-        //  Collision
-        // ─────────────────────────────────────────────────────────────────────
-
-        protected virtual void OnCollisionEnter(Collision collision)
+        /// Mirrors DoSometingOnCollisionClientRpc in your Projectile.cs.
+        [ClientRpc]
+        private void NotifyCollisionClientRpc(ClientRpcParams p = default)
         {
-            if (!IsServer)             return;
-            if (_impactHandled)        return;
-            if (!IsInitialised)        return;
-
-            float relSpeed = collision.relativeVelocity.magnitude;
-            if (relSpeed < _minImpactSpeed) return;
-
-            _impactHandled = true;
-
-            // Build payload
-            ContactPoint cp = collision.GetContact(0);
-            var netObj = collision.collider.GetComponentInParent<NetworkObject>();
-
-            var impact = new PhysicsProjectileImpact
-            {
-                ContactPoint        = cp.point,
-                ContactNormal       = cp.normal,
-                HitCollider         = collision.collider,
-                HitNetworkObject    = netObj,
-                HitNetworkObjectId  = netObj != null ? netObj.NetworkObjectId : 0,
-                ImpactSpeed         = relSpeed
-            };
-
-            OnImpact(impact);
-
-            // Freeze in place while the delay plays out then return to pool.
-            // Override OnImpact to bypass if you want immediate return.
-            if (_rb != null)
-            {
-                _rb.velocity        = Vector3.zero;
-                _rb.angularVelocity = Vector3.zero;
-                _rb.isKinematic     = true;
-            }
-
-            Invoke(nameof(ReturnToPool), _postImpactDelay);
+            OnCollisionNotifiedClient();
         }
 
-        // ─────────────────────────────────────────────────────────────────────
-        //  Virtual callbacks — override in derived class
-        // ─────────────────────────────────────────────────────────────────────
-
-        /// <summary>
-        /// Server-side impact callback. Override to apply damage, spawn VFX RPCs, etc.
-        /// Base implementation does nothing — you are expected to override.
-        ///
-        /// Example override:
-        ///   protected override void OnImpact(PhysicsProjectileImpact impact)
-        ///   {
-        ///       float dmg = config.EvaluateDamage(0f) * DamageMultiplier;
-        ///       // apply to impact.HitNetworkObject ...
-        ///       NotifyImpactClientRpc(impact.ContactPoint);
-        ///       ReturnToPool();   // call early if you don't want the freeze delay
-        ///   }
-        /// </summary>
-        protected virtual void OnImpact(PhysicsProjectileImpact impact) { }
-
-        /// <summary>
-        /// Server-side callback when the projectile expires without hitting anything.
-        /// Override for smoke-signal VFX, UXO marking, etc.
-        /// Base implementation returns to pool.
-        /// </summary>
-        protected virtual void OnProjectileExpired()
+        /// Mirrors SpawnCoolProjectilCollisionEffectClientRpc in your Projectile.cs.
+        [ClientRpc]
+        protected void SpawnImpactEffectClientRpc(
+            Vector3 position,
+            ClientRpcParams p = default)
         {
-            ReturnToPool();
+            OnSpawnImpactEffectClient(position);
         }
 
-        // ─────────────────────────────────────────────────────────────────────
-        //  Internal lifetime expiry
-        // ─────────────────────────────────────────────────────────────────────
-
-        private void OnProjectileExpiredInternal()
+        /// Mirrors SpawnPlayerKillEffectClientRpc in your Projectile.cs.
+        [ClientRpc]
+        protected void SpawnKillEffectClientRpc(
+            Vector3 position,
+            ClientRpcParams p = default)
         {
-            if (_returned) return;
-            MID_Logger.LogDebug(_logLevel,
-                $"Expired after {_lifetime:F1}s — netId={NetworkObjectId}",
-                nameof(NetworkProjectileBase));
-            OnProjectileExpired();
+            OnSpawnKillEffectClient(position);
         }
+
+        // ─────────────────────────────────────────────────────────────────────
+        //  Virtual hooks — all empty, all yours to override
+        // ─────────────────────────────────────────────────────────────────────
+
+        /// Server. Called after NetworkVariables are set.
+        /// Set Rigidbody velocity, physics material, collider size, etc.
+        protected virtual void OnProjectileInitialised() { }
+
+        /// Server. Called inside DestroyProjectile() before Despawn.
+        /// Call ExplodeProjectile(), SpawnKillEffectClientRpc, etc.
+        protected virtual void OnImpactServer() { }
+
+        /// ALL clients. NotifyCollisionClientRpc arrived.
+        /// Mirrors DoSometingOnCollisionClientRpc body.
+        protected virtual void OnCollisionNotifiedClient() { }
+
+        /// ALL clients. SpawnImpactEffectClientRpc arrived.
+        /// Call LocalParticlePool.Instance.GetObject(...) here.
+        protected virtual void OnSpawnImpactEffectClient(Vector3 position) { }
+
+        /// ALL clients. SpawnKillEffectClientRpc arrived.
+        /// Instantiate your kill effect prefab here.
+        protected virtual void OnSpawnKillEffectClient(Vector3 position) { }
+
+        /// Override to call ProjectileVisualInstance.Initialize() with your projectile name.
+        /// Base does nothing — derived class knows the name/config.
+        protected virtual void InitialiseVisual() { }
     }
 }
