@@ -233,8 +233,8 @@ namespace TestGame
             ft.m_LookaheadTime      = _lookahead2D;
             ft.m_LookaheadSmoothing = 10f;
             ft.m_LookaheadIgnoreY   = true;    // ignore vertical velocity spikes (jumps)
-            ft.m_HorizontalDamping  = _damping2D;
-            ft.m_VerticalDamping    = _damping2D * 1.5f; // slower Y follow (smoother jumps)
+            ft.m_XDamping  = _damping2D;
+            ft.m_YDamping    = _damping2D * 1.5f; // slower Y follow (smoother jumps)
             ft.m_ScreenX            = 0.5f;              // centred horizontally
             ft.m_ScreenY            = _screenY2D;        // below centre (platformer feel)
             ft.m_DeadZoneWidth      = 0.08f;
