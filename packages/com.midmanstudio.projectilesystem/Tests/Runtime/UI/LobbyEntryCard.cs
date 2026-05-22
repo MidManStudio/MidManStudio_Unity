@@ -7,6 +7,7 @@ using System;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using MidManStudio.Netcode.LocalMultiplayer;
 
 namespace TestGame
 {

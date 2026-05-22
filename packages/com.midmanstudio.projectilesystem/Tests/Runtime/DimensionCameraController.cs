@@ -88,8 +88,8 @@ namespace TestGame
         //  State
         // ─────────────────────────────────────────────────────────────────────
 
-        private CinemachineVirtualCamera _vcam2D;
-        private CinemachineVirtualCamera _vcam3D;
+       [SerializeField] private CinemachineVirtualCamera _vcam2D;
+        [SerializeField] private CinemachineVirtualCamera _vcam3D;
 
         // Child of headPivot, 20u forward — used as HardLookAt target so the
         // FPS camera always faces where the player is looking.
@@ -165,14 +165,10 @@ namespace TestGame
         /// <param name="followTarget2D">Player body transform — 2D cam follows this.</param>
         /// <param name="followTarget3D">HeadPivot transform — 3D FPS cam locks here.</param>
         public void RegisterPlayerCams(
-            CinemachineVirtualCamera vcam2D,
-            CinemachineVirtualCamera vcam3D,
+            
             Transform                followTarget2D,
             Transform                followTarget3D)
         {
-            _vcam2D = vcam2D;
-            _vcam3D = vcam3D;
-
             if (_vcam2D != null && followTarget2D != null)
                 ConfigureVcam2D(followTarget2D);
 
@@ -182,7 +178,7 @@ namespace TestGame
             RefreshVcamState();
 
             MID_Logger.LogInfo(_logLevel,
-                $"Registered — vcam2D={vcam2D?.name} vcam3D={vcam3D?.name}",
+                $"Registered — vcam2D={_vcam2D?.name} vcam3D={_vcam3D?.name}",
                 nameof(DimensionCameraController));
         }
 

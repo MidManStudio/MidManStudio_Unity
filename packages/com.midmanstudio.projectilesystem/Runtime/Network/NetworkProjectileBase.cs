@@ -25,9 +25,9 @@
 
 using UnityEngine;
 using Unity.Netcode;
-using Unity.Netcode.Components;
 using MidManStudio.Core.Pools;
 using MidManStudio.Netcode.Pools;
+using Unity.Netcode.Components;
 
 namespace MidManStudio.Projectiles.Network
 {

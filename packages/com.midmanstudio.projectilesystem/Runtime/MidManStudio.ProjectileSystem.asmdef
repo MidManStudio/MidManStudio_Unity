@@ -7,7 +7,8 @@
         "Unity.Burst",
         "Unity.Collections",
         "Unity.Mathematics",
-        "MidManStudio.Utilities"
+        "MidManStudio.Utilities",
+        "Unity.Netcode.Components"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
