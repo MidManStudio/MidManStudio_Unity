@@ -16,8 +16,8 @@ MonoBehaviour:
   _is3D: 0
   _preferredSimMode: 1
   _movementType: 4
-  _minSpeed: 10
-  _maxSpeed: 10
+  _minSpeed: 4
+  _maxSpeed: 4
   _lifetime: 3
   _gravityScale: 0
   _maxRange: 50
@@ -55,7 +55,7 @@ MonoBehaviour:
   _headshotMultiplier: 2
   _critChance: 0
   _critMultiplier: 1.5
-  _sprite: {fileID: 21300000, guid: 8afe0b18387cb41faaa8f820382db474, type: 3}
+  _sprite: {fileID: 21300000, guid: 3b3cc2caf58db4983abbdb26279ed377, type: 3}
   _useSprite: 1
   _customShape: {fileID: 0}
   _hasTrail: 1
@@ -96,7 +96,7 @@ MonoBehaviour:
   _trailEndWidth: 0
   _trailMinVertexDistance: 0.1
   _trailCapVertices: 2
-  _useSharedTrailMaterial: 0
+  _useSharedTrailMaterial: 1
   _impactEffectType: 100
   _waveAmplitude: 1
   _waveFrequency: 1

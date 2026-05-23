@@ -12,11 +12,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1634ad6e2cb614737b6b868e529db1e0, type: 3}
   m_Name: AtkPat
   m_EditorClassIdentifier: 
-  _splineType: 1
+  _splineType: 0
   _controlPoints:
-  - {x: -43.18182, y: -31.500002}
-  - {x: 50.909092, y: -45.75}
-  - {x: 34.090908, y: 36.750004}
-  _projectileCount: 8
-  _speedVariance: 0
+  - {x: -2.2727273, y: -90}
+  - {x: 67.27273, y: 13.499998}
+  - {x: 34.090908, y: 39}
+  _projectileCount: 20
+  _speedVariance: 0.5
   _rngSeed: 12345
