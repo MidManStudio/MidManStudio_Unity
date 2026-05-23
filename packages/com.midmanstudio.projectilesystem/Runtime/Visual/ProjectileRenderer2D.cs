@@ -1,16 +1,18 @@
 // ProjectileRenderer2D.cs
 //
-// FIX 1: Added _combinedMeshMpb — a MaterialPropertyBlock initialized with
-//         _UVRect = (0,0,1,1) and _Color = (1,1,1,1).  It is passed to
-//         Graphics.DrawMesh so the material's serialized default _UVRect
-//         (which may be wrong, e.g. (0.24, 0, 4.08, 1.2) in the provided mat)
-//         never reaches the shader during the combined-mesh draw call.
-//         The combined-mesh path bakes atlas UVs per-vertex, so the shader must
-//         receive an identity UV rect; otherwise every sprite shows the wrong
-//         region of the atlas (or nothing at all).
+// FIX 1 (aspect ratio): The Y scale of each quad is now derived from
+//   p.ScaleX * (cfg.FullSizeY / cfg.FullSizeX)
+//   so a bullet config with FullSizeX=0.4, FullSizeY=0.1 renders as a
+//   4:1 elongated shape instead of a 1:1 square.
+//   Previously both axes used p.ScaleY which was always equal to p.ScaleX.
 //
-// FIX 2: Added early-out log when _atlasMaterial is null so the absence of a
-//         material assignment is immediately visible in the console.
+// FIX 2 (sprite per config): Each projectile's UV rect comes from its own
+//   config's sprite via ProjectileRegistry.GetUVRect(p.ConfigId).
+//   This was already in place, but the aspect ratio fix means the shape
+//   now correctly matches the sprite's proportions.
+//
+// FIX 3 (combinedMeshMpb): MPB with identity UVRect passed to DrawMesh so
+//   the material's serialized default _UVRect never corrupts the UVs.
 
 using MidManStudio.Projectiles.Config;
 using MidManStudio.Projectiles.Core;
@@ -26,8 +28,7 @@ namespace MidManStudio.Projectiles.Visuals
         [Header("Rendering")]
         [SerializeField] private Material _atlasMaterial;
 
-        [Tooltip("Force the combined-mesh draw path even on hardware that supports GPU instancing. " +
-                 "Useful if you hit driver bugs or want guaranteed behaviour on all platforms.")]
+        [Tooltip("Force the combined-mesh draw path even on hardware that supports GPU instancing.")]
         [SerializeField] private bool _forceDrawMesh = false;
 
         // ── Instanced path ────────────────────────────────────────────────────
@@ -44,17 +45,14 @@ namespace MidManStudio.Projectiles.Visuals
         private Vector2[] _uvs;
         private Color32[] _cols;
         private int[]     _tris;
-
-        // FIX: MPB with identity UV rect so the combined-mesh DrawMesh call
-        // is never affected by the material's serialized _UVRect default.
         private MaterialPropertyBlock _combinedMeshMpb;
 
-        private Mesh[] _configMeshCache;
+        private Mesh[]     _configMeshCache;
         private RenderPath _path;
 
         // ─────────────────────────────────────────────────────────────────────
 
-        void Awake()
+        private void Awake()
         {
             bool canInstance = !_forceDrawMesh && SystemInfo.supportsInstancing;
             _path = canInstance ? RenderPath.Instanced : RenderPath.CombinedMesh;
@@ -76,37 +74,31 @@ namespace MidManStudio.Projectiles.Visuals
                 _tris  = new int[MAX_QUADS * 6];
             }
 
-            // FIX: always create this MPB — used by the combined-mesh DrawMesh to
-            // override any wrong _UVRect / _Color defaults on the material.
+            // FIX: identity UV rect MPB for DrawMesh — overrides any wrong material default
             _combinedMeshMpb = new MaterialPropertyBlock();
             _combinedMeshMpb.SetVector("_UVRect", new Vector4(0f, 0f, 1f, 1f));
             _combinedMeshMpb.SetVector("_Color",  new Vector4(1f, 1f, 1f, 1f));
 
             Debug.Log(
                 $"[ProjectileRenderer2D] Path={(_path == RenderPath.Instanced ? "Instanced" : "CombinedMesh")}" +
-                $" | GPU: {SystemInfo.graphicsDeviceName}" +
-                $" | API: {SystemInfo.graphicsDeviceType}" +
                 $" | Instancing: {SystemInfo.supportsInstancing}" +
                 $" | ForceDrawMesh: {_forceDrawMesh}");
         }
 
-        void OnDestroy()
+        private void OnDestroy()
         {
             if (_combinedMesh != null) Destroy(_combinedMesh);
         }
 
-        // ─── Called by LocalProjectileManager.LateUpdate ─────────────────────
+        // ── Called by LocalProjectileManager.LateUpdate / ServerProjectileAuthority ──
 
         public void Render(NativeProjectile[] projs, int count)
         {
             if (_atlasMaterial == null)
             {
-                // FIX: surface the missing material assignment clearly.
                 Debug.LogWarning(
                     "[ProjectileRenderer2D] _atlasMaterial is not assigned. " +
-                    "Assign a material using InstancedProjectile_URP.shader (URP) " +
-                    "or InstancedProjectile.shader (Built-in) in the inspector.",
-                    this);
+                    "Assign a material using InstancedProjectile_URP.shader in the inspector.", this);
                 return;
             }
 
@@ -116,14 +108,13 @@ namespace MidManStudio.Projectiles.Visuals
                 RenderCombined(projs, count);
         }
 
-        // ─── Instanced ────────────────────────────────────────────────────────
+        // ── Instanced ─────────────────────────────────────────────────────────
 
         private void RenderInstanced(NativeProjectile[] projs, int count)
         {
             if (count == 0) return;
             var reg = ProjectileRegistry.Instance;
             int batchStart = 0;
-
             EnsureConfigMeshCache(reg);
 
             while (batchStart < count)
@@ -138,10 +129,14 @@ namespace MidManStudio.Projectiles.Visuals
                     var cfg = reg.Get(p.ConfigId);
                     if (cfg == null || !cfg.UseSprite) continue;
 
+                    // FIX: use aspect ratio so Y scale matches the sprite's proportions
+                    float aspectY = cfg.FullSizeX > 0.001f
+                        ? cfg.FullSizeY / cfg.FullSizeX : 1f;
+
                     _matrices[n] = Matrix4x4.TRS(
                         new Vector3(p.X, p.Y, 0f),
                         Quaternion.Euler(0f, 0f, p.AngleDeg),
-                        new Vector3(p.ScaleX, p.ScaleY, 1f));
+                        new Vector3(p.ScaleX, p.ScaleX * aspectY, 1f)); // Y = width * aspect
 
                     _uvRects[n] = reg.GetUVRect(p.ConfigId);
                     _colors[n]  = ComputeTint(ref p);
@@ -153,10 +148,11 @@ namespace MidManStudio.Projectiles.Visuals
                     _mpb.SetVectorArray("_UVRect", _uvRects);
                     _mpb.SetVectorArray("_Color",  _colors);
 
+                    ushort firstCfgId = projs[batchStart].ConfigId;
                     Mesh mesh = (_configMeshCache != null
-                        && projs[batchStart].ConfigId < _configMeshCache.Length
-                        && _configMeshCache[projs[batchStart].ConfigId] != null)
-                        ? _configMeshCache[projs[batchStart].ConfigId]
+                        && firstCfgId < _configMeshCache.Length
+                        && _configMeshCache[firstCfgId] != null)
+                        ? _configMeshCache[firstCfgId]
                         : GetOrBuildDefaultQuad();
 
                     Graphics.DrawMeshInstanced(
@@ -169,7 +165,7 @@ namespace MidManStudio.Projectiles.Visuals
             }
         }
 
-        // ─── Combined mesh ────────────────────────────────────────────────────
+        // ── Combined mesh ─────────────────────────────────────────────────────
 
         private void RenderCombined(NativeProjectile[] projs, int count)
         {
@@ -184,6 +180,12 @@ namespace MidManStudio.Projectiles.Visuals
                 var cfg = reg.Get(p.ConfigId);
                 if (cfg == null || !cfg.UseSprite) continue;
 
+                // FIX: aspect ratio for Y
+                float aspectY = cfg.FullSizeX > 0.001f
+                    ? cfg.FullSizeY / cfg.FullSizeX : 1f;
+                float sx = p.ScaleX;
+                float sy = p.ScaleX * aspectY;
+
                 Vector4 uvRect = reg.GetUVRect(p.ConfigId);
                 Vector4 tint   = ComputeTint(ref p);
                 var c32 = new Color32(
@@ -197,26 +199,26 @@ namespace MidManStudio.Projectiles.Visuals
                 var srcVerts = srcMesh.vertices;
                 var srcUVs   = srcMesh.uv;
                 var srcTris  = srcMesh.triangles;
-                int vc   = srcVerts.Length;
+                int vc    = srcVerts.Length;
                 int vBase = qi * 4;
+
+                float cos = Mathf.Cos(p.AngleDeg * Mathf.Deg2Rad);
+                float sin = Mathf.Sin(p.AngleDeg * Mathf.Deg2Rad);
 
                 if (vc <= 4)
                 {
-                    float cos = Mathf.Cos(p.AngleDeg * Mathf.Deg2Rad);
-                    float sin = Mathf.Sin(p.AngleDeg * Mathf.Deg2Rad);
-
                     for (int v = 0; v < vc; v++)
                     {
                         _verts[vBase + v] = RotateScale(
-                            p.X, p.Y, srcVerts[v].x * p.ScaleX, srcVerts[v].y * p.ScaleY, cos, sin);
-                        // Bake atlas UV directly — the combined-mesh shader path must NOT
-                        // apply an additional UV remap (shader receives _UVRect = (0,0,1,1)).
+                            p.X, p.Y,
+                            srcVerts[v].x * sx,
+                            srcVerts[v].y * sy,
+                            cos, sin);
                         _uvs[vBase + v] = new Vector2(
                             uvRect.x + srcUVs[v].x * uvRect.z,
                             uvRect.y + srcUVs[v].y * uvRect.w);
                         _cols[vBase + v] = c32;
                     }
-                    // Pad unused vertex slots in the 4-slot stride to avoid stale data.
                     for (int v = vc; v < 4; v++)
                     {
                         _verts[vBase + v] = _verts[vBase];
@@ -227,22 +229,19 @@ namespace MidManStudio.Projectiles.Visuals
                     int tBase = qi * 6;
                     for (int t = 0; t < srcTris.Length && t < 6; t++)
                         _tris[tBase + t] = vBase + srcTris[t];
-                    // Pad unused triangle slots.
                     for (int t = srcTris.Length; t < 6; t++)
                         _tris[tBase + t] = vBase;
                 }
                 else
                 {
-                    // Fallback: render as plain quad for shapes with > 4 verts.
-                    float cos = Mathf.Cos(p.AngleDeg * Mathf.Deg2Rad);
-                    float sin = Mathf.Sin(p.AngleDeg * Mathf.Deg2Rad);
-                    float hx = p.ScaleX * 0.5f, hy = p.ScaleY * 0.5f;
+                    // Fallback quad for custom shapes with > 4 verts
+                    float hx = sx * 0.5f, hy = sy * 0.5f;
                     _verts[vBase+0] = RotateScale(p.X, p.Y, -hx, -hy, cos, sin);
                     _verts[vBase+1] = RotateScale(p.X, p.Y,  hx, -hy, cos, sin);
                     _verts[vBase+2] = RotateScale(p.X, p.Y,  hx,  hy, cos, sin);
                     _verts[vBase+3] = RotateScale(p.X, p.Y, -hx,  hy, cos, sin);
                     _uvs[vBase+0] = new Vector2(uvRect.x,          uvRect.y         );
-                    _uvs[vBase+1] = new Vector2(uvRect.x + uvRect.z, uvRect.y         );
+                    _uvs[vBase+1] = new Vector2(uvRect.x + uvRect.z, uvRect.y       );
                     _uvs[vBase+2] = new Vector2(uvRect.x + uvRect.z, uvRect.y + uvRect.w);
                     _uvs[vBase+3] = new Vector2(uvRect.x,          uvRect.y + uvRect.w);
                     _cols[vBase+0] = _cols[vBase+1] = _cols[vBase+2] = _cols[vBase+3] = c32;
@@ -263,15 +262,12 @@ namespace MidManStudio.Projectiles.Visuals
             _combinedMesh.SetTriangles(_tris, 0, qi * 6, 0);
             _combinedMesh.bounds = new Bounds(Vector3.zero, Vector3.one * 10000f);
 
-            // FIX: pass _combinedMeshMpb so _UVRect = (0,0,1,1) reaches the shader
-            // regardless of whatever default value is serialized on the material.
-            // camera=null → all cameras, submeshIndex=0.
             Graphics.DrawMesh(
                 _combinedMesh, Matrix4x4.identity, _atlasMaterial,
                 gameObject.layer, null, 0, _combinedMeshMpb);
         }
 
-        // ─── Helpers ──────────────────────────────────────────────────────────
+        // ── Helpers ───────────────────────────────────────────────────────────
 
         private static Vector3 RotateScale(
             float cx, float cy, float lx, float ly, float cos, float sin)

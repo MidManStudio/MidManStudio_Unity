@@ -1,15 +1,11 @@
 // DimensionManager.cs — FIXED
 //
-// Fixes vs original:
-//   + Apply2D / Apply3D: StopAllCoroutines() replaced with tracked _cameraLerpCoroutine.
-//     Original called StopAllCoroutines() which killed the TransitionCoroutine itself,
-//     leaving IsTransitioning=true permanently and breaking all subsequent switches.
-//   + ApplyDimension: removed FindFirstObjectByType<NetworkedDimensionPlayer>()?.OnDimensionChanged().
-//     This caused every player to be notified twice — once via the direct call and again
-//     via the OnDimensionChanged event. Players subscribe in OnNetworkSpawn; the event is enough.
-//   + Apply2D / Apply3D: skip direct camera manipulation when DimensionCameraController
-//     is present — they would fight over the camera transform / projection.
-//   + Start(): was hardcoded ApplyProjectionImmediate(Dimension.TwoD) — now uses _startMode.
+// Changes vs previous:
+//   + _dimensionToggleKey (serialized) replaces hard-coded Tab.
+//     Default: BackQuote (tilde/` key) — doesn't interfere with cursor or UI.
+//   + Apply2D / Apply3D: tracked _cameraLerpCoroutine (was StopAllCoroutines bug).
+//   + ApplyDimension: removed duplicate player notification.
+//   + Skip camera manipulation when DimensionCameraController present.
 //   + LerpCamera / FadeOverlay: guarded against zero duration divide.
 
 using System;
@@ -26,6 +22,10 @@ namespace TestGame
     {
         #region Inspector
 
+        [Header("Dimension Toggle Key")]
+        [Tooltip("Key to toggle 2D ↔ 3D. Avoid Tab (hides cursor / navigates UI).")]
+        [SerializeField] private KeyCode _dimensionToggleKey = KeyCode.BackQuote;
+
         [Header("Camera — only used when DimensionCameraController is NOT in scene")]
         [SerializeField] private Camera   _mainCamera;
         [SerializeField] private float    _orthoSize       = 8f;
@@ -36,7 +36,7 @@ namespace TestGame
 
         [Header("Transition")]
         [SerializeField] private float       _transitionDuration = 0.5f;
-        [SerializeField] private CanvasGroup _fadeOverlay;       // optional screen fade
+        [SerializeField] private CanvasGroup _fadeOverlay;
 
         [Header("Environment Roots")]
         [SerializeField] private GameObject _env2D;
@@ -59,22 +59,10 @@ namespace TestGame
         public Dimension Current         { get; private set; }
         public bool      IsTransitioning { get; private set; }
 
-        /// <summary>
-        /// Fired once after a transition fully completes.
-        /// NOT fired during startup — use DimensionManager.Instance.Current at spawn time.
-        /// </summary>
         public event Action<Dimension> OnDimensionChanged;
 
-        /// <summary>
-        /// Tracked reference so we can cancel only the camera lerp coroutine,
-        /// not the outer transition coroutine.
-        /// </summary>
         private Coroutine _cameraLerpCoroutine;
 
-        /// <summary>
-        /// True when DimensionCameraController is active.
-        /// When true, DimensionManager skips direct camera manipulation entirely.
-        /// </summary>
         private static bool HasCameraController
             => DimensionCameraController.Instance != null;
 
@@ -88,23 +76,19 @@ namespace TestGame
             if (_mainCamera == null)
                 _mainCamera = Camera.main;
 
-            // Apply start mode immediately — no fade, no event fired
             ApplyDimension(_startMode, instant: true);
         }
 
         private void Start()
         {
-            // Re-apply projection in Start as safety measure in case Camera.main
-            // wasn't assigned yet when Awake ran. Skip when DimensionCameraController
-            // is present — it reads DimensionManager.Instance.Current in its own Start().
             if (!HasCameraController && _mainCamera != null)
                 ApplyProjectionImmediate(_startMode);
         }
 
         private void Update()
         {
-            // Quick test binding — Tab key toggles dimension
-            if (!IsTransitioning && Input.GetKeyDown(KeyCode.Tab))
+            // Configurable toggle key — no hard-coded Tab
+            if (!IsTransitioning && Input.GetKeyDown(_dimensionToggleKey))
                 SwitchDimension();
         }
 
@@ -112,11 +96,9 @@ namespace TestGame
 
         #region Public API
 
-        /// <summary>Toggle between 2D and 3D with a transition.</summary>
         public void SwitchDimension()
             => SetDimension(Current == Dimension.TwoD ? Dimension.ThreeD : Dimension.TwoD);
 
-        /// <summary>Switch to a specific dimension with a transition.</summary>
         public void SetDimension(Dimension target)
         {
             if (IsTransitioning || target == Current) return;
@@ -135,22 +117,16 @@ namespace TestGame
                 $"Switching dimension: {Current} → {target}",
                 nameof(DimensionManager));
 
-            // Optional screen fade-out
             if (_fadeOverlay != null)
                 yield return StartCoroutine(FadeOverlay(0f, 1f, _transitionDuration * 0.4f));
 
-            // Apply environment / renderer / camera changes
             ApplyDimension(target, instant: false);
 
-            // Optional screen fade-in
             if (_fadeOverlay != null)
                 yield return StartCoroutine(FadeOverlay(1f, 0f, _transitionDuration * 0.4f));
 
             IsTransitioning = false;
 
-            // Fire event ONCE here — all subscribers (players, HUD, audio) get notified once.
-            // Do NOT also call OnDimensionChanged directly on individual player instances;
-            // they subscribe to this event in OnNetworkSpawn.
             OnDimensionChanged?.Invoke(Current);
 
             MID_Logger.LogInfo(_logLevel,
@@ -169,24 +145,15 @@ namespace TestGame
             if (target == Dimension.TwoD) Apply2D(instant);
             else                          Apply3D(instant);
 
-            // Environment roots
             if (_env2D != null) _env2D.SetActive(target == Dimension.TwoD);
             if (_env3D != null) _env3D.SetActive(target == Dimension.ThreeD);
 
-            // Projectile renderer swap
             if (_projRenderer2D != null) _projRenderer2D.enabled = target == Dimension.TwoD;
             if (_projRenderer3D != null) _projRenderer3D.enabled = target == Dimension.ThreeD;
-
-            // ── DO NOT call FindFirstObjectByType<NetworkedDimensionPlayer>() here. ──
-            // That caused every player to receive OnDimensionChanged twice:
-            // once from this direct call and again from the event at the end of
-            // TransitionCoroutine. Players subscribe to the event themselves.
         }
 
         private void Apply2D(bool instant)
         {
-            // DimensionCameraController owns all camera state when present.
-            // It subscribes to OnDimensionChanged and handles projection + vcam blend.
             if (HasCameraController) return;
             if (_mainCamera == null)  return;
 
@@ -200,7 +167,6 @@ namespace TestGame
             }
             else
             {
-                // Stop only the camera lerp, NOT the outer transition coroutine
                 if (_cameraLerpCoroutine != null) StopCoroutine(_cameraLerpCoroutine);
                 _cameraLerpCoroutine = StartCoroutine(
                     LerpCamera(_cam2DPosition, Quaternion.identity));
