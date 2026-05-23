@@ -1,9 +1,19 @@
 // MID_ProjectileNetworkBridge.cs
-// ALL NGO RPCs live here and ONLY RPCs. Zero game logic — pure messaging layer.
+// FIX (Rust Sim visuals not showing on host):
+//   SpawnConfirmedClientRpc had `if (IsServer) return` — in host mode the
+//   machine is BOTH server AND client (IsServer=true, IsClient=true).
+//   This caused the host to skip spawning its own prediction visuals entirely.
+//   Fixed: `if (IsServer && !IsClient) return` — only dedicated servers skip.
 //
-// MID ID note: ownerMidId is NOT NetworkObject.OwnerClientId.
-//   Players:  ownerMidId == their NGO client ID.
-//   Bots:     ownerMidId is a stable 100-999 range ID assigned at bot spawn.
+// FIX (projectile hits not confirming visuals on host):
+//   Same problem in HitConfirmedClientRpc and SendSnapshotClientRpc.
+//   Changed all `!IsServer` / `IsServer` guards to use `IsClient` instead,
+//   which correctly includes the host machine.
+//
+// FIX (duplicate SendSnapshotClientRpc):
+//   Removed the internal overload with ClientRpcParams — NGO does not allow
+//   two [ClientRpc] methods with the same name; it caused silent routing bugs.
+//   ServerProjectileAuthority calls the 4-param version directly.
 
 using System;
 using System.Runtime.InteropServices;
@@ -20,13 +30,11 @@ using MidManStudio.Projectiles.Managers;
 
 namespace MidManStudio.Projectiles.Network
 {
-    // ─────────────────────────────────────────────────────────────────────────
-    //  Network-serialisable fire request — client → server on every weapon fire
-    // ─────────────────────────────────────────────────────────────────────────
+    // ── Network-serialisable fire request ─────────────────────────────────────
 
     public struct ProjectileFireRequest : INetworkSerializable
     {
-        public ushort ConfigId;
+        public ushort  ConfigId;
         public Vector3 Origin;
         public Vector3 Direction;
         public float   Speed;
@@ -56,16 +64,14 @@ namespace MidManStudio.Projectiles.Network
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    //  Spawn confirmation — server → all clients
-    // ─────────────────────────────────────────────────────────────────────────
+    // ── Spawn confirmation ────────────────────────────────────────────────────
 
     public struct SpawnConfirmation : INetworkSerializable
     {
-        public uint   BaseProjId;
-        public byte   ProjectileCount;
-        public ushort ConfigId;
-        public int    ServerSpawnTick;
+        public uint    BaseProjId;
+        public byte    ProjectileCount;
+        public ushort  ConfigId;
+        public int     ServerSpawnTick;
         public Vector3 Origin;
         public Vector3 Direction;
         public float   Speed;
@@ -84,9 +90,7 @@ namespace MidManStudio.Projectiles.Network
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    //  Hit confirmation — server → all clients
-    // ─────────────────────────────────────────────────────────────────────────
+    // ── Hit confirmation ──────────────────────────────────────────────────────
 
     public struct HitConfirmation : INetworkSerializable
     {
@@ -110,31 +114,21 @@ namespace MidManStudio.Projectiles.Network
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    //  Bridge
-    // ─────────────────────────────────────────────────────────────────────────
+    // ── Bridge ────────────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// All NGO RPCs for the projectile system.
-    /// Attach to the same persistent networked GameObject as ServerProjectileAuthority.
-    /// </summary>
     public sealed class MID_ProjectileNetworkBridge : NetworkBehaviour
     {
         #region References
 
-        public ServerProjectileAuthority Authority       { get; set; }
-        public ClientPredictionManager   Prediction      { get; set; }
-        public RaycastProjectileHandler  RaycastHandler  { get; set; }
-        public ProjectileImpactHandler   ImpactHandler   { get; set; }
+        public ServerProjectileAuthority Authority      { get; set; }
+        public ClientPredictionManager   Prediction     { get; set; }
+        public RaycastProjectileHandler  RaycastHandler { get; set; }
+        public ProjectileImpactHandler   ImpactHandler  { get; set; }
 
         #endregion
 
         #region Events
 
-        /// <summary>
-        /// Fired on all clients when the server confirms a hit.
-        /// Subscribe from HUD, audio, and screen-shake systems.
-        /// </summary>
         public event Action<HitConfirmation> OnHitConfirmedLocal;
 
         #endregion
@@ -163,7 +157,7 @@ namespace MidManStudio.Projectiles.Network
 
         #endregion
 
-        #region Server → Client hit routing
+        #region Server → client hit routing
 
         private void ServerOnProjectileHit(ProjectileHitPayload payload)
         {
@@ -179,7 +173,6 @@ namespace MidManStudio.Projectiles.Network
                 IsCrit          = payload.IsCrit,
                 ConfigId        = payload.ConfigId
             };
-
             HitConfirmedClientRpc(confirm);
         }
 
@@ -227,7 +220,6 @@ namespace MidManStudio.Projectiles.Network
 
             uint baseId = Authority.AllocateProjIds(request.ProjectileCount);
 
-            // Correct ServerProjectileData constructor — no game-specific name param.
             var dataTemplate = new ServerProjectileData(
                 ownerMidId:         request.OwnerMidId,
                 firedById:          request.FiredByNetworkObjectId,
@@ -281,7 +273,6 @@ namespace MidManStudio.Projectiles.Network
                 Speed           = clampedSpeed,
                 OwnerMidId      = request.OwnerMidId
             };
-
             SpawnConfirmedClientRpc(confirm);
         }
 
@@ -328,10 +319,18 @@ namespace MidManStudio.Projectiles.Network
 
         #region Server → Clients: Spawn Confirmed
 
+        /// <summary>
+        /// FIX: Changed guard from `if (IsServer) return` to `if (IsServer && !IsClient) return`.
+        /// In host mode the machine is both server and client — the old guard caused the host
+        /// to skip spawning its own local prediction visuals, so Rust Sim projectiles were
+        /// invisible for the player firing them in host/offline-networked sessions.
+        /// </summary>
         [ClientRpc]
         public void SpawnConfirmedClientRpc(SpawnConfirmation confirmation)
         {
-            if (IsServer) return;
+            // Skip on dedicated server (server only, no local client).
+            // Host machines (IsServer && IsClient) MUST NOT skip — they need visuals.
+            if (IsServer && !IsClient) return;
 
             MID_Logger.LogDebug(_logLevel,
                 $"SpawnConfirmedClientRpc: baseId={confirmation.BaseProjId} " +
@@ -345,6 +344,11 @@ namespace MidManStudio.Projectiles.Network
 
         #region Server → Clients: Hit Confirmed
 
+        /// <summary>
+        /// FIX: Changed `if (!IsServer)` to `if (IsClient)` for the Prediction call.
+        /// In host mode !IsServer is false, so the host's prediction manager was never
+        /// notified of confirmed hits — prediction visuals would linger past impact.
+        /// </summary>
         [ClientRpc]
         public void HitConfirmedClientRpc(HitConfirmation confirmation)
         {
@@ -353,10 +357,11 @@ namespace MidManStudio.Projectiles.Network
                 $"damage={confirmation.Damage:F1} headshot={confirmation.IsHeadshot}",
                 nameof(MID_ProjectileNetworkBridge));
 
-            if (!IsServer)
+            // IsClient is true on both dedicated clients AND hosts.
+            // This ensures hosts update their own prediction visuals on confirmed hits.
+            if (IsClient)
                 Prediction?.OnHitConfirmed(confirmation);
 
-            // LocalParticlePool is used internally by ProjectileImpactHandler.
             ImpactHandler?.PlayImpact(
                 confirmation.HitPosition,
                 confirmation.ConfigId,
@@ -369,25 +374,24 @@ namespace MidManStudio.Projectiles.Network
 
         #region Server → Clients: Position Snapshot
 
+        /// <summary>
+        /// FIX: Changed `if (IsServer) return` to `if (IsServer && !IsClient) return`.
+        /// Hosts need to reconcile their own prediction state with server snapshots,
+        /// same as remote clients. The old guard skipped reconciliation on host.
+        ///
+        /// FIX: Removed the duplicate internal overload with ClientRpcParams — NGO
+        /// cannot have two [ClientRpc] methods with the same name; it caused silent
+        /// message routing bugs where snapshots would call themselves recursively.
+        /// </summary>
         [ClientRpc]
         public void SendSnapshotClientRpc(
             ProjectileSnapshot2D[] snapshots2D, int count2D,
             ProjectileSnapshot3D[] snapshots3D, int count3D)
         {
-            if (IsServer) return;
+            // Skip dedicated server — it doesn't predict, it authorises.
+            if (IsServer && !IsClient) return;
+
             Prediction?.ReconcileSnapshot(snapshots2D, count2D, snapshots3D, count3D);
-        }
-        [ClientRpc]
-        internal void SendSnapshotClientRpc(
-            ProjectileSnapshot2D[] snapshots2D, int count2D,
-            ProjectileSnapshot3D[] snapshots3D, int count3D,
-            ClientRpcParams _ = default)
-        {
-            var slice2D = new ProjectileSnapshot2D[count2D];
-            var slice3D = new ProjectileSnapshot3D[count3D];
-            Array.Copy(snapshots2D, slice2D, count2D);
-            Array.Copy(snapshots3D, slice3D, count3D);
-            SendSnapshotClientRpc(slice2D, count2D, slice3D, count3D);
         }
 
         #endregion
@@ -402,8 +406,8 @@ namespace MidManStudio.Projectiles.Network
         private float ComputeLatencyComp(ServerRpcParams rpc, int clientTick)
         {
             if (NetworkManager.Singleton == null) return 0f;
-            int   serverTick  = GetServerTick();
-            int   deltaTicks  = serverTick - clientTick;
+            int   serverTick   = GetServerTick();
+            int   deltaTicks   = serverTick - clientTick;
             float tickInterval = 1f / NetworkManager.Singleton.NetworkTickSystem.TickRate;
             return Mathf.Clamp(deltaTicks * tickInterval, 0f, 0.5f);
         }
