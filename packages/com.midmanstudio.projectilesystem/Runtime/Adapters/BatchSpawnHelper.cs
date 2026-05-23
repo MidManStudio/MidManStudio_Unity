@@ -1,20 +1,13 @@
 // BatchSpawnHelper.cs
-// Spawn path decider and batch builder.
+// FIX: Ax/Ay for Wave and Circular movement now set to perpendicular of the
+// fire direction instead of (0, GravityAy). The Rust simulation expects:
+//   MOVE_WAVE     → (Ax,Ay) = perpendicular axis to oscillate along
+//   MOVE_CIRCULAR → (Ax,Ay) = first perpendicular axis for orbit plane
+//   All others    → (Ax,Ay) = (0, GravityAy) as before
 //
-// FIX: SpawnBatch2D and SpawnBatch3D now call Initialise() themselves if the
-//      pins haven't been allocated yet, instead of logging an error and returning 0.
-//      This removes the dependency on call-order between static initialisation
-//      and whichever MonoBehaviour happens to call Initialise() in its Awake.
-//
-//      Root cause of "BatchSpawnHelper not initialized" + "no projectiles written":
-//        MID_ProjectileNetworkBridge.FireServerRpc calls SpawnBatch2D directly.
-//        Unity's Awake execution order is not deterministic across scenes and
-//        prefabs — SpawnBatch2D could be reached before any manager's Awake ran
-//        Initialise().  Self-initialisation makes this impossible.
-//
-//      Shutdown() behaviour is unchanged — it should still be called once on
-//      scene teardown by whichever manager owns the lifecycle.  Calling it from
-//      multiple OnDestroy methods is safe because it guards with _pinsAllocated.
+// Without this fix, Wave required you to set gravity to see any oscillation
+// (the wave was accidentally riding the gravity vector) and Circular had no
+// orbit plane defined so it appeared stationary.
 
 using System;
 using System.Runtime.InteropServices;
@@ -28,35 +21,23 @@ using MidManStudio.Projectiles.Config;
 
 namespace MidManStudio.Projectiles.Adapters
 {
-    // ─────────────────────────────────────────────────────────────────────────
-    //  Spawn point
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /// <summary>
-    /// A single spawn point produced by a shot pattern calculation.
-    /// </summary>
     public struct SpawnPoint
     {
-        /// <summary>World-space spawn origin.</summary>
         public Vector3 Origin;
-
-        /// <summary>Normalised travel direction.</summary>
         public Vector3 Direction;
-
-        /// <summary>Speed for this specific projectile (may vary per pellet).</summary>
-        public float Speed;
+        public float   Speed;
     }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    //  BatchSpawnHelper
-    // ─────────────────────────────────────────────────────────────────────────
 
     public static class BatchSpawnHelper
     {
-        /// <summary>
-        /// Minimum projectile count to justify BurstSpawnJob scheduling overhead.
-        /// Below this threshold, a C# loop is faster.
-        /// </summary>
+        // Mirror of Rust movement type constants — must stay in sync with simulation.rs
+        private const byte MOVE_STRAIGHT = 0;
+        private const byte MOVE_ARCHING  = 1;
+        private const byte MOVE_GUIDED   = 2;
+        private const byte MOVE_TELEPORT = 3;
+        private const byte MOVE_WAVE     = 4;
+        private const byte MOVE_CIRCULAR = 5;
+
         public const int BurstThreshold = 8;
 
         private static readonly NativeProjectile[]   _temp2D = new NativeProjectile[256];
@@ -67,10 +48,6 @@ namespace MidManStudio.Projectiles.Adapters
 
         // ── Initialisation ────────────────────────────────────────────────────
 
-        /// <summary>
-        /// Pin temp buffers. Safe to call multiple times — subsequent calls are no-ops.
-        /// Called automatically by SpawnBatch2D/3D if not already initialised.
-        /// </summary>
         public static void Initialise()
         {
             if (_pinsAllocated) return;
@@ -79,7 +56,6 @@ namespace MidManStudio.Projectiles.Adapters
             _pinsAllocated = true;
         }
 
-        /// <summary>Unpin temp buffers. Call once on shutdown / scene teardown.</summary>
         public static void Shutdown()
         {
             if (!_pinsAllocated) return;
@@ -88,16 +64,54 @@ namespace MidManStudio.Projectiles.Adapters
             _pinsAllocated = false;
         }
 
-        // ── 2D Spawn ──────────────────────────────────────────────────────────
+        // ── Perpendicular axis helpers ─────────────────────────────────────────
+        // Wave and Circular movement use Ax/Ay as the oscillation / orbit
+        // perpendicular axis. For all other movement types, Ax = 0 and Ay = gravity.
 
         /// <summary>
-        /// Spawn a batch of 2D projectiles from pre-computed spawn points.
-        /// Self-initialises if Initialise() has not been called yet.
+        /// Returns (Ax, Ay) for a 2D projectile given its direction and movement type.
+        /// Wave/Circular: perpendicular to direction in the XY plane.
+        /// Others: (0, gravityAy).
         /// </summary>
+        private static (float ax, float ay) GetAccel2D(
+            Vector3 dir, byte movementType, float gravityAy)
+        {
+            if (movementType == MOVE_WAVE || movementType == MOVE_CIRCULAR)
+            {
+                // 2D perpendicular (CCW rotation of the direction by 90°)
+                return (-dir.y, dir.x);
+            }
+            return (0f, gravityAy);
+        }
+
+        /// <summary>
+        /// Returns (Ax, Ay, Az) for a 3D projectile.
+        /// Wave/Circular: perpendicular axis in XY plane, zero Z component.
+        /// Others: (0, gravityAy, 0).
+        /// </summary>
+        private static (float ax, float ay, float az) GetAccel3D(
+            Vector3 dir, byte movementType, float gravityAy)
+        {
+            if (movementType == MOVE_WAVE || movementType == MOVE_CIRCULAR)
+            {
+                // Primary perpendicular axis (lies in XY plane, perpendicular to dir's XY part)
+                // For a bullet going (0,0,1): perp = (1,0,0) — the X axis
+                // Normalise the XY component of direction, then rotate 90°
+                float len = Mathf.Sqrt(dir.x * dir.x + dir.y * dir.y);
+                if (len > 0.001f)
+                    return (-dir.y / len, dir.x / len, 0f);
+                // Forward is along Z — pick X as perpendicular
+                return (1f, 0f, 0f);
+            }
+            return (0f, gravityAy, 0f);
+        }
+
+        // ── 2D Spawn ──────────────────────────────────────────────────────────
+
         public static int SpawnBatch2D(
             SpawnPoint[]    spawnPoints,
             int             count,
-            ProjectileConfigSO config,      // optional; params come from rustParams
+            ProjectileConfigSO config,
             RustSpawnParams rustParams,
             ushort          configId,
             ushort          ownerId,
@@ -106,9 +120,7 @@ namespace MidManStudio.Projectiles.Adapters
             int             bufferRemaining,
             float           latencyCompensation = 0f)
         {
-            // FIX: self-initialise — no longer an error if Initialise() wasn't called.
-            if (!_pinsAllocated)
-                Initialise();
+            if (!_pinsAllocated) Initialise();
 
             int n = Mathf.Min(count, Mathf.Min(_temp2D.Length, bufferRemaining));
             if (n <= 0) return 0;
@@ -141,10 +153,6 @@ namespace MidManStudio.Projectiles.Adapters
 
         // ── 3D Spawn ──────────────────────────────────────────────────────────
 
-        /// <summary>
-        /// Spawn a batch of 3D projectiles from pre-computed spawn points.
-        /// Self-initialises if Initialise() has not been called yet.
-        /// </summary>
         public static int SpawnBatch3D(
             SpawnPoint[]    spawnPoints,
             int             count,
@@ -156,9 +164,7 @@ namespace MidManStudio.Projectiles.Adapters
             int             bufferRemaining,
             float           latencyCompensation = 0f)
         {
-            // FIX: self-initialise.
-            if (!_pinsAllocated)
-                Initialise();
+            if (!_pinsAllocated) Initialise();
 
             int n = Mathf.Min(count, Mathf.Min(_temp3D.Length, bufferRemaining));
             if (n <= 0) return 0;
@@ -190,7 +196,7 @@ namespace MidManStudio.Projectiles.Adapters
             return written;
         }
 
-        // ── Managed fill (count < BurstThreshold) ─────────────────────────────
+        // ── Managed fill ──────────────────────────────────────────────────────
 
         private static void FillManaged2D(
             SpawnPoint[] pts, int n, RustSpawnParams p,
@@ -199,14 +205,16 @@ namespace MidManStudio.Projectiles.Adapters
             for (int i = 0; i < n; i++)
             {
                 float speed = pts[i].Speed > 0f ? pts[i].Speed : p.Speed;
+                var (ax, ay) = GetAccel2D(pts[i].Direction, p.MovementType, p.GravityAy);
+
                 _temp2D[i] = new NativeProjectile
                 {
                     X            = pts[i].Origin.x,
                     Y            = pts[i].Origin.y,
                     Vx           = pts[i].Direction.x * speed,
                     Vy           = pts[i].Direction.y * speed,
-                    Ax           = 0f,
-                    Ay           = p.GravityAy,
+                    Ax           = ax,
+                    Ay           = ay,
                     AngleDeg     = Mathf.Atan2(pts[i].Direction.y, pts[i].Direction.x) * Mathf.Rad2Deg,
                     CurveT       = 0f,
                     ScaleX       = p.ScaleStart,
@@ -234,6 +242,8 @@ namespace MidManStudio.Projectiles.Adapters
             for (int i = 0; i < n; i++)
             {
                 float speed = pts[i].Speed > 0f ? pts[i].Speed : p.Speed;
+                var (ax, ay, az) = GetAccel3D(pts[i].Direction, p.MovementType, p.GravityAy);
+
                 _temp3D[i] = new NativeProjectile3D
                 {
                     X            = pts[i].Origin.x,
@@ -242,9 +252,9 @@ namespace MidManStudio.Projectiles.Adapters
                     Vx           = pts[i].Direction.x * speed,
                     Vy           = pts[i].Direction.y * speed,
                     Vz           = pts[i].Direction.z * speed,
-                    Ax           = 0f,
-                    Ay           = p.GravityAy,
-                    Az           = 0f,
+                    Ax           = ax,
+                    Ay           = ay,
+                    Az           = az,
                     ScaleX       = p.ScaleStart,
                     ScaleY       = p.ScaleStart,
                     ScaleZ       = p.ScaleStart,
@@ -265,7 +275,7 @@ namespace MidManStudio.Projectiles.Adapters
             }
         }
 
-        // ── Burst fill (count >= BurstThreshold) ──────────────────────────────
+        // ── Burst fill ────────────────────────────────────────────────────────
 
         private static void FillBurst2D(
             SpawnPoint[] pts, int n, RustSpawnParams p,
@@ -346,6 +356,10 @@ namespace MidManStudio.Projectiles.Adapters
         public ushort OwnerId;
         public uint   BaseId;
 
+        // Movement type constants duplicated for Burst (no static class access in jobs)
+        private const byte MOVE_WAVE     = 4;
+        private const byte MOVE_CIRCULAR = 5;
+
         [BurstCompile]
         public void Execute(int i)
         {
@@ -353,14 +367,28 @@ namespace MidManStudio.Projectiles.Adapters
             float spd = pt.Speed > 0f ? pt.Speed : DefaultSpeed;
             float ang = math.atan2(pt.Direction.y, pt.Direction.x) * math.degrees(1f);
 
+            // Wave / Circular: Ax/Ay = perpendicular axis in XY plane
+            // Others: Ax = 0, Ay = gravity
+            float ax, ay;
+            if (MovementType == MOVE_WAVE || MovementType == MOVE_CIRCULAR)
+            {
+                ax = -pt.Direction.y;
+                ay =  pt.Direction.x;
+            }
+            else
+            {
+                ax = 0f;
+                ay = GravityAy;
+            }
+
             Out[i] = new NativeProjectile
             {
                 X              = pt.Origin.x,
                 Y              = pt.Origin.y,
                 Vx             = pt.Direction.x * spd,
                 Vy             = pt.Direction.y * spd,
-                Ax             = 0f,
-                Ay             = GravityAy,
+                Ax             = ax,
+                Ay             = ay,
                 AngleDeg       = ang,
                 CurveT         = 0f,
                 ScaleX         = ScaleStart,
@@ -399,11 +427,30 @@ namespace MidManStudio.Projectiles.Adapters
         public ushort OwnerId;
         public uint   BaseId;
 
+        private const byte MOVE_WAVE     = 4;
+        private const byte MOVE_CIRCULAR = 5;
+
         [BurstCompile]
         public void Execute(int i)
         {
             var   pt  = SpawnPoints[i];
             float spd = pt.Speed > 0f ? pt.Speed : DefaultSpeed;
+
+            float ax, ay, az;
+            if (MovementType == MOVE_WAVE || MovementType == MOVE_CIRCULAR)
+            {
+                // Perpendicular axis in XY plane (normalised XY component of dir, rotated 90°)
+                float xyLen = math.sqrt(pt.Direction.x * pt.Direction.x
+                                      + pt.Direction.y * pt.Direction.y);
+                if (xyLen > 0.001f)
+                { ax = -pt.Direction.y / xyLen; ay = pt.Direction.x / xyLen; az = 0f; }
+                else
+                { ax = 1f; ay = 0f; az = 0f; } // Bullet is along Z — pick X as perp
+            }
+            else
+            {
+                ax = 0f; ay = GravityAy; az = 0f;
+            }
 
             Out[i] = new NativeProjectile3D
             {
@@ -413,9 +460,9 @@ namespace MidManStudio.Projectiles.Adapters
                 Vx             = pt.Direction.x * spd,
                 Vy             = pt.Direction.y * spd,
                 Vz             = pt.Direction.z * spd,
-                Ax             = 0f,
-                Ay             = GravityAy,
-                Az             = 0f,
+                Ax             = ax,
+                Ay             = ay,
+                Az             = az,
                 ScaleX         = ScaleStart,
                 ScaleY         = ScaleStart,
                 ScaleZ         = ScaleStart,
