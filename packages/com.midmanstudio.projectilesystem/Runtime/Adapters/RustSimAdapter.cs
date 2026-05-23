@@ -1,19 +1,14 @@
 // RustSimAdapter.cs
-// Translates raw HitResult / HitResult3D from Rust into game damage events.
+// FIX (projectile death on hit):
+//   HandlePiercing previously set hasHit=true but never called Unregister().
+//   ServerProjectileAuthority.Collision2D checks !Adapter.IsRegistered(h.ProjId)
+//   to decide whether to set _projs2D[idx].Alive = 0. Since the projectile was
+//   still registered, Alive was never cleared and the projectile lived forever
+//   regardless of PiercingType.None or lifetime.
 //
-// Owns:
-//   Dictionary<uint, ServerProjectileData> — maps ProjId to gameplay data.
-//
-// On hit (called by ServerProjectileAuthority every FixedUpdate):
-//   1. Look up ServerProjectileData by ProjId.
-//   2. Compute final damage: curve(normDist) × headshot/crit multipliers.
-//   3. Check piercing — kill or decrement.
-//   4. Fire OnProjectileHit event.
-//
-// NOT responsible for:
-//   - Network RPCs (MID_ProjectileNetworkBridge owns those)
-//   - Visual effects (ProjectileImpactHandler owns those)
-//   - Applying damage to health components (game layer owns that)
+//   Fix: Unregister() + fire OnProjectileDied in HandlePiercing when the
+//   projectile should die. NotifyDead() (called from CompactDead2D on lifetime
+//   expiry) guards against double-fire with a ContainsKey check.
 
 using System;
 using System.Collections.Generic;
@@ -25,40 +20,23 @@ using MidManStudio.Projectiles.Data;
 namespace MidManStudio.Projectiles.Adapters
 {
     // ─────────────────────────────────────────────────────────────────────────
-    //  Damage payload — everything the game damage system needs
+    //  Damage payload
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Fired when a projectile hits a registered target.
-    /// Subscribe from the game's damage system and from MID_ProjectileNetworkBridge.
-    /// </summary>
     public struct ProjectileHitPayload
     {
-        // ── Projectile identity ───────────────────────────────────────────────
         public uint   ProjId;
         public ushort ConfigId;
         public bool   Is3D;
-
-        // ── Target identity ───────────────────────────────────────────────────
-        public uint TargetId;
-
-        // ── Damage ────────────────────────────────────────────────────────────
-        public float Damage;
-        public bool  IsHeadshot;
-        public bool  IsCrit;
-
-        // ── Position ──────────────────────────────────────────────────────────
+        public uint   TargetId;
+        public float  Damage;
+        public bool   IsHeadshot;
+        public bool   IsCrit;
         public Vector3 HitPosition;
-
-        // ── Owner ─────────────────────────────────────────────────────────────
-        public ulong OwnerMidId;
-        public ulong FiredByNetworkObjectId;
-        public bool  IsBotOwner;
-        public byte  WeaponLevel;
-
-        // ── Passthrough — game-specific data from ServerProjectileData ─────────
-        /// Reference to the full ServerProjectileData.
-        /// Game code reads KillTypeRaw, DamageTypeRaw, WeaponTypeRaw etc. from here.
+        public ulong  OwnerMidId;
+        public ulong  FiredByNetworkObjectId;
+        public bool   IsBotOwner;
+        public byte   WeaponLevel;
         public ServerProjectileData GameData;
     }
 
@@ -66,25 +44,13 @@ namespace MidManStudio.Projectiles.Adapters
     //  Adapter
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Server-only. Translates Rust HitResults into game damage events.
-    /// Create one instance — ServerProjectileAuthority owns it.
-    /// </summary>
     public sealed class RustSimAdapter
     {
-        // ── Active projectile data ────────────────────────────────────────────
-
         private readonly Dictionary<uint, ServerProjectileData> _projData
             = new Dictionary<uint, ServerProjectileData>(512);
 
-        // ── Events ────────────────────────────────────────────────────────────
-
-        /// Fired for each hit. Subscribe from MID_ProjectileNetworkBridge and
-        /// the game's damage system.
         public event Action<ProjectileHitPayload> OnProjectileHit;
-
-        /// Fired when a projectile dies (lifetime, piercing exhausted, etc.).
-        public event Action<uint> OnProjectileDied;
+        public event Action<uint>                 OnProjectileDied;
 
         // ── Registration ──────────────────────────────────────────────────────
 
@@ -99,15 +65,9 @@ namespace MidManStudio.Projectiles.Adapters
 
         // ── Hit processing (2D) ───────────────────────────────────────────────
 
-        /// <summary>
-        /// Process a 2D hit result from check_hits_grid.
-        /// Called by ServerProjectileAuthority for each hit in the hits array.
-        /// isHeadshot is determined by the game layer (capsule zone check) before calling.
-        /// </summary>
         public void ProcessHit(in HitResult hit, bool isHeadshot)
         {
-            if (!_projData.TryGetValue(hit.ProjId, out var data))
-                return;
+            if (!_projData.TryGetValue(hit.ProjId, out var data)) return;
 
             var config = ProjectileRegistry.Instance.Get(data.configId);
             if (config == null)
@@ -119,55 +79,49 @@ namespace MidManStudio.Projectiles.Adapters
             }
 
             float damage = ComputeDamage(data, config, hit.TravelDist, isHeadshot);
-
             FireHitEvent(data, damage, isHeadshot,
-                new Vector3(hit.HitX, hit.HitY, 0f),
-                hit.TargetId, false);
+                new Vector3(hit.HitX, hit.HitY, 0f), hit.TargetId, false);
 
             HandlePiercing(hit.ProjId, data, config);
         }
 
         // ── Hit processing (3D) ───────────────────────────────────────────────
 
-        /// <summary>Process a 3D hit result from check_hits_grid_3d.</summary>
         public void ProcessHit3D(in HitResult3D hit, bool isHeadshot)
         {
-            if (!_projData.TryGetValue(hit.ProjId, out var data))
-                return;
+            if (!_projData.TryGetValue(hit.ProjId, out var data)) return;
 
             var config = ProjectileRegistry.Instance.Get(data.configId);
             if (config == null) return;
 
             float damage = ComputeDamage(data, config, hit.TravelDist, isHeadshot);
-
             FireHitEvent(data, damage, isHeadshot,
-                new Vector3(hit.HitX, hit.HitY, hit.HitZ),
-                hit.TargetId, true);
+                new Vector3(hit.HitX, hit.HitY, hit.HitZ), hit.TargetId, true);
 
             HandlePiercing(hit.ProjId, data, config);
         }
 
-        // ── Compact dead notification ─────────────────────────────────────────
+        // ── Compact dead notification (lifetime expiry path) ──────────────────
 
         /// <summary>
         /// Called by ServerProjectileAuthority during CompactDeadSlots for each
-        /// projectile whose Alive flag was cleared by Rust or by HandlePiercing.
+        /// projectile whose Alive flag was cleared by Rust (lifetime expired) or
+        /// by Collision2D after HandlePiercing unregistered it.
+        /// Guards against double-fire: HandlePiercing already called Unregister
+        /// and fired OnProjectileDied for hit-killed projectiles.
         /// </summary>
         public void NotifyDead(uint projId)
         {
-            if (_projData.ContainsKey(projId))
-            {
-                Unregister(projId);
-                OnProjectileDied?.Invoke(projId);
-            }
+            // Only act if still registered — if HandlePiercing already cleaned up,
+            // _projData no longer contains this key and we do nothing here.
+            if (!_projData.ContainsKey(projId)) return;
+
+            Unregister(projId);
+            OnProjectileDied?.Invoke(projId);
         }
 
         // ── Guided / wave / circular: C# writes accel fields ─────────────────
 
-        /// <summary>
-        /// Update the homing direction for a guided 2D projectile.
-        /// Called from a TickDispatcher subscriber. Writes Ax/Ay in the buffer.
-        /// </summary>
         public void SetHomingDirection2D(ref NativeProjectile proj, Vector2 worldDir)
         {
             Vector2 n = worldDir.normalized;
@@ -175,9 +129,6 @@ namespace MidManStudio.Projectiles.Adapters
             proj.Ay = n.y;
         }
 
-        /// <summary>
-        /// Update the homing direction for a guided 3D projectile.
-        /// </summary>
         public void SetHomingDirection3D(ref NativeProjectile3D proj, Vector3 worldDir)
         {
             Vector3 n = worldDir.normalized;
@@ -195,14 +146,11 @@ namespace MidManStudio.Projectiles.Adapters
             bool                 isHeadshot)
         {
             float normDist = config.MaxRange > 0f
-                ? Mathf.Clamp01(travelDist / config.MaxRange)
-                : 0f;
+                ? Mathf.Clamp01(travelDist / config.MaxRange) : 0f;
 
             float damage = config.EvaluateDamage(normDist);
-
-            if (isHeadshot)   damage *= config.HeadshotMultiplier;
-            if (data.isCrit)  damage *= config.CritMultiplier;
-
+            if (isHeadshot)  damage *= config.HeadshotMultiplier;
+            if (data.isCrit) damage *= config.CritMultiplier;
             damage *= data.damageMultiplier;
             return damage;
         }
@@ -231,27 +179,60 @@ namespace MidManStudio.Projectiles.Adapters
                 WeaponLevel            = data.weaponLevel,
                 GameData               = data
             };
-
             OnProjectileHit?.Invoke(payload);
         }
 
+        /// <summary>
+        /// Determines whether the projectile should die and handles cleanup.
+        ///
+        /// KEY FIX: For PiercingType.None (most common case), we immediately call
+        /// Unregister() so that ServerProjectileAuthority.Collision2D's post-hit
+        /// check (!Adapter.IsRegistered) returns true and sets Alive=0 in the
+        /// Rust buffer. Without this, Alive was never cleared and projectiles
+        /// lived forever regardless of piercing setting or lifetime.
+        ///
+        /// For piercing types we decrement collisionsRemaining and only unregister
+        /// (and kill) when the pierce count reaches zero.
+        /// </summary>
         private void HandlePiercing(
             uint                 projId,
             ServerProjectileData data,
             ProjectileConfigSO   config)
         {
-            if (config.PiercingType == ProjectilePiercingType.None)
+            switch (config.PiercingType)
             {
-                data.hasHit = true;
-                _projData[projId] = data;
-                return;
+                case ProjectilePiercingType.None:
+                    // Non-piercing: die on first hit.
+                    // Unregister now so Collision2D sets Alive=0 immediately.
+                    data.hasHit              = true;
+                    data.collisionsRemaining = 0;
+                    Unregister(projId);
+                    OnProjectileDied?.Invoke(projId);
+                    break;
+
+                case ProjectilePiercingType.Piecer:
+                case ProjectilePiercingType.Random:
+                    data.collisionsRemaining--;
+                    if (data.collisionsRemaining <= 0)
+                    {
+                        data.hasHit = true;
+                        Unregister(projId);
+                        OnProjectileDied?.Invoke(projId);
+                    }
+                    else
+                    {
+                        // Still alive — update remaining count
+                        _projData[projId] = data;
+                    }
+                    break;
+
+                default:
+                    // Unknown type — treat as non-piercing
+                    data.hasHit = true;
+                    Unregister(projId);
+                    OnProjectileDied?.Invoke(projId);
+                    break;
             }
-
-            data.collisionsRemaining--;
-            if (data.collisionsRemaining <= 0)
-                data.hasHit = true;
-
-            _projData[projId] = data;
         }
     }
 }
