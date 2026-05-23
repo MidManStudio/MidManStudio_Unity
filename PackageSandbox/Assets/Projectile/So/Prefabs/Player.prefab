@@ -148,8 +148,10 @@ MonoBehaviour:
   _pelletsPerShot: 1
   _spreadDeg: 5
   _fireKey: 102
+  _shotPattern: {fileID: 0}
   _shootMode: 0
   _modeText: {fileID: 0}
+  _dimensionKey: 99
   _raycastLayers:
     serializedVersion: 2
     m_Bits: 1

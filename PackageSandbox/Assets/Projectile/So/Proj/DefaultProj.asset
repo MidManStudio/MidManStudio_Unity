@@ -19,13 +19,13 @@ MonoBehaviour:
   _minSpeed: 10
   _maxSpeed: 10
   _lifetime: 3
-  _gravityScale: 5
+  _gravityScale: 0
   _maxRange: 50
   _piercingType: 0
   _maxCollisions: 1
-  _useScaleGrowth: 0
   _fullSizeX: 0.2
   _fullSizeY: 0.2
+  _useScaleGrowth: 0
   _spawnScaleFraction: 0.2
   _growthSpeed: 8
   _damageCurve:
@@ -57,9 +57,9 @@ MonoBehaviour:
   _critMultiplier: 1.5
   _sprite: {fileID: 21300000, guid: 8afe0b18387cb41faaa8f820382db474, type: 3}
   _useSprite: 1
-  _customShape: {fileID: 11400000, guid: 7c99cd4d02d7d4ff998cdebcbe3f8592, type: 2}
+  _customShape: {fileID: 0}
   _hasTrail: 1
-  _trailMaterial: {fileID: 2100000, guid: 8e2bd416c1769401bac71c1f8d976a94, type: 2}
+  _trailMaterial: {fileID: 2100000, guid: e3c04243093d246ad84824d194445a0d, type: 2}
   _useGradientOverride: 1
   _trailGradient:
     serializedVersion: 2
