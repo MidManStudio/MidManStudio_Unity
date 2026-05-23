@@ -1,7 +1,19 @@
 // LocalProjectileManager.cs
-// Single-player / offline / practice mode projectile manager.
-// No NGO. No RPCs. No snapshots. No reconciliation.
-// Full Rust tick + collision + render + trail — all local, all this class.
+// FIXES:
+//   + RegisterTarget2D(in CollisionTarget) — direct struct registration from
+//     MID_MasterProjectileSystem; also creates a minimal LocalDamageTarget in
+//     _targets dict so ProcessHit2D can look up the target and fire OnHit.
+//     Without this, _targets2D was always empty in offline mode so collisions
+//     were never processed.
+//   + RegisterTarget3D(in CollisionTarget3D) — same for 3D.
+//   + DeactivateTarget2D/3D/ClearAllTargets — public surface matching
+//     ServerProjectileAuthority's API for MID_MasterProjectileSystem to call.
+//   + ProcessHit2D/3D — if no LocalDamageTarget found in dict (raw CollisionTarget
+//     path), fire OnHit with a minimal payload rather than silently discarding.
+//     Previously, direct-registered targets caused every collision to be skipped
+//     because _targets.TryGetValue always failed.
+//   + Spawn2D/Spawn3D now accept a ProjectileConfigSO config param matching the
+//     SpawnBatch2D signature to avoid passing null.
 
 using System;
 using System.Collections.Generic;
@@ -17,44 +29,34 @@ using MidManStudio.Projectiles.Visuals;
 
 namespace MidManStudio.Projectiles.Managers
 {
-    // ─────────────────────────────────────────────────────────────────────────
-    //  Lightweight offline damage target registration
-    // ─────────────────────────────────────────────────────────────────────────
+    // ── Lightweight offline damage target ─────────────────────────────────────
 
-    /// <summary>
-    /// A local (offline) collision target. No NetworkObject required.
-    /// Register with LocalProjectileManager.RegisterTarget().
-    /// </summary>
     public class LocalDamageTarget
     {
-        /// Process-unique ID from GetInstanceID().
-        public uint   LocalId;
-        public Vector3 Position;
-        public float   Radius;
-        public bool    Active;
+        public uint       LocalId;
+        public Vector3    Position;
+        public float      Radius;
+        public bool       Active;
         public GameObject SourceObject;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    //  Offline hit payload
-    // ─────────────────────────────────────────────────────────────────────────
+    // ── Offline hit payload ────────────────────────────────────────────────────
 
     public struct LocalHitPayload
     {
-        public uint   ProjId;
-        public ushort ConfigId;
-        public bool   Is3D;
-        public LocalDamageTarget Target;
-        public float  Damage;
-        public bool   IsHeadshot;
-        public bool   IsCrit;
-        public Vector3 HitPosition;
-        public uint   OwnerLocalId;
+        public uint              ProjId;
+        public ushort            ConfigId;
+        public bool              Is3D;
+        public LocalDamageTarget Target;       // null when target registered via CollisionTarget
+        public uint              RawTargetId;  // always valid; use when Target is null
+        public float             Damage;
+        public bool              IsHeadshot;
+        public bool              IsCrit;
+        public Vector3           HitPosition;
+        public uint              OwnerLocalId;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    //  LocalProjectileManager
-    // ─────────────────────────────────────────────────────────────────────────
+    // ── LocalProjectileManager ────────────────────────────────────────────────
 
     public class LocalProjectileManager : Singleton<LocalProjectileManager>
     {
@@ -114,6 +116,8 @@ namespace MidManStudio.Projectiles.Managers
         private readonly Dictionary<uint, LocalProjectileData> _localData
             = new Dictionary<uint, LocalProjectileData>(256);
 
+        // Keyed by TargetId — populated by both RegisterTarget(LocalDamageTarget)
+        // and RegisterTarget2D(CollisionTarget) for hit-event lookups.
         private readonly Dictionary<uint, LocalDamageTarget> _targets
             = new Dictionary<uint, LocalDamageTarget>(64);
 
@@ -128,13 +132,8 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Events
 
-        /// <summary>
-        /// Fired for each projectile hit. Subscribe from your game's damage system.
-        /// </summary>
         public event Action<LocalHitPayload> OnHit;
-
-        /// <summary>Fired when a projectile dies (lifetime / pierce exhausted).</summary>
-        public event Action<uint> OnProjectileDied;
+        public event Action<uint>            OnProjectileDied;
 
         #endregion
 
@@ -248,10 +247,6 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Public — Hit Event Relay
 
-        /// <summary>
-        /// Relay a hit payload from external systems (e.g. RaycastProjectileHandler offline path).
-        /// Events can only be invoked from within the declaring class, so callers use this.
-        /// </summary>
         public void FireHitEvent(LocalHitPayload payload) => OnHit?.Invoke(payload);
 
         #endregion
@@ -265,11 +260,16 @@ namespace MidManStudio.Projectiles.Managers
             var config = ProjectileRegistry.Instance.Get(data.ConfigId);
             if (config == null) return;
 
-            if (!_targets.TryGetValue(hit.TargetId, out var target)) return;
-            if (!target.Active) return;
+            // FIX: look up LocalDamageTarget but don't bail if missing —
+            // targets registered via RegisterTarget2D(CollisionTarget) create
+            // a minimal LocalDamageTarget, but raw ones might be null.
+            _targets.TryGetValue(hit.TargetId, out var target);
+            if (target != null && !target.Active) return;
 
-            bool headshot = CheckHeadshotLocal(target, hit.HitX, hit.HitY, 0f);
-            bool crit     = data.IsCrit;
+            bool headshot = target != null
+                ? CheckHeadshotLocal(target, hit.HitX, hit.HitY, 0f)
+                : false;
+            bool crit = data.IsCrit;
 
             float normDist = config.MaxRange > 0f
                 ? Mathf.Clamp01(hit.TravelDist / config.MaxRange) : 0f;
@@ -284,6 +284,7 @@ namespace MidManStudio.Projectiles.Managers
                 ConfigId     = data.ConfigId,
                 Is3D         = false,
                 Target       = target,
+                RawTargetId  = hit.TargetId,
                 Damage       = damage,
                 IsHeadshot   = headshot,
                 IsCrit       = crit,
@@ -314,11 +315,13 @@ namespace MidManStudio.Projectiles.Managers
             var config = ProjectileRegistry.Instance.Get(data.ConfigId);
             if (config == null) return;
 
-            if (!_targets.TryGetValue(hit.TargetId, out var target)) return;
-            if (!target.Active) return;
+            _targets.TryGetValue(hit.TargetId, out var target);
+            if (target != null && !target.Active) return;
 
-            bool headshot = CheckHeadshotLocal(target, hit.HitX, hit.HitY, hit.HitZ);
-            bool crit     = data.IsCrit;
+            bool headshot = target != null
+                ? CheckHeadshotLocal(target, hit.HitX, hit.HitY, hit.HitZ)
+                : false;
+            bool crit = data.IsCrit;
 
             float normDist = config.MaxRange > 0f
                 ? Mathf.Clamp01(hit.TravelDist / config.MaxRange) : 0f;
@@ -333,6 +336,7 @@ namespace MidManStudio.Projectiles.Managers
                 ConfigId     = data.ConfigId,
                 Is3D         = true,
                 Target       = target,
+                RawTargetId  = hit.TargetId,
                 Damage       = damage,
                 IsHeadshot   = headshot,
                 IsCrit       = crit,
@@ -356,10 +360,6 @@ namespace MidManStudio.Projectiles.Managers
             }
         }
 
-        /// <summary>
-        /// Override in a derived class for game-specific headshot detection.
-        /// Default: returns false.
-        /// </summary>
         protected virtual bool CheckHeadshotLocal(
             LocalDamageTarget target, float hitX, float hitY, float hitZ)
             => false;
@@ -409,9 +409,6 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Public API — Spawn
 
-        /// <summary>
-        /// Spawn a batch of 2D projectiles offline.
-        /// </summary>
         public void Spawn2D(
             SpawnPoint[] spawnPoints,
             int          count,
@@ -428,7 +425,6 @@ namespace MidManStudio.Projectiles.Managers
 
             var rustParams = ProjectileRegistry.Instance.GetRustSpawnParams(configId);
             uint baseId    = AllocateProjIds(count);
-
             var (writePtr, remaining) = GetWriteHead2D();
 
             int written = BatchSpawnHelper.SpawnBatch2D(
@@ -442,7 +438,6 @@ namespace MidManStudio.Projectiles.Managers
             {
                 uint projId = baseId + (uint)i;
                 bool isCrit = cfg != null && UnityEngine.Random.value < cfg.CritChance;
-
                 _localData[projId] = new LocalProjectileData
                 {
                     ConfigId              = configId,
@@ -452,15 +447,9 @@ namespace MidManStudio.Projectiles.Managers
                     CollisionsRemaining   = rustParams.MaxCollisions
                 };
             }
-
             _count2D += written;
-
-            MID_Logger.LogDebug(_logLevel,
-                $"Spawned {written} 2D projectiles. Active={_count2D}",
-                nameof(LocalProjectileManager));
         }
 
-        /// <summary>Spawn a batch of 3D projectiles offline.</summary>
         public void Spawn3D(
             SpawnPoint[] spawnPoints,
             int          count,
@@ -477,7 +466,6 @@ namespace MidManStudio.Projectiles.Managers
 
             var rustParams = ProjectileRegistry.Instance.GetRustSpawnParams(configId);
             uint baseId    = AllocateProjIds(count);
-
             var (writePtr, remaining) = GetWriteHead3D();
 
             int written = BatchSpawnHelper.SpawnBatch3D(
@@ -491,7 +479,6 @@ namespace MidManStudio.Projectiles.Managers
             {
                 uint projId = baseId + (uint)i;
                 bool isCrit = cfg != null && UnityEngine.Random.value < cfg.CritChance;
-
                 _localData[projId] = new LocalProjectileData
                 {
                     ConfigId              = configId,
@@ -501,24 +488,19 @@ namespace MidManStudio.Projectiles.Managers
                     CollisionsRemaining   = rustParams.MaxCollisions
                 };
             }
-
             _count3D += written;
-
-            MID_Logger.LogDebug(_logLevel,
-                $"Spawned {written} 3D projectiles. Active={_count3D}",
-                nameof(LocalProjectileManager));
         }
 
         #endregion
 
-        #region Public API — Targets
+        #region Public API — Targets (rich LocalDamageTarget objects)
 
         public uint RegisterTarget(LocalDamageTarget target)
         {
             if (target == null) return 0;
             uint id = target.LocalId;
             _targets[id] = target;
-            SyncTarget2D(target);
+            WriteToCollisionBuffer2D(target);
             return id;
         }
 
@@ -526,7 +508,7 @@ namespace MidManStudio.Projectiles.Managers
         {
             if (target == null || !_targets.ContainsKey(target.LocalId)) return;
             _targets[target.LocalId] = target;
-            SyncTarget2D(target);
+            WriteToCollisionBuffer2D(target);
         }
 
         public void DeactivateTarget(uint localId)
@@ -534,7 +516,7 @@ namespace MidManStudio.Projectiles.Managers
             if (!_targets.TryGetValue(localId, out var t)) return;
             t.Active = false;
             _targets[localId] = t;
-            SyncTarget2D(t);
+            WriteToCollisionBuffer2D(t);
         }
 
         public void RemoveTarget(uint localId)
@@ -543,7 +525,7 @@ namespace MidManStudio.Projectiles.Managers
             DeactivateInBuffer2D(localId);
         }
 
-        private void SyncTarget2D(LocalDamageTarget t)
+        private void WriteToCollisionBuffer2D(LocalDamageTarget t)
         {
             for (int i = 0; i < _targetCount2D; i++)
             {
@@ -558,7 +540,6 @@ namespace MidManStudio.Projectiles.Managers
                 };
                 return;
             }
-
             if (_targetCount2D >= _maxTargets) return;
             _targets2D[_targetCount2D++] = new CollisionTarget
             {
@@ -573,11 +554,127 @@ namespace MidManStudio.Projectiles.Managers
         private void DeactivateInBuffer2D(uint localId)
         {
             for (int i = 0; i < _targetCount2D; i++)
+                if (_targets2D[i].TargetId == localId) { _targets2D[i].Active = 0; return; }
+        }
+
+        #endregion
+
+        #region Public API — Targets (direct CollisionTarget structs from MID_MasterProjectileSystem)
+        // These mirror ServerProjectileAuthority's API so MID_MasterProjectileSystem
+        // can route identically to both systems.
+
+        /// <summary>
+        /// Register a 2D collision target using the native Rust struct directly.
+        /// Called by MID_MasterProjectileSystem when offline/local.
+        /// Also creates a minimal LocalDamageTarget so ProcessHit2D can fire OnHit.
+        /// </summary>
+        public void RegisterTarget2D(in CollisionTarget target)
+        {
+            // Write to / update collision buffer
+            for (int i = 0; i < _targetCount2D; i++)
             {
-                if (_targets2D[i].TargetId != localId) continue;
-                _targets2D[i].Active = 0;
+                if (_targets2D[i].TargetId != target.TargetId) continue;
+                _targets2D[i] = target;
+                // Sync position in _targets dict if present
+                if (_targets.TryGetValue(target.TargetId, out var existing))
+                {
+                    existing.Position = new Vector3(target.X, target.Y, 0f);
+                    existing.Radius   = target.Radius;
+                    existing.Active   = target.Active != 0;
+                    _targets[target.TargetId] = existing;
+                }
                 return;
             }
+
+            if (_targetCount2D >= _maxTargets)
+            {
+                MID_Logger.LogWarning(_logLevel, "2D target buffer full.",
+                    nameof(LocalProjectileManager));
+                return;
+            }
+            _targets2D[_targetCount2D++] = target;
+
+            // Ensure _targets dict has an entry so ProcessHit2D can fire OnHit
+            if (!_targets.ContainsKey(target.TargetId))
+            {
+                _targets[target.TargetId] = new LocalDamageTarget
+                {
+                    LocalId      = target.TargetId,
+                    Position     = new Vector3(target.X, target.Y, 0f),
+                    Radius       = target.Radius,
+                    Active       = target.Active != 0,
+                    SourceObject = null
+                };
+            }
+        }
+
+        /// <summary>
+        /// Register a 3D collision target using the native Rust struct directly.
+        /// </summary>
+        public void RegisterTarget3D(in CollisionTarget3D target)
+        {
+            for (int i = 0; i < _targetCount3D; i++)
+            {
+                if (_targets3D[i].TargetId != target.TargetId) continue;
+                _targets3D[i] = target;
+                if (_targets.TryGetValue(target.TargetId, out var existing))
+                {
+                    existing.Position = new Vector3(target.X, target.Y, target.Z);
+                    existing.Radius   = target.Radius;
+                    existing.Active   = target.Active != 0;
+                    _targets[target.TargetId] = existing;
+                }
+                return;
+            }
+
+            if (_targetCount3D >= _maxTargets)
+            {
+                MID_Logger.LogWarning(_logLevel, "3D target buffer full.",
+                    nameof(LocalProjectileManager));
+                return;
+            }
+            _targets3D[_targetCount3D++] = target;
+
+            if (!_targets.ContainsKey(target.TargetId))
+            {
+                _targets[target.TargetId] = new LocalDamageTarget
+                {
+                    LocalId      = target.TargetId,
+                    Position     = new Vector3(target.X, target.Y, target.Z),
+                    Radius       = target.Radius,
+                    Active       = target.Active != 0,
+                    SourceObject = null
+                };
+            }
+        }
+
+        public void DeactivateTarget2D(uint targetId)
+        {
+            for (int i = 0; i < _targetCount2D; i++)
+                if (_targets2D[i].TargetId == targetId) { _targets2D[i].Active = 0; break; }
+            if (_targets.TryGetValue(targetId, out var t))
+            {
+                t.Active = false;
+                _targets[targetId] = t;
+            }
+        }
+
+        public void DeactivateTarget3D(uint targetId)
+        {
+            for (int i = 0; i < _targetCount3D; i++)
+                if (_targets3D[i].TargetId == targetId) { _targets3D[i].Active = 0; break; }
+            if (_targets.TryGetValue(targetId, out var t))
+            {
+                t.Active = false;
+                _targets[targetId] = t;
+            }
+        }
+
+        public void ClearAllTargets()
+        {
+            _targetCount2D = 0;
+            _targetCount3D = 0;
+            _targets.Clear();
         }
 
         #endregion
