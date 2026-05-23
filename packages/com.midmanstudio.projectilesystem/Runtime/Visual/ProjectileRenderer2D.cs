@@ -1,19 +1,14 @@
 // ProjectileRenderer2D.cs
-//
-// FIX 1 (aspect ratio): The Y scale of each quad is now derived from
-//   p.ScaleX * (cfg.FullSizeY / cfg.FullSizeX)
-//   so a bullet config with FullSizeX=0.4, FullSizeY=0.1 renders as a
-//   4:1 elongated shape instead of a 1:1 square.
-//   Previously both axes used p.ScaleY which was always equal to p.ScaleX.
-//
-// FIX 2 (sprite per config): Each projectile's UV rect comes from its own
-//   config's sprite via ProjectileRegistry.GetUVRect(p.ConfigId).
-//   This was already in place, but the aspect ratio fix means the shape
-//   now correctly matches the sprite's proportions.
-//
-// FIX 3 (combinedMeshMpb): MPB with identity UVRect passed to DrawMesh so
-//   the material's serialized default _UVRect never corrupts the UVs.
+// FIXES:
+//   1. Instanced path now groups by configId → each config uses its correct mesh
+//   2. MPB.SetTexture("_MainTex") applied per draw call → sprite texture auto-used
+//   3. Sprite UV rect computed from config sprite for both paths
+//   4. Combined mesh path uses first alive projectile's texture
+//   5. Aspect ratio (FullSizeY/FullSizeX) correctly applied in both paths
+//   6. Custom shapes with > 4 verts render correctly in instanced path;
+//      fall back to bounding quad only in combined-mesh (old HW) path
 
+using System.Collections.Generic;
 using MidManStudio.Projectiles.Config;
 using MidManStudio.Projectiles.Core;
 using UnityEngine;
@@ -28,27 +23,31 @@ namespace MidManStudio.Projectiles.Visuals
         [Header("Rendering")]
         [SerializeField] private Material _atlasMaterial;
 
-        [Tooltip("Force the combined-mesh draw path even on hardware that supports GPU instancing.")]
-        [SerializeField] private bool _forceDrawMesh = false;
+        [Tooltip("Force combined-mesh fallback path even on instancing-capable hardware.\n" +
+                 "Enable only for debugging — instanced path is 4-10× faster.")]
+        [SerializeField] private bool _forceDrawMesh;
 
-        // ── Instanced path ────────────────────────────────────────────────────
-        private const int   BATCH_SIZE = 1023;
+        // ── Instanced path ─────────────────────────────────────────────────
+        private const int BATCH_SIZE = 1023;
         private Matrix4x4[] _matrices;
         private Vector4[]   _uvRects;
         private Vector4[]   _colors;
         private MaterialPropertyBlock _mpb;
 
-        // ── Combined mesh path ────────────────────────────────────────────────
+        // ── Combined mesh path ─────────────────────────────────────────────
         private const int MAX_QUADS = 2048;
         private Mesh      _combinedMesh;
         private Vector3[] _verts;
         private Vector2[] _uvs;
         private Color32[] _cols;
         private int[]     _tris;
-        private MaterialPropertyBlock _combinedMeshMpb;
+        private MaterialPropertyBlock _combinedMpb;
 
-        private Mesh[]     _configMeshCache;
+        // ── Per-configId index grouping (instanced path) ───────────────────
+        private readonly Dictionary<ushort, List<int>> _configGroups = new(32);
+
         private RenderPath _path;
+        private Mesh _defaultQuad;
 
         // ─────────────────────────────────────────────────────────────────────
 
@@ -66,7 +65,7 @@ namespace MidManStudio.Projectiles.Visuals
             }
             else
             {
-                _combinedMesh = new Mesh { name = "ProjectileCombined" };
+                _combinedMesh = new Mesh { name = "ProjectileCombined2D" };
                 _combinedMesh.MarkDynamic();
                 _verts = new Vector3[MAX_QUADS * 4];
                 _uvs   = new Vector2[MAX_QUADS * 4];
@@ -74,23 +73,24 @@ namespace MidManStudio.Projectiles.Visuals
                 _tris  = new int[MAX_QUADS * 6];
             }
 
-            // FIX: identity UV rect MPB for DrawMesh — overrides any wrong material default
-            _combinedMeshMpb = new MaterialPropertyBlock();
-            _combinedMeshMpb.SetVector("_UVRect", new Vector4(0f, 0f, 1f, 1f));
-            _combinedMeshMpb.SetVector("_Color",  new Vector4(1f, 1f, 1f, 1f));
+            // Identity MPB for combined path — prevents wrong material default _UVRect
+            _combinedMpb = new MaterialPropertyBlock();
+            _combinedMpb.SetVector("_UVRect", new Vector4(0f, 0f, 1f, 1f));
+            _combinedMpb.SetVector("_Color",  new Vector4(1f, 1f, 1f, 1f));
 
             Debug.Log(
-                $"[ProjectileRenderer2D] Path={(_path == RenderPath.Instanced ? "Instanced" : "CombinedMesh")}" +
-                $" | Instancing: {SystemInfo.supportsInstancing}" +
-                $" | ForceDrawMesh: {_forceDrawMesh}");
+                $"[ProjectileRenderer2D] Path={_path}" +
+                $" | HW Instancing:{SystemInfo.supportsInstancing}" +
+                $" | ForceDrawMesh:{_forceDrawMesh}");
         }
 
         private void OnDestroy()
         {
             if (_combinedMesh != null) Destroy(_combinedMesh);
+            if (_defaultQuad  != null) Destroy(_defaultQuad);
         }
 
-        // ── Called by LocalProjectileManager.LateUpdate / ServerProjectileAuthority ──
+        // ── Public API ────────────────────────────────────────────────────────
 
         public void Render(NativeProjectile[] projs, int count)
         {
@@ -98,9 +98,11 @@ namespace MidManStudio.Projectiles.Visuals
             {
                 Debug.LogWarning(
                     "[ProjectileRenderer2D] _atlasMaterial is not assigned. " +
-                    "Assign a material using InstancedProjectile_URP.shader in the inspector.", this);
+                    "Assign a material using InstancedProjectile_URP.shader.", this);
                 return;
             }
+
+            if (count == 0) return;
 
             if (_path == RenderPath.Instanced)
                 RenderInstanced(projs, count);
@@ -108,69 +110,104 @@ namespace MidManStudio.Projectiles.Visuals
                 RenderCombined(projs, count);
         }
 
-        // ── Instanced ─────────────────────────────────────────────────────────
+        // ── Instanced path ────────────────────────────────────────────────────
+        //
+        // Groups alive projectiles by configId so each group gets:
+        //   • its own mesh (Quad / Needle / Diamond / Arrow / Custom)
+        //   • its own sprite texture set via MPB.SetTexture("_MainTex")
+        //   • the correct UV rect for its sprite within that texture
+        //
+        // All instances in one DrawMeshInstanced call share the same mesh and
+        // texture; this is why grouping by configId is required.
 
         private void RenderInstanced(NativeProjectile[] projs, int count)
         {
-            if (count == 0) return;
             var reg = ProjectileRegistry.Instance;
-            int batchStart = 0;
-            EnsureConfigMeshCache(reg);
 
-            while (batchStart < count)
+            // Phase 1: collect alive indices per configId
+            _configGroups.Clear();
+            for (int i = 0; i < count; i++)
             {
-                int n = 0, end = Mathf.Min(batchStart + BATCH_SIZE, count);
+                ref var p = ref projs[i];
+                if (p.Alive == 0) continue;
+                var cfg = reg.Get(p.ConfigId);
+                if (cfg == null || !cfg.UseSprite) continue;
 
-                for (int i = batchStart; i < end; i++)
+                if (!_configGroups.TryGetValue(p.ConfigId, out var lst))
                 {
-                    ref var p = ref projs[i];
-                    if (p.Alive == 0) continue;
-
-                    var cfg = reg.Get(p.ConfigId);
-                    if (cfg == null || !cfg.UseSprite) continue;
-
-                    // FIX: use aspect ratio so Y scale matches the sprite's proportions
-                    float aspectY = cfg.FullSizeX > 0.001f
-                        ? cfg.FullSizeY / cfg.FullSizeX : 1f;
-
-                    _matrices[n] = Matrix4x4.TRS(
-                        new Vector3(p.X, p.Y, 0f),
-                        Quaternion.Euler(0f, 0f, p.AngleDeg),
-                        new Vector3(p.ScaleX, p.ScaleX * aspectY, 1f)); // Y = width * aspect
-
-                    _uvRects[n] = reg.GetUVRect(p.ConfigId);
-                    _colors[n]  = ComputeTint(ref p);
-                    n++;
+                    lst = new List<int>(64);
+                    _configGroups[p.ConfigId] = lst;
                 }
+                lst.Add(i);
+            }
 
-                if (n > 0)
+            // Phase 2: draw each configId group
+            foreach (var kv in _configGroups)
+            {
+                var cfg = reg.Get(kv.Key);
+                if (cfg == null) continue;
+
+                Mesh      mesh    = GetMeshForConfig(cfg);
+                Texture2D tex     = cfg.ProjectileSprite?.texture;
+                Vector4   uvRect  = ComputeSpriteUVRect(cfg);
+                float     aspectY = cfg.FullSizeX > 0.001f
+                                    ? cfg.FullSizeY / cfg.FullSizeX : 1f;
+
+                var   idxList = kv.Value;
+                int   start   = 0;
+
+                while (start < idxList.Count)
                 {
-                    _mpb.SetVectorArray("_UVRect", _uvRects);
-                    _mpb.SetVectorArray("_Color",  _colors);
+                    int n   = 0;
+                    int end = Mathf.Min(start + BATCH_SIZE, idxList.Count);
 
-                    ushort firstCfgId = projs[batchStart].ConfigId;
-                    Mesh mesh = (_configMeshCache != null
-                        && firstCfgId < _configMeshCache.Length
-                        && _configMeshCache[firstCfgId] != null)
-                        ? _configMeshCache[firstCfgId]
-                        : GetOrBuildDefaultQuad();
+                    for (int j = start; j < end; j++)
+                    {
+                        ref var p = ref projs[idxList[j]];
 
-                    Graphics.DrawMeshInstanced(
-                        mesh, 0, _atlasMaterial, _matrices, n, _mpb,
-                        UnityEngine.Rendering.ShadowCastingMode.Off,
-                        false, gameObject.layer);
+                        _matrices[n] = Matrix4x4.TRS(
+                            new Vector3(p.X, p.Y, 0f),
+                            Quaternion.Euler(0f, 0f, p.AngleDeg),
+                            new Vector3(p.ScaleX, p.ScaleX * aspectY, 1f));
+
+                        _uvRects[n] = uvRect;
+                        _colors[n]  = ComputeTint(ref p);
+                        n++;
+                    }
+
+                    if (n > 0)
+                    {
+                        _mpb.SetVectorArray("_UVRect", _uvRects);
+                        _mpb.SetVectorArray("_Color",  _colors);
+
+                        // KEY FIX: set the sprite's texture for this batch
+                        if (tex != null)
+                            _mpb.SetTexture("_MainTex", tex);
+
+                        Graphics.DrawMeshInstanced(
+                            mesh, 0, _atlasMaterial, _matrices, n, _mpb,
+                            UnityEngine.Rendering.ShadowCastingMode.Off,
+                            receiveShadows: false,
+                            layer: gameObject.layer);
+                    }
+
+                    start = end;
                 }
-
-                batchStart = end;
             }
         }
 
-        // ── Combined mesh ─────────────────────────────────────────────────────
+        // ── Combined mesh path ────────────────────────────────────────────────
+        //
+        // Builds a single combined mesh from all alive projectiles and issues one
+        // Graphics.DrawMesh call.  UVs are baked per-vertex; texture is set via MPB.
+        // Meshes with > 4 verts (Needle=5, Arrow=7) fall back to bounding quad here —
+        // use the instanced path for correct custom shapes on modern hardware.
 
         private void RenderCombined(NativeProjectile[] projs, int count)
         {
-            var reg = ProjectileRegistry.Instance;
-            int qi  = 0;
+            var       reg      = ProjectileRegistry.Instance;
+            int       qi       = 0;
+            Texture2D firstTex = null;
 
             for (int i = 0; i < count && qi < MAX_QUADS; i++)
             {
@@ -180,74 +217,74 @@ namespace MidManStudio.Projectiles.Visuals
                 var cfg = reg.Get(p.ConfigId);
                 if (cfg == null || !cfg.UseSprite) continue;
 
-                // FIX: aspect ratio for Y
-                float aspectY = cfg.FullSizeX > 0.001f
-                    ? cfg.FullSizeY / cfg.FullSizeX : 1f;
+                // Grab the first texture we find for the batch draw call
+                if (firstTex == null && cfg.ProjectileSprite?.texture != null)
+                    firstTex = cfg.ProjectileSprite.texture;
+
+                float aspectY = cfg.FullSizeX > 0.001f ? cfg.FullSizeY / cfg.FullSizeX : 1f;
                 float sx = p.ScaleX;
                 float sy = p.ScaleX * aspectY;
 
-                Vector4 uvRect = reg.GetUVRect(p.ConfigId);
+                Vector4 uvRect = ComputeSpriteUVRect(cfg);
                 Vector4 tint   = ComputeTint(ref p);
                 var c32 = new Color32(
                     (byte)(tint.x * 255f), (byte)(tint.y * 255f),
                     (byte)(tint.z * 255f), (byte)(tint.w * 255f));
 
-                Mesh srcMesh = cfg.CustomShape != null
-                    ? cfg.CustomShape.GetMesh()
-                    : GetOrBuildDefaultQuad();
-
-                var srcVerts = srcMesh.vertices;
-                var srcUVs   = srcMesh.uv;
-                var srcTris  = srcMesh.triangles;
-                int vc    = srcVerts.Length;
-                int vBase = qi * 4;
+                Mesh srcMesh  = GetMeshForConfig(cfg);
+                var  srcVerts = srcMesh.vertices;
+                var  srcUVs   = srcMesh.uv;
+                var  srcTris  = srcMesh.triangles;
+                int  vc       = srcVerts.Length;
+                int  vBase    = qi * 4;
 
                 float cos = Mathf.Cos(p.AngleDeg * Mathf.Deg2Rad);
                 float sin = Mathf.Sin(p.AngleDeg * Mathf.Deg2Rad);
 
                 if (vc <= 4)
                 {
+                    // Exact mesh — up to 4 verts supported directly
                     for (int v = 0; v < vc; v++)
                     {
                         _verts[vBase + v] = RotateScale(
                             p.X, p.Y,
-                            srcVerts[v].x * sx,
-                            srcVerts[v].y * sy,
+                            srcVerts[v].x * sx, srcVerts[v].y * sy,
                             cos, sin);
                         _uvs[vBase + v] = new Vector2(
                             uvRect.x + srcUVs[v].x * uvRect.z,
                             uvRect.y + srcUVs[v].y * uvRect.w);
                         _cols[vBase + v] = c32;
                     }
+                    // Pad unused verts to degenerate (zero alpha, same pos)
                     for (int v = vc; v < 4; v++)
                     {
                         _verts[vBase + v] = _verts[vBase];
                         _uvs[vBase + v]   = _uvs[vBase];
                         _cols[vBase + v]  = new Color32(0, 0, 0, 0);
                     }
-
                     int tBase = qi * 6;
-                    for (int t = 0; t < srcTris.Length && t < 6; t++)
+                    for (int t = 0; t < Mathf.Min(srcTris.Length, 6); t++)
                         _tris[tBase + t] = vBase + srcTris[t];
-                    for (int t = srcTris.Length; t < 6; t++)
+                    for (int t = Mathf.Min(srcTris.Length, 6); t < 6; t++)
                         _tris[tBase + t] = vBase;
                 }
                 else
                 {
-                    // Fallback quad for custom shapes with > 4 verts
+                    // > 4 verts (Needle, Arrow, large Custom) — approximate bounding quad.
+                    // For correct custom shapes use instanced path (modern hardware).
                     float hx = sx * 0.5f, hy = sy * 0.5f;
                     _verts[vBase+0] = RotateScale(p.X, p.Y, -hx, -hy, cos, sin);
                     _verts[vBase+1] = RotateScale(p.X, p.Y,  hx, -hy, cos, sin);
                     _verts[vBase+2] = RotateScale(p.X, p.Y,  hx,  hy, cos, sin);
                     _verts[vBase+3] = RotateScale(p.X, p.Y, -hx,  hy, cos, sin);
-                    _uvs[vBase+0] = new Vector2(uvRect.x,          uvRect.y         );
-                    _uvs[vBase+1] = new Vector2(uvRect.x + uvRect.z, uvRect.y       );
-                    _uvs[vBase+2] = new Vector2(uvRect.x + uvRect.z, uvRect.y + uvRect.w);
-                    _uvs[vBase+3] = new Vector2(uvRect.x,          uvRect.y + uvRect.w);
-                    _cols[vBase+0] = _cols[vBase+1] = _cols[vBase+2] = _cols[vBase+3] = c32;
+                    _uvs[vBase+0]   = new Vector2(uvRect.x,            uvRect.y);
+                    _uvs[vBase+1]   = new Vector2(uvRect.x + uvRect.z, uvRect.y);
+                    _uvs[vBase+2]   = new Vector2(uvRect.x + uvRect.z, uvRect.y + uvRect.w);
+                    _uvs[vBase+3]   = new Vector2(uvRect.x,            uvRect.y + uvRect.w);
+                    _cols[vBase+0]  = _cols[vBase+1] = _cols[vBase+2] = _cols[vBase+3] = c32;
                     int tBase = qi * 6;
-                    _tris[tBase+0]=vBase; _tris[tBase+1]=vBase+1; _tris[tBase+2]=vBase+2;
-                    _tris[tBase+3]=vBase; _tris[tBase+4]=vBase+2; _tris[tBase+5]=vBase+3;
+                    _tris[tBase+0]=vBase;   _tris[tBase+1]=vBase+1; _tris[tBase+2]=vBase+2;
+                    _tris[tBase+3]=vBase;   _tris[tBase+4]=vBase+2; _tris[tBase+5]=vBase+3;
                 }
 
                 qi++;
@@ -262,51 +299,76 @@ namespace MidManStudio.Projectiles.Visuals
             _combinedMesh.SetTriangles(_tris, 0, qi * 6, 0);
             _combinedMesh.bounds = new Bounds(Vector3.zero, Vector3.one * 10000f);
 
+            if (firstTex != null)
+                _combinedMpb.SetTexture("_MainTex", firstTex);
+
             Graphics.DrawMesh(
                 _combinedMesh, Matrix4x4.identity, _atlasMaterial,
-                gameObject.layer, null, 0, _combinedMeshMpb);
+                gameObject.layer, null, 0, _combinedMpb);
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────
 
+        private Mesh GetMeshForConfig(ProjectileConfigSO cfg)
+        {
+            if (cfg.CustomShape != null)
+            {
+                var m = cfg.CustomShape.GetMesh();
+                if (m != null && m.vertexCount > 0) return m;
+            }
+            return GetDefaultQuad();
+        }
+
+        private Mesh GetDefaultQuad()
+        {
+            if (_defaultQuad != null) return _defaultQuad;
+            _defaultQuad = new Mesh { name = "ProjDefaultQuad" };
+            _defaultQuad.vertices  = new[] {
+                new Vector3(-0.5f, -0.5f, 0f),
+                new Vector3( 0.5f, -0.5f, 0f),
+                new Vector3( 0.5f,  0.5f, 0f),
+                new Vector3(-0.5f,  0.5f, 0f),
+            };
+            _defaultQuad.uv = new[] {
+                new Vector2(0f, 0f), new Vector2(1f, 0f),
+                new Vector2(1f, 1f), new Vector2(0f, 1f),
+            };
+            _defaultQuad.triangles = new[] { 0, 1, 2, 0, 2, 3 };
+            _defaultQuad.RecalculateBounds();
+            return _defaultQuad;
+        }
+
+        /// <summary>
+        /// Returns the UV rect of the config's sprite within its source texture.
+        /// For a sprite packed in an atlas this maps to the atlas sub-rect.
+        /// For a standalone sprite this returns (0,0,1,1).
+        /// </summary>
+        private static Vector4 ComputeSpriteUVRect(ProjectileConfigSO cfg)
+        {
+            var sprite = cfg.ProjectileSprite;
+            if (sprite == null) return new Vector4(0f, 0f, 1f, 1f);
+            var tex = sprite.texture;
+            if (tex == null) return new Vector4(0f, 0f, 1f, 1f);
+            return new Vector4(
+                sprite.rect.x      / tex.width,
+                sprite.rect.y      / tex.height,
+                sprite.rect.width  / tex.width,
+                sprite.rect.height / tex.height);
+        }
+
         private static Vector3 RotateScale(
-            float cx, float cy, float lx, float ly, float cos, float sin)
-            => new(cx + cos * lx - sin * ly, cy + sin * lx + cos * ly, 0f);
+            float cx, float cy,
+            float lx, float ly,
+            float cos, float sin)
+            => new(cx + cos * lx - sin * ly,
+                   cy + sin * lx + cos * ly,
+                   0f);
 
         private static Vector4 ComputeTint(ref NativeProjectile p)
         {
             float f = p.Lifetime / Mathf.Max(p.MaxLifetime, 0.0001f);
             float a = f < 0.15f ? f / 0.15f : 1f;
             return new Vector4(1f, 1f, 1f, a);
-        }
-
-        private Mesh _defaultQuad;
-        private Mesh GetOrBuildDefaultQuad()
-        {
-            if (_defaultQuad != null) return _defaultQuad;
-            var m = new Mesh { name = "ProjectileDefaultQuad" };
-            m.vertices  = new[] {
-                new Vector3(-0.5f,-0.5f,0), new Vector3(0.5f,-0.5f,0),
-                new Vector3( 0.5f, 0.5f,0), new Vector3(-0.5f,0.5f,0),
-            };
-            m.uv        = new[] { new Vector2(0,0), new Vector2(1,0), new Vector2(1,1), new Vector2(0,1) };
-            m.triangles = new[] { 0,1,2, 0,2,3 };
-            m.RecalculateBounds();
-            _defaultQuad = m;
-            return m;
-        }
-
-        private void EnsureConfigMeshCache(ProjectileRegistry reg)
-        {
-            if (_configMeshCache != null && _configMeshCache.Length == reg.Count) return;
-            _configMeshCache = new Mesh[reg.Count];
-            for (int i = 0; i < reg.Count; i++)
-            {
-                var cfg = reg.Get((ushort)i);
-                _configMeshCache[i] = (cfg != null && cfg.CustomShape != null)
-                    ? cfg.CustomShape.GetMesh()
-                    : GetOrBuildDefaultQuad();
-            }
         }
     }
 }
