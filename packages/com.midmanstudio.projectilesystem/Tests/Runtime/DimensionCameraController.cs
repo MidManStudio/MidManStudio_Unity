@@ -1,20 +1,9 @@
-// packages/com.midmanstudio.projectilesystem/Tests/Runtime/DimensionCameraController.cs
-//
-// CHANGES vs original:
-//   + RegisterPlayerCams takes followTarget3D (headPivot) as 4th param.
-//   + ConfigureVcam2D: adds CinemachineFramingTransposer for 2D platformer feel.
-//       Player sits at _screenY2D (0.35 default) — slightly below centre so you
-//       see more of what's ahead. Lookahead anticipates movement direction.
-//   + ConfigureVcam3D: FPS (Call of Duty style).
-//       Body  = CinemachineHardLockToTarget — camera position IS headPivot position.
-//       Aim   = CinemachineHardLookAt at a child "_fpsCamLookTarget" parented to
-//               headPivot, positioned 20u forward in local space. As mouse-look
-//               rotates headPivot, the look target moves with it — camera always
-//               faces where the player looks. No CinemachinePOV needed; no fight
-//               with the player script's custom mouse-look code.
-//   + UnregisterPlayerCams destroys _fpsCamLookTarget to prevent orphan objects.
-//   + ApplyProjectionImmediate uses the actual current dimension (was hardcoded TwoD).
-//   + _blendStyle exposed in inspector.
+// DimensionCameraController.cs
+// KEY CHANGES:
+//   + Priority-based vcam management — vcam GameObjects stay active always.
+//     High priority (20) = visible, low priority (0) = hidden.
+//     This avoids the SetActive flicker and Cinemachine brain losing track.
+//   + Removed internal key handling — key is owned by DimensionManager.
 
 using UnityEngine;
 using Cinemachine;
@@ -25,83 +14,47 @@ namespace TestGame
     [RequireComponent(typeof(Camera))]
     public class DimensionCameraController : MonoBehaviour
     {
-        // ── Singleton ─────────────────────────────────────────────────────────
-
         public static DimensionCameraController Instance { get; private set; }
 
-        // ─────────────────────────────────────────────────────────────────────
-        //  Inspector
-        // ─────────────────────────────────────────────────────────────────────
+        private const int PRIORITY_ACTIVE   = 20;
+        private const int PRIORITY_INACTIVE = 0;
 
-        #region Inspector — Camera References
+        #region Inspector
 
         [Header("Camera References (auto-found if null)")]
         [SerializeField] private Camera           _mainCamera;
         [SerializeField] private CinemachineBrain _brain;
 
-        #endregion
-
-        #region Inspector — 2D Settings
-
-        [Header("2D Camera  (CinemachineFramingTransposer — Platformer)")]
-        [Tooltip("Orthographic size in 2D mode.")]
+        [Header("2D Camera (CinemachineFramingTransposer — Platformer)")]
         [SerializeField] private float _orthoSize       = 8f;
-        [Tooltip("Speed at which orthoSize lerps to target.")]
         [SerializeField] private float _orthoLerpSpeed  = 6f;
-        [Tooltip("Cinemachine blend duration when entering 2D.")]
         [SerializeField] private float _blendDuration2D = 0.45f;
-        [Tooltip("Player's normalized screen Y position. 0.35 = slightly below centre (platformer feel).")]
-        [SerializeField, Range(0f, 1f)] private float _screenY2D  = 0.35f;
-        [Tooltip("XY damping of the FramingTransposer.")]
+        [SerializeField, Range(0f, 1f)] private float _screenY2D = 0.35f;
         [SerializeField] private float _damping2D       = 0.5f;
-        [Tooltip("Lookahead seconds — camera anticipates movement direction.")]
         [SerializeField] private float _lookahead2D     = 0.15f;
 
-        #endregion
-
-        #region Inspector — 3D FPS Settings
-
-        [Header("3D Camera  (HardLockToTarget + HardLookAt — FPS)")]
-        [Tooltip("Cinemachine blend duration when entering 3D.")]
+        [Header("3D Camera (HardLockToTarget + HardLookAt — FPS)")]
         [SerializeField] private float _blendDuration3D = 0.45f;
-        [Tooltip("Camera FOV in 3D FPS mode.")]
         [SerializeField] private float _fieldOfView     = 70f;
-
-        #endregion
-
-        #region Inspector — Blend
 
         [Header("Blend")]
         [SerializeField] private CinemachineBlendDefinition.Style _blendStyle
             = CinemachineBlendDefinition.Style.EaseInOut;
-
-        #endregion
-
-        #region Inspector — Debug
 
         [Header("Debug")]
         [SerializeField] private MID_LogLevel _logLevel = MID_LogLevel.Info;
 
         #endregion
 
-        // ─────────────────────────────────────────────────────────────────────
-        //  State
-        // ─────────────────────────────────────────────────────────────────────
-
-       [SerializeField] private CinemachineVirtualCamera _vcam2D;
+        [SerializeField] private CinemachineVirtualCamera _vcam2D;
         [SerializeField] private CinemachineVirtualCamera _vcam3D;
 
-        // Child of headPivot, 20u forward — used as HardLookAt target so the
-        // FPS camera always faces where the player is looking.
         private GameObject _fpsCamLookTarget;
+        private Dimension  _currentDimension = Dimension.TwoD;
+        private float      _targetOrthoSize;
+        private bool       _lerpingOrtho;
 
-        private Dimension _currentDimension = Dimension.TwoD;
-        private float     _targetOrthoSize;
-        private bool      _lerpingOrtho;
-
-        // ─────────────────────────────────────────────────────────────────────
-        //  Unity lifecycle
-        // ─────────────────────────────────────────────────────────────────────
+        #region Unity Lifecycle
 
         private void Awake()
         {
@@ -152,22 +105,16 @@ namespace TestGame
             if (Instance == this) Instance = null;
         }
 
-        // ─────────────────────────────────────────────────────────────────────
-        //  Public API — player registration
-        // ─────────────────────────────────────────────────────────────────────
+        #endregion
+
+        #region Public API
 
         /// <summary>
         /// Called by NetworkedDimensionPlayer.OnNetworkSpawn() for the local owner.
         /// Wires and configures both virtual cameras.
+        /// Both vcam GameObjects must already be in the scene and assigned in the inspector.
         /// </summary>
-        /// <param name="vcam2D">2D platformer virtual camera.</param>
-        /// <param name="vcam3D">3D FPS virtual camera.</param>
-        /// <param name="followTarget2D">Player body transform — 2D cam follows this.</param>
-        /// <param name="followTarget3D">HeadPivot transform — 3D FPS cam locks here.</param>
-        public void RegisterPlayerCams(
-            
-            Transform                followTarget2D,
-            Transform                followTarget3D)
+        public void RegisterPlayerCams(Transform followTarget2D, Transform followTarget3D)
         {
             if (_vcam2D != null && followTarget2D != null)
                 ConfigureVcam2D(followTarget2D);
@@ -185,8 +132,9 @@ namespace TestGame
         /// <summary>Called by NetworkedDimensionPlayer.OnNetworkDespawn().</summary>
         public void UnregisterPlayerCams()
         {
-            SetVcamActive(_vcam2D, false);
-            SetVcamActive(_vcam3D, false);
+            // Set both to low priority — vcam GOs remain active
+            SetVcamPriority(_vcam2D, false);
+            SetVcamPriority(_vcam3D, false);
             _vcam2D = null;
             _vcam3D = null;
 
@@ -197,73 +145,41 @@ namespace TestGame
             }
         }
 
-        /// <summary>Smoothly change the 2D orthographic size.</summary>
         public void SetOrthoSize(float size)
         {
             _targetOrthoSize = Mathf.Max(0.5f, size);
             _lerpingOrtho    = _mainCamera != null && _mainCamera.orthographic;
         }
 
-        // ─────────────────────────────────────────────────────────────────────
-        //  Virtual camera configuration
-        // ─────────────────────────────────────────────────────────────────────
+        #endregion
 
-        /// <summary>
-        /// Configure the 2D platformer virtual camera.
-        ///
-        /// Body: CinemachineFramingTransposer
-        ///   Follows the player in screen-space with damping and optional lookahead.
-        ///   _screenY2D = 0.35 puts the player slightly below centre — you see
-        ///   more of the platform ahead (standard platformer convention).
-        ///
-        /// Aim: none — orthographic cameras don't need a rotation target.
-        /// </summary>
+        #region Vcam Configuration
+
         private void ConfigureVcam2D(Transform followTarget)
         {
             _vcam2D.Follow = followTarget;
             _vcam2D.LookAt = null;
 
-            // AddCinemachineComponent replaces any existing Body-stage component.
             var ft = _vcam2D.AddCinemachineComponent<CinemachineFramingTransposer>();
-
             ft.m_LookaheadTime      = _lookahead2D;
             ft.m_LookaheadSmoothing = 10f;
-            ft.m_LookaheadIgnoreY   = true;    // ignore vertical velocity spikes (jumps)
-            ft.m_XDamping  = _damping2D;
-            ft.m_YDamping    = _damping2D * 1.5f; // slower Y follow (smoother jumps)
-            ft.m_ScreenX            = 0.5f;              // centred horizontally
-            ft.m_ScreenY            = _screenY2D;        // below centre (platformer feel)
+            ft.m_LookaheadIgnoreY   = true;
+            ft.m_XDamping           = _damping2D;
+            ft.m_YDamping           = _damping2D * 1.5f;
+            ft.m_ScreenX            = 0.5f;
+            ft.m_ScreenY            = _screenY2D;
             ft.m_DeadZoneWidth      = 0.08f;
             ft.m_DeadZoneHeight     = 0.04f;
             ft.m_SoftZoneWidth      = 0.8f;
             ft.m_SoftZoneHeight     = 0.8f;
-            ft.m_BiasX              = 0f;
-            ft.m_BiasY              = 0f;
 
             MID_Logger.LogDebug(_logLevel,
-                "vcam2D: CinemachineFramingTransposer configured (platformer).",
+                "vcam2D: CinemachineFramingTransposer configured.",
                 nameof(DimensionCameraController));
         }
 
-        /// <summary>
-        /// Configure the 3D FPS virtual camera — Call of Duty style.
-        ///
-        /// Body: CinemachineHardLockToTarget
-        ///   Camera position == headPivot position. Damping 0 = instant.
-        ///
-        /// Aim: CinemachineHardLookAt → _fpsCamLookTarget
-        ///   _fpsCamLookTarget is a child of headPivot at (0,0,20) local space.
-        ///   When headPivot rotates with mouse look, _fpsCamLookTarget moves with
-        ///   it — HardLookAt snaps the camera rotation to always face it.
-        ///   Result: camera rotation exactly tracks player gaze. No CinemachinePOV,
-        ///   no fighting with NetworkedDimensionPlayer's custom mouse-look code.
-        ///
-        /// The camera sits exactly at eye level (headPivot) facing forward.
-        /// Adjust headPivot localPosition on the player prefab to tune eye height.
-        /// </summary>
         private void ConfigureVcam3D(Transform headPivot)
         {
-            // ── Create look-ahead target ──────────────────────────────────────
             if (_fpsCamLookTarget != null) Destroy(_fpsCamLookTarget);
 
             _fpsCamLookTarget = new GameObject("[FPSCam_LookTarget]");
@@ -274,22 +190,18 @@ namespace TestGame
             _vcam3D.Follow = headPivot;
             _vcam3D.LookAt = _fpsCamLookTarget.transform;
 
-            // ── Body: hard lock position to headPivot ─────────────────────────
             var body = _vcam3D.AddCinemachineComponent<CinemachineHardLockToTarget>();
-            body.m_Damping = 0f;  // instant — no interpolation lag on FPS cam
-
-            // ── Aim: hard look at the look-ahead target ───────────────────────
-            // CinemachineHardLookAt snaps rotation to face LookAt target each frame.
+            body.m_Damping = 0f;
             _vcam3D.AddCinemachineComponent<CinemachineHardLookAt>();
 
             MID_Logger.LogDebug(_logLevel,
-                "vcam3D: HardLockToTarget + HardLookAt configured (FPS).",
+                "vcam3D: HardLockToTarget + HardLookAt configured.",
                 nameof(DimensionCameraController));
         }
 
-        // ─────────────────────────────────────────────────────────────────────
-        //  Dimension handling
-        // ─────────────────────────────────────────────────────────────────────
+        #endregion
+
+        #region Dimension Handling
 
         private void HandleDimensionChanged(Dimension dim)
         {
@@ -322,10 +234,6 @@ namespace TestGame
             }
 
             RefreshVcamState();
-
-            MID_Logger.LogInfo(_logLevel,
-                $"Camera → {(dim == Dimension.TwoD ? $"Ortho {_orthoSize}" : $"Perspective FPS fov={_fieldOfView}")}",
-                nameof(DimensionCameraController));
         }
 
         private void ApplyProjectionImmediate(Dimension dim)
@@ -351,13 +259,23 @@ namespace TestGame
         private void RefreshVcamState()
         {
             bool is2D = _currentDimension == Dimension.TwoD;
-            SetVcamActive(_vcam2D,  is2D);
-            SetVcamActive(_vcam3D, !is2D);
+            // Use priority — both vcam GameObjects stay active at all times.
+            // High priority = Cinemachine picks this camera.
+            // Low priority  = other camera wins.
+            SetVcamPriority(_vcam2D,  is2D);
+            SetVcamPriority(_vcam3D, !is2D);
         }
 
-        private static void SetVcamActive(CinemachineVirtualCamera vcam, bool active)
+        /// <summary>
+        /// Priority-based vcam activation — never calls SetActive on the vcam GameObject.
+        /// Avoids flicker and Cinemachine brain losing its active camera reference.
+        /// </summary>
+        private static void SetVcamPriority(CinemachineVirtualCamera vcam, bool active)
         {
-            if (vcam != null) vcam.gameObject.SetActive(active);
+            if (vcam != null)
+                vcam.Priority = active ? PRIORITY_ACTIVE : PRIORITY_INACTIVE;
         }
+
+        #endregion
     }
 }
