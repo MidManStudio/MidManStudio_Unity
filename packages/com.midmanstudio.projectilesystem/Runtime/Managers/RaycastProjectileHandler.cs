@@ -1,7 +1,13 @@
 // RaycastProjectileHandler.cs
-// Handles the visual and network layer for raycast-mode projectiles.
-// The weapon script owns Physics2D/Physics.Raycast — this class receives the result.
-// Cosmetic visuals use LocalObjectPool (utilities). Impact particles use LocalParticlePool.
+//
+// FIX (rotation): SpawnVisualLocal used LookRotation(Vector3.forward, dir) —
+//   same bug as ClientPredictionManager. Fixed with ClientPredictionManager.GetDirectionRotation.
+//
+// FIX (rotation during travel): Update loop now re-applies rotation each frame
+//   as the visual moves toward the hit point, so it always faces its travel direction.
+//
+// NOTE: Sprite draw order over trail is handled in ProjectileVisual_.cs via
+//   SpriteRenderer.sortingOrder > TrailRenderer.sortingOrder.
 
 using System;
 using System.Collections.Generic;
@@ -18,10 +24,6 @@ using MidManStudio.Projectiles.Network;
 
 namespace MidManStudio.Projectiles.Managers
 {
-    // ─────────────────────────────────────────────────────────────────────────
-    //  Raycast fire result — weapon fills this, handler never casts the ray
-    // ─────────────────────────────────────────────────────────────────────────
-
     public struct RaycastFireResult
     {
         public Vector3 Origin;
@@ -32,24 +34,16 @@ namespace MidManStudio.Projectiles.Managers
         public bool    IsHeadshot;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    //  RaycastProjectileHandler
-    // ─────────────────────────────────────────────────────────────────────────
-
     public sealed class RaycastProjectileHandler : NetworkBehaviour
     {
         #region Configuration
 
         [Header("Visual")]
-        [Tooltip("Speed at which the cosmetic visual travels toward the hit point.")]
         [SerializeField] private float _visualTravelSpeed = 40f;
-
-        [Tooltip("Pool type used for the travelling visual projectile GameObject.")]
         [SerializeField] private PoolableObjectType _visualPoolType
             = PoolableObjectType.Projectile_Visual2D;
 
         [Header("Server Validation")]
-        [Tooltip("Max world-unit tolerance between client-reported and server-verified hit point.")]
         [SerializeField] private float _hitValidationTolerance = 2f;
         [SerializeField] private LayerMask _serverRaycastLayers = -1;
 
@@ -60,10 +54,6 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Events
 
-        /// <summary>
-        /// Fired on the server when a raycast hit is confirmed valid.
-        /// Subscribe from your damage system.
-        /// </summary>
         public event Action<ProjectileHitPayload> OnServerHitConfirmed;
 
         #endregion
@@ -87,10 +77,6 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Server — Handle Fire
 
-        /// <summary>
-        /// Called by MID_MasterProjectileSystem when the server receives a raycast fire RPC.
-        /// Re-validates the hit server-side then broadcasts to clients.
-        /// </summary>
         public void ServerHandleFire(
             RaycastFireResult clientResult,
             WeaponFireContext  context,
@@ -203,19 +189,12 @@ namespace MidManStudio.Projectiles.Managers
 
         [ClientRpc]
         private void SpawnVisualClientRpc(
-            Vector3 origin,
-            Vector3 hitPoint,
-            ushort  configId,
-            bool    confirmedHit,
-            int     visualId)
+            Vector3 origin, Vector3 hitPoint,
+            ushort configId, bool confirmedHit, int visualId)
         {
             SpawnVisualLocal(origin, hitPoint, configId, visualId);
         }
 
-        /// <summary>
-        /// Spawn a cosmetic travelling visual from LocalObjectPool (utilities).
-        /// These are purely client-side GameObjects — NOT NetworkObjects.
-        /// </summary>
         private void SpawnVisualLocal(
             Vector3 origin, Vector3 hitPoint,
             ushort configId, int visualId)
@@ -231,17 +210,13 @@ namespace MidManStudio.Projectiles.Managers
                 return;
             }
 
-            Vector3 dir = (hitPoint - origin).normalized;
-            Quaternion rot = dir.sqrMagnitude > 0.001f
-                ? Quaternion.LookRotation(Vector3.forward, dir)
-                : Quaternion.identity;
+            Vector3    dir = (hitPoint - origin).normalized;
+            // FIX: correct rotation for 2D and 3D projectiles
+            Quaternion rot = ClientPredictionManager.GetDirectionRotation(dir);
 
             var obj = LocalObjectPool.Instance.GetObject(_visualPoolType, origin, rot);
             if (obj == null) return;
 
-            // Initialize via ProjectileVisual_ if present.
-            // Pass configId (ushort) — ProjectileVisual_.InitializeClientVisual
-            // must accept ushort configId, not a game-specific enum.
             var vis = obj.GetComponent<ProjectileVisual_>();
             vis?.InitializeClientVisual(configId, origin, dir, _visualTravelSpeed);
 
@@ -275,6 +250,12 @@ namespace MidManStudio.Projectiles.Managers
                     v.HitPoint,
                     v.Speed * Time.deltaTime);
 
+                // FIX: keep rotation correct during travel
+                Vector3 travelDir = v.HitPoint - v.Obj.transform.position;
+                if (travelDir.sqrMagnitude > 0.001f)
+                    ClientPredictionManager.ApplyDirectionRotation(
+                        v.Obj.transform, travelDir.normalized);
+
                 if (Vector3.Distance(v.Obj.transform.position, v.HitPoint) < 0.05f)
                 {
                     PlayImpactEffect(v);
@@ -292,7 +273,6 @@ namespace MidManStudio.Projectiles.Managers
 
         private void PlayImpactEffect(ActiveVisual v)
         {
-            // Delegate to ProjectileImpactHandler which uses LocalParticlePool internally.
             ProjectileImpactHandler.Instance?.PlayImpact(v.HitPoint, v.ConfigId);
         }
 
@@ -306,11 +286,6 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Offline Support
 
-        /// <summary>
-        /// Handle a raycast fire in offline / LocalOnly mode.
-        /// Applies damage immediately via LocalProjectileManager.FireHitEvent
-        /// and spawns a local visual from the pool.
-        /// </summary>
         public void OfflineHandleFire(
             RaycastFireResult result,
             ushort            configId,
@@ -328,7 +303,6 @@ namespace MidManStudio.Projectiles.Managers
                 if (isCrit) damage *= cfg.CritMultiplier;
                 damage *= damageMultiplier;
 
-                // Use FireHitEvent — events cannot be invoked from outside the declaring class.
                 var payload = new LocalHitPayload
                 {
                     ProjId       = 0,
@@ -351,10 +325,6 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Helpers
 
-        /// <summary>
-        /// Build a minimal ServerProjectileData shell for raycast hits.
-        /// Raycast projectiles have no persistent sim state so ProjId = 0.
-        /// </summary>
         private static ServerProjectileData BuildRaycastGameData(
             WeaponFireContext context, ushort configId, ProjectileConfigSO cfg)
         {

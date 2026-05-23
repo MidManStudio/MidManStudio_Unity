@@ -1,13 +1,16 @@
 // ClientPredictionManager.cs
-// Client-side projectile prediction and server reconciliation.
 //
-// Prediction model:
-//   On SpawnConfirmed: spawns a prediction visual for LOCAL player projectiles.
-//   Other players' visuals delegate to ClientProjectileVisualManager.
+// FIX (rotation):
+//   SpawnPredictionVisual used LookRotation(Vector3.forward, dir) for all cases.
+//   LookRotation's second arg is the "up" vector — passing the direction as "up"
+//   rotated the sprite 90° wrong in 2D and produced nonsense orientation in 3D.
 //
-//   Each frame: position = origin + dir * speed * elapsed (matches Rust straight movement).
-//   On Snapshot: reconciles visual position against server authority.
-//   On HitConfirmed: moves visual to hit point, plays impact, returns to pool.
+//   Fixed: 2D projectiles (dir.z ≈ 0) use Z-axis Euler rotation from atan2.
+//           3D projectiles use LookRotation(dir, Vector3.up) so the visual's
+//           forward (Z) aligns with the travel direction.
+//
+//   The Update loop also refreshes rotation each frame so reconciliation
+//   corrections don't leave the visual facing the old direction.
 
 using System;
 using System.Collections.Generic;
@@ -22,9 +25,7 @@ using Unity.Netcode;
 
 namespace MidManStudio.Projectiles.Network
 {
-    // ─────────────────────────────────────────────────────────────────────────
-    //  Circular buffer (borrowed pattern)
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─── Circular buffer ──────────────────────────────────────────────────────
 
     internal sealed class CircularBuffer<T>
     {
@@ -66,9 +67,7 @@ namespace MidManStudio.Projectiles.Network
         public void Clear() { _head = 0; _count = 0; }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    //  State payload — recorded per tick for reconciliation
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─── State payload ────────────────────────────────────────────────────────
 
     internal struct ProjectileStatePayload
     {
@@ -76,9 +75,7 @@ namespace MidManStudio.Projectiles.Network
         public Vector3 PredictedPosition;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    //  Per-projectile prediction state
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─── Per-projectile prediction state ──────────────────────────────────────
 
     internal sealed class PredictedProjectile
     {
@@ -108,9 +105,7 @@ namespace MidManStudio.Projectiles.Network
         public Vector3 ConfirmedHitPosition;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    //  ClientPredictionManager
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─── Manager ──────────────────────────────────────────────────────────────
 
     public sealed class ClientPredictionManager : MonoBehaviour
     {
@@ -122,14 +117,13 @@ namespace MidManStudio.Projectiles.Network
         [SerializeField] private float _reconcileDuration   = 0.15f;
 
         [Header("History Buffer")]
-        [SerializeField] private int   _historySize         = 32;
+        [SerializeField] private int   _historySize = 32;
 
         [Header("Visual Pool")]
         [SerializeField] private PoolableObjectType _visualPoolType
             = PoolableObjectType.Projectile_Visual2D;
 
         [Header("Local Player")]
-        [Tooltip("Set at runtime via SetLocalPlayerMidId() from your player manager.")]
         [SerializeField] private ulong _localPlayerMidId;
 
         [Header("Debug")]
@@ -152,11 +146,6 @@ namespace MidManStudio.Projectiles.Network
 
         #region Public API — Called by MID_ProjectileNetworkBridge
 
-        /// <summary>
-        /// Called when SpawnConfirmedClientRpc is received.
-        /// Spawns prediction visuals for the local player's projectiles;
-        /// delegates other players to ClientProjectileVisualManager.
-        /// </summary>
         public void OnSpawnConfirmed(SpawnConfirmation confirmation)
         {
             bool isLocal = confirmation.OwnerMidId == _localPlayerMidId;
@@ -166,27 +155,15 @@ namespace MidManStudio.Projectiles.Network
                 uint projId = confirmation.BaseProjId + (uint)i;
 
                 if (isLocal)
-                {
                     SpawnPredictionVisual(projId, confirmation);
-                }
                 else
-                {
                     ClientProjectileVisualManager.SpawnVisual(
-                        (int)projId,
-                        confirmation.ConfigId,
-                        confirmation.Origin,
-                        confirmation.Direction,
-                        confirmation.Speed,
-                        confirmation.OwnerMidId,
-                        false);
-                }
+                        (int)projId, confirmation.ConfigId,
+                        confirmation.Origin, confirmation.Direction, confirmation.Speed,
+                        confirmation.OwnerMidId, false);
             }
         }
 
-        /// <summary>
-        /// Called when HitConfirmedClientRpc is received.
-        /// Moves prediction visual to hit position then returns it to pool.
-        /// </summary>
         public void OnHitConfirmed(HitConfirmation confirmation)
         {
             if (!_predictions.TryGetValue(confirmation.ProjId, out var pred))
@@ -198,14 +175,8 @@ namespace MidManStudio.Projectiles.Network
 
             pred.IsConfirmedHit       = true;
             pred.ConfirmedHitPosition = confirmation.HitPosition;
-
-            Log($"HitConfirmed: projId={confirmation.ProjId} at {confirmation.HitPosition}");
         }
 
-        /// <summary>
-        /// Called when position snapshot arrives from server.
-        /// Compares server positions against local predictions and reconciles.
-        /// </summary>
         public void ReconcileSnapshot(
             ProjectileSnapshot2D[] snapshots2D, int count2D,
             ProjectileSnapshot3D[] snapshots3D, int count3D)
@@ -287,9 +258,8 @@ namespace MidManStudio.Projectiles.Network
 
                 pred.VisualObject.transform.position = displayPos;
 
-                if (pred.Direction.sqrMagnitude > 0.001f)
-                    pred.VisualObject.transform.rotation =
-                        Quaternion.LookRotation(Vector3.forward, pred.Direction);
+                // FIX: correct rotation applied every frame (handles reconcile position corrections)
+                ApplyDirectionRotation(pred.VisualObject.transform, pred.Direction);
             }
 
             foreach (var id in toRemove) _predictions.Remove(id);
@@ -305,9 +275,8 @@ namespace MidManStudio.Projectiles.Network
             if (cfg == null) return;
 
             Vector3    dir = conf.Direction.normalized;
-            Quaternion rot = dir.sqrMagnitude > 0.001f
-                ? Quaternion.LookRotation(Vector3.forward, dir)
-                : Quaternion.identity;
+            // FIX: correct 2D/3D rotation — don't use LookRotation(forward, dir)
+            Quaternion rot = GetDirectionRotation(dir);
 
             var obj = LocalObjectPool.Instance.GetObject(_visualPoolType, conf.Origin, rot);
             if (obj == null)
@@ -317,7 +286,6 @@ namespace MidManStudio.Projectiles.Network
             }
 
             var vis = obj.GetComponent<ProjectileVisual_>();
-            // InitializeClientVisual signature: (ushort configId, Vector3 origin, Vector3 dir, float speed)
             vis?.InitializeClientVisual(conf.ConfigId, conf.Origin, dir, conf.Speed);
 
             var pred = new PredictedProjectile
@@ -340,7 +308,6 @@ namespace MidManStudio.Projectiles.Network
             };
 
             _predictions[projId] = pred;
-            Log($"Prediction visual spawned: projId={projId} origin={conf.Origin}");
         }
 
         #endregion
@@ -370,7 +337,6 @@ namespace MidManStudio.Projectiles.Network
                 float elapsed = Time.time - pred.SpawnTime;
                 pred.Origin = serverPos - pred.Direction * pred.Speed * elapsed;
                 pred.IsReconciling = false;
-                Log($"Hard snap: projId={projId} error={error:F2}m");
                 return;
             }
 
@@ -378,7 +344,6 @@ namespace MidManStudio.Projectiles.Network
             pred.ReconcileTarget    = serverPos;
             pred.ReconcileStartTime = Time.time;
             pred.ReconcileDuration  = _reconcileDuration;
-            Log($"Smooth reconcile: projId={projId} error={error:F2}m");
         }
 
         #endregion
@@ -394,6 +359,44 @@ namespace MidManStudio.Projectiles.Network
 
             pred.VisualObject = null;
             pred.VisualScript = null;
+        }
+
+        #endregion
+
+        #region Rotation Helpers
+
+        /// <summary>
+        /// Returns the correct rotation for a projectile visual given its travel direction.
+        ///
+        /// 2D (dir.z ≈ 0): Z-axis Euler from atan2(y, x).
+        ///   → Sprite tip points in +X of sprite space; world rotation makes it face travel dir.
+        ///
+        /// 3D (non-zero dir.z): LookRotation(dir, up).
+        ///   → Visual's forward (Z) aligns with travel direction, matches shot point forward.
+        /// </summary>
+        public static Quaternion GetDirectionRotation(Vector3 dir)
+        {
+            if (dir.sqrMagnitude < 0.001f)
+                return Quaternion.identity;
+
+            if (Mathf.Abs(dir.z) < 0.01f)
+            {
+                // 2D: rotate around world Z axis
+                float angle = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
+                return Quaternion.Euler(0f, 0f, angle);
+            }
+            else
+            {
+                // 3D: align object forward (Z) to travel direction
+                return Quaternion.LookRotation(dir.normalized, Vector3.up);
+            }
+        }
+
+        /// <summary>Applies direction-based rotation directly to a transform.</summary>
+        public static void ApplyDirectionRotation(Transform t, Vector3 dir)
+        {
+            if (dir.sqrMagnitude < 0.001f) return;
+            t.rotation = GetDirectionRotation(dir);
         }
 
         #endregion
