@@ -4,11 +4,13 @@
 //   GetRustSpawnParams now uses _fullSizeX as the base ScaleStart when
 //   UseScaleGrowth is FALSE. Previously ScaleStart = 1.0 caused all
 //   non-growing projectiles to render as 1×1 world-unit quads regardless
-//   of what _fullSizeX/_fullSizeY were set to — resulting in huge or tiny
-//   visuals depending on the scene scale. Now:
-//     UseScaleGrowth = false → ScaleStart = _fullSizeX (actual size, no animation)
-//     UseScaleGrowth = true  → ScaleStart = _fullSizeX * _spawnScaleFraction (grows to full)
-//   The renderer uses ScaleX for width and ScaleX * (FullSizeY/FullSizeX) for height.
+//   of what _fullSizeX/_fullSizeY were set to.
+//
+// FIX (live wave/circular params):
+//   OnValidate now calls RegisterMovementParams() during play mode so that
+//   changing _waveAmplitude, _waveFrequency, _circularRadius etc. in the
+//   inspector mid-game immediately re-pushes the new values to Rust.
+//   Without this, values set at startup were permanently locked.
 
 using UnityEngine;
 using System;
@@ -82,19 +84,16 @@ namespace MidManStudio.Projectiles.Config
 
         // ── Scale Growth ──────────────────────────────────────────────────────
         [Header("Size & Scale Growth")]
-        [Tooltip("Width of the projectile in world units at full size.\n" +
-                 "Used even when UseScaleGrowth is false — sets the actual render width.")]
+        [Tooltip("Width of the projectile in world units at full size.")]
         [SerializeField] private float _fullSizeX = 0.2f;
 
-        [Tooltip("Height of the projectile in world units at full size.\n" +
-                 "The renderer derives the Y scale from FullSizeY/FullSizeX aspect ratio.")]
+        [Tooltip("Height of the projectile in world units at full size.")]
         [SerializeField] private float _fullSizeY = 0.08f;
 
         [Tooltip("Enable animated scale growth from a small spawn size to full size.")]
         [SerializeField] private bool _useScaleGrowth = false;
 
-        [Tooltip("Spawn scale as a fraction of FullSizeX when UseScaleGrowth is enabled.\n" +
-                 "0.1 = 10% of full size at spawn, grows to 100%.")]
+        [Tooltip("Spawn scale as a fraction of FullSizeX when UseScaleGrowth is enabled.")]
         [SerializeField, Range(0.01f, 1f)] private float _spawnScaleFraction = 0.2f;
 
         [SerializeField, Range(1f, 30f)] private float _growthSpeed = 8f;
@@ -179,26 +178,14 @@ namespace MidManStudio.Projectiles.Config
         public PoolableParticleType ImpactEffectType => _impactEffectType;
 
         // ── RustSpawnParams helper ────────────────────────────────────────────
-
-        /// <summary>
-        /// Produces Rust-facing spawn parameters from this config.
-        ///
-        /// Scale behaviour:
-        ///   UseScaleGrowth = false → ScaleStart = FullSizeX (actual world-unit size).
-        ///   UseScaleGrowth = true  → ScaleStart = FullSizeX * SpawnScaleFraction.
-        ///   ScaleTarget is always FullSizeX — the renderer reads FullSizeY separately
-        ///   via aspect ratio to produce the correct non-square scale.
-        /// </summary>
         public RustSpawnParams GetRustSpawnParams(float speedOverride = -1f)
         {
             float speed = speedOverride > 0f ? speedOverride : ResolveSpeed();
 
-            // FIX: without scale growth, use actual FullSizeX as scale, not 1.0.
-            // The renderer multiplies by FullSizeY/FullSizeX for the Y axis.
             float scaleStart  = _useScaleGrowth
                 ? _fullSizeX * _spawnScaleFraction
                 : _fullSizeX;
-            float scaleTarget = _fullSizeX;     // always FullSizeX; renderer handles Y
+            float scaleTarget = _fullSizeX;
             float scaleSpeed  = _useScaleGrowth ? _growthSpeed : 0f;
 
             return new RustSpawnParams
@@ -264,6 +251,12 @@ namespace MidManStudio.Projectiles.Config
             _maxSpeed = Mathf.Max(_maxSpeed, _minSpeed);
             if (_fullSizeX <= 0f) _fullSizeX = 0.05f;
             if (_fullSizeY <= 0f) _fullSizeY = 0.05f;
+
+            // FIX: Re-push wave/circular params to Rust when values change in the
+            // inspector during play mode. Without this, changes to amplitude,
+            // frequency, radius etc. have no effect until the next domain reload.
+            if (Application.isPlaying)
+                RegisterMovementParams();
         }
 #endif
     }
