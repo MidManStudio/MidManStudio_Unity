@@ -1,0 +1,219 @@
+# .github/workflows/bench-audio.yml
+#
+# Criterion benchmarks for mid_audio — DSP mixing, voice scheduling, full-cycle cost.
+# Mirrors bench-projectile.yml exactly — same pattern, different crate.
+#
+# Triggers: push to main touching rust_lib/mid_audio/, or manual dispatch.
+#
+# Outputs:
+#   • GitHub Step Summary  — markdown table visible in Actions UI
+#   • .github/bench-results/audio-bench-results.json  (committed)
+#   • .github/bench-results/audio/index.html           (committed)
+
+name: mid_audio — Benchmarks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'rust_lib/mid_audio/**'
+  workflow_dispatch:
+    inputs:
+      note:
+        description: 'Context for this run (e.g. "after limiter tuning")'
+        required: false
+        default: 'manual benchmark run'
+
+permissions:
+  contents: write
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Get Rust version
+        id: rustver
+        run: echo "ver=$(rustc --version)" >> $GITHUB_OUTPUT
+
+      - name: Cache cargo registry + build
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            rust_lib/mid_audio/target/
+          key: bench-audio-${{ hashFiles('rust_lib/mid_audio/Cargo.toml') }}-${{ steps.rustver.outputs.ver }}
+          restore-keys: bench-audio-
+
+      - name: Run Criterion benchmarks
+        working-directory: rust_lib/mid_audio
+        run: cargo bench
+        env:
+          CARGO_TERM_COLOR: always
+
+      - name: Parse results → JSON + HTML + Step Summary
+        env:
+          BUILD_NUM: ${{ github.run_number }}
+          BRANCH:    ${{ github.ref_name }}
+          COMMIT:    ${{ github.sha }}
+          RUN_NOTE:  ${{ inputs.note || 'push trigger' }}
+          RUST_VER:  ${{ steps.rustver.outputs.ver }}
+        run: |
+          python3 - << 'PYEOF'
+          import json, os, glob, datetime
+
+          CRIT_DIR = 'rust_lib/mid_audio/target/criterion'
+          OUT_DIR  = '.github/bench-results'
+          HTML_DIR = f'{OUT_DIR}/audio'
+          os.makedirs(HTML_DIR, exist_ok=True)
+
+          results_list = []
+
+          bench_files = glob.glob(f'{CRIT_DIR}/**/new/benchmark.json', recursive=True)
+
+          for b_file in bench_files:
+              with open(b_file) as f:
+                  b_data = json.load(f)
+
+              e_file = b_file.replace('benchmark.json', 'estimates.json')
+              if not os.path.exists(e_file): continue
+
+              with open(e_file) as f:
+                  e_data = json.load(f)
+
+              group_id = b_data.get('group_id') or 'Unknown'
+              bench_id = str(b_data.get('function_id') or b_data.get('value_str') or 'Base')
+
+              mean_ns = e_data['mean']['point_estimate']
+              low_ns  = e_data['mean']['confidence_interval']['lower_bound']
+              high_ns = e_data['mean']['confidence_interval']['upper_bound']
+
+              # Throughput — for process_buffer this is samples/sec; schedule_voice = calls/sec
+              thrpt_str = '—'
+              tp_raw = b_data.get('throughput', [])
+              tp = tp_raw[0] if isinstance(tp_raw, list) and tp_raw else tp_raw
+
+              if isinstance(tp, dict) and 'Elements' in tp:
+                  count   = tp['Elements']
+                  per_sec = count / (mean_ns * 1e-9)
+                  if per_sec >= 1_000_000_000:
+                      thrpt_str = f"{per_sec/1_000_000_000:.2f} Gsamp/s"
+                  elif per_sec >= 1_000_000:
+                      thrpt_str = f"{per_sec/1_000_000:.2f} Msamp/s"
+                  elif per_sec >= 1_000:
+                      thrpt_str = f"{per_sec/1_000:.2f} Ksamp/s"
+                  else:
+                      thrpt_str = f"{per_sec:.2f} samp/s"
+
+              results_list.append({
+                  'group':   str(group_id),
+                  'name':    bench_id,
+                  'mean_ns': mean_ns,
+                  'low':     f"{low_ns/1_000_000:.4f} ms",
+                  'mean':    f"{mean_ns/1_000_000:.4f} ms",
+                  'high':    f"{high_ns/1_000_000:.4f} ms",
+                  'thrpt':   thrpt_str
+              })
+
+          # Group and sort
+          groups_map = {}
+          for r in results_list:
+              groups_map.setdefault(r['group'], []).append(r)
+          for g in groups_map:
+              groups_map[g].sort(key=lambda x: x['name'])
+
+          final_groups = [{'name': k, 'benches': v} for k, v in groups_map.items()]
+
+          data = {
+              'build':        os.environ['BUILD_NUM'],
+              'branch':       os.environ['BRANCH'],
+              'commit':       os.environ['COMMIT'][:7],
+              'date':         datetime.datetime.utcnow().isoformat() + 'Z',
+              'rust_version': os.environ['RUST_VER'],
+              'note':         os.environ['RUN_NOTE'],
+              'crate':        'mid_audio',
+              'groups':       final_groups,
+              'summary':      {'total': len(results_list), 'groups': len(final_groups)}
+          }
+
+          with open(f'{OUT_DIR}/audio-bench-results.json', 'w') as f:
+              json.dump(data, f, indent=2)
+
+          # HTML — reuse projectile template if present, otherwise simple fallback
+          try:
+              tpl_path = '.github/projectile-bench-template.html'
+              if os.path.exists(tpl_path):
+                  html = open(tpl_path).read()
+                  html = html.replace('__BENCH_DATA_JSON__', json.dumps(data))
+                  html = html.replace('BUILD_NUM_PLACEHOLDER',      data['build'])
+                  html = html.replace('BRANCH_PLACEHOLDER',         data['branch'])
+                  html = html.replace('COMMIT_PLACEHOLDER',         data['commit'])
+                  html = html.replace('DATE_PLACEHOLDER',           data['date'][:10])
+                  html = html.replace('RUST_VERSION_PLACEHOLDER',   data['rust_version'])
+                  # Retitle for audio
+                  html = html.replace('Projectile Core', 'mid_audio DSP')
+                  html = html.replace('SSE2-accelerated simulation + spatial-grid collision',
+                                      'Native DSP mixer — voice scheduling + peak limiter')
+              else:
+                  # Minimal fallback HTML
+                  html = f'''<!DOCTYPE html><html><head>
+                  <meta charset="UTF-8">
+                  <title>mid_audio Benchmarks — Build #{data["build"]}</title>
+                  <style>body{{font-family:monospace;background:#0d1117;color:#e6edf3;padding:24px}}
+                  table{{border-collapse:collapse;width:100%}}
+                  th,td{{padding:8px 12px;border:1px solid #30363d;text-align:left}}
+                  th{{background:#161b22;color:#3fb950}}</style></head><body>
+                  <h2>⚡ mid_audio — Benchmarks — Build #{data["build"]}</h2>
+                  <p>Branch: {data["branch"]} | Commit: {data["commit"]} | {data["date"][:10]}</p>
+                  <p>Note: {data["note"]}</p>'''
+                  for g in final_groups:
+                      html += f'<h3>{g["name"]}</h3><table><tr><th>Benchmark</th><th>Low</th><th>Mean</th><th>High</th><th>Throughput</th></tr>'
+                      for b in g['benches']:
+                          html += f'<tr><td>{b["name"]}</td><td>{b["low"]}</td><td><b>{b["mean"]}</b></td><td>{b["high"]}</td><td>{b["thrpt"]}</td></tr>'
+                      html += '</table>'
+                  html += f'<script>const DATA={json.dumps(data)};</script></body></html>'
+
+              with open(f'{HTML_DIR}/index.html', 'w') as f:
+                  f.write(html)
+          except Exception as e:
+              print(f"HTML update failed: {e}")
+
+          # GitHub Step Summary
+          summary_path = os.environ.get('GITHUB_STEP_SUMMARY', '/dev/null')
+          with open(summary_path, 'a') as s:
+              s.write(f"## ⚡ mid_audio — Benchmarks\n\n")
+              s.write(f"**Build:** #{data['build']} | **Commit:** `{data['commit']}` | **Note:** {data['note']}\n\n")
+              s.write(f"**Rust:** {data['rust_version']}\n\n")
+              for g in final_groups:
+                  s.write(f"### `{g['name']}`\n")
+                  s.write("| Benchmark | Low | **Mean** | High | Throughput |\n|---|---|---|---|---|\n")
+                  for b in g['benches']:
+                      s.write(f"| `{b['name']}` | {b['low']} | **{b['mean']}** | {b['high']} | {b['thrpt']} |\n")
+                  s.write("\n")
+
+          print(f"Processed {len(results_list)} audio benchmarks across {len(final_groups)} groups.")
+          PYEOF
+
+      - name: Commit results
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .github/bench-results/
+          git diff --staged --quiet && echo "no changes to commit" || \
+            git commit -m "ci: update audio bench results — build #${{ github.run_number }} [skip ci]"
+          git push
+
+      - name: Upload raw criterion report
+        uses: actions/upload-artifact@v4
+        with:
+          name: audio-bench-criterion-${{ github.run_number }}
+          path: rust_lib/mid_audio/target/criterion/
+          retention-days: 30
