@@ -1,0 +1,32 @@
+[package]
+name = "mid_audio"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "mid_audio"
+# rlib allows cargo bench and cargo test to see the crate internally
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[features]
+default = []
+
+# ── Dev / bench dependencies ──────────────────────────────────────────────────
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name    = "audio_bench"
+harness = false
+
+# ── Release profile — desktop / mobile ───────────────────────────────────────
+[profile.release]
+opt-level      = 3
+lto            = true
+codegen-units  = 1
+panic          = "abort"
+
+# ── No WebGL profile — mid_audio is not supported on WebGL.
+# OnAudioFilterRead native DSP plugins do not function in Unity WebGL builds.
+# Unity WebGL uses the Web Audio API internally — there is no managed-to-native
+# audio callback available. Skip this target entirely.
