@@ -1,0 +1,283 @@
+# .github/workflows/build-audio-libs.yml
+#
+# Builds mid_audio native DSP library for all supported Unity platforms.
+# Mirrors build-rust-libs.yml exactly — same pattern, different crate.
+#
+# ── Platform support ──────────────────────────────────────────────────────────
+#   macOS    : universal x86_64 + arm64 dylib  (lipo merged)
+#   Windows  : x64 DLL via MinGW cross-compile
+#   Linux    : x64 .so
+#   Android  : arm64-v8a, armeabi-v7a, x86_64  (via cargo-ndk)
+#   iOS      : device arm64 .a  +  simulator fat .a  (arm64-sim + x86_64)
+#   WebGL    : NOT SUPPORTED — Unity WebGL uses the Web Audio API; there is
+#              no OnAudioFilterRead native callback path available. Skip.
+#
+# Outputs (committed to utilities package after successful build):
+#   packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio/
+#   ├── macOS/libmid_audio.dylib
+#   ├── Windows/mid_audio.dll
+#   ├── Linux/libmid_audio.so
+#   ├── Android/{arm64-v8a,armeabi-v7a,x86_64}/libmid_audio.so
+#   ├── iOS/libmid_audio.a          (device)
+#   └── iOS/libmid_audio_sim.a      (simulator fat binary)
+
+name: Build mid_audio Native Libs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'rust_lib/mid_audio/**'
+  workflow_dispatch:
+
+jobs:
+
+  # ── macOS (universal x86_64 + arm64) ──────────────────────────────────────
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+
+      - name: Cache cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            rust_lib/mid_audio/target/
+          key: audio-macos-${{ hashFiles('rust_lib/mid_audio/Cargo.toml') }}
+          restore-keys: audio-macos-
+
+      - name: Build universal dylib
+        working-directory: rust_lib/mid_audio
+        run: |
+          cargo build --release --target x86_64-apple-darwin
+          cargo build --release --target aarch64-apple-darwin
+          lipo -create \
+            target/x86_64-apple-darwin/release/libmid_audio.dylib \
+            target/aarch64-apple-darwin/release/libmid_audio.dylib \
+            -output libmid_audio.dylib
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: audio-macos
+          path: rust_lib/mid_audio/libmid_audio.dylib
+          retention-days: 1
+
+  # ── Windows x64 ───────────────────────────────────────────────────────────
+  build-windows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - run: sudo apt-get install -y gcc-mingw-w64-x86-64
+
+      - name: Configure MinGW linker
+        run: |
+          mkdir -p ~/.cargo
+          cat >> ~/.cargo/config.toml << 'EOF'
+          [target.x86_64-pc-windows-gnu]
+          linker = "x86_64-w64-mingw32-gcc"
+          EOF
+
+      - name: Cache cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            rust_lib/mid_audio/target/
+          key: audio-windows-${{ hashFiles('rust_lib/mid_audio/Cargo.toml') }}
+          restore-keys: audio-windows-
+
+      - name: Build
+        working-directory: rust_lib/mid_audio
+        run: cargo build --release --target x86_64-pc-windows-gnu
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: audio-windows
+          path: rust_lib/mid_audio/target/x86_64-pc-windows-gnu/release/mid_audio.dll
+          retention-days: 1
+
+  # ── Linux x64 ─────────────────────────────────────────────────────────────
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            rust_lib/mid_audio/target/
+          key: audio-linux-${{ hashFiles('rust_lib/mid_audio/Cargo.toml') }}
+          restore-keys: audio-linux-
+
+      - working-directory: rust_lib/mid_audio
+        run: cargo build --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: audio-linux
+          path: rust_lib/mid_audio/target/release/libmid_audio.so
+          retention-days: 1
+
+  # ── Android (arm64, armv7, x86_64) ────────────────────────────────────────
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+
+      - run: cargo install cargo-ndk --version "^3" --locked
+
+      - name: Locate NDK
+        run: |
+          NDK="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_ROOT:-}}"
+          [ -z "$NDK" ] && NDK=$(ls -d /usr/local/lib/android/sdk/ndk/* 2>/dev/null | sort -V | tail -1)
+          echo "ANDROID_NDK_HOME=$NDK" >> $GITHUB_ENV
+
+      - name: Cache cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            rust_lib/mid_audio/target/
+          key: audio-android-${{ hashFiles('rust_lib/mid_audio/Cargo.toml') }}
+          restore-keys: audio-android-
+
+      - working-directory: rust_lib/mid_audio
+        run: |
+          cargo ndk -t arm64-v8a   -o ./android-out build --release
+          cargo ndk -t armeabi-v7a -o ./android-out build --release
+          cargo ndk -t x86_64      -o ./android-out build --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: audio-android
+          path: rust_lib/mid_audio/android-out/
+          retention-days: 1
+
+  # ── iOS (device + simulator) ───────────────────────────────────────────────
+  build-ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+
+      - name: Cache cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            rust_lib/mid_audio/target/
+          key: audio-ios-${{ hashFiles('rust_lib/mid_audio/Cargo.toml') }}
+          restore-keys: audio-ios-
+
+      - working-directory: rust_lib/mid_audio
+        run: |
+          cargo build --release --target aarch64-apple-ios
+          cargo build --release --target aarch64-apple-ios-sim
+          cargo build --release --target x86_64-apple-ios
+          lipo -create \
+            target/aarch64-apple-ios-sim/release/libmid_audio.a \
+            target/x86_64-apple-ios/release/libmid_audio.a \
+            -output libmid_audio_sim.a
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: audio-ios-device
+          path: rust_lib/mid_audio/target/aarch64-apple-ios/release/libmid_audio.a
+          retention-days: 1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: audio-ios-sim
+          path: rust_lib/mid_audio/libmid_audio_sim.a
+          retention-days: 1
+
+  # ── Commit all built libs into the utilities package ───────────────────────
+  commit-to-repo:
+    needs: [build-macos, build-windows, build-linux, build-android, build-ios]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with: { name: audio-macos,      path: dl/macos }
+        continue-on-error: true
+
+      - uses: actions/download-artifact@v4
+        with: { name: audio-windows,    path: dl/windows }
+        continue-on-error: true
+
+      - uses: actions/download-artifact@v4
+        with: { name: audio-linux,      path: dl/linux }
+        continue-on-error: true
+
+      - uses: actions/download-artifact@v4
+        with: { name: audio-android,    path: dl/android }
+        continue-on-error: true
+
+      - uses: actions/download-artifact@v4
+        with: { name: audio-ios-device, path: dl/ios-device }
+        continue-on-error: true
+
+      - uses: actions/download-artifact@v4
+        with: { name: audio-ios-sim,    path: dl/ios-sim }
+        continue-on-error: true
+
+      - name: Copy libs into utilities package
+        run: |
+          copy_if() {
+            [ -f "$1" ] && { mkdir -p "$(dirname "$2")"; cp "$1" "$2"; echo "copied $2"; } || echo "missing: $1"
+          }
+          PLUG=packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio
+
+          copy_if dl/macos/libmid_audio.dylib          "$PLUG/macOS/libmid_audio.dylib"
+          copy_if dl/windows/mid_audio.dll              "$PLUG/Windows/mid_audio.dll"
+          copy_if dl/linux/libmid_audio.so              "$PLUG/Linux/libmid_audio.so"
+
+          for ABI in arm64-v8a armeabi-v7a x86_64; do
+            copy_if "dl/android/$ABI/libmid_audio.so"  "$PLUG/Android/$ABI/libmid_audio.so"
+          done
+
+          copy_if dl/ios-device/libmid_audio.a          "$PLUG/iOS/libmid_audio.a"
+          copy_if dl/ios-sim/libmid_audio_sim.a         "$PLUG/iOS/libmid_audio_sim.a"
+
+      - name: Commit
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio/
+          git diff --staged --quiet && echo "no changes" || \
+            git commit -m "ci: rebuild mid_audio native libs [skip ci]"
+          git push
