@@ -1,16 +1,14 @@
 // ClientPredictionManager.cs
 //
-// FIX (rotation):
-//   SpawnPredictionVisual used LookRotation(Vector3.forward, dir) for all cases.
-//   LookRotation's second arg is the "up" vector — passing the direction as "up"
-//   rotated the sprite 90° wrong in 2D and produced nonsense orientation in 3D.
-//
-//   Fixed: 2D projectiles (dir.z ≈ 0) use Z-axis Euler rotation from atan2.
-//           3D projectiles use LookRotation(dir, Vector3.up) so the visual's
-//           forward (Z) aligns with the travel direction.
-//
-//   The Update loop also refreshes rotation each frame so reconciliation
-//   corrections don't leave the visual facing the old direction.
+// FIXES:
+//   + Added _visualPoolType3D field — used when cfg.Is3D is true.
+//     Previously always used _visualPoolType (2D) so 3D configs got
+//     the wrong pool object returned to the wrong pool on cleanup.
+//   + PredictedProjectile stores the PoolableObjectType used at spawn
+//     so ReturnPredictionVisual returns to the correct pool.
+//   + SpawnPredictionVisual selects pool type from cfg.Is3D.
+//   + GetDirectionRotation / ApplyDirectionRotation remain as static
+//     helpers used by RaycastProjectileHandler too — unchanged.
 
 using System;
 using System.Collections.Generic;
@@ -25,7 +23,7 @@ using Unity.Netcode;
 
 namespace MidManStudio.Projectiles.Network
 {
-    // ─── Circular buffer ──────────────────────────────────────────────────────
+    // ── Circular buffer ───────────────────────────────────────────────────────
 
     internal sealed class CircularBuffer<T>
     {
@@ -67,7 +65,7 @@ namespace MidManStudio.Projectiles.Network
         public void Clear() { _head = 0; _count = 0; }
     }
 
-    // ─── State payload ────────────────────────────────────────────────────────
+    // ── State payload ─────────────────────────────────────────────────────────
 
     internal struct ProjectileStatePayload
     {
@@ -75,7 +73,7 @@ namespace MidManStudio.Projectiles.Network
         public Vector3 PredictedPosition;
     }
 
-    // ─── Per-projectile prediction state ──────────────────────────────────────
+    // ── Per-projectile prediction state ───────────────────────────────────────
 
     internal sealed class PredictedProjectile
     {
@@ -90,8 +88,11 @@ namespace MidManStudio.Projectiles.Network
         public float   SpawnTime;
         public int     ServerSpawnTick;
 
-        public GameObject    VisualObject;
+        public GameObject        VisualObject;
         public ProjectileVisual_ VisualScript;
+
+        // FIX: track which pool type was used so cleanup returns to the right pool
+        public PoolableObjectType UsedPoolType;
 
         public CircularBuffer<ProjectileStatePayload> History;
 
@@ -105,23 +106,29 @@ namespace MidManStudio.Projectiles.Network
         public Vector3 ConfirmedHitPosition;
     }
 
-    // ─── Manager ──────────────────────────────────────────────────────────────
+    // ── Manager ───────────────────────────────────────────────────────────────
 
     public sealed class ClientPredictionManager : MonoBehaviour
     {
         #region Configuration
 
         [Header("Reconciliation")]
-        [SerializeField] private float _reconcileThreshold  = 0.5f;
-        [SerializeField] private float _hardSnapThreshold   = 3f;
-        [SerializeField] private float _reconcileDuration   = 0.15f;
+        [SerializeField] private float _reconcileThreshold = 0.5f;
+        [SerializeField] private float _hardSnapThreshold  = 3f;
+        [SerializeField] private float _reconcileDuration  = 0.15f;
 
         [Header("History Buffer")]
-        [SerializeField] private int   _historySize = 32;
+        [SerializeField] private int _historySize = 32;
 
-        [Header("Visual Pool")]
-        [SerializeField] private PoolableObjectType _visualPoolType
+        [Header("Visual Pool Types")]
+        [Tooltip("Pool type used for 2D projectile visuals (Is3D = false).")]
+        [SerializeField] private PoolableObjectType _visualPoolType2D
             = PoolableObjectType.Projectile_Visual2D;
+
+        [Tooltip("Pool type used for 3D projectile visuals (Is3D = true).\n" +
+                 "Assign a prefab with ProjectileVisual_ to this pool slot.")]
+        [SerializeField] private PoolableObjectType _visualPoolType3D
+            = PoolableObjectType.Projectile_Visual3D;
 
         [Header("Local Player")]
         [SerializeField] private ulong _localPlayerMidId;
@@ -247,7 +254,8 @@ namespace MidManStudio.Projectiles.Network
                 Vector3 displayPos;
                 if (pred.IsReconciling)
                 {
-                    float t = Mathf.Clamp01((now - pred.ReconcileStartTime) / pred.ReconcileDuration);
+                    float t = Mathf.Clamp01(
+                        (now - pred.ReconcileStartTime) / pred.ReconcileDuration);
                     displayPos = Vector3.Lerp(predicted, pred.ReconcileTarget, 1f - t);
                     if (t >= 1f) pred.IsReconciling = false;
                 }
@@ -258,7 +266,8 @@ namespace MidManStudio.Projectiles.Network
 
                 pred.VisualObject.transform.position = displayPos;
 
-                // FIX: correct rotation applied every frame (handles reconcile position corrections)
+                // Keep rotation correct during travel (reconcile corrections may
+                // shift position without updating rotation)
                 ApplyDirectionRotation(pred.VisualObject.transform, pred.Direction);
             }
 
@@ -275,13 +284,17 @@ namespace MidManStudio.Projectiles.Network
             if (cfg == null) return;
 
             Vector3    dir = conf.Direction.normalized;
-            // FIX: correct 2D/3D rotation — don't use LookRotation(forward, dir)
             Quaternion rot = GetDirectionRotation(dir);
 
-            var obj = LocalObjectPool.Instance.GetObject(_visualPoolType, conf.Origin, rot);
+            // FIX: select correct pool type based on the config's Is3D flag.
+            // Previously always used _visualPoolType (2D), causing 3D config
+            // projectiles to pull from and return to the wrong pool.
+            PoolableObjectType poolType = cfg.Is3D ? _visualPoolType3D : _visualPoolType2D;
+
+            var obj = LocalObjectPool.Instance.GetObject(poolType, conf.Origin, rot);
             if (obj == null)
             {
-                LogWarning($"Could not get visual from pool for projId={projId}");
+                LogWarning($"Could not get visual (pool={poolType}) for projId={projId}");
                 return;
             }
 
@@ -301,6 +314,7 @@ namespace MidManStudio.Projectiles.Network
                 ServerSpawnTick = conf.ServerSpawnTick,
                 VisualObject    = obj,
                 VisualScript    = vis,
+                UsedPoolType    = poolType,          // FIX: store for correct return
                 History         = new CircularBuffer<ProjectileStatePayload>(_historySize),
                 MaxLifetime     = cfg.Lifetime,
                 IsConfirmedHit  = false,
@@ -355,7 +369,10 @@ namespace MidManStudio.Projectiles.Network
             if (pred.VisualScript != null)
                 pred.VisualScript.ReturnToPoolImmediate();
             else if (pred.VisualObject != null)
-                LocalObjectPool.Instance.ReturnObject(pred.VisualObject, _visualPoolType);
+                // FIX: return to the pool type that was used at spawn,
+                // not a hardcoded 2D type.
+                LocalObjectPool.Instance.ReturnObject(
+                    pred.VisualObject, pred.UsedPoolType);
 
             pred.VisualObject = null;
             pred.VisualScript = null;
@@ -369,10 +386,10 @@ namespace MidManStudio.Projectiles.Network
         /// Returns the correct rotation for a projectile visual given its travel direction.
         ///
         /// 2D (dir.z ≈ 0): Z-axis Euler from atan2(y, x).
-        ///   → Sprite tip points in +X of sprite space; world rotation makes it face travel dir.
+        ///   Sprite tip points in +X of sprite space; rotation makes it face travel dir.
         ///
-        /// 3D (non-zero dir.z): LookRotation(dir, up).
-        ///   → Visual's forward (Z) aligns with travel direction, matches shot point forward.
+        /// 3D (non-zero dir.z): LookRotation(dir, Vector3.up).
+        ///   Visual's forward (Z) aligns with travel direction.
         /// </summary>
         public static Quaternion GetDirectionRotation(Vector3 dir)
         {
@@ -381,14 +398,15 @@ namespace MidManStudio.Projectiles.Network
 
             if (Mathf.Abs(dir.z) < 0.01f)
             {
-                // 2D: rotate around world Z axis
                 float angle = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
                 return Quaternion.Euler(0f, 0f, angle);
             }
             else
             {
-                // 3D: align object forward (Z) to travel direction
-                return Quaternion.LookRotation(dir.normalized, Vector3.up);
+                Vector3 up = Mathf.Abs(Vector3.Dot(dir.normalized, Vector3.up)) > 0.99f
+                    ? Vector3.forward
+                    : Vector3.up;
+                return Quaternion.LookRotation(dir.normalized, up);
             }
         }
 
@@ -410,7 +428,8 @@ namespace MidManStudio.Projectiles.Network
 
         private void Log(string msg)
         {
-            if (_enableLogs) MID_HelperFunctions.LogDebug(msg, nameof(ClientPredictionManager));
+            if (_enableLogs)
+                MID_HelperFunctions.LogDebug(msg, nameof(ClientPredictionManager));
         }
 
         private void LogWarning(string msg)
