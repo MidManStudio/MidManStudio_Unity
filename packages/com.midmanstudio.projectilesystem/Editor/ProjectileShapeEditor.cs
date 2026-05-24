@@ -162,7 +162,7 @@ namespace MidManStudio.Projectiles.EditorTools
 
                 if (_snapEnabled)
                 {
-                    GUILayout.Label("Step:", EditorStyles.toolbarLabel, GUILayout.Width(30));
+                    GUILayout.Label("Step:", EditorStyles.miniBoldLabel, GUILayout.Width(30));
                     _snapIncrement = EditorGUILayout.FloatField(
                         _snapIncrement, EditorStyles.toolbarTextField,
                         GUILayout.Width(36));
@@ -171,7 +171,7 @@ namespace MidManStudio.Projectiles.EditorTools
 
                 GUILayout.Space(6);
 
-                GUILayout.Label("Grid:", EditorStyles.toolbarLabel, GUILayout.Width(28));
+                GUILayout.Label("Grid:", EditorStyles.miniBoldLabel, GUILayout.Width(28));
                 _gridSpacing = EditorGUILayout.FloatField(
                     _gridSpacing, EditorStyles.toolbarTextField, GUILayout.Width(36));
                 _gridSpacing = Mathf.Max(0.1f, _gridSpacing);

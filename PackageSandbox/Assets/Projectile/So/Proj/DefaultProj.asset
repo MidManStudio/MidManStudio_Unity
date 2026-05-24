@@ -15,7 +15,7 @@ MonoBehaviour:
   ConfigId: 0
   _is3D: 0
   _preferredSimMode: 1
-  _movementType: 4
+  _movementType: 5
   _minSpeed: 4
   _maxSpeed: 4
   _lifetime: 3

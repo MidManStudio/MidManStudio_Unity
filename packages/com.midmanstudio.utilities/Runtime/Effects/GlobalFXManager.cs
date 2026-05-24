@@ -17,7 +17,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using MidManStudio.Core.Logging;
 using MidManStudio.Core.Singleton;
-
+using MidManStudio.Core.Audio;
 namespace MidManStudio.Core.Effects
 {
     public class GlobalFXManager : Singleton<GlobalFXManager>
