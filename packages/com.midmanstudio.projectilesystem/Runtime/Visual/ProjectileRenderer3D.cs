@@ -1,20 +1,26 @@
 // ProjectileRenderer3D.cs
 //
-// FIX (orientation): Previous code built the quad's right/up axes from
-//   LookRotation(vel), making the quad perpendicular to travel — you would
-//   see the END of the bullet (a dot/square) rather than the side (a streak).
+// FIX (shaky / wrong-looking 3D visuals):
+//   Previous implementation used MeshFilter + MeshRenderer on this GameObject.
+//   The mesh vertices were in WORLD SPACE, but Unity applies the GameObject's
+//   transform ON TOP of the mesh — so any non-zero position/rotation on the
+//   hosting object caused all projectiles to be double-offset and shake as
+//   the object moved.
 //
-//   New approach: billboard elongated along the travel direction.
-//     • Long axis  = velocity direction   (FullSizeX / ScaleX)
-//     • Short axis = Cross(vel, camToProj) (FullSizeY, camera-facing billboard)
-//   Result: tracer/streak effect visible from all camera angles.
+//   Fix: switched to Graphics.DrawMesh with Matrix4x4.identity — identical to
+//   ProjectileRenderer2D's approach. World-space vertices are submitted directly
+//   with no additional transform applied.
 //
-// FIX (texture): first alive projectile's sprite texture is set via
-//   MeshRenderer.SetPropertyBlock(_mpb) so the MeshRenderer uses the right
-//   _MainTex rather than the material's static default.
+// FIX (orientation):
+//   Previous code: LookRotation(vel) perpendicular to velocity made the quad
+//   show its EDGE to the camera — you saw a thin sliver, not the bullet face.
+//   New approach: elongated billboard along travel direction, thin axis toward
+//   camera. The quad's long axis = travel direction, short axis = cross(travel,
+//   camToProj). This gives the classic tracer/streak appearance from all angles.
 //
-// USAGE NOTE: assign _renderCamera in the inspector for dedicated render
-//   cameras (splitscreen, etc.).  Falls back to Camera.main.
+// FIX (texture):
+//   MPB.SetTexture("_MainTex") applied per DrawMesh call — correct sprite atlas
+//   texture is used instead of the material's static default.
 
 using MidManStudio.Projectiles.Config;
 using MidManStudio.Projectiles.Core;
@@ -22,7 +28,6 @@ using UnityEngine;
 
 namespace MidManStudio.Projectiles.Visuals
 {
-    [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
     public sealed class ProjectileRenderer3D : MonoBehaviour
     {
         #region Inspector
@@ -30,7 +35,7 @@ namespace MidManStudio.Projectiles.Visuals
         [Header("Rendering")]
         [SerializeField] private Material _atlasMaterial;
 
-        [Tooltip("Maximum 3D projectiles rendered per frame (each = 4 verts + 6 indices).")]
+        [Tooltip("Maximum 3D projectiles rendered per frame.")]
         [SerializeField] private int _maxQuads = 512;
 
         [Header("Camera (for billboard orientation)")]
@@ -39,10 +44,7 @@ namespace MidManStudio.Projectiles.Visuals
         [SerializeField] private Camera _renderCamera;
 
         [Header("Fade")]
-        [Tooltip("Fraction of lifetime over which alpha fades IN at spawn.")]
         [SerializeField, Range(0f, 0.3f)] private float _fadeInFraction  = 0.10f;
-
-        [Tooltip("Fraction of lifetime over which alpha fades OUT before expiry.")]
         [SerializeField, Range(0f, 0.3f)] private float _fadeOutFraction = 0.15f;
 
         #endregion
@@ -55,8 +57,7 @@ namespace MidManStudio.Projectiles.Visuals
         private Color32[] _cols;
         private int[]     _tris;
 
-        private MeshFilter            _filter;
-        private MeshRenderer          _rend;
+        // Property block for per-draw-call texture override
         private MaterialPropertyBlock _mpb;
 
         #endregion
@@ -65,15 +66,8 @@ namespace MidManStudio.Projectiles.Visuals
 
         private void Awake()
         {
-            _filter = GetComponent<MeshFilter>();
-            _rend   = GetComponent<MeshRenderer>();
-
             _mesh = new Mesh { name = "ProjectileCombined3D" };
             _mesh.MarkDynamic();
-            _filter.mesh = _mesh;
-
-            if (_atlasMaterial != null)
-                _rend.sharedMaterial = _atlasMaterial;
 
             _mpb   = new MaterialPropertyBlock();
             _verts = new Vector3[_maxQuads * 4];
@@ -92,7 +86,7 @@ namespace MidManStudio.Projectiles.Visuals
         #region Public API
 
         /// <summary>
-        /// Build and submit the combined mesh for all alive 3D projectiles.
+        /// Build and submit the combined world-space mesh for all alive 3D projectiles.
         /// Call from LateUpdate every display frame.
         /// </summary>
         public void Render(NativeProjectile3D[] projs, int count)
@@ -116,7 +110,6 @@ namespace MidManStudio.Projectiles.Visuals
                 var cfg = reg.Get(p.ConfigId);
                 if (cfg == null || !cfg.UseSprite) continue;
 
-                // Capture first texture found for this frame's batch
                 if (firstTex == null && cfg.ProjectileSprite?.texture != null)
                     firstTex = cfg.ProjectileSprite.texture;
 
@@ -124,24 +117,23 @@ namespace MidManStudio.Projectiles.Visuals
                 Vector3 pos = new Vector3(p.X,  p.Y,  p.Z);
 
                 // ── Billboard elongated along travel direction ─────────────────
-                // forward  = travel direction (the long axis of the bullet quad)
-                // perpAxis = cross(forward, camToProj) → perpendicular axis that
-                //            faces the camera; makes the quad a camera-facing ribbon
-
+                // forward  = travel direction  (long axis of the bullet streak)
+                // perpAxis = cross(forward, camToProj)  →  camera-facing thin axis
                 Vector3 forward, perpAxis;
 
                 if (vel.sqrMagnitude > 0.0001f)
                 {
                     forward = vel.normalized;
 
+                    // Direction from camera to this projectile (not normalized — we normalize after cross)
                     Vector3 camToProj = cam != null
-                        ? (pos - cam.transform.position).normalized
+                        ? (pos - cam.transform.position)
                         : Vector3.back;
+                    camToProj = camToProj.sqrMagnitude > 0.0001f ? camToProj.normalized : Vector3.back;
 
                     perpAxis = Vector3.Cross(forward, camToProj);
 
-                    // Fallbacks when forward is parallel to view direction
-                    // (shooting directly toward or away from camera)
+                    // Fallbacks when forward ≈ camToProj (shooting straight at/away from camera)
                     if (perpAxis.sqrMagnitude < 0.001f)
                         perpAxis = Vector3.Cross(forward, Vector3.up);
                     if (perpAxis.sqrMagnitude < 0.001f)
@@ -151,25 +143,24 @@ namespace MidManStudio.Projectiles.Visuals
                 }
                 else
                 {
-                    // Stationary / just spawned — use world axes
                     forward  = Vector3.forward;
                     perpAxis = Vector3.right;
                 }
 
                 float hx = p.ScaleX * 0.5f;       // half-length along travel
-                float hy = cfg.FullSizeY * 0.5f;   // half-width perpendicular
+                float hy = cfg.FullSizeY * 0.5f;   // half-width perpendicular to travel
 
                 int vBase = qi * 4;
 
-                // Quad elongated along forward, thin along perpAxis:
-                //   0 = tail-side1   1 = tip-side1
-                //   3 = tail-side2   2 = tip-side2
+                // Quad: elongated along forward, thin along perpAxis
+                //   0 = tail-sideA   1 = tip-sideA
+                //   3 = tail-sideB   2 = tip-sideB
                 _verts[vBase + 0] = pos - forward * hx - perpAxis * hy;
                 _verts[vBase + 1] = pos + forward * hx - perpAxis * hy;
                 _verts[vBase + 2] = pos + forward * hx + perpAxis * hy;
                 _verts[vBase + 3] = pos - forward * hx + perpAxis * hy;
 
-                // Atlas UVs — U=0 at tail, U=1 at tip; sprite long axis = travel
+                // Atlas UVs
                 Vector4 uv = reg.GetUVRect(p.ConfigId);
                 _uvs[vBase + 0] = new Vector2(uv.x,        uv.y);
                 _uvs[vBase + 1] = new Vector2(uv.x + uv.z, uv.y);
@@ -177,14 +168,13 @@ namespace MidManStudio.Projectiles.Visuals
                 _uvs[vBase + 3] = new Vector2(uv.x,        uv.y + uv.w);
 
                 // Lifetime fade
-                Color32 col = ComputeTint(p.Lifetime, p.MaxLifetime,
-                    _fadeInFraction, _fadeOutFraction);
+                Color32 col = ComputeTint(p.Lifetime, p.MaxLifetime, _fadeInFraction, _fadeOutFraction);
                 _cols[vBase + 0] = col;
                 _cols[vBase + 1] = col;
                 _cols[vBase + 2] = col;
                 _cols[vBase + 3] = col;
 
-                // CCW winding when viewed from perpAxis cross forward direction
+                // CCW winding
                 int tBase = qi * 6;
                 _tris[tBase + 0] = vBase;
                 _tris[tBase + 1] = vBase + 1;
@@ -200,17 +190,29 @@ namespace MidManStudio.Projectiles.Visuals
             if (qi == 0) return;
 
             _mesh.SetVertices(_verts, 0, qi * 4);
-            _mesh.SetUVs(0,    _uvs,  0, qi * 4);
+            _mesh.SetUVs(0, _uvs,    0, qi * 4);
             _mesh.SetColors(_cols,    0, qi * 4);
             _mesh.SetTriangles(_tris, 0, qi * 6, 0);
+
+            // Expanded bounds so the mesh is never frustum-culled at camera edges
             _mesh.bounds = new Bounds(Vector3.zero, Vector3.one * 10000f);
 
-            // Apply texture via property block so we don't create a material instance
+            // Apply sprite texture via MPB — avoids creating a material instance
             if (firstTex != null)
-            {
                 _mpb.SetTexture("_MainTex", firstTex);
-                _rend.SetPropertyBlock(_mpb);
-            }
+
+            // FIX: Graphics.DrawMesh with Matrix4x4.identity — vertices are already
+            // in world space. No secondary transform applied, no shaking.
+            Graphics.DrawMesh(
+                _mesh,
+                Matrix4x4.identity,
+                _atlasMaterial,
+                gameObject.layer,
+                camera: null,
+                submeshIndex: 0,
+                properties: _mpb,
+                castShadows: false,
+                receiveShadows: false);
         }
 
         #endregion
@@ -223,7 +225,7 @@ namespace MidManStudio.Projectiles.Visuals
         {
             if (maxLifetime <= 0f) return new Color32(255, 255, 255, 255);
 
-            float progress     = 1f - lifetime / maxLifetime; // 0=just spawned, 1=dying
+            float progress     = 1f - lifetime / maxLifetime;
             float fadeOutStart = 1f - fadeOutFrac;
 
             float alpha = 1f;
