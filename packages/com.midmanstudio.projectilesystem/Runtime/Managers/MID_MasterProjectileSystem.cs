@@ -1,15 +1,8 @@
 // MID_MasterProjectileSystem.cs
-// FIXES:
-//   + RegisterTarget2D/3D — also route to _localManager when !IsNetworked.
-//     Previously only went to _authority (ServerProjectileAuthority) which
-//     is null/inactive in offline mode, so LocalProjectileManager._targets2D
-//     was always empty → no collisions in offline/LocalOnly mode.
-//   + DeactivateTarget2D/3D — same offline routing fix.
-//   + ClearAllTargets — same offline routing fix.
-//   + Fire() — correctly handles Is3D configs: LocalOnly routes to FireLocal
-//     which calls Spawn3D; Networked routes to FireNetworkedSim regardless of
-//     config's Is3D (the server-side FireServerRpc routes the buffer correctly).
-//   + Added IsHostMode helper — distinguishes dedicated server from host.
+// CHANGES:
+//   + GetAuthority() public accessor so game-layer code can subscribe
+//     to Adapter events (e.g. TestSceneBootstrapper damage routing).
+//   + All previous fixes retained.
 
 using System;
 using UnityEngine;
@@ -73,14 +66,17 @@ namespace MidManStudio.Projectiles.Managers
         public bool IsServer =>
             NetworkManager.Singleton != null && NetworkManager.Singleton.IsServer;
 
-        /// <summary>
-        /// True when this machine is both server and client (host mode).
-        /// Host machines run server logic AND need client-side visuals.
-        /// </summary>
         public bool IsHostMode =>
             NetworkManager.Singleton != null
             && NetworkManager.Singleton.IsServer
             && NetworkManager.Singleton.IsClient;
+
+        /// <summary>
+        /// Provides access to the underlying ServerProjectileAuthority for advanced use-cases
+        /// such as subscribing to Adapter.OnProjectileHit in game-layer code.
+        /// Returns null when not in a networked/server context.
+        /// </summary>
+        public ServerProjectileAuthority GetAuthority() => _authority;
 
         #endregion
 
@@ -151,17 +147,6 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Public API — Fire
 
-        /// <summary>
-        /// Primary entry point for all projectile fire events.
-        /// Routes to the correct sub-system based on SimulationMode.
-        ///
-        /// NOTE on Is3D configs in LocalOnly mode:
-        ///   If cfg.Is3D is true, FireLocal calls _localManager.Spawn3D().
-        ///   Ensure ProjectileRenderer3D is assigned to LocalProjectileManager
-        ///   in the inspector or 3D projectiles will tick but not render.
-        ///
-        /// PhysicsObject mode: call SpawnPhysicsProjectile() directly from weapon.
-        /// </summary>
         public void Fire(
             ushort           configId,
             SpawnPoint[]     spawnPoints,
@@ -196,18 +181,15 @@ namespace MidManStudio.Projectiles.Managers
                 case SimulationMode.LocalOnly:
                     FireLocal(configId, spawnPoints, count, context, cfg);
                     break;
-
                 case SimulationMode.RustSim2D:
                 case SimulationMode.RustSim3D:
                     FireNetworkedSim(configId, spawnPoints, count, context, cfg, routing);
                     break;
-
                 case SimulationMode.Raycast:
                     MID_Logger.LogWarning(_logLevel,
                         "Fire() called with Raycast mode — use RegisterRaycastFire() instead.",
                         nameof(MID_MasterProjectileSystem));
                     break;
-
                 case SimulationMode.PhysicsObject:
                     MID_Logger.LogWarning(_logLevel,
                         "PhysicsObject mode — call SpawnPhysicsProjectile() from your weapon script.",
@@ -215,8 +197,6 @@ namespace MidManStudio.Projectiles.Managers
                     break;
             }
         }
-
-        // ── Offline ────────────────────────────────────────────────────────────
 
         private void FireLocal(
             ushort configId, SpawnPoint[] spawnPoints, int count,
@@ -230,9 +210,6 @@ namespace MidManStudio.Projectiles.Managers
                 return;
             }
 
-            // Route based on the config's own Is3D flag — NOT the player's mode.
-            // The player mode determines which configId was selected; the config
-            // itself determines which Rust buffer and renderer to use.
             if (cfg.Is3D)
                 _localManager.Spawn3D(spawnPoints, count, configId,
                     (uint)context.OwnerMidId, context.DamageMultiplier);
@@ -240,8 +217,6 @@ namespace MidManStudio.Projectiles.Managers
                 _localManager.Spawn2D(spawnPoints, count, configId,
                     (uint)context.OwnerMidId, context.DamageMultiplier);
         }
-
-        // ── Networked Rust sim ─────────────────────────────────────────────────
 
         private void FireNetworkedSim(
             ushort configId, SpawnPoint[] spawnPoints, int count,
@@ -304,14 +279,7 @@ namespace MidManStudio.Projectiles.Managers
             }
 
             var netObj = _networkObjectPool.GetNetworkObject(type, position, rotation);
-            if (netObj == null)
-            {
-                MID_Logger.LogError(_logLevel,
-                    $"SpawnPhysicsProjectile: pool returned null for type {type}.",
-                    nameof(MID_MasterProjectileSystem));
-                return null;
-            }
-
+            if (netObj == null) return null;
             netObj.Spawn();
             return netObj;
         }
@@ -371,7 +339,6 @@ namespace MidManStudio.Projectiles.Managers
                     result.IsHeadshot,
                     result.HitTargetNetworkId);
 
-                // Immediate local cosmetic for shooter
                 _raycastHandler?.OfflineHandleFire(
                     result, configId, (uint)context.OwnerMidId, 1f);
             }
@@ -380,9 +347,6 @@ namespace MidManStudio.Projectiles.Managers
         #endregion
 
         #region Public API — Targets
-        // FIX: each method now also routes to _localManager when !IsNetworked.
-        // Previously only _authority was called; offline targets were never
-        // registered in LocalProjectileManager, so local collision never worked.
 
         public void RegisterTarget2D(in CollisionTarget target)
         {
@@ -416,7 +380,7 @@ namespace MidManStudio.Projectiles.Managers
 
         #endregion
 
-        #region Public API — State (reconciliation)
+        #region Public API — State
 
         public int SaveState2D(byte[] buf)    => _authority?.SaveState2D(buf) ?? 0;
         public int RestoreState2D(byte[] buf, int byteCount)
