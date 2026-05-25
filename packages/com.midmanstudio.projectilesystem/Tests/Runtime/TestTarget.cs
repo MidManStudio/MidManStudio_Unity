@@ -1,23 +1,26 @@
 // TestTarget.cs
-// Networked destructible target for the projectile test scene.
-// Attach to target prefab alongside NetworkObject.
+// Networked destructible 3D target — sphere mesh, no SpriteRenderer.
 //
-// SETUP:
-//   - Prefab needs: NetworkObject, Collider (or Collider2D), MeshRenderer/SpriteRenderer
-//   - Server spawns these via TestSceneBootstrapper
-//   - Health is a NetworkVariable so all clients see the correct HP bar
-//   - When health reaches 0 the server despawns after a short delay (respawn optional)
+// PREFAB SETUP:
+//   • MeshFilter (sphere mesh)    — body visual
+//   • MeshRenderer                — material / colour
+//   • SphereCollider              — physics hit detection
+//   • NetworkObject               — for multiplayer (optional for offline)
+//   • TestTarget                  — this script
+//   NO SpriteRenderer needed.
 //
-// LISTENING FOR HITS:
-//   TestSceneBootstrapper subscribes MID_MasterProjectileSystem.OnHit-style events.
-//   Alternatively, wire directly: subscribe to ServerProjectileAuthority's
-//   Adapter.OnProjectileHit and check TargetId == our registered ID.
+// FX / AUDIO:
+//   Death  → GlobalFXManager.TriggerImpact  (big burst)
+//   Damage → MID_NativeAudioBridge.PlayClip (impact sound)
+//   Colour → Lerp green→red by health, white flash on hit
 
 using System;
 using System.Collections;
 using UnityEngine;
 using Unity.Netcode;
 using TMPro;
+using MidManStudio.Core.Audio;
+using MidManStudio.Core.Effects;
 
 namespace TestGame
 {
@@ -26,25 +29,32 @@ namespace TestGame
         #region Inspector
 
         [Header("Health")]
-        [SerializeField] private float _maxHealth   = 100f;
-        [SerializeField] private float _respawnDelay = 3f;
-        [Tooltip("If false the object is simply despawned and not respawned.")]
-        [SerializeField] private bool  _respawns    = true;
+        [SerializeField] private float _maxHealth    = 100f;
+        [SerializeField] private float _respawnDelay  = 3f;
+        [SerializeField] private bool  _respawns      = true;
 
-        [Header("Visuals")]
-        [SerializeField] private Renderer _bodyRenderer;
-        [SerializeField] private TMP_Text _healthText;
-
-        [Tooltip("Optional health-bar fill image (scale X 0-1 by health fraction).")]
+        [Header("Visuals — 3D mesh (no SpriteRenderer)")]
+        [Tooltip("MeshRenderer on the body sphere. Colour lerps green→red by health.")]
+        [SerializeField] private MeshRenderer _bodyRenderer;
+        [SerializeField] private TMP_Text     _healthText;
         [SerializeField] private UnityEngine.UI.Image _healthBarFill;
 
-        [Header("Death FX")]
-        [Tooltip("Particle system played locally on death (not networked — each client plays it).")]
-        [SerializeField] private ParticleSystem _deathParticles;
+        [Header("Death FX (GlobalFXManager)")]
+        [SerializeField] private int   _deathParticleCount   = 20;
+        [SerializeField] private float _deathParticleVolume  = 1f;
+        [Header("Hit FX")]
+        [SerializeField] private int   _hitParticleCount     = 6;
+
+        [Header("Audio (NativeAudioBridge clip indices)")]
+        [Tooltip("Clip index for damage-taken sound.")]
+        [SerializeField] private int   _damageSoundClipIndex = 1;
+        [SerializeField, Range(0f,1f)] private float _damageSoundVolume = 0.5f;
+        [Tooltip("Clip index for death/explosion sound.")]
+        [SerializeField] private int   _deathSoundClipIndex  = 2;
+        [SerializeField, Range(0f,1f)] private float _deathSoundVolume  = 1.0f;
 
         [Header("Collision")]
-        [Tooltip("Radius used for projectile system hit registration. "  +
-                 "Should match or slightly exceed the visual collider radius.")]
+        [Tooltip("Radius for projectile system registration. Auto-read from SphereCollider if present.")]
         [SerializeField] private float _collisionRadius = 0.6f;
 
         [Header("Debug")]
@@ -68,23 +78,17 @@ namespace TestGame
 
         #region Local State
 
-        // Assigned by TestSceneBootstrapper after spawn so the projectile system
-        // can look us up by this ID in its collision results.
         public uint RegistrationId { get; set; }
 
-        // Spawn position — used for respawn
-        private Vector3 _spawnPosition;
+        private Vector3    _spawnPosition;
         private Quaternion _spawnRotation;
-
-        // Cache original colour for hit-flash tween
-        private Color _baseColor;
-        private Coroutine _flashCoroutine;
+        private Material   _bodyMaterial;  // instanced material for colour tinting
+        private Coroutine  _flashCoroutine;
 
         #endregion
 
         #region Events
 
-        /// <summary>Fired on the server when this target reaches 0 HP.</summary>
         public event Action<TestTarget> OnDestroyedServer;
 
         #endregion
@@ -98,93 +102,139 @@ namespace TestGame
             _spawnPosition = transform.position;
             _spawnRotation = transform.rotation;
 
+            // Instance the body material so we can tint it without affecting the shared asset
+            if (_bodyRenderer != null)
+            {
+                _bodyMaterial = new Material(_bodyRenderer.sharedMaterial);
+                _bodyRenderer.material = _bodyMaterial;
+            }
+
             if (IsServer)
                 _currentHealth.Value = _maxHealth;
 
-            // Subscribe to changes so non-server clients update their UI
             _currentHealth.OnValueChanged += OnHealthChanged;
             _isDead.OnValueChanged        += OnDeadChanged;
 
-            // Cache base colour
-            if (_bodyRenderer != null)
-                _baseColor = _bodyRenderer.material.color;
-
-            RefreshUI(_maxHealth);
+            RefreshVisuals(_maxHealth);
         }
 
         public override void OnNetworkDespawn()
         {
             _currentHealth.OnValueChanged -= OnHealthChanged;
             _isDead.OnValueChanged        -= OnDeadChanged;
+
+            if (_bodyMaterial != null) Destroy(_bodyMaterial);
             base.OnNetworkDespawn();
         }
 
+        // For offline (no NetworkObject) use
+        private void Start()
+        {
+            if (IsSpawned) return; // already handled by OnNetworkSpawn
+
+            _spawnPosition = transform.position;
+            _spawnRotation = transform.rotation;
+
+            if (_bodyRenderer != null)
+            {
+                _bodyMaterial = new Material(_bodyRenderer.sharedMaterial);
+                _bodyRenderer.material = _bodyMaterial;
+            }
+
+            RefreshVisuals(_maxHealth);
+        }
+
+        private void OnDestroy()
+        {
+            if (_bodyMaterial != null) Destroy(_bodyMaterial);
+        }
+
         #endregion
 
-        #region Public API — called by TestSceneBootstrapper or damage system
+        #region Public API
 
-        /// <summary>
-        /// Apply damage to this target. Server-only.
-        /// </summary>
+        /// <summary>Apply damage. Server-only (or offline).</summary>
         public void TakeDamage(float amount)
         {
-            if (!IsServer || _isDead.Value) return;
+            // Works in both networked (IsServer check) and offline (no NetworkObject)
+            bool canAct = !IsSpawned || IsServer;
+            if (!canAct) return;
 
-            _currentHealth.Value = Mathf.Max(0f, _currentHealth.Value - amount);
+            float currentHp = IsSpawned ? _currentHealth.Value : _offlineHp;
+
+            if (_isDead.Value && IsSpawned) return;
+            if (_offlineDead && !IsSpawned) return;
+
+            float newHp = Mathf.Max(0f, currentHp - amount);
+
+            if (IsSpawned)
+                _currentHealth.Value = newHp;
+            else
+            {
+                _offlineHp = newHp;
+                RefreshVisuals(newHp);
+                PlayHitFX(transform.position);
+            }
 
             if (_enableLogs)
-                Debug.Log($"[TestTarget] id={RegistrationId} hp={_currentHealth.Value:F1} " +
-                          $"damage={amount:F1}");
+                Debug.Log($"[TestTarget] id={RegistrationId} hp={newHp:F1} dmg={amount:F1}");
 
-            if (_currentHealth.Value <= 0f)
-                ServerOnDeath();
+            if (newHp <= 0f)
+                OnDeath();
         }
 
-        /// <summary>
-        /// Instantly kill. Server-only.
-        /// </summary>
-        public void Kill() => TakeDamage(_currentHealth.Value + 1f);
-
-        /// <summary>
-        /// Restore full health (server-only). Useful for manual testing.
-        /// </summary>
-        public void Revive()
-        {
-            if (!IsServer) return;
-            _currentHealth.Value = _maxHealth;
-            _isDead.Value        = false;
-        }
+        public void Kill() => TakeDamage((_offlineHp > 0 ? _offlineHp : _maxHealth) + 1f);
 
         #endregion
 
-        #region Server Death / Respawn
+        #region Death + Respawn
 
-        private void ServerOnDeath()
+        // Offline health state (used when not a NetworkObject)
+        private float _offlineHp;
+        private bool  _offlineDead;
+
+        private void OnDeath()
         {
-            if (_isDead.Value) return; // guard double-call
-            _isDead.Value = true;
-
-            OnDestroyedServer?.Invoke(this);
-            DeathClientRpc();
-
-            if (_respawns)
-                StartCoroutine(RespawnCoroutine());
+            if (IsSpawned)
+            {
+                if (_isDead.Value) return;
+                _isDead.Value = true;
+                OnDestroyedServer?.Invoke(this);
+                DeathClientRpc(transform.position);
+                if (_respawns) StartCoroutine(RespawnCoroutine());
+                else           StartCoroutine(DespawnAfterDelay(1.5f));
+            }
             else
-                StartCoroutine(DespawnAfterDelay(1.5f));
+            {
+                // Offline
+                if (_offlineDead) return;
+                _offlineDead = true;
+                OnDestroyedServer?.Invoke(this);
+                PlayDeathFX(transform.position);
+                if (_bodyRenderer != null) _bodyRenderer.enabled = false;
+                if (_respawns) StartCoroutine(OfflineRespawnCoroutine());
+                else           Destroy(gameObject, 1.5f);
+            }
         }
 
         private IEnumerator RespawnCoroutine()
         {
             yield return new WaitForSeconds(_respawnDelay);
             if (!IsSpawned) yield break;
-
-            // Reset position and health
             transform.SetPositionAndRotation(_spawnPosition, _spawnRotation);
             _currentHealth.Value = _maxHealth;
             _isDead.Value        = false;
-
-            // Notify clients to show the target again
             RespawnClientRpc(_spawnPosition, _spawnRotation);
+        }
+
+        private IEnumerator OfflineRespawnCoroutine()
+        {
+            yield return new WaitForSeconds(_respawnDelay);
+            transform.SetPositionAndRotation(_spawnPosition, _spawnRotation);
+            _offlineHp   = _maxHealth;
+            _offlineDead = false;
+            if (_bodyRenderer != null) _bodyRenderer.enabled = true;
+            RefreshVisuals(_maxHealth);
         }
 
         private IEnumerator DespawnAfterDelay(float delay)
@@ -198,23 +248,17 @@ namespace TestGame
         #region Client RPCs
 
         [ClientRpc]
-        private void DeathClientRpc()
+        private void DeathClientRpc(Vector3 pos)
         {
-            // Play death FX locally on every client
-            if (_deathParticles != null)
-                _deathParticles.Play();
-
-            // Hide body
-            if (_bodyRenderer != null)
-                _bodyRenderer.enabled = false;
+            PlayDeathFX(pos);
+            if (_bodyRenderer != null) _bodyRenderer.enabled = false;
         }
 
         [ClientRpc]
         private void RespawnClientRpc(Vector3 pos, Quaternion rot)
         {
             transform.SetPositionAndRotation(pos, rot);
-            if (_bodyRenderer != null)
-                _bodyRenderer.enabled = true;
+            if (_bodyRenderer != null) _bodyRenderer.enabled = true;
         }
 
         #endregion
@@ -223,28 +267,51 @@ namespace TestGame
 
         private void OnHealthChanged(float oldHp, float newHp)
         {
-            RefreshUI(newHp);
-
-            // Hit flash on damage
+            RefreshVisuals(newHp);
             if (newHp < oldHp && newHp > 0f)
+            {
                 TriggerHitFlash();
+                PlayHitFX(transform.position);
+            }
         }
 
-        private void OnDeadChanged(bool wasAlive, bool nowDead)
+        private void OnDeadChanged(bool _, bool nowDead)
         {
-            // Server-side RPC already handles client cosmetics; this handles
-            // late-joining clients who receive the initial value.
-            if (nowDead && _bodyRenderer != null)
-                _bodyRenderer.enabled = false;
-            else if (!nowDead && _bodyRenderer != null)
-                _bodyRenderer.enabled = true;
+            if (_bodyRenderer != null)
+                _bodyRenderer.enabled = !nowDead;
         }
 
         #endregion
 
-        #region UI Helpers
+        #region FX + Audio
 
-        private void RefreshUI(float hp)
+        private void PlayHitFX(Vector3 pos)
+        {
+            GlobalFXManager.Instance?.TriggerImpact(
+                pos, Vector3.up, _hitParticleCount, _damageSoundVolume);
+
+            // Sound only if GlobalFX doesn't handle audio
+            if (GlobalFXManager.Instance == null)
+                MID_NativeAudioBridge.Instance?.PlayClip(
+                    _damageSoundClipIndex, _damageSoundVolume);
+        }
+
+        private void PlayDeathFX(Vector3 pos)
+        {
+            // Big burst for death
+            GlobalFXManager.Instance?.TriggerImpact(
+                pos, Vector3.up, _deathParticleCount, _deathSoundVolume);
+
+            if (GlobalFXManager.Instance == null)
+                MID_NativeAudioBridge.Instance?.PlayClip(
+                    _deathSoundClipIndex, _deathSoundVolume);
+        }
+
+        #endregion
+
+        #region Visuals
+
+        private void RefreshVisuals(float hp)
         {
             float fraction = _maxHealth > 0f ? Mathf.Clamp01(hp / _maxHealth) : 0f;
 
@@ -254,12 +321,13 @@ namespace TestGame
             if (_healthBarFill != null)
                 _healthBarFill.fillAmount = fraction;
 
-            if (_bodyRenderer != null)
+            if (_bodyMaterial != null)
             {
-                // Tint body from green (full) → red (empty)
-                Color healthy  = new Color(0.2f, 0.9f, 0.3f);
-                Color damaged  = new Color(0.9f, 0.2f, 0.1f);
-                _bodyRenderer.material.color = Color.Lerp(damaged, healthy, fraction);
+                // Green at full health → red at zero
+                _bodyMaterial.color = Color.Lerp(
+                    new Color(0.9f, 0.2f, 0.1f),
+                    new Color(0.2f, 0.9f, 0.3f),
+                    fraction);
             }
         }
 
@@ -271,23 +339,24 @@ namespace TestGame
 
         private IEnumerator HitFlash()
         {
-            if (_bodyRenderer == null) yield break;
-            _bodyRenderer.material.color = Color.white;
+            if (_bodyMaterial == null) yield break;
+            _bodyMaterial.color = Color.white;
             yield return new WaitForSeconds(0.07f);
-            // RefreshUI will correct the colour on next NetworkVariable callback,
-            // but we can do it eagerly here.
-            RefreshUI(_currentHealth.Value);
+            RefreshVisuals(IsSpawned ? _currentHealth.Value : _offlineHp);
             _flashCoroutine = null;
         }
 
         #endregion
 
-        #region Gizmo (editor)
+        #region Gizmo
 #if UNITY_EDITOR
         private void OnDrawGizmosSelected()
         {
             Gizmos.color = new Color(1f, 0.5f, 0f, 0.4f);
-            Gizmos.DrawWireSphere(transform.position, _collisionRadius);
+            float r = _collisionRadius;
+            var sc = GetComponent<SphereCollider>();
+            if (sc != null) r = sc.radius * Mathf.Max(transform.lossyScale.x, 0.01f);
+            Gizmos.DrawWireSphere(transform.position, r);
         }
 #endif
         #endregion
