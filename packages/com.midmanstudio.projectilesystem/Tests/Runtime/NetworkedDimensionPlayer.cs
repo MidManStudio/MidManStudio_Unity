@@ -1,29 +1,20 @@
 // NetworkedDimensionPlayer.cs
 //
-// FIXES:
-//   + ResolveIs3D() removed — was used to pick which configId slot to read,
-//     but caused Is3D=true configs to be unfirable when mode didn't match.
-//     Replaced with ResolveConfigId() which picks the slot from dimension/mode,
-//     then all routing uses cfg.Is3D from the actual config SO.
+// FIXES / ADDITIONS:
+//   + Fire direction now driven by _currentDimension + _shootMode, NOT by cfg.Is3D.
+//     Previously if _configId3D pointed to a config with Is3D=false the head pivot
+//     was ignored and all 3D shots fired along transform.right (2D axis).
+//   + Spread rotation axis now also driven by dimension/mode.
+//   + NetworkVariable<float> _netPitch syncs head-pivot pitch to non-owner clients.
+//   + Non-owner OnNetworkSpawn: Rigidbody set to kinematic so local physics
+//     does not fight NetworkTransform position updates.
+//   + AudioSource + AudioClip for fire sound; plays every shot.
+//   + Physics (mode 4) ServerRpc → SpawnPhysicsProjectileLocal unchanged.
 //
-//   + FireSim() now reads cfg.Is3D (not a computed bool) for:
-//       - BuildSpawnPoints direction convention (2D uses transform.right, 3D uses head forward)
-//       - SpawnPoint spread axis (Z-rotation for 2D, Y-rotation for 3D)
-//     Previously the spread Quaternion was always computed from the same is3D
-//     that was also wrong when config.Is3D didn't match the dimension.
-//
-//   + Added PlayerShootMode.Physics (mode 5) with full implementation:
-//       - FirePhysics() server-only path via MID_MasterProjectileSystem.SpawnPhysicsProjectile
-//       - _physicsPoolType inspector field selects the PoolableNetworkObjectType
-//       - _physicsProjectileSpeed sets launch velocity
-//       - SetOwnerContext + InitialiseProjectile called immediately after spawn
-//
-//   + Added _configId2D_alt / _configId3D_alt — separate slots for when the
-//     player wants a different config in 3D dimension vs 2D dimension mode.
-//     (Kept original _configId2D/_configId3D for backwards compatibility.)
-//
-//   + Raycast mode now selects 3D vs 2D raycast API from cfg.Is3D,
-//     not from _currentDimension, matching the projectile config's intent.
+// PREFAB SETUP (required):
+//   • Add NetworkTransform component (set to Owner Authoritative or Server Auth as needed)
+//   • Add AudioSource component and assign to _audioSource inspector field
+//   • Ensure _headPivot child exists — EnsureHeadPivot() auto-creates it if null
 
 using UnityEngine;
 using Unity.Netcode;
@@ -82,7 +73,7 @@ namespace TestGame
         [Header("Fire Settings")]
         [SerializeField] private float _fireRate = 5f;
         [SerializeField, Range(1, 64)] private int   _pelletsPerShot = 1;
-        [Tooltip("Spread when no pattern SO assigned.")]
+        [Tooltip("Spread angle (degrees) when no pattern SO assigned.")]
         [SerializeField, Range(0f, 45f)] private float _spreadDeg = 0f;
         [SerializeField] private KeyCode _fireKey = KeyCode.Mouse0;
 
@@ -102,20 +93,36 @@ namespace TestGame
         [SerializeField] private float     _raycastRange  = 200f;
 
         [Header("Physics Projectile Settings (mode = Physics)")]
-        [Tooltip("Network object pool type for the physics projectile prefab.")]
         [SerializeField] private PoolableNetworkObjectType _physicsPoolType
             = PoolableNetworkObjectType.BaseProjectileBlueprint;
-        [Tooltip("Launch speed for physics projectiles in world units per second.")]
         [SerializeField] private float _physicsProjectileSpeed = 20f;
-        [Tooltip("Damage multiplier forwarded to the PhysicsProjectile component.")]
         [SerializeField] private float _physicsDamageMultiplier = 1f;
+
+        [Header("Audio")]
+        [Tooltip("AudioSource on this GameObject (add it to the prefab).")]
+        [SerializeField] private AudioSource _audioSource;
+        [Tooltip("Clip played on every shot fired by the local owner.")]
+        [SerializeField] private AudioClip   _fireSoundClip;
+        [SerializeField, Range(0f, 1f)]       private float _fireSoundVolume       = 0.6f;
+        [SerializeField, Range(0.01f, 0.3f)]  private float _fireSoundPitchVariance = 0.1f;
 
         [Header("Debug")]
         [SerializeField] private MID_LogLevel _logLevel = MID_LogLevel.Info;
 
         #endregion
 
-        #region State
+        #region Networked State
+
+        // Head-pivot pitch synced so non-owner clients show correct look direction.
+        // WritePermission = Owner so only the owner can write.
+        private readonly NetworkVariable<float> _netPitch = new NetworkVariable<float>(
+            0f,
+            NetworkVariableReadPermission.Everyone,
+            NetworkVariableWritePermission.Owner);
+
+        #endregion
+
+        #region Local State
 
         private Rigidbody _rb;
         private Dimension _currentDimension = Dimension.TwoD;
@@ -146,6 +153,7 @@ namespace TestGame
 
             if (IsOwner)
             {
+                // Local owner: register camera, subscribe events, etc.
                 if (DimensionCameraController.Instance != null)
                     DimensionCameraController.Instance.RegisterPlayerCams(
                         transform, _headPivot);
@@ -167,6 +175,15 @@ namespace TestGame
                 _yaw = transform.eulerAngles.y;
                 ApplyCursorState(_currentDimension);
                 UpdateModeText();
+            }
+            else
+            {
+                // Non-owner: let NetworkTransform drive position, physics must not fight it.
+                if (_rb != null)
+                {
+                    _rb.isKinematic  = true;
+                    _rb.interpolation = RigidbodyInterpolation.Interpolate;
+                }
             }
 
             ApplyTint(IsOwner ? _ownerColor : _remoteColor);
@@ -193,14 +210,20 @@ namespace TestGame
 
         private void Update()
         {
-            if (!IsOwner) return;
+            // Non-owner: sync head pivot pitch from the network variable
+            if (!IsOwner)
+            {
+                if (_headPivot != null)
+                    _headPivot.localRotation = Quaternion.Euler(_netPitch.Value, 0f, 0f);
+                return;
+            }
 
+            // Owner-only input
             if (Input.GetKeyDown(_dimensionKey)
                 && DimensionManager.HasInstance
                 && !DimensionManager.Instance.IsTransitioning)
                 DimensionManager.Instance.SwitchDimension();
 
-            // Shoot mode hotkeys
             if (Input.GetKeyDown(KeyCode.Alpha1)) ChangeMode(PlayerShootMode.LocalOnly);
             if (Input.GetKeyDown(KeyCode.Alpha2)) ChangeMode(PlayerShootMode.RustSim2D);
             if (Input.GetKeyDown(KeyCode.Alpha3)) ChangeMode(PlayerShootMode.RustSim3D);
@@ -257,7 +280,11 @@ namespace TestGame
 
             transform.rotation = Quaternion.Euler(0f, _yaw, 0f);
             if (_headPivot != null)
+            {
                 _headPivot.localRotation = Quaternion.Euler(_pitch, 0f, 0f);
+                // Sync pitch to all other clients
+                _netPitch.Value = _pitch;
+            }
         }
 
         #endregion
@@ -302,36 +329,52 @@ namespace TestGame
                 case PlayerShootMode.Physics: FirePhysics(); break;
                 default:                      FireSim();     break;
             }
+
+            PlayFireSound();
+        }
+
+        private void PlayFireSound()
+        {
+            if (_audioSource == null || _fireSoundClip == null) return;
+            _audioSource.pitch  = 1f + Random.Range(-_fireSoundPitchVariance, _fireSoundPitchVariance);
+            _audioSource.PlayOneShot(_fireSoundClip, _fireSoundVolume);
         }
 
         #endregion
 
-        #region Config Resolution
-        // FIX: config selection is now fully independent of routing.
-        // ResolveConfigId picks the slot (2D vs 3D) from the player's current
-        // state, then cfg.Is3D drives all subsequent buffer/render routing.
-        // This means a config with Is3D=true in the _configId2D slot will
-        // still fire correctly into the 3D buffer.
+        #region Config + Direction Resolution
+        // FIX: fire direction now uses _currentDimension and _shootMode.
+        // Previously relied solely on cfg.Is3D — if the user assigned a 2D config
+        // in _configId3D the head pivot was ignored and all shots fired along
+        // transform.right regardless of where the player was looking.
 
         private ushort ResolveConfigId()
         {
-            // RustSim3D mode or 3D dimension → prefer the 3D config slot
             bool prefer3DSlot = _shootMode == PlayerShootMode.RustSim3D
                              || (_shootMode != PlayerShootMode.RustSim2D
                                  && _currentDimension == Dimension.ThreeD);
             return prefer3DSlot ? _configId3D : _configId2D;
         }
 
-        private Vector3 ResolveFireDir(bool cfgIs3D)
+        /// <summary>
+        /// Returns true when the current mode/dimension should use 3D firing conventions
+        /// (head-pivot forward, Y-axis spread rotation).
+        /// This is intentionally DECOUPLED from cfg.Is3D — a 2D config can still be
+        /// fired in "3D space" direction if the player is in 3D dimension.
+        /// </summary>
+        private bool Use3DFireConvention()
+            => _currentDimension == Dimension.ThreeD
+            || _shootMode == PlayerShootMode.RustSim3D;
+
+        private Vector3 ResolveFireDir()
         {
-            // 3D configs use head pivot forward; 2D configs use transform.right
-            if (cfgIs3D)
-                return _headPivot != null ? _headPivot.forward : transform.forward;
+            if (Use3DFireConvention() && _headPivot != null)
+                return _headPivot.forward;
             return transform.right;
         }
 
         private Transform ResolveShotPoint(bool cfgIs3D)
-            => cfgIs3D ? _shotPoint3D : _shotPoint2D;
+            => (cfgIs3D || Use3DFireConvention()) ? _shotPoint3D : _shotPoint2D;
 
         #endregion
 
@@ -350,17 +393,15 @@ namespace TestGame
                 return;
             }
 
-            // FIX: use cfg.Is3D for ALL routing, not a mode-derived bool.
-            bool    cfgIs3D = cfg.Is3D;
-            Transform sp    = ResolveShotPoint(cfgIs3D);
-            Vector3 origin  = sp != null ? sp.position : transform.position;
-            Vector3 dir     = ResolveFireDir(cfgIs3D);
+            Transform sp   = ResolveShotPoint(cfg.Is3D);
+            Vector3 origin = sp != null ? sp.position : transform.position;
+            Vector3 dir    = ResolveFireDir();
 
             int n = _shotPattern != null
                 ? _shotPattern.ProjectileCount
                 : Mathf.Max(_pelletsPerShot, 1);
 
-            var pts = BuildSpawnPoints(origin, dir, n, cfg, cfgIs3D);
+            var pts = BuildSpawnPoints(origin, dir, n, cfg);
 
             bool networked = _shootMode != PlayerShootMode.LocalOnly
                           && MID_MasterProjectileSystem.Instance.IsNetworked
@@ -394,17 +435,15 @@ namespace TestGame
             var    cfg   = ProjectileRegistry.Instance.Get(cfgId);
             if (cfg == null) return;
 
-            // FIX: use cfg.Is3D to pick the correct raycast API, not dimension.
-            bool    cfgIs3D = cfg.Is3D;
-            Transform sp    = ResolveShotPoint(cfgIs3D);
-            Vector3 origin  = sp != null ? sp.position : transform.position;
-            Vector3 dir     = ResolveFireDir(cfgIs3D);
+            Vector3 origin = (_shotPoint3D != null ? _shotPoint3D : transform).position;
+            Vector3 dir    = ResolveFireDir();
 
             bool    hit   = false;
             Vector3 hitPt = origin + dir * _raycastRange;
             ulong   netId = 0;
 
-            if (cfgIs3D)
+            bool use3D = Use3DFireConvention() || cfg.Is3D;
+            if (use3D)
             {
                 if (Physics.Raycast(origin, dir, out RaycastHit h,
                     _raycastRange, _raycastLayers))
@@ -417,8 +456,7 @@ namespace TestGame
             }
             else
             {
-                var h2 = Physics2D.Raycast(
-                    origin, dir, _raycastRange, _raycastLayers);
+                var h2 = Physics2D.Raycast(origin, dir, _raycastRange, _raycastLayers);
                 if (h2.collider != null)
                 {
                     hit   = true;
@@ -442,8 +480,7 @@ namespace TestGame
             {
                 FireRate               = _fireRate,
                 ProjectileCount        = 1,
-                IsNetworked            = MID_MasterProjectileSystem.Instance.IsNetworked
-                                         && IsSpawned,
+                IsNetworked            = MID_MasterProjectileSystem.Instance.IsNetworked && IsSpawned,
                 IsRaycastWeapon        = true,
                 OwnerMidId             = OwnerClientId,
                 FiredByNetworkObjectId = NetworkObjectId,
@@ -459,39 +496,17 @@ namespace TestGame
 
         #region Physics Fire
 
-        /// <summary>
-        /// Spawns a physics-driven networked projectile (rocket, grenade, etc.)
-        /// via MID_MasterProjectileSystem.SpawnPhysicsProjectile().
-        ///
-        /// Server-only: only the server machine executes the actual spawn.
-        /// Clients send an RPC (ServerRpc) to request the server to fire.
-        /// The spawned NetworkObject replicates to all clients via NetworkTransform.
-        ///
-        /// Weapon level and damage multiplier are forwarded to PhysicsProjectile
-        /// via SetOwnerContext + InitialiseProjectile.
-        /// </summary>
         private void FirePhysics()
         {
             if (!MID_MasterProjectileSystem.HasInstance) return;
 
-            // Determine fire direction from current dimension
-            bool    is3DSpace = _currentDimension == Dimension.ThreeD;
-            Vector3 origin    = _shotPoint3D != null
-                ? _shotPoint3D.position : transform.position;
-            Vector3 dir = is3DSpace
-                ? (_headPivot != null ? _headPivot.forward : transform.forward)
-                : transform.right;
+            Vector3 origin = (_shotPoint3D != null ? _shotPoint3D : transform).position;
+            Vector3 dir    = ResolveFireDir();
 
             if (MID_MasterProjectileSystem.Instance.IsNetworked && IsSpawned)
-            {
-                // Client: ask server to do the spawn
                 FirePhysicsServerRpc(origin, dir);
-            }
             else
-            {
-                // Offline: spawn directly (no network)
                 SpawnPhysicsProjectileLocal(origin, dir);
-            }
         }
 
         [ServerRpc]
@@ -504,9 +519,8 @@ namespace TestGame
         {
             if (!MID_MasterProjectileSystem.Instance.IsServer
                 && MID_MasterProjectileSystem.Instance.IsNetworked)
-                return; // Non-server clients must not spawn network objects
+                return;
 
-            // Rotate the spawn point so the projectile's forward = fire direction
             Quaternion spawnRot = direction.sqrMagnitude > 0.001f
                 ? Quaternion.LookRotation(direction.normalized)
                 : Quaternion.identity;
@@ -516,56 +530,39 @@ namespace TestGame
 
             if (netObj == null) return;
 
-            // Wire owner context and initialise (sets Rigidbody velocity)
             var proj = netObj.GetComponent<PhysicsProjectile>();
             if (proj != null)
             {
-                proj.SetOwnerContext(
-                    ownerMidId:             OwnerClientId,
-                    firedByNetworkObjectId: NetworkObjectId,
-                    isBotOwner:             false,
-                    weaponLevel:            1,
-                    damageMultiplier:       _physicsDamageMultiplier);
-
-                proj.InitialiseProjectile(
-                    ownerMidId:             OwnerClientId,
-                    firedByNetworkObjectId: NetworkObjectId,
-                    bulletVelocity:         _physicsProjectileSpeed,
-                    isBotOwned:             false,
-                    weaponLevel:            1);
+                proj.SetOwnerContext(OwnerClientId, NetworkObjectId, false, 1, _physicsDamageMultiplier);
+                proj.InitialiseProjectile(OwnerClientId, NetworkObjectId,
+                    _physicsProjectileSpeed, false, 1);
             }
-
-            MID_Logger.LogInfo(_logLevel,
-                $"Physics projectile spawned: type={_physicsPoolType} " +
-                $"origin={origin} dir={direction}",
-                nameof(NetworkedDimensionPlayer));
         }
 
         #endregion
 
         #region Spawn Point Builders
+        // FIX: spread rotation axis driven by Use3DFireConvention(), not cfg.Is3D.
 
-        private SpawnPoint[] BuildSpawnPoints(
-            Vector3 origin, Vector3 dir, int n,
-            ProjectileConfigSO cfg, bool cfgIs3D)
+        private SpawnPoint[] BuildSpawnPoints(Vector3 origin, Vector3 dir, int n, ProjectileConfigSO cfg)
         {
             return _shotPattern != null
-                ? BuildSpawnPointsFromPattern(origin, dir, cfg, cfgIs3D)
-                : BuildSpawnPointsSpread(origin, dir, n, cfg, cfgIs3D);
+                ? BuildSpawnPointsFromPattern(origin, dir, cfg)
+                : BuildSpawnPointsSpread(origin, dir, n, cfg);
         }
 
         private SpawnPoint[] BuildSpawnPointsSpread(
-            Vector3 origin, Vector3 dir, int n,
-            ProjectileConfigSO cfg, bool cfgIs3D)
+            Vector3 origin, Vector3 dir, int n, ProjectileConfigSO cfg)
         {
-            var pts = new SpawnPoint[n];
+            bool use3D = Use3DFireConvention() || cfg.Is3D;
+            var pts    = new SpawnPoint[n];
+
             for (int i = 0; i < n; i++)
             {
                 float frac = n == 1 ? 0f : (i / (float)(n - 1) - 0.5f);
 
-                // FIX: use cfg.Is3D to pick correct spread rotation axis.
-                // 2D: spread around Z (in-plane). 3D: spread around Y (yaw).
-                Vector3 sDir = cfgIs3D
+                // 2D: rotate around Z (in-plane).  3D: rotate around Y (yaw spread).
+                Vector3 sDir = use3D
                     ? Quaternion.Euler(0f, frac * _spreadDeg, 0f) * dir
                     : Quaternion.Euler(0f, 0f, frac * _spreadDeg) * dir;
 
@@ -580,24 +577,23 @@ namespace TestGame
         }
 
         private SpawnPoint[] BuildSpawnPointsFromPattern(
-            Vector3 origin, Vector3 baseDir,
-            ProjectileConfigSO cfg, bool cfgIs3D)
+            Vector3 origin, Vector3 baseDir, ProjectileConfigSO cfg)
         {
-            var angleDirs = _shotPattern.SampleDirections();
-            var pts       = new SpawnPoint[angleDirs.Length];
+            bool use3D     = Use3DFireConvention() || cfg.Is3D;
+            var  angleDirs = _shotPattern.SampleDirections();
+            var  pts       = new SpawnPoint[angleDirs.Length];
 
             for (int i = 0; i < angleDirs.Length; i++)
             {
                 var angles = angleDirs[i];
 
-                Quaternion rot = cfgIs3D
+                Quaternion rot = use3D
                     ? Quaternion.Euler(-angles.y, angles.x, 0f)
                     : Quaternion.Euler(0f, 0f, angles.x);
 
-                Vector3 sDir = rot * baseDir;
-
-                float speedMult = _shotPattern.GetSpeedMultiplier(i, _shotPattern.RngSeed);
-                float speed     = cfg.ResolveSpeed() * speedMult;
+                Vector3 sDir      = rot * baseDir;
+                float   speedMult = _shotPattern.GetSpeedMultiplier(i, _shotPattern.RngSeed);
+                float   speed     = cfg.ResolveSpeed() * speedMult;
 
                 pts[i] = new SpawnPoint
                 {
@@ -606,7 +602,6 @@ namespace TestGame
                     Speed     = speed
                 };
             }
-
             return pts;
         }
 
@@ -624,7 +619,7 @@ namespace TestGame
 
         private void ApplyRigidbodyConstraints(Dimension dim)
         {
-            if (_rb == null) return;
+            if (_rb == null || !IsOwner) return;
             if (dim == Dimension.TwoD)
             {
                 _rb.constraints = RigidbodyConstraints.FreezePositionZ
@@ -636,7 +631,7 @@ namespace TestGame
                 _rb.constraints = RigidbodyConstraints.FreezeRotationX
                                 | RigidbodyConstraints.FreezeRotationZ;
                 _rb.useGravity  = true;
-                var p = transform.position;
+                var p          = transform.position;
                 transform.position = new Vector3(p.x, p.y, 0f);
                 _rb.velocity = new Vector3(_rb.velocity.x, 0f, _rb.velocity.z);
             }
@@ -677,6 +672,7 @@ namespace TestGame
             }
             if (_shotPoint3D == null)
             {
+                // Parent to head pivot so it rotates with mouse look
                 Transform parent = _headPivot != null ? _headPivot : transform;
                 var go = new GameObject("ShotPoint3D");
                 go.transform.SetParent(parent);
