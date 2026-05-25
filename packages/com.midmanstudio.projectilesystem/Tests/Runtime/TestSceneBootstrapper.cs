@@ -1,17 +1,23 @@
-// packages/com.midmanstudio.projectilesystem/Tests/Runtime/TestSceneBootstrapper.cs
+// TestSceneBootstrapper.cs
 // Initialises all required systems for the projectile test scene.
 // Attach to a persistent GameObject alongside LocalLobbyManager.
 //
-// SETUP ORDER (Script Execution Order):
-//   -100 : TestSceneBootstrapper  (must run before player spawns)
-//     0  : Everything else
+// CHANGES:
+//   + SpawnTestTargets now spawns TestTarget components, registers each with
+//     the projectile collision system, and stores refs for damage routing.
+//   + MID_MasterProjectileSystem.Instance.Adapter OnProjectileHit subscribed
+//     so hits automatically call TakeDamage on the matching TestTarget.
+//   + BobTargets syncs both 2D and 3D collision positions each frame.
+//   + PlayerSpawn correctly parents ShotPoint3D to headPivot (handled by player).
 
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using Unity.Netcode;
 using MidManStudio.Core.Logging;
 using MidManStudio.Core.Pools;
 using MidManStudio.Netcode.LocalMultiplayer;
+using MidManStudio.Projectiles.Adapters;
 using MidManStudio.Projectiles.Managers;
 using MidManStudio.Projectiles.Config;
 using MidManStudio.Projectiles.Core;
@@ -31,22 +37,19 @@ namespace TestGame
         [SerializeField] private NetworkManager                 _networkManager;
 
         [Header("Configs to Register on Start")]
-        [Tooltip("Drag all ProjectileConfigSO assets used in this test. " +
-                 "Registered in order — first = configId 0, second = 1, etc.")]
+        [Tooltip("Registered in order — first = configId 0, second = 1, etc.")]
         [SerializeField] private ProjectileConfigSO[] _configs;
 
-        [Header("Test Targets  (spawned by server at game start)")]
+        [Header("Test Targets")]
+        [Tooltip("Prefab must have TestTarget + NetworkObject components.")]
         [SerializeField] private GameObject _targetPrefab;
-        [SerializeField] private int        _targetCount        = 8;
-        [SerializeField] private float      _targetRadius       = 0.6f;
-        [SerializeField] private float      _targetSpawnRadius  = 8f;
+        [SerializeField] private int        _targetCount       = 8;
+        [SerializeField] private float      _targetSpawnRadius = 8f;
         [SerializeField] private float      _targetBobAmplitude = 0.4f;
         [SerializeField] private float      _targetBobSpeed     = 1.2f;
 
         [Header("UI Roots")]
-        [Tooltip("Canvas holding the lobby UI — disabled once game starts.")]
         [SerializeField] private Canvas _lobbyCanvas;
-        [Tooltip("Canvas holding the in-game HUD — enabled once game starts.")]
         [SerializeField] private Canvas _gameHUDCanvas;
 
         [Header("Player Prefab")]
@@ -62,8 +65,9 @@ namespace TestGame
 
         #region State
 
-        private readonly System.Collections.Generic.List<GameObject> _spawnedTargets = new(16);
-        private int _spawnIndex;
+        // Maps RegistrationId → TestTarget for damage routing
+        private readonly Dictionary<uint, TestTarget> _targetMap = new(16);
+        private readonly List<TestTarget>             _targets   = new(16);
 
         #endregion
 
@@ -71,36 +75,23 @@ namespace TestGame
 
         private void Awake()
         {
-            // Validate required refs
-            if (_lobbyManager == null)
-                _lobbyManager = FindObjectOfType<LocalLobbyManager>();
-            if (_objectPool == null)
-                _objectPool = FindObjectOfType<LocalObjectPool>();
-            if (_particlePool == null)
-                _particlePool = FindObjectOfType<LocalParticlePool>();
+            if (_lobbyManager    == null) _lobbyManager    = FindObjectOfType<LocalLobbyManager>();
+            if (_objectPool      == null) _objectPool      = FindObjectOfType<LocalObjectPool>();
+            if (_particlePool    == null) _particlePool    = FindObjectOfType<LocalParticlePool>();
         }
 
         private IEnumerator Start()
         {
-            MID_Logger.LogInfo(_logLevel, "Bootstrapper starting…",
-                nameof(TestSceneBootstrapper));
+            MID_Logger.LogInfo(_logLevel, "Bootstrapper starting…", nameof(TestSceneBootstrapper));
 
-            // ── Pool initialisation ───────────────────────────────────────────
+            // ── Pool init ─────────────────────────────────────────────────────
             if (_objectPool != null && !_objectPool.HasBeenInitialized())
-            {
                 _objectPool.CallInitializePool();
-                MID_Logger.LogInfo(_logLevel, "Object pool initialised.",
-                    nameof(TestSceneBootstrapper));
-            }
 
             if (_particlePool != null && !_particlePool.HasBeenInitialized())
-            {
                 _particlePool.CallInitializePool();
-                MID_Logger.LogInfo(_logLevel, "Particle pool initialised.",
-                    nameof(TestSceneBootstrapper));
-            }
 
-            // ── Register projectile configs ───────────────────────────────────
+            // ── Register configs ──────────────────────────────────────────────
             if (_registry != null && _configs != null)
             {
                 foreach (var cfg in _configs)
@@ -108,25 +99,21 @@ namespace TestGame
                     if (cfg == null) continue;
                     ushort id = _registry.Register(cfg);
                     MID_Logger.LogInfo(_logLevel,
-                        $"Registered config '{cfg.name}' → id={id}",
-                        nameof(TestSceneBootstrapper));
+                        $"Registered '{cfg.name}' → configId={id}", nameof(TestSceneBootstrapper));
                 }
             }
 
-            // ── Subscribe to lobby events ─────────────────────────────────────
+            // ── Subscribe to lobby game-start ─────────────────────────────────
             if (_lobbyManager != null)
                 _lobbyManager.OnGameStartReceived += HandleGameStart;
 
-            // ── NGO client connect callback ───────────────────────────────────
             if (_networkManager != null)
-                _networkManager.OnClientConnectedCallback += HandleClientConnected;
+                _networkManager.OnClientConnectedCallback += id =>
+                    MID_Logger.LogInfo(_logLevel, $"Client {id} connected.",
+                        nameof(TestSceneBootstrapper));
 
-            // Set initial UI state
             SetLobbyUIActive(true);
-
-            MID_Logger.LogInfo(_logLevel, "Bootstrapper ready.",
-                nameof(TestSceneBootstrapper));
-
+            MID_Logger.LogInfo(_logLevel, "Bootstrapper ready.", nameof(TestSceneBootstrapper));
             yield break;
         }
 
@@ -134,8 +121,13 @@ namespace TestGame
         {
             if (_lobbyManager != null)
                 _lobbyManager.OnGameStartReceived -= HandleGameStart;
-            if (_networkManager != null)
-                _networkManager.OnClientConnectedCallback -= HandleClientConnected;
+
+            // Unsubscribe hit event
+            if (_projectileSystem != null
+                && _projectileSystem.GetAuthority()?.Adapter != null)
+            {
+                _projectileSystem.GetAuthority().Adapter.OnProjectileHit -= OnProjectileHit;
+            }
         }
 
         #endregion
@@ -145,8 +137,7 @@ namespace TestGame
         private void HandleGameStart(LocalLobbySnapshot snapshot)
         {
             MID_Logger.LogInfo(_logLevel,
-                $"Game start — {snapshot.Players.Count} players.",
-                nameof(TestSceneBootstrapper));
+                $"Game start — {snapshot.Players.Count} players.", nameof(TestSceneBootstrapper));
 
             SetLobbyUIActive(false);
             StartCoroutine(SpawnEntitiesCoroutine(snapshot));
@@ -154,18 +145,23 @@ namespace TestGame
 
         private IEnumerator SpawnEntitiesCoroutine(LocalLobbySnapshot snapshot)
         {
-            // Give NGO one frame to stabilise after game-start RPC
             yield return null;
             yield return null;
 
-            // Server spawns targets and registers them as collision targets
             if (_networkManager != null && _networkManager.IsServer)
             {
                 SpawnTestTargets();
+
+                // Subscribe to projectile hit events AFTER targets are registered
+                if (_projectileSystem != null
+                    && _projectileSystem.GetAuthority()?.Adapter != null)
+                {
+                    _projectileSystem.GetAuthority().Adapter.OnProjectileHit += OnProjectileHit;
+                }
+
                 StartCoroutine(BobTargets());
             }
 
-            // Server spawns player prefabs for each real player
             if (_networkManager != null && _networkManager.IsServer && _playerPrefab != null)
             {
                 for (int i = 0; i < snapshot.Players.Count; i++)
@@ -173,18 +169,16 @@ namespace TestGame
                     var p = snapshot.Players[i];
                     if (p.IsBot) continue;
 
-                    var spawnPos = GetSpawnPoint(i);
-                    var go       = Instantiate(_playerPrefab, spawnPos, Quaternion.identity);
-                    var netObj   = go.GetComponent<NetworkObject>();
-                    if (netObj != null)
-                        netObj.SpawnAsPlayerObject(p.ClientId);
+                    var go  = Instantiate(_playerPrefab, GetSpawnPoint(i), Quaternion.identity);
+                    var no  = go.GetComponent<NetworkObject>();
+                    if (no != null) no.SpawnAsPlayerObject(p.ClientId);
                 }
             }
         }
 
         #endregion
 
-        #region Targets
+        #region Target Spawning
 
         private void SpawnTestTargets()
         {
@@ -193,58 +187,119 @@ namespace TestGame
             for (int i = 0; i < _targetCount; i++)
             {
                 float angle = i / (float)_targetCount * 360f * Mathf.Deg2Rad;
-                var pos     = new Vector3(
+                var   pos   = new Vector3(
                     Mathf.Cos(angle) * _targetSpawnRadius,
                     0f,
                     Mathf.Sin(angle) * _targetSpawnRadius);
 
                 var go = Instantiate(_targetPrefab, pos, Quaternion.identity);
-                _spawnedTargets.Add(go);
+                var no = go.GetComponent<NetworkObject>();
+                no?.Spawn();
 
-                // Register as 2D collision target (XY plane)
+                var target = go.GetComponent<TestTarget>();
+                if (target == null) { Debug.LogError("[Bootstrapper] Target prefab missing TestTarget component!"); continue; }
+
+                // Assign unique ID starting at 100 to avoid collision with owner IDs
+                uint regId = (uint)(100 + i);
+                target.RegistrationId = regId;
+                _targets.Add(target);
+                _targetMap[regId] = target;
+
+                // Subscribe to death event so we can unregister from collision system
+                target.OnDestroyedServer += OnTargetDestroyed;
+
+                // Register 2D collision target
                 if (_projectileSystem != null)
                 {
                     _projectileSystem.RegisterTarget2D(new CollisionTarget
                     {
                         X        = pos.x,
                         Y        = pos.y,
-                        Radius   = _targetRadius,
-                        TargetId = (uint)(100 + i),
+                        Radius   = target.GetComponent<SphereCollider>()?.radius ?? 0.6f,
+                        TargetId = regId,
+                        Active   = 1
+                    });
+
+                    // Register 3D collision target as well
+                    _projectileSystem.RegisterTarget3D(new CollisionTarget3D
+                    {
+                        X        = pos.x,
+                        Y        = pos.y,
+                        Z        = pos.z,
+                        Radius   = target.GetComponent<SphereCollider>()?.radius ?? 0.6f,
+                        TargetId = regId,
                         Active   = 1
                     });
                 }
-            }
 
-            MID_Logger.LogInfo(_logLevel,
-                $"Spawned {_targetCount} test targets.",
-                nameof(TestSceneBootstrapper));
+                MID_Logger.LogInfo(_logLevel,
+                    $"Spawned target id={regId} pos={pos}", nameof(TestSceneBootstrapper));
+            }
         }
+
+        private void OnTargetDestroyed(TestTarget target)
+        {
+            if (_projectileSystem == null) return;
+
+            // Deactivate in collision system while dead
+            _projectileSystem.DeactivateTarget2D(target.RegistrationId);
+            _projectileSystem.DeactivateTarget3D(target.RegistrationId);
+        }
+
+        #endregion
+
+        #region Hit Routing
+
+        private void OnProjectileHit(ProjectileHitPayload payload)
+        {
+            if (!_targetMap.TryGetValue(payload.TargetId, out var target)) return;
+            target.TakeDamage(payload.Damage);
+        }
+
+        #endregion
+
+        #region Bob Animation
 
         private IEnumerator BobTargets()
         {
             while (true)
             {
                 float t = Time.time * _targetBobSpeed;
-                for (int i = 0; i < _spawnedTargets.Count; i++)
+                for (int i = 0; i < _targets.Count; i++)
                 {
-                    var go = _spawnedTargets[i];
-                    if (go == null) continue;
+                    var target = _targets[i];
+                    if (target == null || !target.IsSpawned) continue;
 
-                    float phase = i / (float)_spawnedTargets.Count * Mathf.PI * 2f;
-                    var p       = go.transform.position;
-                    go.transform.position = new Vector3(p.x,
-                        Mathf.Sin(t + phase) * _targetBobAmplitude, p.z);
+                    float phase = i / (float)Mathf.Max(_targets.Count, 1) * Mathf.PI * 2f;
+                    float bobY  = Mathf.Sin(t + phase) * _targetBobAmplitude;
+                    var   pos   = target.transform.position;
+                    var   newY  = bobY; // keep original XZ, animate Y
 
-                    // Sync updated Y to collision system each frame
+                    target.transform.position = new Vector3(pos.x, newY, pos.z);
+
                     if (_projectileSystem != null)
                     {
+                        uint regId = target.RegistrationId;
+
+                        // Sync 2D collision (uses X and Y as 2D world coords)
                         _projectileSystem.RegisterTarget2D(new CollisionTarget
                         {
-                            X        = p.x,
-                            Y        = go.transform.position.y,
-                            Radius   = _targetRadius,
-                            TargetId = (uint)(100 + i),
-                            Active   = 1
+                            X        = pos.x,
+                            Y        = newY,
+                            Radius   = target.GetComponent<SphereCollider>()?.radius ?? 0.6f,
+                            TargetId = regId,
+                            Active   = (byte)(_targets[i].gameObject.activeSelf ? 1 : 0)
+                        });
+
+                        // Sync 3D collision
+                        _projectileSystem.RegisterTarget3D(new CollisionTarget3D
+                        {
+                            X        = pos.x,
+                            Y        = newY,
+                            Z        = pos.z,
+                            Radius   = target.GetComponent<SphereCollider>()?.radius ?? 0.6f,
+                            TargetId = regId,
+                            Active   = (byte)(_targets[i].gameObject.activeSelf ? 1 : 0)
                         });
                     }
                 }
@@ -256,25 +311,16 @@ namespace TestGame
 
         #region Helpers
 
-        private void HandleClientConnected(ulong clientId)
-        {
-            MID_Logger.LogInfo(_logLevel,
-                $"Client {clientId} connected.",
-                nameof(TestSceneBootstrapper));
-        }
-
         private void SetLobbyUIActive(bool active)
         {
-            if (_lobbyCanvas    != null) _lobbyCanvas.gameObject.SetActive(active);
-            if (_gameHUDCanvas  != null) _gameHUDCanvas.gameObject.SetActive(!active);
+            if (_lobbyCanvas   != null) _lobbyCanvas.gameObject.SetActive(active);
+            if (_gameHUDCanvas != null) _gameHUDCanvas.gameObject.SetActive(!active);
         }
 
         private Vector3 GetSpawnPoint(int index)
         {
             if (_playerSpawnPoints != null && _playerSpawnPoints.Length > 0)
                 return _playerSpawnPoints[index % _playerSpawnPoints.Length].position;
-
-            // Fallback: evenly spaced around origin
             float a = index / (float)Mathf.Max(_targetCount, 1) * Mathf.PI * 2f;
             return new Vector3(Mathf.Cos(a) * 3f, 0f, Mathf.Sin(a) * 3f);
         }
