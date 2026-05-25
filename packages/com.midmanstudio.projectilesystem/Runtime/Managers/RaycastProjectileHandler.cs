@@ -1,13 +1,6 @@
 // RaycastProjectileHandler.cs
-//
-// FIX (rotation): SpawnVisualLocal used LookRotation(Vector3.forward, dir) —
-//   same bug as ClientPredictionManager. Fixed with ClientPredictionManager.GetDirectionRotation.
-//
-// FIX (rotation during travel): Update loop now re-applies rotation each frame
-//   as the visual moves toward the hit point, so it always faces its travel direction.
-//
-// NOTE: Sprite draw order over trail is handled in ProjectileVisual_.cs via
-//   SpriteRenderer.sortingOrder > TrailRenderer.sortingOrder.
+// CHANGE: SpawnVisualLocal now uses ProjectileVisualBase instead of ProjectileVisual_
+//   so both 2D and 3D pool visuals work correctly.
 
 using System;
 using System.Collections.Generic;
@@ -40,8 +33,10 @@ namespace MidManStudio.Projectiles.Managers
 
         [Header("Visual")]
         [SerializeField] private float _visualTravelSpeed = 40f;
-        [SerializeField] private PoolableObjectType _visualPoolType
+        [SerializeField] private PoolableObjectType _visualPoolType2D
             = PoolableObjectType.Projectile_Visual2D;
+        [SerializeField] private PoolableObjectType _visualPoolType3D
+            = PoolableObjectType.Projectile_Visual3D;
 
         [Header("Server Validation")]
         [SerializeField] private float _hitValidationTolerance = 2f;
@@ -68,6 +63,7 @@ namespace MidManStudio.Projectiles.Managers
             public Vector3    HitPoint;
             public float      Speed;
             public ushort     ConfigId;
+            public PoolableObjectType PoolType;
         }
 
         private readonly List<ActiveVisual> _activeVisuals = new(64);
@@ -103,11 +99,6 @@ namespace MidManStudio.Projectiles.Managers
                 serverConfirmed = ValidateHitServer(
                     clientResult, out serverHitPoint,
                     out serverTargetId, out serverHeadshot);
-
-                if (!serverConfirmed)
-                    MID_Logger.LogDebug(_logLevel,
-                        $"Hit rejected: client={clientResult.HitPoint} server={serverHitPoint}",
-                        nameof(RaycastProjectileHandler));
             }
 
             if (serverConfirmed && serverTargetId != 0)
@@ -119,8 +110,7 @@ namespace MidManStudio.Projectiles.Managers
                 damage *= context.DamageMultiplier;
 
                 var gameData = BuildRaycastGameData(context, configId, cfg);
-
-                var payload = new ProjectileHitPayload
+                var payload  = new ProjectileHitPayload
                 {
                     ProjId                 = 0,
                     ConfigId               = configId,
@@ -136,7 +126,6 @@ namespace MidManStudio.Projectiles.Managers
                     WeaponLevel            = context.WeaponLevel,
                     GameData               = gameData
                 };
-
                 OnServerHitConfirmed?.Invoke(payload);
             }
 
@@ -169,15 +158,13 @@ namespace MidManStudio.Projectiles.Managers
                 _serverRaycastLayers);
 
             if (!serverHit.collider) return false;
-
             serverHitPoint = serverHit.point;
 
             float dist = Vector3.Distance(serverHitPoint, clientResult.HitPoint);
             if (dist > _hitValidationTolerance) return false;
 
             var netObj = serverHit.collider.GetComponentInParent<NetworkObject>();
-            if (netObj != null)
-                serverTargetId = netObj.NetworkObjectId;
+            if (netObj != null) serverTargetId = netObj.NetworkObjectId;
 
             serverHeadshot = clientResult.IsHeadshot;
             return true;
@@ -200,24 +187,21 @@ namespace MidManStudio.Projectiles.Managers
             ushort configId, int visualId)
         {
             var cfg = ProjectileRegistry.Instance.Get(configId);
-            if (cfg == null || !cfg.UseSprite) return;
+            if (cfg == null) return;
 
-            if (LocalObjectPool.Instance == null)
-            {
-                MID_Logger.LogWarning(_logLevel,
-                    "LocalObjectPool unavailable — visual not spawned.",
-                    nameof(RaycastProjectileHandler));
-                return;
-            }
+            if (LocalObjectPool.Instance == null) return;
 
-            Vector3    dir = (hitPoint - origin).normalized;
-            // FIX: correct rotation for 2D and 3D projectiles
-            Quaternion rot = ClientPredictionManager.GetDirectionRotation(dir);
+            Vector3    dir      = (hitPoint - origin).normalized;
+            Quaternion rot      = ClientPredictionManager.GetDirectionRotation(dir);
 
-            var obj = LocalObjectPool.Instance.GetObject(_visualPoolType, origin, rot);
+            // Select correct pool type by cfg.Is3D
+            PoolableObjectType poolType = cfg.Is3D ? _visualPoolType3D : _visualPoolType2D;
+
+            var obj = LocalObjectPool.Instance.GetObject(poolType, origin, rot);
             if (obj == null) return;
 
-            var vis = obj.GetComponent<ProjectileVisual_>();
+            // Works for ProjectileVisual_ (2D) AND ProjectileVisual3D
+            var vis = obj.GetComponent<ProjectileVisualBase>();
             vis?.InitializeClientVisual(configId, origin, dir, _visualTravelSpeed);
 
             _activeVisuals.Add(new ActiveVisual
@@ -227,7 +211,8 @@ namespace MidManStudio.Projectiles.Managers
                 Origin    = origin,
                 HitPoint  = hitPoint,
                 Speed     = _visualTravelSpeed,
-                ConfigId  = configId
+                ConfigId  = configId,
+                PoolType  = poolType
             });
         }
 
@@ -250,7 +235,6 @@ namespace MidManStudio.Projectiles.Managers
                     v.HitPoint,
                     v.Speed * Time.deltaTime);
 
-                // FIX: keep rotation correct during travel
                 Vector3 travelDir = v.HitPoint - v.Obj.transform.position;
                 if (travelDir.sqrMagnitude > 0.001f)
                     ClientPredictionManager.ApplyDirectionRotation(
@@ -272,14 +256,12 @@ namespace MidManStudio.Projectiles.Managers
         #region Visual Cleanup
 
         private void PlayImpactEffect(ActiveVisual v)
-        {
-            ProjectileImpactHandler.Instance?.PlayImpact(v.HitPoint, v.ConfigId);
-        }
+            => ProjectileImpactHandler.Instance?.PlayImpact(v.HitPoint, v.ConfigId);
 
         private void ReturnVisual(ActiveVisual v)
         {
             if (v.Obj == null) return;
-            LocalObjectPool.Instance?.ReturnObject(v.Obj, _visualPoolType);
+            LocalObjectPool.Instance?.ReturnObject(v.Obj, v.PoolType);
         }
 
         #endregion
@@ -314,7 +296,6 @@ namespace MidManStudio.Projectiles.Managers
                     HitPosition  = result.HitPoint,
                     OwnerLocalId = ownerLocalId
                 };
-
                 LocalProjectileManager.Instance.FireHitEvent(payload);
             }
 
