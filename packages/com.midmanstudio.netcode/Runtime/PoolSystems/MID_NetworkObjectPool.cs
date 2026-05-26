@@ -7,7 +7,8 @@
 //   1. Add this component to a persistent NetworkBehaviour in your scene.
 //   2. Fill pooledPrefabsList in the inspector. Each prefab needs a NetworkObject
 //      component. Add a component implementing IPoolableNetworkObject for cleanup hooks.
-//   3. Call InitializePool() before any spawning (e.g. from your GameManager).
+//   3. Pool initialises automatically on OnNetworkSpawn (server and client).
+//      You no longer need to call InitializePool() manually.
 //
 // USAGE (server-side only):
 //   var netObj = MID_NetworkObjectPool.Singleton
@@ -16,6 +17,10 @@
 //   // ... later ...
 //   MID_NetworkObjectPool.Singleton
 //       .ReturnNetworkObject(netObj, PoolableNetworkObjectType.MyWeapon);
+//
+// FIX: InitializePool() is now called automatically in OnNetworkSpawn so the pool
+//      is always ready when NGO starts. Previously it required a manual call from a
+//      GameManager which was easy to miss, causing "type not registered" errors.
 
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
@@ -83,6 +88,14 @@ namespace MidManStudio.Netcode.Pools
             }
             _instance = this;
             _targetScene = gameObject.scene;
+        }
+
+        // FIX: auto-initialise on NGO spawn so the pool is ready without a
+        // manual InitializePool() call from external game code.
+        public override void OnNetworkSpawn()
+        {
+            base.OnNetworkSpawn();
+            InitializePool();
         }
 
         public override void OnNetworkDespawn()
@@ -154,7 +167,8 @@ namespace MidManStudio.Netcode.Pools
             if (!_registeredTypes.Contains(type))
             {
                 MID_Logger.LogError(_logLevel,
-                    $"{type} not registered.",
+                    $"{type} not registered. Make sure the prefab is in the pool's " +
+                    "pooledPrefabsList and the pool NetworkObject has spawned.",
                     nameof(MID_NetworkObjectPool), nameof(GetNetworkObject));
                 return null;
             }
