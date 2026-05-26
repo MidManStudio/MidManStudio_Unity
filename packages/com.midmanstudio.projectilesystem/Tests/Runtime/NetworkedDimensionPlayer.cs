@@ -1,20 +1,16 @@
 // NetworkedDimensionPlayer.cs
 //
-// FIX (3D direction not rotating):
-//   HandleMouseLook was gated on _currentDimension == ThreeD only.
-//   In RustSim3D shoot mode with 2D dimension, pitch never changed so
-//   _headPivot.forward stayed flat → bullets always fired horizontally.
-//   Fix: mouse look runs when Use3DFireConvention() OR dimension is 3D.
-//
-// FIX (LocalOnly 3D fire ignored Z):
-//   When Use3DFireConvention() but cfg.Is3D=false, the 2D buffer ignores Z.
-//   Fix: LocalOnly path forces Spawn3D when Use3DFireConvention() is true.
-//   Adds validation warning when networked 3D mode uses a 2D config.
-//
-// AUDIO + FX:
-//   Fire sound via MID_NativeAudioBridge (clip index _fireSoundClipIndex).
-//   Muzzle flash via GlobalFXManager.TriggerMuzzleFlash.
-//   Falls back to AudioSource.PlayOneShot if NativeAudio not available.
+// FIXES:
+//   + Pattern 3D: BuildSpawnPointsFromPattern now uses local coordinate frame
+//     (right = cross(dir, up), localUp = cross(right, dir)) so horizontal/vertical
+//     spread is always relative to the fire direction, not world axes.
+//     Previously Quaternion.Euler(-y, x, 0) * baseDir rotated in world space
+//     causing all ring/fan bullets to overlap when camera was pitched.
+//   + Fire() in networked mode now packs ExtraDirections into ProjectileFireRequest
+//     so the server uses per-projectile directions for patterns.
+//   + Dash: LeftShift gives a short speed burst in movement direction.
+//   + Mouse look runs whenever Use3DFireConvention() regardless of dimension.
+//   + Audio/FX via GlobalFXManager + MID_NativeAudioBridge.
 
 using UnityEngine;
 using Unity.Netcode;
@@ -59,15 +55,19 @@ namespace TestGame
         [SerializeField] private float _moveSpeed3D = 5f;
         [SerializeField] private float _jumpForce   = 7f;
 
+        [Header("Dash")]
+        [SerializeField] private KeyCode _dashKey        = KeyCode.LeftShift;
+        [SerializeField] private float   _dashSpeed      = 16f;
+        [SerializeField] private float   _dashDuration   = 0.12f;
+        [SerializeField] private float   _dashCooldown   = 0.9f;
+
         [Header("3D Mouse Look")]
         [SerializeField] private float _mouseSensitivity = 2f;
         [SerializeField, Range(-80f, 0f)]  private float _pitchMin = -80f;
         [SerializeField, Range(0f,  80f)]  private float _pitchMax =  80f;
 
         [Header("Projectile Config IDs")]
-        [Tooltip("Config used when dimension=2D or mode=RustSim2D/LocalOnly.")]
         [SerializeField] private ushort _configId2D = 0;
-        [Tooltip("Config used when dimension=3D or mode=RustSim3D. MUST have Is3D=true on the SO.")]
         [SerializeField] private ushort _configId3D = 0;
 
         [Header("Fire Settings")]
@@ -93,21 +93,19 @@ namespace TestGame
         [Header("Physics Projectile Settings")]
         [SerializeField] private PoolableNetworkObjectType _physicsPoolType
             = PoolableNetworkObjectType.BaseProjectileBlueprint;
-        [SerializeField] private float _physicsProjectileSpeed   = 20f;
-        [SerializeField] private float _physicsDamageMultiplier  = 1f;
+        [SerializeField] private float _physicsProjectileSpeed  = 20f;
+        [SerializeField] private float _physicsDamageMultiplier = 1f;
 
-        [Header("Audio — Native Bridge")]
-        [Tooltip("Clip index in MID_NativeAudioBridge._clips for fire sound.")]
-        [SerializeField] private int   _fireSoundClipIndex  = 0;
+        [Header("Audio — NativeAudioBridge clip index")]
+        [SerializeField] private int   _fireSoundClipIndex   = 0;
         [SerializeField, Range(0f,1f)] private float _fireSoundVolume = 0.7f;
-        [Tooltip("Fallback AudioSource if NativeAudioBridge is not in scene.")]
         [SerializeField] private AudioSource _fallbackAudioSource;
         [SerializeField] private AudioClip   _fallbackFireClip;
         [SerializeField, Range(0f,1f)] private float _fallbackVolume = 0.6f;
         [SerializeField, Range(0.01f,0.3f)] private float _fallbackPitchVariance = 0.1f;
 
         [Header("Muzzle Flash — GlobalFX")]
-        [SerializeField] private int _muzzleFlashParticleCount = 4;
+        [SerializeField] private int   _muzzleFlashParticleCount = 4;
         [SerializeField, Range(0f,1f)] private float _muzzleFlashVolume = 0.8f;
 
         [Header("Debug")]
@@ -132,6 +130,12 @@ namespace TestGame
         private float     _nextFireTime;
         private float     _yaw;
         private float     _pitch;
+
+        // Dash state
+        private float _nextDashTime;
+        private bool  _isDashing;
+        private float _dashEndTime;
+        private Vector3 _dashDir;
 
         #endregion
 
@@ -204,7 +208,6 @@ namespace TestGame
 
         private void Update()
         {
-            // Non-owner: mirror head-pitch from network variable
             if (!IsOwner)
             {
                 if (_headPivot != null)
@@ -218,17 +221,20 @@ namespace TestGame
                 && !DimensionManager.Instance.IsTransitioning)
                 DimensionManager.Instance.SwitchDimension();
 
-            // Shoot mode hotkeys
+            // Mode hotkeys
             if (Input.GetKeyDown(KeyCode.Alpha1)) ChangeMode(PlayerShootMode.LocalOnly);
             if (Input.GetKeyDown(KeyCode.Alpha2)) ChangeMode(PlayerShootMode.RustSim2D);
             if (Input.GetKeyDown(KeyCode.Alpha3)) ChangeMode(PlayerShootMode.RustSim3D);
             if (Input.GetKeyDown(KeyCode.Alpha4)) ChangeMode(PlayerShootMode.Raycast);
             if (Input.GetKeyDown(KeyCode.Alpha5)) ChangeMode(PlayerShootMode.Physics);
 
-            // FIX: mouse look activates when 3D dimension OR when a 3D-convention mode is active.
-            // Previously only ran in 3D dimension → RustSim3D in 2D view had no pitch → bullets flat.
+            // Mouse look: active in 3D dimension OR when using 3D fire convention
             if (_currentDimension == Dimension.ThreeD || Use3DFireConvention())
                 HandleMouseLook();
+
+            // Dash trigger
+            if (Input.GetKeyDown(_dashKey) && Time.time >= _nextDashTime && !_isDashing)
+                StartDash();
 
             HandleFire();
         }
@@ -241,13 +247,42 @@ namespace TestGame
 
         #endregion
 
+        #region Dash
+
+        private void StartDash()
+        {
+            // Compute dash direction from current input (or forward if no input)
+            float h = Input.GetAxisRaw("Horizontal");
+            float v = Input.GetAxisRaw("Vertical");
+
+            if (Use3DFireConvention() || _currentDimension == Dimension.ThreeD)
+            {
+                Vector3 inputDir = (transform.right * h + transform.forward * v);
+                _dashDir = inputDir.sqrMagnitude > 0.01f
+                    ? inputDir.normalized
+                    : (_headPivot != null ? _headPivot.forward : transform.forward);
+            }
+            else
+            {
+                Vector3 inputDir = new Vector3(h, v, 0f);
+                _dashDir = inputDir.sqrMagnitude > 0.01f
+                    ? inputDir.normalized
+                    : transform.right;
+            }
+
+            _isDashing    = true;
+            _dashEndTime  = Time.time + _dashDuration;
+            _nextDashTime = Time.time + _dashCooldown;
+        }
+
+        #endregion
+
         #region Shoot Mode
 
         private void ChangeMode(PlayerShootMode m)
         {
             _shootMode = m;
             UpdateModeText();
-            // When switching to a 3D mode, lock cursor for aiming
             if (Use3DFireConvention())
             {
                 Cursor.lockState = CursorLockMode.Locked;
@@ -258,7 +293,6 @@ namespace TestGame
                 Cursor.lockState = CursorLockMode.None;
                 Cursor.visible   = true;
             }
-            MID_Logger.LogInfo(_logLevel, $"Shoot mode → {m}", nameof(NetworkedDimensionPlayer));
         }
 
         private void UpdateModeText()
@@ -302,7 +336,19 @@ namespace TestGame
             float h = Input.GetAxisRaw("Horizontal");
             float v = Input.GetAxisRaw("Vertical");
 
-            if (_currentDimension == Dimension.TwoD && !Use3DFireConvention())
+            if (_isDashing)
+            {
+                if (Time.time >= _dashEndTime)
+                    _isDashing = false;
+                else
+                {
+                    _rb.velocity = _dashDir * _dashSpeed;
+                    return;
+                }
+            }
+
+            bool use3D = _currentDimension == Dimension.ThreeD || Use3DFireConvention();
+            if (!use3D)
             {
                 _rb.velocity = new Vector3(h * _moveSpeed2D, v * _moveSpeed2D, 0f);
             }
@@ -340,23 +386,18 @@ namespace TestGame
 
         private void PlayFireFX()
         {
-            Vector3 origin = ResolveShotPoint(Use3DFireConvention())?.position
-                           ?? transform.position;
+            Transform sp = ResolveShotPoint(Use3DFireConvention());
+            Vector3 origin = sp != null ? sp.position : transform.position;
             Vector3 dir    = ResolveFireDir();
 
-            // ── Sound ─────────────────────────────────────────────────────────
             if (MID_NativeAudioBridge.HasInstance)
-            {
                 MID_NativeAudioBridge.Instance.PlayClip(_fireSoundClipIndex, _fireSoundVolume);
-            }
             else if (_fallbackAudioSource != null && _fallbackFireClip != null)
             {
-                _fallbackAudioSource.pitch = 1f + Random.Range(
-                    -_fallbackPitchVariance, _fallbackPitchVariance);
+                _fallbackAudioSource.pitch = 1f + Random.Range(-_fallbackPitchVariance, _fallbackPitchVariance);
                 _fallbackAudioSource.PlayOneShot(_fallbackFireClip, _fallbackVolume);
             }
 
-            // ── Muzzle flash ──────────────────────────────────────────────────
             GlobalFXManager.Instance?.TriggerMuzzleFlash(
                 origin, dir, _muzzleFlashParticleCount, _muzzleFlashVolume);
         }
@@ -367,26 +408,20 @@ namespace TestGame
 
         private ushort ResolveConfigId()
         {
-            bool prefer3DSlot = _shootMode == PlayerShootMode.RustSim3D
-                             || (_shootMode != PlayerShootMode.RustSim2D
-                                 && _currentDimension == Dimension.ThreeD);
-            return prefer3DSlot ? _configId3D : _configId2D;
+            bool prefer3D = _shootMode == PlayerShootMode.RustSim3D
+                         || (_shootMode != PlayerShootMode.RustSim2D
+                             && _currentDimension == Dimension.ThreeD);
+            return prefer3D ? _configId3D : _configId2D;
         }
 
-        /// <summary>
-        /// True when current mode/dimension requires 3D firing conventions
-        /// (head-pivot forward, Y-axis spread). Decoupled from cfg.Is3D.
-        /// </summary>
         private bool Use3DFireConvention()
             => _currentDimension == Dimension.ThreeD
             || _shootMode == PlayerShootMode.RustSim3D;
 
         private Vector3 ResolveFireDir()
-        {
-            if (Use3DFireConvention() && _headPivot != null)
-                return _headPivot.forward;
-            return transform.right;
-        }
+            => (Use3DFireConvention() && _headPivot != null)
+                ? _headPivot.forward
+                : transform.right;
 
         private Transform ResolveShotPoint(bool use3D)
             => use3D ? _shotPoint3D : _shotPoint2D;
@@ -408,14 +443,8 @@ namespace TestGame
                 return;
             }
 
-            // Warn if 3D convention used with 2D config (bullets will ignore Z)
-            if (Use3DFireConvention() && !cfg.Is3D)
-                MID_Logger.LogWarning(_logLevel,
-                    $"RustSim3D/3D mode: config '{cfg.name}' has Is3D=false. " +
-                    "Enable Is3D on the SO for correct 3D simulation.",
-                    nameof(NetworkedDimensionPlayer));
-
-            Transform sp   = ResolveShotPoint(Use3DFireConvention() || cfg.Is3D);
+            bool    use3D  = Use3DFireConvention() || cfg.Is3D;
+            Transform sp   = ResolveShotPoint(use3D);
             Vector3 origin = sp != null ? sp.position : transform.position;
             Vector3 dir    = ResolveFireDir();
 
@@ -423,46 +452,55 @@ namespace TestGame
                 ? _shotPattern.ProjectileCount
                 : Mathf.Max(_pelletsPerShot, 1);
 
-            var pts = BuildSpawnPoints(origin, dir, n, cfg);
+            SpawnPoint[] pts = BuildSpawnPoints(origin, dir, n, cfg);
 
             bool networked = _shootMode != PlayerShootMode.LocalOnly
                           && MID_MasterProjectileSystem.Instance.IsNetworked
                           && IsSpawned;
 
-            // LOCAL PATH:
-            // Force 3D buffer when convention is 3D, even if cfg.Is3D=false,
-            // so the Z-axis velocity component is used correctly.
             if (!networked)
             {
-                bool use3DBuffer = Use3DFireConvention() || cfg.Is3D;
-
                 if (LocalProjectileManager.HasInstance)
                 {
-                    if (use3DBuffer)
-                        LocalProjectileManager.Instance.Spawn3D(
-                            pts, pts.Length, cfgId, (uint)OwnerClientId, 1f);
+                    if (use3D)
+                        LocalProjectileManager.Instance.Spawn3D(pts, pts.Length, cfgId, (uint)OwnerClientId, 1f);
                     else
-                        LocalProjectileManager.Instance.Spawn2D(
-                            pts, pts.Length, cfgId, (uint)OwnerClientId, 1f);
+                        LocalProjectileManager.Instance.Spawn2D(pts, pts.Length, cfgId, (uint)OwnerClientId, 1f);
                 }
                 return;
             }
 
-            // NETWORKED PATH:
-            var ctx = new WeaponFireContext
+            // Networked: pack extra directions for pattern support
+            int     extraCount = Mathf.Min(pts.Length - 1, 63);
+            Vector3[] extraDirs = null;
+            if (extraCount > 0)
             {
-                FireRate               = _fireRate,
-                ProjectileCount        = pts.Length,
-                IsNetworked            = true,
-                IsRaycastWeapon        = false,
+                extraDirs = new Vector3[extraCount];
+                for (int i = 0; i < extraCount; i++)
+                    extraDirs[i] = pts[i + 1].Direction;
+            }
+
+            var request = new ProjectileFireRequest
+            {
+                ConfigId               = cfgId,
+                Origin                 = origin,
+                Direction              = pts[0].Direction,
+                Speed                  = pts[0].Speed,
+                RngSeed                = (uint)UnityEngine.Random.Range(0, int.MaxValue),
+                ProjectileCount        = (byte)Mathf.Min(pts.Length, 255),
                 OwnerMidId             = OwnerClientId,
                 FiredByNetworkObjectId = NetworkObjectId,
                 IsBotOwner             = false,
                 WeaponLevel            = 1,
-                DamageMultiplier       = 1f
+                DamageMultiplier       = 1f,
+                ClientFireTick         = MID_MasterProjectileSystem.Instance.GetBridgeTick(),
+                ExtraDirectionCount    = (byte)extraCount,
+                ExtraDirections        = extraDirs
             };
 
-            MID_MasterProjectileSystem.Instance.Fire(cfgId, pts, pts.Length, ctx);
+            // Send directly via bridge (bypasses MID_MasterProjectileSystem.Fire which rebuilds pts)
+            var bridge = MID_MasterProjectileSystem.Instance.GetBridge();
+            bridge?.FireServerRpc(request);
         }
 
         #endregion
@@ -489,8 +527,7 @@ namespace TestGame
             {
                 if (Physics.Raycast(origin, dir, out RaycastHit h, _raycastRange, _raycastLayers))
                 {
-                    hit   = true;
-                    hitPt = h.point;
+                    hit = true; hitPt = h.point;
                     var no = h.collider.GetComponentInParent<NetworkObject>();
                     if (no != null) netId = no.NetworkObjectId;
                 }
@@ -500,8 +537,7 @@ namespace TestGame
                 var h2 = Physics2D.Raycast(origin, dir, _raycastRange, _raycastLayers);
                 if (h2.collider != null)
                 {
-                    hit   = true;
-                    hitPt = h2.point;
+                    hit = true; hitPt = h2.point;
                     var no = h2.collider.GetComponentInParent<NetworkObject>();
                     if (no != null) netId = no.NetworkObjectId;
                 }
@@ -577,10 +613,12 @@ namespace TestGame
                 ? BuildSpawnPointsFromPattern(origin, dir, cfg)
                 : BuildSpawnPointsSpread(origin, dir, n, cfg);
 
-        private SpawnPoint[] BuildSpawnPointsSpread(Vector3 origin, Vector3 dir, int n, ProjectileConfigSO cfg)
+        private SpawnPoint[] BuildSpawnPointsSpread(
+            Vector3 origin, Vector3 dir, int n, ProjectileConfigSO cfg)
         {
-            bool use3D = Use3DFireConvention() || cfg.Is3D;
-            var pts    = new SpawnPoint[n];
+            bool   use3D = Use3DFireConvention() || cfg.Is3D;
+            var    pts   = new SpawnPoint[n];
+
             for (int i = 0; i < n; i++)
             {
                 float frac = n == 1 ? 0f : (i / (float)(n - 1) - 0.5f);
@@ -597,19 +635,53 @@ namespace TestGame
             return pts;
         }
 
-        private SpawnPoint[] BuildSpawnPointsFromPattern(Vector3 origin, Vector3 baseDir, ProjectileConfigSO cfg)
+        private SpawnPoint[] BuildSpawnPointsFromPattern(
+            Vector3 origin, Vector3 baseDir, ProjectileConfigSO cfg)
         {
             bool use3D     = Use3DFireConvention() || cfg.Is3D;
             var  angleDirs = _shotPattern.SampleDirections();
             var  pts       = new SpawnPoint[angleDirs.Length];
+
+            // FIX: build a local coordinate frame from baseDir so that
+            // horizontal spread rotates around the "local up" of the fire direction,
+            // and vertical spread rotates around the "local right".
+            // Previously Quaternion.Euler(-y, x, 0) * baseDir rotated in world space,
+            // which caused all bullets to cluster when the camera was pitched.
+            Vector3 localRight, localUp;
+            if (use3D)
+            {
+                // For 3D: build frame from fire direction
+                Vector3 worldUp  = Mathf.Abs(Vector3.Dot(baseDir.normalized, Vector3.up)) > 0.98f
+                    ? Vector3.forward : Vector3.up;
+                localRight = Vector3.Cross(baseDir, worldUp).normalized;
+                localUp    = Vector3.Cross(localRight, baseDir).normalized;
+            }
+            else
+            {
+                // For 2D: right is world-right-ish perp to baseDir in XY plane
+                localRight = Vector3.Cross(baseDir, Vector3.forward).normalized;
+                localUp    = Vector3.forward; // Z-axis for 2D rotation
+            }
+
             for (int i = 0; i < angleDirs.Length; i++)
             {
-                var        angles    = angleDirs[i];
-                Quaternion rot       = use3D
-                    ? Quaternion.Euler(-angles.y, angles.x, 0f)
-                    : Quaternion.Euler(0f, 0f, angles.x);
-                Vector3 sDir      = rot * baseDir;
-                float   speedMult = _shotPattern.GetSpeedMultiplier(i, _shotPattern.RngSeed);
+                var    angles     = angleDirs[i];
+                Vector3 sDir;
+
+                if (use3D)
+                {
+                    // Rotate baseDir: yaw around localUp, pitch around localRight
+                    Quaternion yawRot   = Quaternion.AngleAxis( angles.x, localUp);
+                    Quaternion pitchRot = Quaternion.AngleAxis(-angles.y, localRight);
+                    sDir = pitchRot * yawRot * baseDir;
+                }
+                else
+                {
+                    // 2D: rotate around Z in screen space
+                    sDir = Quaternion.Euler(0f, 0f, angles.x) * baseDir;
+                }
+
+                float speedMult = _shotPattern.GetSpeedMultiplier(i, _shotPattern.RngSeed);
                 pts[i] = new SpawnPoint
                 {
                     Origin    = origin,
@@ -635,7 +707,8 @@ namespace TestGame
         private void ApplyRigidbodyConstraints(Dimension dim)
         {
             if (_rb == null || !IsOwner) return;
-            if (dim == Dimension.TwoD && !Use3DFireConvention())
+            bool use3D = dim == Dimension.ThreeD || Use3DFireConvention();
+            if (!use3D)
             {
                 _rb.constraints = RigidbodyConstraints.FreezePositionZ
                                 | RigidbodyConstraints.FreezeRotation;
@@ -687,7 +760,6 @@ namespace TestGame
             }
             if (_shotPoint3D == null)
             {
-                // Parent to headPivot so it rotates with mouse look (yaw + pitch)
                 Transform parent = _headPivot != null ? _headPivot : transform;
                 var go = new GameObject("ShotPoint3D");
                 go.transform.SetParent(parent);
