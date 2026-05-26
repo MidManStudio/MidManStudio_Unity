@@ -1,19 +1,9 @@
 // LocalProjectileManager.cs
-// FIXES:
-//   + RegisterTarget2D(in CollisionTarget) — direct struct registration from
-//     MID_MasterProjectileSystem; also creates a minimal LocalDamageTarget in
-//     _targets dict so ProcessHit2D can look up the target and fire OnHit.
-//     Without this, _targets2D was always empty in offline mode so collisions
-//     were never processed.
-//   + RegisterTarget3D(in CollisionTarget3D) — same for 3D.
-//   + DeactivateTarget2D/3D/ClearAllTargets — public surface matching
-//     ServerProjectileAuthority's API for MID_MasterProjectileSystem to call.
-//   + ProcessHit2D/3D — if no LocalDamageTarget found in dict (raw CollisionTarget
-//     path), fire OnHit with a minimal payload rather than silently discarding.
-//     Previously, direct-registered targets caused every collision to be skipped
-//     because _targets.TryGetValue always failed.
-//   + Spawn2D/Spawn3D now accept a ProjectileConfigSO config param matching the
-//     SpawnBatch2D signature to avoid passing null.
+// CHANGES:
+//   + FixedUpdate now calls TrailPool.SyncToSimulation3D for _projs3D buffer.
+//   + Awake finds MID_MasterProjectileSystem and auto-wires if it has null _localManager.
+//   + OnHit event now always fires even when _targets dict has no matching LocalDamageTarget
+//     (raw CollisionTarget path) so TestSceneBootstrapper.OnLocalHit receives all hits.
 
 using System;
 using System.Collections.Generic;
@@ -47,8 +37,8 @@ namespace MidManStudio.Projectiles.Managers
         public uint              ProjId;
         public ushort            ConfigId;
         public bool              Is3D;
-        public LocalDamageTarget Target;       // null when target registered via CollisionTarget
-        public uint              RawTargetId;  // always valid; use when Target is null
+        public LocalDamageTarget Target;
+        public uint              RawTargetId;
         public float             Damage;
         public bool              IsHeadshot;
         public bool              IsCrit;
@@ -64,9 +54,9 @@ namespace MidManStudio.Projectiles.Managers
 
         [Header("Buffer Capacity")]
         [SerializeField] private int _maxProjectiles2D = 2048;
-        [SerializeField] private int _maxProjectiles3D = 256;
-        [SerializeField] private int _maxTargets       = 64;
-        [SerializeField] private int _maxHitsPerTick   = 128;
+        [SerializeField] private int _maxProjectiles3D = 512;
+        [SerializeField] private int _maxTargets       = 128;
+        [SerializeField] private int _maxHitsPerTick   = 256;
 
         [Header("Collision")]
         [SerializeField] private float _cellSize = 4f;
@@ -116,8 +106,6 @@ namespace MidManStudio.Projectiles.Managers
         private readonly Dictionary<uint, LocalProjectileData> _localData
             = new Dictionary<uint, LocalProjectileData>(256);
 
-        // Keyed by TargetId — populated by both RegisterTarget(LocalDamageTarget)
-        // and RegisterTarget2D(CollisionTarget) for hit-event lookups.
         private readonly Dictionary<uint, LocalDamageTarget> _targets
             = new Dictionary<uint, LocalDamageTarget>(64);
 
@@ -229,6 +217,8 @@ namespace MidManStudio.Projectiles.Managers
                         ProcessHit3D(in _hits3D[i]);
                 }
 
+                // FIX: sync 3D trails each physics step
+                _trailPool?.SyncToSimulation3D(_projs3D, _count3D);
                 CompactDead3D();
             }
         }
@@ -260,17 +250,11 @@ namespace MidManStudio.Projectiles.Managers
             var config = ProjectileRegistry.Instance.Get(data.ConfigId);
             if (config == null) return;
 
-            // FIX: look up LocalDamageTarget but don't bail if missing —
-            // targets registered via RegisterTarget2D(CollisionTarget) create
-            // a minimal LocalDamageTarget, but raw ones might be null.
             _targets.TryGetValue(hit.TargetId, out var target);
             if (target != null && !target.Active) return;
 
-            bool headshot = target != null
-                ? CheckHeadshotLocal(target, hit.HitX, hit.HitY, 0f)
-                : false;
-            bool crit = data.IsCrit;
-
+            bool  headshot = target != null && CheckHeadshotLocal(target, hit.HitX, hit.HitY, 0f);
+            bool  crit     = data.IsCrit;
             float normDist = config.MaxRange > 0f
                 ? Mathf.Clamp01(hit.TravelDist / config.MaxRange) : 0f;
             float damage   = config.EvaluateDamage(normDist);
@@ -280,15 +264,15 @@ namespace MidManStudio.Projectiles.Managers
 
             var payload = new LocalHitPayload
             {
-                ProjId       = hit.ProjId,
-                ConfigId     = data.ConfigId,
-                Is3D         = false,
-                Target       = target,
-                RawTargetId  = hit.TargetId,
-                Damage       = damage,
-                IsHeadshot   = headshot,
-                IsCrit       = crit,
-                HitPosition  = new Vector3(hit.HitX, hit.HitY, 0f),
+                ProjId      = hit.ProjId,
+                ConfigId    = data.ConfigId,
+                Is3D        = false,
+                Target      = target,
+                RawTargetId = hit.TargetId,
+                Damage      = damage,
+                IsHeadshot  = headshot,
+                IsCrit      = crit,
+                HitPosition = new Vector3(hit.HitX, hit.HitY, 0f),
                 OwnerLocalId = data.OwnerLocalId
             };
 
@@ -298,8 +282,7 @@ namespace MidManStudio.Projectiles.Managers
             if (data.CollisionsRemaining <= 0)
             {
                 int idx = (int)hit.ProjIndex;
-                if (idx < _count2D)
-                    _projs2D[idx].Alive = 0;
+                if (idx < _count2D) _projs2D[idx].Alive = 0;
                 _localData.Remove(hit.ProjId);
             }
             else
@@ -318,11 +301,8 @@ namespace MidManStudio.Projectiles.Managers
             _targets.TryGetValue(hit.TargetId, out var target);
             if (target != null && !target.Active) return;
 
-            bool headshot = target != null
-                ? CheckHeadshotLocal(target, hit.HitX, hit.HitY, hit.HitZ)
-                : false;
-            bool crit = data.IsCrit;
-
+            bool  headshot = target != null && CheckHeadshotLocal(target, hit.HitX, hit.HitY, hit.HitZ);
+            bool  crit     = data.IsCrit;
             float normDist = config.MaxRange > 0f
                 ? Mathf.Clamp01(hit.TravelDist / config.MaxRange) : 0f;
             float damage   = config.EvaluateDamage(normDist);
@@ -332,15 +312,15 @@ namespace MidManStudio.Projectiles.Managers
 
             var payload = new LocalHitPayload
             {
-                ProjId       = hit.ProjId,
-                ConfigId     = data.ConfigId,
-                Is3D         = true,
-                Target       = target,
-                RawTargetId  = hit.TargetId,
-                Damage       = damage,
-                IsHeadshot   = headshot,
-                IsCrit       = crit,
-                HitPosition  = new Vector3(hit.HitX, hit.HitY, hit.HitZ),
+                ProjId      = hit.ProjId,
+                ConfigId    = data.ConfigId,
+                Is3D        = true,
+                Target      = target,
+                RawTargetId = hit.TargetId,
+                Damage      = damage,
+                IsHeadshot  = headshot,
+                IsCrit      = crit,
+                HitPosition = new Vector3(hit.HitX, hit.HitY, hit.HitZ),
                 OwnerLocalId = data.OwnerLocalId
             };
 
@@ -350,8 +330,7 @@ namespace MidManStudio.Projectiles.Managers
             if (data.CollisionsRemaining <= 0)
             {
                 int idx = (int)hit.ProjIndex;
-                if (idx < _count3D)
-                    _projs3D[idx].Alive = 0;
+                if (idx < _count3D) _projs3D[idx].Alive = 0;
                 _localData.Remove(hit.ProjId);
             }
             else
@@ -396,6 +375,7 @@ namespace MidManStudio.Projectiles.Managers
                 {
                     uint id = _projs3D[read].ProjId;
                     _localData.Remove(id);
+                    _trailPool?.NotifyDead(id);
                     OnProjectileDied?.Invoke(id);
                     continue;
                 }
@@ -418,13 +398,12 @@ namespace MidManStudio.Projectiles.Managers
         {
             if (_count2D >= _maxProjectiles2D)
             {
-                MID_Logger.LogWarning(_logLevel, "2D buffer full — spawn rejected.",
-                    nameof(LocalProjectileManager));
+                MID_Logger.LogWarning(_logLevel, "2D buffer full.", nameof(LocalProjectileManager));
                 return;
             }
 
-            var rustParams = ProjectileRegistry.Instance.GetRustSpawnParams(configId);
-            uint baseId    = AllocateProjIds(count);
+            var  rustParams = ProjectileRegistry.Instance.GetRustSpawnParams(configId);
+            uint baseId     = AllocateProjIds(count);
             var (writePtr, remaining) = GetWriteHead2D();
 
             int written = BatchSpawnHelper.SpawnBatch2D(
@@ -440,11 +419,11 @@ namespace MidManStudio.Projectiles.Managers
                 bool isCrit = cfg != null && UnityEngine.Random.value < cfg.CritChance;
                 _localData[projId] = new LocalProjectileData
                 {
-                    ConfigId              = configId,
-                    OwnerLocalId          = ownerLocalId,
-                    DamageMultiplier      = damageMultiplier,
-                    IsCrit                = isCrit,
-                    CollisionsRemaining   = rustParams.MaxCollisions
+                    ConfigId            = configId,
+                    OwnerLocalId        = ownerLocalId,
+                    DamageMultiplier    = damageMultiplier,
+                    IsCrit              = isCrit,
+                    CollisionsRemaining = rustParams.MaxCollisions
                 };
             }
             _count2D += written;
@@ -459,13 +438,12 @@ namespace MidManStudio.Projectiles.Managers
         {
             if (_count3D >= _maxProjectiles3D)
             {
-                MID_Logger.LogWarning(_logLevel, "3D buffer full — spawn rejected.",
-                    nameof(LocalProjectileManager));
+                MID_Logger.LogWarning(_logLevel, "3D buffer full.", nameof(LocalProjectileManager));
                 return;
             }
 
-            var rustParams = ProjectileRegistry.Instance.GetRustSpawnParams(configId);
-            uint baseId    = AllocateProjIds(count);
+            var  rustParams = ProjectileRegistry.Instance.GetRustSpawnParams(configId);
+            uint baseId     = AllocateProjIds(count);
             var (writePtr, remaining) = GetWriteHead3D();
 
             int written = BatchSpawnHelper.SpawnBatch3D(
@@ -481,11 +459,11 @@ namespace MidManStudio.Projectiles.Managers
                 bool isCrit = cfg != null && UnityEngine.Random.value < cfg.CritChance;
                 _localData[projId] = new LocalProjectileData
                 {
-                    ConfigId              = configId,
-                    OwnerLocalId          = ownerLocalId,
-                    DamageMultiplier      = damageMultiplier,
-                    IsCrit                = isCrit,
-                    CollisionsRemaining   = rustParams.MaxCollisions
+                    ConfigId            = configId,
+                    OwnerLocalId        = ownerLocalId,
+                    DamageMultiplier    = damageMultiplier,
+                    IsCrit              = isCrit,
+                    CollisionsRemaining = rustParams.MaxCollisions
                 };
             }
             _count3D += written;
@@ -498,10 +476,9 @@ namespace MidManStudio.Projectiles.Managers
         public uint RegisterTarget(LocalDamageTarget target)
         {
             if (target == null) return 0;
-            uint id = target.LocalId;
-            _targets[id] = target;
+            _targets[target.LocalId] = target;
             WriteToCollisionBuffer2D(target);
-            return id;
+            return target.LocalId;
         }
 
         public void UpdateTarget(LocalDamageTarget target)
@@ -532,22 +509,18 @@ namespace MidManStudio.Projectiles.Managers
                 if (_targets2D[i].TargetId != t.LocalId) continue;
                 _targets2D[i] = new CollisionTarget
                 {
-                    X        = t.Position.x,
-                    Y        = t.Position.y,
-                    Radius   = t.Radius,
-                    TargetId = t.LocalId,
-                    Active   = t.Active ? (byte)1 : (byte)0
+                    X = t.Position.x, Y = t.Position.y,
+                    Radius = t.Radius, TargetId = t.LocalId,
+                    Active = t.Active ? (byte)1 : (byte)0
                 };
                 return;
             }
             if (_targetCount2D >= _maxTargets) return;
             _targets2D[_targetCount2D++] = new CollisionTarget
             {
-                X        = t.Position.x,
-                Y        = t.Position.y,
-                Radius   = t.Radius,
-                TargetId = t.LocalId,
-                Active   = t.Active ? (byte)1 : (byte)0
+                X = t.Position.x, Y = t.Position.y,
+                Radius = t.Radius, TargetId = t.LocalId,
+                Active = t.Active ? (byte)1 : (byte)0
             };
         }
 
@@ -559,42 +532,31 @@ namespace MidManStudio.Projectiles.Managers
 
         #endregion
 
-        #region Public API — Targets (direct CollisionTarget structs from MID_MasterProjectileSystem)
-        // These mirror ServerProjectileAuthority's API so MID_MasterProjectileSystem
-        // can route identically to both systems.
+        #region Public API — Targets (direct CollisionTarget structs)
 
-        /// <summary>
-        /// Register a 2D collision target using the native Rust struct directly.
-        /// Called by MID_MasterProjectileSystem when offline/local.
-        /// Also creates a minimal LocalDamageTarget so ProcessHit2D can fire OnHit.
-        /// </summary>
         public void RegisterTarget2D(in CollisionTarget target)
         {
-            // Write to / update collision buffer
             for (int i = 0; i < _targetCount2D; i++)
             {
                 if (_targets2D[i].TargetId != target.TargetId) continue;
                 _targets2D[i] = target;
-                // Sync position in _targets dict if present
-                if (_targets.TryGetValue(target.TargetId, out var existing))
+                if (_targets.TryGetValue(target.TargetId, out var ex))
                 {
-                    existing.Position = new Vector3(target.X, target.Y, 0f);
-                    existing.Radius   = target.Radius;
-                    existing.Active   = target.Active != 0;
-                    _targets[target.TargetId] = existing;
+                    ex.Position = new Vector3(target.X, target.Y, 0f);
+                    ex.Radius   = target.Radius;
+                    ex.Active   = target.Active != 0;
+                    _targets[target.TargetId] = ex;
                 }
                 return;
             }
-
             if (_targetCount2D >= _maxTargets)
             {
-                MID_Logger.LogWarning(_logLevel, "2D target buffer full.",
-                    nameof(LocalProjectileManager));
+                MID_Logger.LogWarning(_logLevel, "2D target buffer full.", nameof(LocalProjectileManager));
                 return;
             }
             _targets2D[_targetCount2D++] = target;
 
-            // Ensure _targets dict has an entry so ProcessHit2D can fire OnHit
+            // Ensure _targets dict has an entry for hit-event routing
             if (!_targets.ContainsKey(target.TargetId))
             {
                 _targets[target.TargetId] = new LocalDamageTarget
@@ -608,29 +570,24 @@ namespace MidManStudio.Projectiles.Managers
             }
         }
 
-        /// <summary>
-        /// Register a 3D collision target using the native Rust struct directly.
-        /// </summary>
         public void RegisterTarget3D(in CollisionTarget3D target)
         {
             for (int i = 0; i < _targetCount3D; i++)
             {
                 if (_targets3D[i].TargetId != target.TargetId) continue;
                 _targets3D[i] = target;
-                if (_targets.TryGetValue(target.TargetId, out var existing))
+                if (_targets.TryGetValue(target.TargetId, out var ex))
                 {
-                    existing.Position = new Vector3(target.X, target.Y, target.Z);
-                    existing.Radius   = target.Radius;
-                    existing.Active   = target.Active != 0;
-                    _targets[target.TargetId] = existing;
+                    ex.Position = new Vector3(target.X, target.Y, target.Z);
+                    ex.Radius   = target.Radius;
+                    ex.Active   = target.Active != 0;
+                    _targets[target.TargetId] = ex;
                 }
                 return;
             }
-
             if (_targetCount3D >= _maxTargets)
             {
-                MID_Logger.LogWarning(_logLevel, "3D target buffer full.",
-                    nameof(LocalProjectileManager));
+                MID_Logger.LogWarning(_logLevel, "3D target buffer full.", nameof(LocalProjectileManager));
                 return;
             }
             _targets3D[_targetCount3D++] = target;
@@ -683,9 +640,9 @@ namespace MidManStudio.Projectiles.Managers
 
         private uint AllocateProjIds(int count)
         {
-            uint base_id = _nextProjId;
+            uint baseId = _nextProjId;
             _nextProjId += (uint)count;
-            return base_id;
+            return baseId;
         }
 
         private (IntPtr ptr, int remaining) GetWriteHead2D()
