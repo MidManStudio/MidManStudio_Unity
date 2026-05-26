@@ -1,19 +1,7 @@
 // MID_ProjectileNetworkBridge.cs
-// FIX (Rust Sim visuals not showing on host):
-//   SpawnConfirmedClientRpc had `if (IsServer) return` — in host mode the
-//   machine is BOTH server AND client (IsServer=true, IsClient=true).
-//   This caused the host to skip spawning its own prediction visuals entirely.
-//   Fixed: `if (IsServer && !IsClient) return` — only dedicated servers skip.
-//
-// FIX (projectile hits not confirming visuals on host):
-//   Same problem in HitConfirmedClientRpc and SendSnapshotClientRpc.
-//   Changed all `!IsServer` / `IsServer` guards to use `IsClient` instead,
-//   which correctly includes the host machine.
-//
-// FIX (duplicate SendSnapshotClientRpc):
-//   Removed the internal overload with ClientRpcParams — NGO does not allow
-//   two [ClientRpc] methods with the same name; it caused silent routing bugs.
-//   ServerProjectileAuthority calls the 4-param version directly.
+// FIX: ProjectileFireRequest now carries per-projectile directions so patterns
+//      work correctly in networked mode. ExtraDirections serialized manually.
+// All previous host-mode fixes retained.
 
 using System;
 using System.Runtime.InteropServices;
@@ -30,13 +18,13 @@ using MidManStudio.Projectiles.Managers;
 
 namespace MidManStudio.Projectiles.Network
 {
-    // ── Network-serialisable fire request ─────────────────────────────────────
+    // ── Fire request ──────────────────────────────────────────────────────────
 
     public struct ProjectileFireRequest : INetworkSerializable
     {
         public ushort  ConfigId;
         public Vector3 Origin;
-        public Vector3 Direction;
+        public Vector3 Direction;       // direction for projectile[0]
         public float   Speed;
         public uint    RngSeed;
         public byte    ProjectileCount;
@@ -46,6 +34,12 @@ namespace MidManStudio.Projectiles.Network
         public byte    WeaponLevel;
         public float   DamageMultiplier;
         public int     ClientFireTick;
+
+        // Per-projectile directions for pattern support.
+        // ExtraDirectionCount = ProjectileCount - 1 (capped at 63).
+        // ExtraDirections[i] is the direction for projectile[i+1].
+        public byte      ExtraDirectionCount;
+        public Vector3[] ExtraDirections;   // may be null when ExtraDirectionCount == 0
 
         public void NetworkSerialize<T>(BufferSerializer<T> s) where T : IReaderWriter
         {
@@ -61,6 +55,19 @@ namespace MidManStudio.Projectiles.Network
             s.SerializeValue(ref WeaponLevel);
             s.SerializeValue(ref DamageMultiplier);
             s.SerializeValue(ref ClientFireTick);
+            s.SerializeValue(ref ExtraDirectionCount);
+
+            if (s.IsReader)
+                ExtraDirections = ExtraDirectionCount > 0
+                    ? new Vector3[ExtraDirectionCount] : null;
+
+            for (int i = 0; i < ExtraDirectionCount; i++)
+            {
+                Vector3 d = (s.IsWriter && ExtraDirections != null && i < ExtraDirections.Length)
+                    ? ExtraDirections[i] : Vector3.zero;
+                s.SerializeValue(ref d);
+                if (s.IsReader && ExtraDirections != null) ExtraDirections[i] = d;
+            }
         }
     }
 
@@ -77,6 +84,10 @@ namespace MidManStudio.Projectiles.Network
         public float   Speed;
         public ulong   OwnerMidId;
 
+        // Per-projectile directions mirrored from request
+        public byte      ExtraDirectionCount;
+        public Vector3[] ExtraDirections;
+
         public void NetworkSerialize<T>(BufferSerializer<T> s) where T : IReaderWriter
         {
             s.SerializeValue(ref BaseProjId);
@@ -87,6 +98,29 @@ namespace MidManStudio.Projectiles.Network
             s.SerializeValue(ref Direction);
             s.SerializeValue(ref Speed);
             s.SerializeValue(ref OwnerMidId);
+            s.SerializeValue(ref ExtraDirectionCount);
+
+            if (s.IsReader)
+                ExtraDirections = ExtraDirectionCount > 0
+                    ? new Vector3[ExtraDirectionCount] : null;
+
+            for (int i = 0; i < ExtraDirectionCount; i++)
+            {
+                Vector3 d = (s.IsWriter && ExtraDirections != null && i < ExtraDirections.Length)
+                    ? ExtraDirections[i] : Vector3.zero;
+                s.SerializeValue(ref d);
+                if (s.IsReader && ExtraDirections != null) ExtraDirections[i] = d;
+            }
+        }
+
+        /// <summary>Get the direction for projectile at index i.</summary>
+        public Vector3 GetDirection(int i)
+        {
+            if (i == 0) return Direction;
+            int extraIdx = i - 1;
+            return (ExtraDirections != null && extraIdx < ExtraDirections.Length)
+                ? ExtraDirections[extraIdx]
+                : Direction;
         }
     }
 
@@ -133,11 +167,7 @@ namespace MidManStudio.Projectiles.Network
 
         #endregion
 
-        #region Debug
-
         [SerializeField] private MID_LogLevel _logLevel = MID_LogLevel.Info;
-
-        #endregion
 
         #region Lifecycle
 
@@ -162,7 +192,6 @@ namespace MidManStudio.Projectiles.Network
         private void ServerOnProjectileHit(ProjectileHitPayload payload)
         {
             if (!IsServer) return;
-
             var confirm = new HitConfirmation
             {
                 ProjId          = payload.ProjId,
@@ -178,7 +207,7 @@ namespace MidManStudio.Projectiles.Network
 
         #endregion
 
-        #region Client → Server: Sim Projectile Fire
+        #region Client → Server: Fire
 
         [ServerRpc(RequireOwnership = false)]
         public void FireServerRpc(
@@ -212,8 +241,8 @@ namespace MidManStudio.Projectiles.Network
                 DamageMultiplier       = request.DamageMultiplier
             };
 
-            var spawnPts = BuildServerSpawnPoints(
-                request.Origin, request.Direction, clampedSpeed, request.ProjectileCount);
+            // FIX: reconstruct all per-projectile spawn points from directions
+            var spawnPts = BuildServerSpawnPoints(request);
 
             var rustParams = ProjectileRegistry.Instance.GetRustSpawnParams(
                 request.ConfigId, clampedSpeed);
@@ -249,36 +278,27 @@ namespace MidManStudio.Projectiles.Network
                 Authority.NotifyBatchSpawned3D(written, baseId, dataTemplate);
             }
 
-            if (written <= 0)
-            {
-                MID_Logger.LogWarning(_logLevel,
-                    "FireServerRpc: no projectiles written (buffer full?).",
-                    nameof(MID_ProjectileNetworkBridge));
-                return;
-            }
-
-            MID_Logger.LogDebug(_logLevel,
-                $"FireServerRpc confirmed: configId={request.ConfigId} " +
-                $"count={written} baseId={baseId} owner={request.OwnerMidId}",
-                nameof(MID_ProjectileNetworkBridge));
+            if (written <= 0) return;
 
             var confirm = new SpawnConfirmation
             {
-                BaseProjId      = baseId,
-                ProjectileCount = (byte)written,
-                ConfigId        = request.ConfigId,
-                ServerSpawnTick = GetServerTick(),
-                Origin          = request.Origin,
-                Direction       = request.Direction,
-                Speed           = clampedSpeed,
-                OwnerMidId      = request.OwnerMidId
+                BaseProjId          = baseId,
+                ProjectileCount     = (byte)written,
+                ConfigId            = request.ConfigId,
+                ServerSpawnTick     = GetServerTick(),
+                Origin              = request.Origin,
+                Direction           = request.Direction,
+                Speed               = clampedSpeed,
+                OwnerMidId          = request.OwnerMidId,
+                ExtraDirectionCount = request.ExtraDirectionCount,
+                ExtraDirections     = request.ExtraDirections
             };
             SpawnConfirmedClientRpc(confirm);
         }
 
         #endregion
 
-        #region Client → Server: Raycast Fire
+        #region Client → Server: Raycast
 
         [ServerRpc(RequireOwnership = false)]
         public void RaycastFireServerRpc(
@@ -317,19 +337,11 @@ namespace MidManStudio.Projectiles.Network
 
         #endregion
 
-        #region Server → Clients: Spawn Confirmed
+        #region Server → Clients
 
-        /// <summary>
-        /// FIX: Changed guard from `if (IsServer) return` to `if (IsServer && !IsClient) return`.
-        /// In host mode the machine is both server and client — the old guard caused the host
-        /// to skip spawning its own local prediction visuals, so Rust Sim projectiles were
-        /// invisible for the player firing them in host/offline-networked sessions.
-        /// </summary>
         [ClientRpc]
         public void SpawnConfirmedClientRpc(SpawnConfirmation confirmation)
         {
-            // Skip on dedicated server (server only, no local client).
-            // Host machines (IsServer && IsClient) MUST NOT skip — they need visuals.
             if (IsServer && !IsClient) return;
 
             MID_Logger.LogDebug(_logLevel,
@@ -340,57 +352,24 @@ namespace MidManStudio.Projectiles.Network
             Prediction?.OnSpawnConfirmed(confirmation);
         }
 
-        #endregion
-
-        #region Server → Clients: Hit Confirmed
-
-        /// <summary>
-        /// FIX: Changed `if (!IsServer)` to `if (IsClient)` for the Prediction call.
-        /// In host mode !IsServer is false, so the host's prediction manager was never
-        /// notified of confirmed hits — prediction visuals would linger past impact.
-        /// </summary>
         [ClientRpc]
         public void HitConfirmedClientRpc(HitConfirmation confirmation)
         {
-            MID_Logger.LogDebug(_logLevel,
-                $"HitConfirmedClientRpc: projId={confirmation.ProjId} " +
-                $"damage={confirmation.Damage:F1} headshot={confirmation.IsHeadshot}",
-                nameof(MID_ProjectileNetworkBridge));
-
-            // IsClient is true on both dedicated clients AND hosts.
-            // This ensures hosts update their own prediction visuals on confirmed hits.
             if (IsClient)
                 Prediction?.OnHitConfirmed(confirmation);
 
             ImpactHandler?.PlayImpact(
-                confirmation.HitPosition,
-                confirmation.ConfigId,
-                confirmation.IsHeadshot);
+                confirmation.HitPosition, confirmation.ConfigId, confirmation.IsHeadshot);
 
             OnHitConfirmedLocal?.Invoke(confirmation);
         }
 
-        #endregion
-
-        #region Server → Clients: Position Snapshot
-
-        /// <summary>
-        /// FIX: Changed `if (IsServer) return` to `if (IsServer && !IsClient) return`.
-        /// Hosts need to reconcile their own prediction state with server snapshots,
-        /// same as remote clients. The old guard skipped reconciliation on host.
-        ///
-        /// FIX: Removed the duplicate internal overload with ClientRpcParams — NGO
-        /// cannot have two [ClientRpc] methods with the same name; it caused silent
-        /// message routing bugs where snapshots would call themselves recursively.
-        /// </summary>
         [ClientRpc]
         public void SendSnapshotClientRpc(
             ProjectileSnapshot2D[] snapshots2D, int count2D,
             ProjectileSnapshot3D[] snapshots3D, int count3D)
         {
-            // Skip dedicated server — it doesn't predict, it authorises.
             if (IsServer && !IsClient) return;
-
             Prediction?.ReconcileSnapshot(snapshots2D, count2D, snapshots3D, count3D);
         }
 
@@ -400,8 +379,7 @@ namespace MidManStudio.Projectiles.Network
 
         public int GetServerTick()
             => NetworkManager.Singleton != null
-                ? NetworkManager.Singleton.ServerTime.Tick
-                : 0;
+                ? NetworkManager.Singleton.ServerTime.Tick : 0;
 
         private float ComputeLatencyComp(ServerRpcParams rpc, int clientTick)
         {
@@ -412,17 +390,38 @@ namespace MidManStudio.Projectiles.Network
             return Mathf.Clamp(deltaTicks * tickInterval, 0f, 0.5f);
         }
 
-        private static SpawnPoint[] BuildServerSpawnPoints(
-            Vector3 origin, Vector3 direction, float speed, int count)
+        /// <summary>
+        /// FIX: Reconstruct per-projectile spawn points from the fire request.
+        /// Each projectile now uses its own direction from ExtraDirections,
+        /// not a duplicate of the first direction.
+        /// </summary>
+        private static SpawnPoint[] BuildServerSpawnPoints(ProjectileFireRequest request)
         {
-            var pts = new SpawnPoint[count];
+            int count = request.ProjectileCount;
+            var pts   = new SpawnPoint[count];
+
             for (int i = 0; i < count; i++)
+            {
+                Vector3 dir;
+                if (i == 0)
+                {
+                    dir = request.Direction.normalized;
+                }
+                else
+                {
+                    int extraIdx = i - 1;
+                    dir = (request.ExtraDirections != null && extraIdx < request.ExtraDirections.Length)
+                        ? request.ExtraDirections[extraIdx].normalized
+                        : request.Direction.normalized;
+                }
+
                 pts[i] = new SpawnPoint
                 {
-                    Origin    = origin,
-                    Direction = direction.normalized,
-                    Speed     = speed
+                    Origin    = request.Origin,
+                    Direction = dir,
+                    Speed     = request.Speed
                 };
+            }
             return pts;
         }
 

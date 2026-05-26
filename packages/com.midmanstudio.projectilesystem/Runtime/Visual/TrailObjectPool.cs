@@ -1,10 +1,6 @@
 // TrailObjectPool.cs
-// Projectile-specific trail coordinator.
-// Delegates all TrailRenderer lifecycle to TrailRendererPool (utilities package).
-// Maps projectile IDs to trail slots and reads ProjectileConfigSO for trail config.
-//
-// Called by LocalProjectileManager / ServerProjectileAuthority every FixedUpdate
-// via SyncToSimulation().
+// ADDED: SyncToSimulation3D for NativeProjectile3D[] buffer.
+// LocalProjectileManager calls this every FixedUpdate for 3D projectiles.
 
 using UnityEngine;
 using MidManStudio.Core.Pools;
@@ -17,19 +13,11 @@ namespace MidManStudio.Projectiles.Visuals
     public class TrailObjectPool : MonoBehaviour
     {
         [Header("Trail Pool")]
-        [Tooltip("Shared TrailRendererPool instance. " +
-                 "If null, TrailRendererPool.Instance is used.")]
         [SerializeField] private TrailRendererPool _trailPool;
-
-        [Tooltip("Extra seconds a trail lingers after its projectile dies.\n" +
-                 "Overrides the natural fade from TrailRendererPool.")]
         [SerializeField] private float _fadePad = 0.12f;
 
-        // projId → trail slot index in TrailRendererPool
         private readonly System.Collections.Generic.Dictionary<uint, int>
             _projToSlot = new(256);
-
-        // ── Unity lifecycle ───────────────────────────────────────────────────
 
         private void Awake()
         {
@@ -39,15 +27,12 @@ namespace MidManStudio.Projectiles.Visuals
             if (_trailPool == null)
                 Debug.LogWarning(
                     "[TrailObjectPool] No TrailRendererPool found — " +
-                    "trails will not render. Add TrailRendererPool to the scene.");
+                    "trails will not render.");
         }
 
-        // ── Called by sim managers ────────────────────────────────────────────
+        // ── 2D sync ───────────────────────────────────────────────────────────
 
-        /// <summary>
-        /// Sync active 2D projectile positions to their trail slots.
-        /// Call every FixedUpdate.
-        /// </summary>
+        /// <summary>Sync active 2D projectile positions to trail slots. Call every FixedUpdate.</summary>
         public void SyncToSimulation(NativeProjectile[] projs, int count)
         {
             if (_trailPool == null) return;
@@ -62,7 +47,7 @@ namespace MidManStudio.Projectiles.Visuals
 
                 if (!_projToSlot.TryGetValue(p.ProjId, out int slot))
                 {
-                    slot = AcquireSlot(p, cfg);
+                    slot = AcquireSlot2D(p, cfg);
                     if (slot < 0) continue;
                     _projToSlot[p.ProjId] = slot;
                 }
@@ -71,42 +56,60 @@ namespace MidManStudio.Projectiles.Visuals
             }
         }
 
-        /// <summary>
-        /// Notify that a projectile has died so its trail slot can fade out.
-        /// Called by the sim manager during CompactDeadSlots.
-        /// </summary>
+        // ── 3D sync (NEW) ─────────────────────────────────────────────────────
+
+        /// <summary>Sync active 3D projectile positions to trail slots. Call every FixedUpdate.</summary>
+        public void SyncToSimulation3D(NativeProjectile3D[] projs, int count)
+        {
+            if (_trailPool == null) return;
+
+            for (int i = 0; i < count; i++)
+            {
+                ref var p = ref projs[i];
+                if (p.Alive == 0) continue;
+
+                var cfg = ProjectileRegistry.Instance.Get(p.ConfigId);
+                if (cfg == null || !cfg.HasTrail) continue;
+
+                if (!_projToSlot.TryGetValue(p.ProjId, out int slot))
+                {
+                    slot = AcquireSlot3D(p, cfg);
+                    if (slot < 0) continue;
+                    _projToSlot[p.ProjId] = slot;
+                }
+
+                _trailPool.SetPosition(slot, new Vector3(p.X, p.Y, p.Z));
+            }
+        }
+
+        /// <summary>Notify that a projectile has died so its trail slot can fade out.</summary>
         public void NotifyDead(uint projId)
         {
             if (!_projToSlot.TryGetValue(projId, out int slot)) return;
-
             _trailPool.Release(slot);
             _projToSlot.Remove(projId);
         }
 
-        /// <summary>Release all active trail slots (e.g. on scene unload).</summary>
+        /// <summary>Release all active trail slots.</summary>
         public void ReleaseAll()
         {
             if (_trailPool == null) return;
-
             foreach (var slot in _projToSlot.Values)
                 _trailPool.ForceRelease(slot);
-
             _projToSlot.Clear();
         }
 
         // ── Private ───────────────────────────────────────────────────────────
 
-        private int AcquireSlot(in NativeProjectile p, ProjectileConfigSO cfg)
-        {
-            var trailCfg = BuildTrailConfig(cfg);
-            return _trailPool.Acquire(trailCfg, ownerId: (int)p.ProjId);
-        }
+        private int AcquireSlot2D(in NativeProjectile p, ProjectileConfigSO cfg)
+            => _trailPool.Acquire(BuildTrailConfig(cfg), ownerId: (int)p.ProjId);
+
+        private int AcquireSlot3D(in NativeProjectile3D p, ProjectileConfigSO cfg)
+            => _trailPool.Acquire(BuildTrailConfig(cfg), ownerId: (int)p.ProjId);
 
         private static TrailConfig BuildTrailConfig(ProjectileConfigSO cfg)
         {
-            // Determine gradient: use override if enabled, otherwise null (material default).
             Gradient gradient = cfg.UseGradientOverride ? cfg.TrailGradient : null;
-
             return new TrailConfig
             {
                 Material      = cfg.TrailMaterial,
