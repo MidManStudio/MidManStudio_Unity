@@ -13,9 +13,9 @@ MonoBehaviour:
   m_Name: DefaultProj
   m_EditorClassIdentifier: 
   ConfigId: 0
-  _is3D: 0
-  _preferredSimMode: 1
-  _movementType: 5
+  _is3D: 1
+  _preferredSimMode: 2
+  _movementType: 0
   _minSpeed: 4
   _maxSpeed: 4
   _lifetime: 3

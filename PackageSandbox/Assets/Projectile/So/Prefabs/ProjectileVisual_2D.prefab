@@ -14,7 +14,7 @@ GameObject:
   - component: {fileID: 6227975117751516752}
   - component: {fileID: 2226204678829518539}
   m_Layer: 0
-  m_Name: ManagedProjectil
+  m_Name: ProjectileVisual_2D
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -76,7 +76,8 @@ SpriteRenderer:
   m_SortingLayerID: 0
   m_SortingLayer: 0
   m_SortingOrder: 0
-  m_Sprite: {fileID: -2413806693520163455, guid: a86470a33a6bf42c4b3595704624658b, type: 3}
+  m_Sprite: {fileID: -2413806693520163455, guid: a86470a33a6bf42c4b3595704624658b,
+    type: 3}
   m_Color: {r: 1, g: 1, b: 1, a: 1}
   m_FlipX: 0
   m_FlipY: 0
@@ -84,7 +85,7 @@ SpriteRenderer:
   m_Size: {x: 1, y: 1}
   m_AdaptiveModeThreshold: 0.5
   m_SpriteTileMode: 0
-  m_WasSpriteAssigned: 1
+  m_WasSpriteAssigned: 0
   m_MaskInteraction: 0
   m_SpriteSortPoint: 0
 --- !u!114 &299807945524687672
@@ -99,10 +100,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b3f0e04cbe8ab45d9952b296578aec39, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  _poolReturn: {fileID: 0}
+  _logLevel: 0
   projectileSpriteRend: {fileID: 8528035687696965095}
   projectileTrailRend: {fileID: 6227975117751516752}
-  localPoolReturn: {fileID: 2226204678829518539}
-  _logLevel: 0
+  _spriteSortingOrder: 1
+  _trailSortingOrder: 0
 --- !u!96 &6227975117751516752
 TrailRenderer:
   serializedVersion: 3
