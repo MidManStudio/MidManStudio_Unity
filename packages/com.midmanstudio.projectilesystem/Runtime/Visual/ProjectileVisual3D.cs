@@ -1,38 +1,15 @@
-// ProjectileVisual3D.cs  — 3D pool visual
+// ProjectileVisual3D.cs — 3D pool visual
+// ADDED: Awake() explicitly disables any SpriteRenderer found on same GameObject.
+// Users who duplicate a 2D prefab to make the 3D one otherwise see sprite on top of mesh.
 //
-// Inherits ProjectileVisualBase.
-// Handles: MeshRenderer (oriented mesh), optional TrailRenderer.
+// PREFAB SETUP (what the prefab needs — nothing else):
+//   • MeshFilter      — holds the bullet/capsule mesh
+//   • MeshRenderer    — holds the bullet material
+//   • ProjectileVisual3D — this script
+//   • LocalPoolReturn — pool return (add manually or via LocalObjectPool auto-setup)
+//   • Optional: TrailRenderer for bullet trail
 //
-// ORIENTATION:
-//   Uses Quaternion.LookRotation(direction) so the mesh forward (+Z) aligns
-//   with the travel direction. For bullet/capsule meshes this gives the
-//   correct nose-forward appearance.
-//
-// MESH SELECTION PRIORITY:
-//   1. ProjectileConfigSO.CustomShape mesh (if assigned and Is3D)
-//   2. ProjectileConfigSO.ProjectileSprite → baked quad (2D fallback for 3D)
-//   3. Default unit cube (last resort — replace with your own primitive)
-//
-// END-USER EXTENSION:
-//   Derive from this class and override OnInitialise3D(cfg) to swap in
-//   custom materials, particle systems, etc.:
-//
-//   public class RocketVisual : ProjectileVisual3D
-//   {
-//       [SerializeField] ParticleSystem _exhaustFlames;
-//
-//       protected override void OnInitialise3D(ProjectileConfigSO cfg)
-//       {
-//           base.OnInitialise3D(cfg);
-//           _exhaustFlames.Play();
-//       }
-//
-//       protected override void OnReturnToPool()
-//       {
-//           _exhaustFlames.Stop();
-//           base.OnReturnToPool();
-//       }
-//   }
+// NO SpriteRenderer, NO Sprite, NO 2D anything.
 
 using UnityEngine;
 using MidManStudio.Projectiles.Config;
@@ -44,7 +21,7 @@ namespace MidManStudio.Projectiles.Visuals
     {
         #region Inspector
 
-        [Header("3D Renderers")]
+        [Header("3D Renderers (auto-found if null)")]
         [SerializeField] private MeshFilter   _meshFilter;
         [SerializeField] private MeshRenderer _meshRenderer;
 
@@ -52,20 +29,19 @@ namespace MidManStudio.Projectiles.Visuals
         [SerializeField] private TrailRenderer _trailRenderer;
 
         [Header("Scale")]
-        [Tooltip("Uniform scale multiplier applied on top of the config's FullSizeX.")]
+        [Tooltip("Multiplier on top of config FullSizeX.")]
         [SerializeField] private float _scaleMultiplier = 1f;
 
         [Header("Material Fallback")]
-        [Tooltip("Material used when the config has no sprite/atlas. " +
-                 "Should be a simple lit or unlit opaque material.")]
+        [Tooltip("Used when config has no sprite/atlas. Assign a simple Lit or Unlit material.")]
         [SerializeField] private Material _fallbackMaterial;
 
         #endregion
 
         #region State
 
-        private static Mesh _defaultCubeMesh;   // shared across all instances
-        private Material    _instancedMaterial; // per-instance to avoid shared-material side-effects
+        private static Mesh _defaultCapsuleMesh;
+        private Material    _instancedMaterial;
         private bool        _trailConfigured;
         private ushort      _cachedConfigId;
         private bool        _configInitialised;
@@ -77,15 +53,29 @@ namespace MidManStudio.Projectiles.Visuals
         protected override void Awake()
         {
             base.Awake();
+
             if (_meshFilter   == null) _meshFilter   = GetComponent<MeshFilter>();
             if (_meshRenderer == null) _meshRenderer = GetComponent<MeshRenderer>();
+
+            // FIX: kill any stray SpriteRenderer from duplicated 2D prefabs.
+            // A SpriteRenderer will override the MeshRenderer in the hierarchy and
+            // make the bullet look like a shaking 2D sprite in 3D space.
+            var sr = GetComponent<SpriteRenderer>();
+            if (sr != null)
+            {
+                sr.enabled = false;
+                Debug.LogWarning(
+                    $"[ProjectileVisual3D] SpriteRenderer found on '{name}' and disabled. " +
+                    "Remove it from the prefab — 3D visuals use MeshRenderer only.",
+                    this);
+            }
         }
 
         private void OnDestroy()
         {
-            // Clean up per-instance material to avoid leaks
-            if (_instancedMaterial != null)
-                Destroy(_instancedMaterial);
+            if (_instancedMaterial != null) Destroy(_instancedMaterial);
+            if (_defaultCapsuleMesh != null && Application.isEditor)
+                { /* leave for editor reloads */ }
         }
 
         #endregion
@@ -94,13 +84,11 @@ namespace MidManStudio.Projectiles.Visuals
 
         protected override void ApplyRotation(Vector3 dir)
         {
-            // 3D: align mesh forward (+Z) with travel direction
             if (dir.sqrMagnitude < 0.001f) return;
 
+            // Align mesh +Z (forward) with travel direction — correct for capsule/bullet meshes
             Vector3 up = Mathf.Abs(Vector3.Dot(dir.normalized, Vector3.up)) > 0.99f
-                ? Vector3.forward
-                : Vector3.up;
-
+                ? Vector3.forward : Vector3.up;
             transform.rotation = Quaternion.LookRotation(dir.normalized, up);
         }
 
@@ -118,8 +106,6 @@ namespace MidManStudio.Projectiles.Visuals
             ApplyMaterial(cfg);
             ApplyScale(cfg);
             ApplyTrail(cfg);
-
-            // Sub-class hook
             OnInitialise3D(cfg);
         }
 
@@ -128,8 +114,7 @@ namespace MidManStudio.Projectiles.Visuals
             _configInitialised = false;
             _trailConfigured   = false;
 
-            if (_meshRenderer != null)
-                _meshRenderer.enabled = true;
+            if (_meshRenderer != null) _meshRenderer.enabled = true;
 
             if (_trailRenderer != null)
             {
@@ -151,16 +136,10 @@ namespace MidManStudio.Projectiles.Visuals
 
         #region Sub-class Hooks
 
-        /// <summary>
-        /// Called at the end of <see cref="OnInitialise"/> after mesh, material,
-        /// scale, and trail have been applied. Override to add game-specific setup.
-        /// </summary>
+        /// <summary>Override to add custom 3D setup (particles, sounds, etc.).</summary>
         protected virtual void OnInitialise3D(ProjectileConfigSO cfg) { }
 
-        /// <summary>
-        /// Called at the start of <see cref="OnReturnToPool"/> before the
-        /// base class resets renderers. Override to stop particles/FX etc.
-        /// </summary>
+        /// <summary>Override to stop/reset FX before returning to pool.</summary>
         protected virtual void OnCleanup3D() { }
 
         #endregion
@@ -170,21 +149,9 @@ namespace MidManStudio.Projectiles.Visuals
         private void ApplyMesh(ProjectileConfigSO cfg)
         {
             if (_meshFilter == null) return;
-
-            Mesh mesh = null;
-
-            // Priority 1: custom shape SO
-            if (cfg?.CustomShape != null)
-            {
-                mesh = cfg.CustomShape.GetMesh();
-            }
-
-            // Priority 2: built-in default cube
+            Mesh mesh = cfg?.CustomShape?.GetMesh();
             if (mesh == null || mesh.vertexCount == 0)
-            {
-                mesh = GetDefaultCube();
-            }
-
+                mesh = GetDefaultCapsule();
             _meshFilter.sharedMesh = mesh;
         }
 
@@ -192,19 +159,14 @@ namespace MidManStudio.Projectiles.Visuals
         {
             if (_meshRenderer == null) return;
 
-            // Try to use the config sprite's texture
             Texture2D tex = cfg?.ProjectileSprite?.texture;
-
             if (tex != null)
             {
-                // Re-use or create a per-instance material so we don't stomp shared material
                 if (_instancedMaterial == null)
                 {
-                    var srcMat = _meshRenderer.sharedMaterial ?? _fallbackMaterial;
-                    if (srcMat != null)
-                        _instancedMaterial = new Material(srcMat);
+                    var src = _meshRenderer.sharedMaterial ?? _fallbackMaterial;
+                    if (src != null) _instancedMaterial = new Material(src);
                 }
-
                 if (_instancedMaterial != null)
                 {
                     _instancedMaterial.mainTexture = tex;
@@ -216,19 +178,18 @@ namespace MidManStudio.Projectiles.Visuals
                 _meshRenderer.sharedMaterial = _fallbackMaterial;
             }
 
-            _meshRenderer.enabled             = true;
-            _meshRenderer.shadowCastingMode   = UnityEngine.Rendering.ShadowCastingMode.Off;
-            _meshRenderer.receiveShadows       = false;
+            _meshRenderer.enabled           = true;
+            _meshRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            _meshRenderer.receiveShadows     = false;
         }
 
         private void ApplyScale(ProjectileConfigSO cfg)
         {
-            float size = cfg != null ? cfg.FullSizeX * _scaleMultiplier : _scaleMultiplier;
-            float aspectY = (cfg != null && cfg.FullSizeX > 0.001f)
-                ? cfg.FullSizeY / cfg.FullSizeX : 1f;
-
-            // x = length (along forward/travel), y = height, z = width
-            transform.localScale = new Vector3(size, size * aspectY, size * aspectY);
+            float length = cfg != null ? cfg.FullSizeX * _scaleMultiplier : _scaleMultiplier;
+            float width  = cfg != null && cfg.FullSizeX > 0.001f
+                ? (cfg.FullSizeY / cfg.FullSizeX) * length : length * 0.2f;
+            // X = length (travel axis), Y = Z = width (perpendicular)
+            transform.localScale = new Vector3(width, width, length);
         }
 
         private void ApplyTrail(ProjectileConfigSO cfg)
@@ -278,44 +239,67 @@ namespace MidManStudio.Projectiles.Visuals
 
         #endregion
 
-        #region Default Mesh
+        #region Default Capsule Mesh
 
-        private static Mesh GetDefaultCube()
+        /// <summary>
+        /// Elongated capsule oriented along +Z (forward = travel direction).
+        /// 0.15 radius, 1.0 half-length — looks like a bullet tracer when scaled.
+        /// </summary>
+        private static Mesh GetDefaultCapsule()
         {
-            if (_defaultCubeMesh != null && _defaultCubeMesh.vertexCount > 0)
-                return _defaultCubeMesh;
+            if (_defaultCapsuleMesh != null && _defaultCapsuleMesh.vertexCount > 0)
+                return _defaultCapsuleMesh;
 
-            // Elongated capsule-like box: 2 units long (Z), 0.15 units wide (X/Y)
-            // Tip at +Z, tail at -Z
-            float hw = 0.075f, hl = 0.5f;
+            // Simple elongated hexagonal prism (6 sides, ~capsule shaped)
+            int   sides    = 6;
+            float radius   = 0.08f;
+            float halfLen  = 0.5f;  // along Z
 
-            _defaultCubeMesh = new Mesh { name = "DefaultProjectile3D" };
-            _defaultCubeMesh.vertices = new Vector3[]
+            var verts = new System.Collections.Generic.List<Vector3>();
+            var uvs   = new System.Collections.Generic.List<Vector2>();
+            var tris  = new System.Collections.Generic.List<int>();
+
+            // Ring of vertices at +Z (tip) and -Z (tail)
+            for (int i = 0; i < sides; i++)
             {
-                // Front (+Z)
-                new(-hw, -hw,  hl), new( hw, -hw,  hl),
-                new( hw,  hw,  hl), new(-hw,  hw,  hl),
-                // Back (-Z)
-                new(-hw, -hw, -hl), new( hw, -hw, -hl),
-                new( hw,  hw, -hl), new(-hw,  hw, -hl),
-            };
-            _defaultCubeMesh.uv = new Vector2[]
+                float a   = i / (float)sides * Mathf.PI * 2f;
+                float x   = Mathf.Cos(a) * radius;
+                float y   = Mathf.Sin(a) * radius;
+                verts.Add(new Vector3(x, y,  halfLen)); uvs.Add(new Vector2(i/(float)sides, 1f));
+                verts.Add(new Vector3(x, y, -halfLen)); uvs.Add(new Vector2(i/(float)sides, 0f));
+            }
+            // Tip center (+Z) and tail center (-Z)
+            int tipIdx  = verts.Count; verts.Add(new Vector3(0, 0,  halfLen)); uvs.Add(new Vector2(0.5f, 1f));
+            int tailIdx = verts.Count; verts.Add(new Vector3(0, 0, -halfLen)); uvs.Add(new Vector2(0.5f, 0f));
+
+            // Side quads
+            for (int i = 0; i < sides; i++)
             {
-                new(0,0), new(1,0), new(1,1), new(0,1),
-                new(0,0), new(1,0), new(1,1), new(0,1),
-            };
-            _defaultCubeMesh.triangles = new int[]
+                int next  = (i + 1) % sides;
+                int a0 = i * 2, a1 = i * 2 + 1;
+                int b0 = next * 2, b1 = next * 2 + 1;
+                tris.AddRange(new[]{ a0, b0, a1,  b0, b1, a1 });
+            }
+            // Tip cap
+            for (int i = 0; i < sides; i++)
             {
-                0,2,1, 0,3,2,         // front
-                5,7,4, 5,6,7,         // back
-                3,6,2, 3,7,6,         // top
-                1,5,0, 1,4,5,         // bottom  (note: was 0,4,5 — winding corrected)
-                0,7,3, 0,4,7,         // left
-                2,6,1, 1,6,5,         // right
-            };
-            _defaultCubeMesh.RecalculateNormals();
-            _defaultCubeMesh.RecalculateBounds();
-            return _defaultCubeMesh;
+                int next = (i + 1) % sides;
+                tris.AddRange(new[]{ tipIdx, i * 2, next * 2 });
+            }
+            // Tail cap
+            for (int i = 0; i < sides; i++)
+            {
+                int next = (i + 1) % sides;
+                tris.AddRange(new[]{ tailIdx, next * 2 + 1, i * 2 + 1 });
+            }
+
+            _defaultCapsuleMesh = new Mesh { name = "DefaultProjectile3D_Capsule" };
+            _defaultCapsuleMesh.SetVertices(verts);
+            _defaultCapsuleMesh.SetUVs(0, uvs);
+            _defaultCapsuleMesh.SetTriangles(tris, 0);
+            _defaultCapsuleMesh.RecalculateNormals();
+            _defaultCapsuleMesh.RecalculateBounds();
+            return _defaultCapsuleMesh;
         }
 
         #endregion
