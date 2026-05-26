@@ -1,8 +1,7 @@
-// MID_MasterProjectileSystem.cs
-// CHANGES:
-//   + GetAuthority() public accessor so game-layer code can subscribe
-//     to Adapter events (e.g. TestSceneBootstrapper damage routing).
-//   + All previous fixes retained.
+// MID_MasterProjectileSystem.cs — same as before, two accessors added:
+//   + GetBridge() → exposes _networkBridge for direct RPC in NetworkedDimensionPlayer
+//   + GetBridgeTick() → server tick shorthand
+//   + _localManager auto-found in Initialise() if not assigned in inspector
 
 using System;
 using UnityEngine;
@@ -42,7 +41,6 @@ namespace MidManStudio.Projectiles.Managers
         [SerializeField] private MID_NetworkObjectPool       _networkObjectPool;
 
         [Header("Mode")]
-        [Tooltip("Force offline regardless of NetworkManager state.")]
         [SerializeField] private bool _forceOfflineMode = false;
 
         [Header("Debug")]
@@ -71,12 +69,9 @@ namespace MidManStudio.Projectiles.Managers
             && NetworkManager.Singleton.IsServer
             && NetworkManager.Singleton.IsClient;
 
-        /// <summary>
-        /// Provides access to the underlying ServerProjectileAuthority for advanced use-cases
-        /// such as subscribing to Adapter.OnProjectileHit in game-layer code.
-        /// Returns null when not in a networked/server context.
-        /// </summary>
-        public ServerProjectileAuthority GetAuthority() => _authority;
+        public ServerProjectileAuthority      GetAuthority() => _authority;
+        public MID_ProjectileNetworkBridge    GetBridge()    => _networkBridge;
+        public int GetBridgeTick() => _networkBridge?.GetServerTick() ?? 0;
 
         #endregion
 
@@ -92,10 +87,7 @@ namespace MidManStudio.Projectiles.Managers
         {
             if (_initialised) return;
 
-            try
-            {
-                ProjectileLib.ValidateStructSizes();
-            }
+            try { ProjectileLib.ValidateStructSizes(); }
             catch (InvalidOperationException ex)
             {
                 MID_Logger.LogError(_logLevel,
@@ -106,6 +98,10 @@ namespace MidManStudio.Projectiles.Managers
             }
 
             BatchSpawnHelper.Initialise();
+
+            // FIX: auto-find LocalProjectileManager if not assigned in inspector
+            if (_localManager == null)
+                _localManager = FindObjectOfType<LocalProjectileManager>();
 
             if (_authority != null)
             {
@@ -124,7 +120,8 @@ namespace MidManStudio.Projectiles.Managers
             _initialised = true;
 
             MID_Logger.LogInfo(_logLevel,
-                $"Initialised. Mode: {(IsNetworked ? "Networked" : "Offline")}",
+                $"Initialised. Mode: {(IsNetworked ? "Networked" : "Offline")} " +
+                $"LocalManager: {(_localManager != null ? "found" : "MISSING")}",
                 nameof(MID_MasterProjectileSystem));
         }
 
@@ -139,29 +136,18 @@ namespace MidManStudio.Projectiles.Managers
         #region Public API — Identity
 
         public void SetLocalPlayerMidId(ulong midId)
-        {
-            _predictionManager?.SetLocalPlayerMidId(midId);
-        }
+            => _predictionManager?.SetLocalPlayerMidId(midId);
 
         #endregion
 
         #region Public API — Fire
 
         public void Fire(
-            ushort           configId,
-            SpawnPoint[]     spawnPoints,
-            int              count,
-            WeaponFireContext context)
+            ushort configId, SpawnPoint[] spawnPoints, int count, WeaponFireContext context)
         {
-            if (!_initialised)
-            {
-                MID_Logger.LogWarning(_logLevel,
-                    "Fire() called before initialisation.",
-                    nameof(MID_MasterProjectileSystem));
-                return;
-            }
+            if (!_initialised) return;
 
-            var cfg = _registry != null ? _registry.Get(configId) : null;
+            var cfg = _registry?.Get(configId);
             if (cfg == null)
             {
                 MID_Logger.LogWarning(_logLevel,
@@ -172,10 +158,6 @@ namespace MidManStudio.Projectiles.Managers
 
             var routing = ProjectileTypeRouter.Route(cfg, context);
 
-            MID_Logger.LogDebug(_logLevel,
-                $"Fire: configId={configId} mode={routing.Mode} is3D={cfg.Is3D} count={count}",
-                nameof(MID_MasterProjectileSystem));
-
             switch (routing.Mode)
             {
                 case SimulationMode.LocalOnly:
@@ -183,16 +165,16 @@ namespace MidManStudio.Projectiles.Managers
                     break;
                 case SimulationMode.RustSim2D:
                 case SimulationMode.RustSim3D:
-                    FireNetworkedSim(configId, spawnPoints, count, context, cfg, routing);
+                    FireNetworkedSim(configId, spawnPoints, count, context, cfg);
                     break;
                 case SimulationMode.Raycast:
                     MID_Logger.LogWarning(_logLevel,
-                        "Fire() called with Raycast mode — use RegisterRaycastFire() instead.",
+                        "Fire() with Raycast mode — use RegisterRaycastFire() instead.",
                         nameof(MID_MasterProjectileSystem));
                     break;
                 case SimulationMode.PhysicsObject:
                     MID_Logger.LogWarning(_logLevel,
-                        "PhysicsObject mode — call SpawnPhysicsProjectile() from your weapon script.",
+                        "PhysicsObject mode — call SpawnPhysicsProjectile() from weapon script.",
                         nameof(MID_MasterProjectileSystem));
                     break;
             }
@@ -205,7 +187,7 @@ namespace MidManStudio.Projectiles.Managers
             if (_localManager == null)
             {
                 MID_Logger.LogWarning(_logLevel,
-                    "FireLocal: LocalProjectileManager not assigned.",
+                    "FireLocal: LocalProjectileManager not found.",
                     nameof(MID_MasterProjectileSystem));
                 return;
             }
@@ -220,26 +202,25 @@ namespace MidManStudio.Projectiles.Managers
 
         private void FireNetworkedSim(
             ushort configId, SpawnPoint[] spawnPoints, int count,
-            WeaponFireContext context, ProjectileConfigSO cfg, RoutingResult routing)
+            WeaponFireContext context, ProjectileConfigSO cfg)
         {
-            if (_networkBridge == null)
-            {
-                MID_Logger.LogWarning(_logLevel,
-                    "FireNetworkedSim: NetworkBridge not assigned.",
-                    nameof(MID_MasterProjectileSystem));
-                return;
-            }
+            if (_networkBridge == null) return;
 
-            Vector3 origin    = count > 0 ? spawnPoints[0].Origin    : Vector3.zero;
-            Vector3 direction = count > 0 ? spawnPoints[0].Direction : Vector3.forward;
-            float   speed     = count > 0 ? spawnPoints[0].Speed     : cfg.ResolveSpeed();
+            int extraCount = Mathf.Min(count - 1, 63);
+            Vector3[] extraDirs = null;
+            if (extraCount > 0)
+            {
+                extraDirs = new Vector3[extraCount];
+                for (int i = 0; i < extraCount; i++)
+                    extraDirs[i] = spawnPoints[i + 1].Direction;
+            }
 
             var request = new ProjectileFireRequest
             {
                 ConfigId               = configId,
-                Origin                 = origin,
-                Direction              = direction,
-                Speed                  = speed,
+                Origin                 = count > 0 ? spawnPoints[0].Origin    : Vector3.zero,
+                Direction              = count > 0 ? spawnPoints[0].Direction : Vector3.forward,
+                Speed                  = count > 0 ? spawnPoints[0].Speed     : cfg.ResolveSpeed(),
                 RngSeed                = (uint)UnityEngine.Random.Range(0, int.MaxValue),
                 ProjectileCount        = (byte)Mathf.Min(count, 255),
                 OwnerMidId             = context.OwnerMidId,
@@ -247,7 +228,9 @@ namespace MidManStudio.Projectiles.Managers
                 IsBotOwner             = context.IsBotOwner,
                 WeaponLevel            = context.WeaponLevel,
                 DamageMultiplier       = context.DamageMultiplier,
-                ClientFireTick         = _networkBridge.GetServerTick()
+                ClientFireTick         = _networkBridge.GetServerTick(),
+                ExtraDirectionCount    = (byte)extraCount,
+                ExtraDirections        = extraDirs
             };
 
             _networkBridge.FireServerRpc(request);
@@ -255,38 +238,20 @@ namespace MidManStudio.Projectiles.Managers
 
         #endregion
 
-        #region Public API — Physics Network Object Pool
+        #region Public API — Physics Pool
 
         public NetworkObject SpawnPhysicsProjectile(
-            PoolableNetworkObjectType type,
-            Vector3                   position,
-            Quaternion                rotation)
+            PoolableNetworkObjectType type, Vector3 position, Quaternion rotation)
         {
-            if (!IsServer)
-            {
-                MID_Logger.LogWarning(_logLevel,
-                    "SpawnPhysicsProjectile must be called on the server.",
-                    nameof(MID_MasterProjectileSystem));
-                return null;
-            }
-
-            if (_networkObjectPool == null)
-            {
-                MID_Logger.LogError(_logLevel,
-                    "SpawnPhysicsProjectile: MID_NetworkObjectPool not assigned.",
-                    nameof(MID_MasterProjectileSystem));
-                return null;
-            }
-
+            if (!IsServer) return null;
+            if (_networkObjectPool == null) return null;
             var netObj = _networkObjectPool.GetNetworkObject(type, position, rotation);
             if (netObj == null) return null;
             netObj.Spawn();
             return netObj;
         }
 
-        public void ReturnPhysicsProjectile(
-            NetworkObject             netObj,
-            PoolableNetworkObjectType type)
+        public void ReturnPhysicsProjectile(NetworkObject netObj, PoolableNetworkObjectType type)
         {
             if (_networkObjectPool == null || netObj == null) return;
             _networkObjectPool.ReturnNetworkObject(netObj, type);
@@ -297,21 +262,16 @@ namespace MidManStudio.Projectiles.Managers
         #region Public API — Raycast
 
         public void RegisterRaycastFire(
-            RaycastFireResult result,
-            ushort            configId,
-            WeaponFireContext  context)
+            RaycastFireResult result, ushort configId, WeaponFireContext context)
         {
             if (!_initialised) return;
-
             var cfg = _registry?.Get(configId);
             if (cfg == null) return;
 
             if (!IsNetworked)
             {
                 _raycastHandler?.OfflineHandleFire(
-                    result, configId,
-                    (uint)context.OwnerMidId,
-                    context.DamageMultiplier);
+                    result, configId, (uint)context.OwnerMidId, context.DamageMultiplier);
                 return;
             }
 
@@ -334,10 +294,8 @@ namespace MidManStudio.Projectiles.Managers
                         DamageMultiplier       = context.DamageMultiplier,
                         ClientFireTick         = _networkBridge.GetServerTick()
                     },
-                    result.HitPoint,
-                    result.DidHit,
-                    result.IsHeadshot,
-                    result.HitTargetNetworkId);
+                    result.HitPoint, result.DidHit,
+                    result.IsHeadshot, result.HitTargetNetworkId);
 
                 _raycastHandler?.OfflineHandleFire(
                     result, configId, (uint)context.OwnerMidId, 1f);
@@ -383,23 +341,20 @@ namespace MidManStudio.Projectiles.Managers
         #region Public API — State
 
         public int SaveState2D(byte[] buf)    => _authority?.SaveState2D(buf) ?? 0;
-        public int RestoreState2D(byte[] buf, int byteCount)
-            => _authority?.RestoreState2D(buf, byteCount) ?? 0;
+        public int RestoreState2D(byte[] buf, int n) => _authority?.RestoreState2D(buf, n) ?? 0;
 
         #endregion
 
-        #region Public API — Guided Homing
+        #region Public API — Guided
 
         public void SetHomingDirection2D(uint projId, Vector2 worldDir)
         {
-            if (IsServer || !IsNetworked)
-                _authority?.SetAcceleration2D(projId, worldDir);
+            if (IsServer || !IsNetworked) _authority?.SetAcceleration2D(projId, worldDir);
         }
 
         public void SetHomingDirection3D(uint projId, Vector3 worldDir)
         {
-            if (IsServer || !IsNetworked)
-                _authority?.SetAcceleration3D(projId, worldDir);
+            if (IsServer || !IsNetworked) _authority?.SetAcceleration3D(projId, worldDir);
         }
 
         #endregion
@@ -411,14 +366,14 @@ namespace MidManStudio.Projectiles.Managers
         {
             MID_Logger.LogInfo(_logLevel,
                 $"=== MID_MasterProjectileSystem ===\n" +
-                $"Initialised:   {_initialised}\n" +
-                $"Networked:     {IsNetworked}\n" +
-                $"Is Server:     {IsServer}\n" +
-                $"Is Host:       {IsHostMode}\n" +
-                $"Active 2D:     {_authority?.ActiveCount2D ?? _localManager?.ActiveCount2D ?? 0}\n" +
-                $"Active 3D:     {_authority?.ActiveCount3D ?? _localManager?.ActiveCount3D ?? 0}\n" +
-                $"Registry:      {_registry?.Count ?? 0} configs\n" +
-                $"NetObjPool:    {(_networkObjectPool != null ? "assigned" : "not assigned")}",
+                $"Initialised:  {_initialised}\n" +
+                $"Networked:    {IsNetworked}\n" +
+                $"IsServer:     {IsServer}\n" +
+                $"IsHost:       {IsHostMode}\n" +
+                $"Active2D:     {_authority?.ActiveCount2D ?? _localManager?.ActiveCount2D ?? 0}\n" +
+                $"Active3D:     {_authority?.ActiveCount3D ?? _localManager?.ActiveCount3D ?? 0}\n" +
+                $"Registry:     {_registry?.Count ?? 0} configs\n" +
+                $"LocalManager: {(_localManager != null ? "OK" : "NULL")}",
                 nameof(MID_MasterProjectileSystem));
         }
 
