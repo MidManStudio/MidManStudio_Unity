@@ -2,6 +2,16 @@
 //   + GetBridge() → exposes _networkBridge for direct RPC in NetworkedDimensionPlayer
 //   + GetBridgeTick() → server tick shorthand
 //   + _localManager auto-found in Initialise() if not assigned in inspector
+//
+// FIX (LocalOnly collision in host mode):
+//   RegisterTarget2D/3D previously only called _localManager when !IsNetworked.
+//   In host mode IsNetworked = true, so _localManager never got targets, and
+//   LocalOnly-mode projectiles (which live in _localManager) never produced hits.
+//   Fix: _localManager always receives target registrations regardless of network
+//   state so LocalOnly shoot mode works in any configuration.
+//   Same fix applied to Deactivate and ClearAllTargets for consistency.
+//
+// ADDED: int unityLayer = 0 parameter to RegisterTarget2D/3D for layer filtering.
 
 using System;
 using UnityEngine;
@@ -305,35 +315,41 @@ namespace MidManStudio.Projectiles.Managers
         #endregion
 
         #region Public API — Targets
+        // FIX: _localManager always receives target registrations regardless of network
+        // state. Previously only called when !IsNetworked, causing LocalOnly shoot mode
+        // to have no registered targets when running in host/server mode.
 
-        public void RegisterTarget2D(in CollisionTarget target)
+        /// <summary>Register a 2D collision target. unityLayer is the GameObject's layer (0-31).</summary>
+        public void RegisterTarget2D(in CollisionTarget target, int unityLayer = 0)
         {
-            if (IsServer)     _authority?.RegisterTarget2D(target);
-            if (!IsNetworked) _localManager?.RegisterTarget2D(target);
+            if (IsServer)     _authority?.RegisterTarget2D(target, unityLayer);
+            // Always register with local manager for LocalOnly shoot mode support
+            _localManager?.RegisterTarget2D(target, unityLayer);
         }
 
-        public void RegisterTarget3D(in CollisionTarget3D target)
+        /// <summary>Register a 3D collision target. unityLayer is the GameObject's layer (0-31).</summary>
+        public void RegisterTarget3D(in CollisionTarget3D target, int unityLayer = 0)
         {
-            if (IsServer)     _authority?.RegisterTarget3D(target);
-            if (!IsNetworked) _localManager?.RegisterTarget3D(target);
+            if (IsServer)     _authority?.RegisterTarget3D(target, unityLayer);
+            _localManager?.RegisterTarget3D(target, unityLayer);
         }
 
         public void DeactivateTarget2D(uint targetId)
         {
             if (IsServer)     _authority?.DeactivateTarget2D(targetId);
-            if (!IsNetworked) _localManager?.DeactivateTarget2D(targetId);
+            _localManager?.DeactivateTarget2D(targetId);
         }
 
         public void DeactivateTarget3D(uint targetId)
         {
             if (IsServer)     _authority?.DeactivateTarget3D(targetId);
-            if (!IsNetworked) _localManager?.DeactivateTarget3D(targetId);
+            _localManager?.DeactivateTarget3D(targetId);
         }
 
         public void ClearAllTargets()
         {
             if (IsServer)     _authority?.ClearAllTargets();
-            if (!IsNetworked) _localManager?.ClearAllTargets();
+            _localManager?.ClearAllTargets();
         }
 
         #endregion
