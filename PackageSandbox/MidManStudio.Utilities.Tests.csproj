@@ -70,6 +70,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Tests/Runtime/Timers/TimerBenchmarkRunner.cs">
       <Link>Tests/Runtime/Timers/TimerBenchmarkRunner.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Tests/Runtime/Audio/MID_AudioBenchRunner.cs">
+      <Link>Tests/Runtime/Audio/MID_AudioBenchRunner.cs</Link>
+    </Compile>
   </ItemGroup>
   <ItemGroup>
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Tests/Runtime/MidManStudio.Utilities.Tests.asmdef">

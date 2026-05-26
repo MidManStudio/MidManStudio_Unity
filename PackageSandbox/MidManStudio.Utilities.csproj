@@ -258,6 +258,9 @@
     </Compile>
   </ItemGroup>
   <ItemGroup>
+    <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio/Windows/mid_audio.dll">
+      <Link>Runtime/Plugins/Native/Audio/Windows/mid_audio.dll</Link>
+    </None>
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/MidManStudio.Utilities.asmdef">
       <Link>Runtime/MidManStudio.Utilities.asmdef</Link>
     </None>

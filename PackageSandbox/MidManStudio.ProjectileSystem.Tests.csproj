@@ -73,6 +73,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/ProjectileTestLobbyUI.cs">
       <Link>Tests/Runtime/ProjectileTestLobbyUI.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/TestTarget.cs">
+      <Link>Tests/Runtime/TestTarget.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/DimensionManager.cs">
       <Link>Tests/Runtime/DimensionManager.cs</Link>
     </Compile>

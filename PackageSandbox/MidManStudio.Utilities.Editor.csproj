@@ -91,6 +91,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Logging/MID_LoggerEditorWindow.cs">
       <Link>Editor/Logging/MID_LoggerEditorWindow.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Audio/MID_NativeAudioBridgeEditor.cs">
+      <Link>Editor/Audio/MID_NativeAudioBridgeEditor.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/UIState/MID_UIStateContextEditor.cs">
       <Link>Editor/UIState/MID_UIStateContextEditor.cs</Link>
     </Compile>

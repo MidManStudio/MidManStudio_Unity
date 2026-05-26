@@ -156,6 +156,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _atlasMaterial: {fileID: 2100000, guid: 8e2bd416c1769401bac71c1f8d976a94, type: 2}
   _maxQuads: 512
+  _renderCamera: {fileID: 0}
   _fadeInFraction: 0.1
   _fadeOutFraction: 0.15
 --- !u!23 &100733519
@@ -1959,7 +1960,8 @@ MonoBehaviour:
   _hardSnapThreshold: 3
   _reconcileDuration: 0.15
   _historySize: 32
-  _visualPoolType: 100
+  _visualPoolType2D: 100
+  _visualPoolType3D: 101
   _localPlayerMidId: 0
   _enableLogs: 1
 --- !u!4 &665941782
@@ -2700,7 +2702,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _visualTravelSpeed: 40
-  _visualPoolType: 100
+  _visualPoolType2D: 100
+  _visualPoolType3D: 101
   _hitValidationTolerance: 2
   _serverRaycastLayers:
     serializedVersion: 2
@@ -3874,7 +3877,6 @@ MonoBehaviour:
   _targetPrefab: {fileID: 8467964027819435547, guid: 68f4eae0878db41a79f190baad63c6d5,
     type: 3}
   _targetCount: 8
-  _targetRadius: 0.6
   _targetSpawnRadius: 8
   _targetBobAmplitude: 0.4
   _targetBobSpeed: 1.2

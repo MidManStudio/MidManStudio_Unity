@@ -73,8 +73,14 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Config/ProjectileShapeSO.cs">
       <Link>Runtime/Config/ProjectileShapeSO.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Visual/ProjectileVisualBase.cs">
+      <Link>Runtime/Visual/ProjectileVisualBase.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/LocalProjectileManager.cs">
       <Link>Runtime/Managers/LocalProjectileManager.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Visual/ProjectileVisual3D.cs">
+      <Link>Runtime/Visual/ProjectileVisual3D.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Core/ProjectileManager.cs">
       <Link>Runtime/Core/ProjectileManager.cs</Link>

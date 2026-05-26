@@ -71,7 +71,7 @@ namespace MidManStudio.Core.Audio
         [Tooltip("Assign AudioClips here. Index 0 = impact, 1 = muzzle, 2 = shell, etc.\n" +
                  "On desktop/mobile: decoded PCM is uploaded to the Rust bank.\n" +
                  "On WebGL: clips are played directly via managed AudioSource pool.")]
-        [SerializeField] private AudioClip[] _clips;
+        public AudioClip[] _clips;
 
         [Header("WebGL Managed Pool")]
         [Tooltip("Number of AudioSource voices in the WebGL managed fallback pool.\n" +
@@ -80,7 +80,6 @@ namespace MidManStudio.Core.Audio
 
         // ── Public state ──────────────────────────────────────────────────────
 
-        public static MID_NativeAudioBridge Instance { get; private set; }
         public bool IsUsingNativeDSP =>
 #if !UNITY_WEBGL || UNITY_EDITOR
             true;
