@@ -1,328 +1,194 @@
-// MID_NativeAudioBridge.cs
+// MID_NativeAudioBridge.cs  — v2: AudioSource Pool
 //
-// Native DSP audio bridge. Platform dispatch:
+// WHAT CHANGED FROM v1 AND WHY:
 //
-//   Desktop / Mobile (Win, Mac, Linux, Android, iOS):
-//     Uses Rust mid_audio DLL via DllImport.
-//     schedule_voice() → main thread, ~10-50 ns (essentially free).
-//     process_buffer() → Unity audio DSP thread via OnAudioFilterRead.
-//     16-voice mix with 512-sample buffer: ~0.0135 ms = 0.064% of 48 kHz frame budget.
+// Removed: AudioClip.GetData() → PCM upload → Rust voice mixing
+//   GetData() requires Decompress On Load AND the clip to be fully loaded in memory
+//   at the exact moment Awake() runs. Unity loads clips asynchronously; the call
+//   races against the loader and produces "data larger than clip loaded" even with
+//   correct import settings. Bypassing Unity's hardware audio decoders also doubles
+//   memory and breaks streaming clips entirely. Wrong tool for a general-purpose package.
 //
-//   WebGL:
-//     DllImport NOT available — Unity WebGL uses the Web Audio API.
-//     OnAudioFilterRead still fires (Unity implements it via ScriptProcessorNode),
-//     but process_buffer is never called since the DLL does not exist.
-//     PlayClip() uses a pre-created AudioSource[] pool instead.
-//     The pool is a circular steal — if all 16 sources are playing, oldest is stolen.
-//     GC: AudioSource.Play() is 0-alloc when called on a pre-warmed source.
+// Added: Standard AudioSource pool (16 voices, circular steal)
+//   Unity's AudioSource handles decoding, 3D spatialization, and AudioMixer routing.
+//   No clip format requirements — works with Compressed In Memory, Streaming, anything.
+//   PlayClip() is O(pool_size) worst-case to find a free source (typically O(1)).
 //
-// Public interface is identical on all platforms. Game code never branches.
+// Rust DLL role: see MID_AudioLimiter.cs
+//   The limiter runs in OnAudioFilterRead on the AudioListener — not here.
+//   This class has no DllImport at all. It's pure C# AudioSource management.
 //
-// SETUP (all platforms):
-//   1. Add this component to your Managers prefab.
-//   2. Add an AudioSource to the same GameObject.
-//      clip = null, playOnAwake = false, loop = true, spatialBlend = 0.
-//      The AudioSource must exist even if the DLL is active — it hosts the DSP chain.
-//   3. Call UploadClip() at startup for each impact/muzzle/shell sound.
-//      Clips must have Load Type = Decompress On Load.
-//   4. Call PlayClip(index, volume) from game code on the main thread.
+// SETUP:
+//   1. Add MID_NativeAudioBridge to your Managers prefab.
+//   2. Assign AudioClips in the _clips inspector array (any Load Type works).
+//   3. Add MID_AudioLimiter to your AudioListener GameObject (Camera or dedicated).
+//   4. Call PlayClip(index, volume) from game code.
 //
-// GC:
-//   Desktop/Mobile: schedule_voice (blittable DllImport) = 0 GC always.
-//   WebGL: AudioSource.Play() on pre-created sources = 0 GC after warmup.
-//   Neither path allocates inside OnAudioFilterRead (audio thread safe).
+// WEBGL:
+//   Works identically — AudioSource pool is pure C# with no platform restrictions.
+//   MID_AudioLimiter skips the Rust DLL on WebGL (C# fallback limiter instead).
 
-using System;
-using System.Runtime.InteropServices;
 using UnityEngine;
 using MidManStudio.Core.Logging;
 using MidManStudio.Core.Singleton;
 
 namespace MidManStudio.Core.Audio
 {
-    [RequireComponent(typeof(AudioSource))]
     public class MID_NativeAudioBridge : Singleton<MID_NativeAudioBridge>
     {
-        // ── DllImport — desktop + mobile only ────────────────────────────────
-        // Excluded from WebGL builds entirely. The compiler never sees these
-        // on WebGL so there is no unresolved symbol at link time.
-        // DO NOT call any of these methods without #if guards.
-#if !UNITY_WEBGL || UNITY_EDITOR
-
-#if UNITY_IOS && !UNITY_EDITOR
-        private const string LIB = "__Internal";
-#else
-        private const string LIB = "mid_audio";
-#endif
-
-        [DllImport(LIB)] private static extern int  upload_pcm_clip(IntPtr pcmData, int sampleCount);
-        [DllImport(LIB)] private static extern void schedule_voice(int bankSlot, float volume01);
-        [DllImport(LIB)] private static extern void process_buffer(float[] buffer, int length);
-        [DllImport(LIB)] private static extern void reset_audio_state();
-        [DllImport(LIB)] private static extern int  active_voice_count();
-
-#endif // !UNITY_WEBGL || UNITY_EDITOR
-
         // ── Inspector ─────────────────────────────────────────────────────────
 
         [SerializeField] private MID_LogLevel _logLevel = MID_LogLevel.Info;
 
-        [Header("Clips — must be Decompress On Load")]
-        [Tooltip("Assign AudioClips here. Index 0 = impact, 1 = muzzle, 2 = shell, etc.\n" +
-                 "On desktop/mobile: decoded PCM is uploaded to the Rust bank.\n" +
-                 "On WebGL: clips are played directly via managed AudioSource pool.")]
-        public AudioClip[] _clips;
+        [Header("Clips  (any Load Type — Decompress On Load NOT required)")]
+        [Tooltip("Assign AudioClips here. Index matches the clipIndex parameter of PlayClip().\n" +
+                 "0 = impact, 1 = muzzle, 2 = shell ejection, etc.")]
+        [SerializeField] private AudioClip[] _clips;
 
-        [Header("WebGL Managed Pool")]
-        [Tooltip("Number of AudioSource voices in the WebGL managed fallback pool.\n" +
-                 "Ignored on desktop/mobile (Rust DSP handles voice count there).")]
-        [SerializeField] [Range(4, 32)] private int _webglPoolSize = 16;
+        [Header("Voice Pool")]
+        [Tooltip("Number of simultaneous voices. Oldest voice is stolen when pool is full.")]
+        [SerializeField] [Range(4, 32)] private int _poolSize = 16;
 
-        // ── Public state ──────────────────────────────────────────────────────
+        [Tooltip("Spatial blend for all pool voices. 0 = 2D (ignores position). 1 = full 3D.")]
+        [SerializeField] [Range(0f, 1f)] private float _spatialBlend = 0f;
 
-        public bool IsUsingNativeDSP =>
-#if !UNITY_WEBGL || UNITY_EDITOR
-            true;
-#else
-            false;
-#endif
+        // ── State ─────────────────────────────────────────────────────────────
 
-        // ── Private — native path ─────────────────────────────────────────────
+        private AudioSource[] _pool;
+        private int           _poolIdx;
 
-        private int[]    _bankSlots;   // clip index → Rust bank slot
-        private float[]  _decodeBuffer; // reused PCM decode buffer (one alloc at startup)
+        // Inspector diagnostics
+        [SerializeField, HideInInspector] private int _activeVoiceCount;
 
-        // ── Private — WebGL managed pool ─────────────────────────────────────
-
-#if UNITY_WEBGL && !UNITY_EDITOR
-        private AudioSource[] _webglPool;
-        private int           _webglPoolIdx;
-#endif
-
-        // ── Editor diagnostics (read-only) ────────────────────────────────────
-
-        [SerializeField, HideInInspector] private int    _debugActiveVoices;
-        [SerializeField, HideInInspector] private string _debugPlatform;
-
-        // ── Unity Lifecycle ───────────────────────────────────────────────────
+        // ── Lifecycle ─────────────────────────────────────────────────────────
 
         protected override void Awake()
         {
             base.Awake();
-
-            _debugPlatform = IsUsingNativeDSP ? "Native DSP (Rust DLL)" : "Managed Pool (WebGL)";
-
-#if UNITY_WEBGL && !UNITY_EDITOR
-            InitWebGLPool();
-#else
-            InitNativePath();
-#endif
-
+            BuildPool();
             MID_Logger.LogInfo(_logLevel,
-                $"NativeAudioBridge ready — {_debugPlatform} — {_clips?.Length ?? 0} clip(s).",
-                nameof(MID_NativeAudioBridge), nameof(Awake));
+                $"NativeAudioBridge ready — {_poolSize}-voice pool, {_clips?.Length ?? 0} clip(s).",
+                nameof(MID_NativeAudioBridge));
         }
 
         private void Update()
         {
 #if UNITY_EDITOR
-            _debugActiveVoices = ActiveVoiceCount;
+            _activeVoiceCount = ActiveVoiceCount;
 #endif
         }
 
-        protected override void OnDestroy()
-        {
-            base.OnDestroy();
-#if !UNITY_WEBGL || UNITY_EDITOR
-            if (IsUsingNativeDSP) reset_audio_state();
-#endif
-        }
-
-        // ── Audio DSP Thread — native path only ───────────────────────────────
-        // OnAudioFilterRead fires on the audio thread. On WebGL it still fires
-        // but we do nothing here — managed AudioSources handle playback directly.
-        // DO NOT allocate or call Unity APIs from inside this method.
-        private void OnAudioFilterRead(float[] data, int channels)
-        {
-#if !UNITY_WEBGL || UNITY_EDITOR
-            process_buffer(data, data.Length);
-#endif
-            // WebGL: intentional no-op. Managed AudioSources handle their own output.
-        }
-
-        // ── Public API — main thread only ─────────────────────────────────────
+        // ── Public API ────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Play a clip by its index in the _clips inspector array.
-        /// Main thread only. Zero GC allocation on all platforms after warmup.
+        /// Play a clip from the pool.
+        /// clipIndex matches the _clips inspector array (0 = impact, 1 = muzzle, etc.)
+        /// volume 0.0–1.0. Main thread only. Zero GC allocation.
         /// </summary>
         public void PlayClip(int clipIndex, float volume = 1f)
         {
-            if (_bankSlots == null || clipIndex < 0 || clipIndex >= _bankSlots.Length) return;
+            if (_pool == null || _clips == null) return;
+            if (clipIndex < 0 || clipIndex >= _clips.Length) return;
 
-#if UNITY_WEBGL && !UNITY_EDITOR
-            PlayClipManaged(clipIndex, volume);
-#else
-            int slot = _bankSlots[clipIndex];
-            if (slot < 0)
+            var clip = _clips[clipIndex];
+            if (clip == null)
             {
                 MID_Logger.LogWarning(_logLevel,
-                    $"Clip [{clipIndex}] not uploaded — cannot play.",
+                    $"PlayClip({clipIndex}): clip is null.",
                     nameof(MID_NativeAudioBridge));
                 return;
             }
-            schedule_voice(slot, Mathf.Clamp01(volume));
-#endif
+
+            var src = GetPoolSource();
+            src.clip         = clip;
+            src.volume       = Mathf.Clamp01(volume);
+            src.spatialBlend = _spatialBlend;
+            src.Play();
         }
 
         /// <summary>
-        /// Number of currently active voices.
-        /// Desktop/Mobile: queries Rust atomic counter.
-        /// WebGL: counts non-idle sources in the managed pool.
+        /// Play a specific AudioClip directly (without requiring it to be in the _clips array).
+        /// Useful for runtime-generated or dynamically loaded clips.
         /// </summary>
+        public void PlayClipDirect(AudioClip clip, float volume = 1f)
+        {
+            if (_pool == null || clip == null) return;
+            var src = GetPoolSource();
+            src.clip         = clip;
+            src.volume       = Mathf.Clamp01(volume);
+            src.spatialBlend = _spatialBlend;
+            src.Play();
+        }
+
+        /// <summary>Number of pool voices currently playing.</summary>
         public int ActiveVoiceCount
         {
             get
             {
-#if UNITY_WEBGL && !UNITY_EDITOR
-                if (_webglPool == null) return 0;
+                if (_pool == null) return 0;
                 int count = 0;
-                foreach (var s in _webglPool) if (s != null && s.isPlaying) count++;
+                foreach (var s in _pool) if (s != null && s.isPlaying) count++;
                 return count;
-#else
-                return IsUsingNativeDSP ? active_voice_count() : 0;
-#endif
             }
         }
 
-        /// <summary>
-        /// Stop all active voices and reset the DSP state.
-        /// Safe to call from main thread only.
-        /// </summary>
-        public void ResetAllVoices()
+        /// <summary>Stop all active voices immediately.</summary>
+        public void StopAll()
         {
-#if UNITY_WEBGL && !UNITY_EDITOR
-            if (_webglPool != null) foreach (var s in _webglPool) s?.Stop();
-            _webglPoolIdx = 0;
-#else
-            if (IsUsingNativeDSP) reset_audio_state();
-#endif
-            MID_Logger.LogInfo(_logLevel, "All voices reset.",
-                nameof(MID_NativeAudioBridge));
+            if (_pool == null) return;
+            foreach (var s in _pool) if (s != null && s.isPlaying) s.Stop();
+            MID_Logger.LogInfo(_logLevel, "All voices stopped.", nameof(MID_NativeAudioBridge));
         }
 
-        // ── Native path init ──────────────────────────────────────────────────
+        /// <summary>Returns the AudioClip at the given index (null if out of range).</summary>
+        public AudioClip GetClip(int index) =>
+            _clips != null && index >= 0 && index < _clips.Length ? _clips[index] : null;
 
-#if !UNITY_WEBGL || UNITY_EDITOR
-        private void InitNativePath()
+        /// <summary>Total number of clip slots.</summary>
+        public int ClipCount => _clips?.Length ?? 0;
+
+        // ── Private — pool management ─────────────────────────────────────────
+
+        private void BuildPool()
         {
-            // The AudioSource must be playing for OnAudioFilterRead to fire.
-            var src = GetComponent<AudioSource>();
-            src.clip       = null;
-            src.loop       = true;
-            src.volume     = 1f;
-            src.spatialBlend = 0f;
-            if (!src.isPlaying) src.Play();
-
-            UploadAllClips();
-        }
-
-        private void UploadAllClips()
-        {
-            if (_clips == null || _clips.Length == 0) return;
-            _bankSlots = new int[_clips.Length];
-
-            for (int i = 0; i < _clips.Length; i++)
-            {
-                _bankSlots[i] = UploadSingleClip(_clips[i]);
-                MID_Logger.LogDebug(_logLevel,
-                    $"Clip [{i}] '{(_clips[i] != null ? _clips[i].name : "null")}' → bank slot {_bankSlots[i]}",
-                    nameof(MID_NativeAudioBridge));
-            }
-        }
-
-        private unsafe int UploadSingleClip(AudioClip clip)
-        {
-            if (clip == null) return -1;
-            int sampleCount = clip.samples * clip.channels;
-
-            // One decode buffer reused across all uploads — single alloc at startup.
-            if (_decodeBuffer == null || _decodeBuffer.Length < sampleCount)
-                _decodeBuffer = new float[sampleCount];
-
-            if (!clip.GetData(_decodeBuffer, 0))
-            {
-                MID_Logger.LogError(_logLevel,
-                    $"GetData failed for '{clip.name}'. " +
-                    "Set Load Type = Decompress On Load in the AudioClip import settings.",
-                    nameof(MID_NativeAudioBridge));
-                return -1;
-            }
-
-            fixed (float* ptr = _decodeBuffer)
-                return upload_pcm_clip((IntPtr)ptr, sampleCount);
-        }
-#endif // !UNITY_WEBGL || UNITY_EDITOR
-
-        // ── WebGL managed pool ────────────────────────────────────────────────
-
-#if UNITY_WEBGL && !UNITY_EDITOR
-        private void InitWebGLPool()
-        {
-            if (_clips == null || _clips.Length == 0) return;
-
-            // Bank slots on WebGL are just clip indices (no Rust PCM bank).
-            _bankSlots = new int[_clips.Length];
-            for (int i = 0; i < _clips.Length; i++) _bankSlots[i] = i;
-
-            // Pre-create AudioSource components on this GameObject.
-            // These are parented to the manager — DontDestroyOnLoad via Singleton.
-            _webglPool = new AudioSource[_webglPoolSize];
-            for (int i = 0; i < _webglPoolSize; i++)
+            _pool = new AudioSource[_poolSize];
+            for (int i = 0; i < _poolSize; i++)
             {
                 var go = new GameObject($"AudioVoice_{i:D2}");
                 go.transform.SetParent(transform);
 
                 var src = go.AddComponent<AudioSource>();
-                src.spatialBlend  = 0f;
-                src.playOnAwake   = false;
-                src.loop          = false;
-                src.volume        = 1f;
+                src.playOnAwake  = false;
+                src.loop         = false;
+                src.spatialBlend = _spatialBlend;
+                src.volume       = 1f;
 
-                _webglPool[i] = src;
+                _pool[i] = src;
             }
-
-            MID_Logger.LogInfo(_logLevel,
-                $"WebGL managed pool: {_webglPoolSize} AudioSource voices.",
-                nameof(MID_NativeAudioBridge));
         }
 
-        private void PlayClipManaged(int clipIndex, float volume)
+        /// <summary>
+        /// Returns the next available AudioSource.
+        /// Prefers non-playing sources; steals the current circular-position slot if all busy.
+        /// </summary>
+        private AudioSource GetPoolSource()
         {
-            if (_webglPool == null || _clips == null) return;
-            if (clipIndex < 0 || clipIndex >= _clips.Length) return;
-            var clip = _clips[clipIndex];
-            if (clip == null) return;
-
-            // Find free slot; steal oldest if all busy.
-            AudioSource target = null;
-            for (int i = 0; i < _webglPool.Length; i++)
+            // Scan from current position for a free slot
+            for (int i = 0; i < _poolSize; i++)
             {
-                int idx = (_webglPoolIdx + i) % _webglPool.Length;
-                if (!_webglPool[idx].isPlaying) { target = _webglPool[idx]; _webglPoolIdx = (idx + 1) % _webglPool.Length; break; }
-            }
-            if (target == null)
-            {
-                // All busy — steal from circular position (voice steal)
-                target = _webglPool[_webglPoolIdx % _webglPool.Length];
-                _webglPoolIdx = (_webglPoolIdx + 1) % _webglPool.Length;
-                target.Stop();
+                int idx = (_poolIdx + i) % _poolSize;
+                if (!_pool[idx].isPlaying)
+                {
+                    _poolIdx = (idx + 1) % _poolSize;
+                    return _pool[idx];
+                }
             }
 
-            target.clip   = clip;
-            target.volume = Mathf.Clamp01(volume);
-            target.Play();
+            // All busy — steal from current position (oldest in circular sequence)
+            var stolen = _pool[_poolIdx];
+            stolen.Stop();
+            _poolIdx = (_poolIdx + 1) % _poolSize;
+            return stolen;
         }
-#endif // UNITY_WEBGL && !UNITY_EDITOR
     }
 }
