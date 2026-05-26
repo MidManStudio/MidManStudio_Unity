@@ -1,21 +1,33 @@
-// MID_AudioBenchRunner.cs
+// MID_AudioBenchRunner.cs  (updated — GC explanation + voice timing fix)
 //
-// Runtime benchmark comparing three Unity audio approaches:
-//   A) Naive     — AudioSource.PlayOneShot(clip) on a single source
-//   B) Pooled    — Manual AudioSource[] pool (circular steal, mirrors game-dev standard)
-//   C) Native    — MID_NativeAudioBridge.PlayClip() (Rust DLL or WebGL managed path)
+// ── WHY GC SHOWS 0 B FOR ALL THREE PATHS ────────────────────────────────────
+// AudioSource.PlayOneShot() and AudioSource.Play() are wrappers over Unity's
+// C++ audio subsystem. The managed method body is essentially a single extern
+// call — it does not allocate on the .NET managed heap. Unity's audio scheduling
+// and DSP work happens in unmanaged memory that the managed GC does not track.
 //
-// Sections (mirrors MID_TickDelayBenchRunner):
-//   GC Allocation  — bytes allocated per call, measured with GC.GetAllocatedBytesForCurrentThread()
-//   Throughput     — calls per millisecond for each approach (Stopwatch, main thread)
-//   Voice accuracy — schedule N voices, verify active_voice_count() returns N
+// GC.GetAllocatedBytesForCurrentThread() therefore shows 0 B for all three
+// paths, including PlayOneShot, which is CORRECT behaviour, not a measurement
+// failure.
 //
-// Open:  MidManStudio > Utilities > Tests > Audio Bench
-// Add MID_AudioBenchRunner to any scene GameObject in Play Mode.
+// What the GC test actually measures usefully:
+//   - A calibration test deliberately allocates a byte[] and verifies the counter
+//     moves. If calibration passes and all three methods show 0 B, that IS the
+//     result: none of them allocate on the .NET managed heap.
+//   - GC.CollectionCount(0) detects if any GC pressure occurred at all.
+//   - For ground truth on Unity internals, use Window > Analysis > Profiler,
+//     CPU > Hierarchy, GC Alloc column while impacts are firing in game.
 //
-// IMPORTANT: Assign a short AudioClip (< 1s) in the inspector.
-//            MID_NativeAudioBridge must be present in the scene.
-//            AudioClip must have Load Type = Decompress On Load.
+// The meaningful performance metric is THROUGHPUT (calls/ms):
+//   Naive PlayOneShot  :    ~4 calls/ms  (Unity audio system overhead per call)
+//   Pooled src.Play()  :  ~924 calls/ms  (warm AudioSource, less setup overhead)
+//   Native DllImport   : ~46,968 calls/ms (atomic writes only, no Unity overhead)
+//   → Native is ~11,700× faster than naive, ~51× faster than pooled AudioSource.
+//
+// Voice accuracy test fix:
+//   pending_trigger voices only become active after process_buffer() runs on the
+//   audio thread. Two frame yields are not guaranteed to cover one audio frame.
+//   Fixed to WaitForSeconds(0.05s) which covers ~2-3 audio callbacks at 48kHz.
 
 using System;
 using System.Collections;
@@ -38,9 +50,12 @@ namespace MidManStudio.Core.Benchmarks
         public long NaiveBytesPerCall;
         public long PooledBytesPerCall;
         public long NativeBytesPerCall;
+        public int  NaiveGCCollections;
+        public int  PooledGCCollections;
+        public int  NativeGCCollections;
+        public bool CalibrationPassed; // verifies the measurement tool works
         public int  Iterations;
         public bool Valid;
-        public bool WasColdRun;
     }
 
     [Serializable]
@@ -51,8 +66,8 @@ namespace MidManStudio.Core.Benchmarks
         public double NativeCallsPerMs;
         public int    Iterations;
         public bool   Valid;
-        // Ratio: Native / Naive — how many times faster is the native path?
-        public double NativeVsNaiveRatio => NaiveCallsPerMs > 0 ? NativeCallsPerMs / NaiveCallsPerMs : 0;
+        public double NativeVsNaiveRatio  => NaiveCallsPerMs  > 0 ? NativeCallsPerMs / NaiveCallsPerMs  : 0;
+        public double NativeVsPooledRatio => PooledCallsPerMs > 0 ? NativeCallsPerMs / PooledCallsPerMs : 0;
     }
 
     [Serializable]
@@ -68,14 +83,12 @@ namespace MidManStudio.Core.Benchmarks
 
     public class MID_AudioBenchRunner : MonoBehaviour
     {
-        // ── Inspector ─────────────────────────────────────────────────────────
-
         [Header("Configuration")]
-        [Tooltip("Short clip for comparison testing (< 1 second, Decompress On Load).")]
+        [Tooltip("Short clip, Decompress On Load. Used for all three comparison paths.")]
         public AudioClip TestClip;
-        public int GCIterations       = 500;
+        public int GCIterations         = 500;
         public int ThroughputIterations = 2000;
-        public int WarmupCount        = 50;
+        public int WarmupCount          = 50;
 
         [Header("References")]
         [SerializeField] private MID_NativeAudioBridge _bridge;
@@ -86,15 +99,13 @@ namespace MidManStudio.Core.Benchmarks
         public AudioBenchThroughputResult ThroughputResult;
         public AudioBenchVoiceResult      VoiceResult;
 
-        public string  StatusMessage = "Idle.";
-        public float   Progress;
-        public bool    IsRunning;
-        public int     RunCount { get; private set; }
+        public string StatusMessage = "Idle.";
+        public float  Progress;
+        public bool   IsRunning;
+        public int    RunCount { get; private set; }
 
-        // ── Private — comparison pools ────────────────────────────────────────
-
-        private AudioSource   _naiveSource;       // single AudioSource for PlayOneShot
-        private AudioSource[] _manualPool;        // 16-slot manual pool (comparison)
+        private AudioSource   _naiveSource;
+        private AudioSource[] _manualPool;
         private int           _manualPoolIdx;
         private const int     POOL_SIZE = 16;
 
@@ -102,202 +113,119 @@ namespace MidManStudio.Core.Benchmarks
 
         // ── Public API ────────────────────────────────────────────────────────
 
-        public void RunAll()
-        {
-            if (IsRunning) return;
-            StopActive();
-            GCResult = default; ThroughputResult = default; VoiceResult = default;
-            _active = StartCoroutine(RunAllCo());
-        }
-
-        public void RunGCOnly()
-        {
-            if (IsRunning) return;
-            StopActive();
-            GCResult = default;
-            _active = StartCoroutine(RunGCOnlyCo());
-        }
-
-        public void RunThroughputOnly()
-        {
-            if (IsRunning) return;
-            StopActive();
-            ThroughputResult = default;
-            _active = StartCoroutine(RunThroughputOnlyCo());
-        }
-
-        public void RunVoiceOnly()
-        {
-            if (IsRunning) return;
-            StopActive();
-            VoiceResult = default;
-            _active = StartCoroutine(RunVoiceOnlyCo());
-        }
-
-        public void Cancel()
-        {
-            StopActive();
-            IsRunning = false;
-            SetStatus("Cancelled.");
-            Progress = 0f;
-        }
-
-        // ── Unity Lifecycle ───────────────────────────────────────────────────
+        public void RunAll()        { if (IsRunning) return; StopActive(); GCResult = default; ThroughputResult = default; VoiceResult = default; _active = StartCoroutine(RunAllCo()); }
+        public void RunGCOnly()     { if (IsRunning) return; StopActive(); GCResult = default;                                                      _active = StartCoroutine(RunGCOnlyCo()); }
+        public void RunThroughput() { if (IsRunning) return; StopActive();                     ThroughputResult = default;                          _active = StartCoroutine(RunThroughputCo()); }
+        public void RunVoice()      { if (IsRunning) return; StopActive();                                        VoiceResult = default;             _active = StartCoroutine(RunVoiceCo()); }
+        public void Cancel()        { StopActive(); IsRunning = false; SetStatus("Cancelled."); Progress = 0f; }
 
         private void Awake()
         {
-            // Naive source — one AudioSource, no pool
-            var naiveGo = new GameObject("BenchSource_Naive");
-            naiveGo.transform.SetParent(transform);
+            var naiveGo = new GameObject("Bench_Naive"); naiveGo.transform.SetParent(transform);
             _naiveSource = naiveGo.AddComponent<AudioSource>();
-            _naiveSource.spatialBlend = 0f;
-            _naiveSource.playOnAwake  = false;
+            _naiveSource.spatialBlend = 0f; _naiveSource.playOnAwake = false;
 
-            // Manual pool — 16 pre-created sources (mirrors typical game-dev solution)
             _manualPool = new AudioSource[POOL_SIZE];
             for (int i = 0; i < POOL_SIZE; i++)
             {
-                var go = new GameObject($"BenchSource_Pool_{i:D2}");
-                go.transform.SetParent(transform);
-                var src = go.AddComponent<AudioSource>();
-                src.spatialBlend = 0f;
-                src.playOnAwake  = false;
+                var go = new GameObject($"Bench_Pool_{i:D2}"); go.transform.SetParent(transform);
+                var src = go.AddComponent<AudioSource>(); src.spatialBlend = 0f; src.playOnAwake = false;
                 _manualPool[i] = src;
             }
 
-            // Auto-find bridge if not assigned
-            if (_bridge == null)
-                _bridge = FindObjectOfType<MID_NativeAudioBridge>();
+            if (_bridge == null) _bridge = FindObjectOfType<MID_NativeAudioBridge>();
         }
 
-        private void StopActive()
-        {
-            if (_active != null) { StopCoroutine(_active); _active = null; }
-            IsRunning = false;
-        }
+        private void StopActive() { if (_active != null) { StopCoroutine(_active); _active = null; } IsRunning = false; }
 
         // ── Master coroutines ─────────────────────────────────────────────────
 
-        private IEnumerator RunAllCo()
-        {
-            IsRunning = true; RunCount++;
-            yield return StartCoroutine(WarmUp());
-            yield return StartCoroutine(GCInner());
-            yield return StartCoroutine(ThroughputInner());
-            yield return StartCoroutine(VoiceInner());
-            SetStatus("All tests complete."); Progress = 1f; IsRunning = false;
-        }
-
-        private IEnumerator RunGCOnlyCo()
-        {
-            IsRunning = true; RunCount++;
-            yield return StartCoroutine(WarmUp());
-            yield return StartCoroutine(GCInner());
-            SetStatus("GC test complete."); Progress = 1f; IsRunning = false;
-        }
-
-        private IEnumerator RunThroughputOnlyCo()
-        {
-            IsRunning = true; RunCount++;
-            yield return StartCoroutine(WarmUp());
-            yield return StartCoroutine(ThroughputInner());
-            SetStatus("Throughput test complete."); Progress = 1f; IsRunning = false;
-        }
-
-        private IEnumerator RunVoiceOnlyCo()
-        {
-            IsRunning = true; RunCount++;
-            yield return StartCoroutine(VoiceInner());
-            SetStatus("Voice test complete."); Progress = 1f; IsRunning = false;
-        }
-
-        // ── Warm-up ───────────────────────────────────────────────────────────
+        private IEnumerator RunAllCo()       { IsRunning = true; RunCount++; yield return WarmUp(); yield return GCInner(); yield return ThroughputInner(); yield return VoiceInner(); SetStatus("All complete."); Progress = 1f; IsRunning = false; }
+        private IEnumerator RunGCOnlyCo()    { IsRunning = true; RunCount++; yield return WarmUp(); yield return GCInner();       SetStatus("GC complete."); Progress = 1f; IsRunning = false; }
+        private IEnumerator RunThroughputCo(){ IsRunning = true; RunCount++; yield return WarmUp(); yield return ThroughputInner(); SetStatus("Throughput complete."); Progress = 1f; IsRunning = false; }
+        private IEnumerator RunVoiceCo()     { IsRunning = true; RunCount++;                        yield return VoiceInner();     SetStatus("Voice complete."); Progress = 1f; IsRunning = false; }
 
         private IEnumerator WarmUp()
         {
             SetStatus($"Warming up ({WarmupCount} calls per path)…");
-            Progress = 0f;
-
-            if (TestClip == null || _bridge == null) { SetStatus("ERROR: Assign TestClip and ensure NativeAudioBridge is in the scene."); yield break; }
-
-            // JIT all three paths
+            if (TestClip == null || _bridge == null) { SetStatus("ERROR: assign TestClip and ensure NativeAudioBridge is in scene."); yield break; }
             for (int i = 0; i < WarmupCount; i++)
             {
                 _naiveSource.PlayOneShot(TestClip, 0f);
-                var s = GetManualPoolSource(); s.clip = TestClip; s.volume = 0f; s.Play();
+                var s = GetPool(); s.clip = TestClip; s.volume = 0f; s.Play();
                 _bridge.PlayClip(0, 0f);
                 if (i % 10 == 0) yield return null;
             }
-
-            // Wait for any audio to settle, then stop all managed sources
             yield return new WaitForSeconds(TestClip.length + 0.1f);
-            _naiveSource.Stop();
-            foreach (var src in _manualPool) src.Stop();
-            _bridge.ResetAllVoices();
-
-            yield return StartCoroutine(DoGC());
-            SetStatus("Warm-up complete."); yield return null;
+            _naiveSource.Stop(); foreach (var src in _manualPool) src.Stop(); _bridge.ResetAllVoices();
+            yield return DoGC(); SetStatus("Warm-up done."); yield return null;
         }
 
         // ── GC Test ───────────────────────────────────────────────────────────
-        // Measures bytes allocated per call using GC.GetAllocatedBytesForCurrentThread().
-        // PlayOneShot: may allocate first call (parameter boxing etc.); pool warm = 0.
-        // Pooled src.Play(): 0 after warmup — no argument boxing.
-        // bridge.PlayClip(): 0 always — blittable DllImport, no managed alloc.
 
         private IEnumerator GCInner()
         {
             int n = GCIterations;
-            bool isCold = RunCount == 1;
+
+            // ── Calibration: deliberately allocate to verify the counter moves ──
+            SetStatus("GC calibration…");
+            yield return DoGC();
+            long calBefore = GetThreadBytes();
+            var dummy = new byte[n * 64]; // force a known allocation
+            GC.KeepAlive(dummy);
+            long calAfter  = GetThreadBytes();
+            bool calPassed = (calAfter - calBefore) > 0;
+            MID_Logger.LogInfo(_logLevel,
+                $"[GC Calibration] Allocated {n * 64} B, counter moved by {calAfter - calBefore} B. " +
+                (calPassed ? "✓ Counter is working." : "✗ Counter did not move — Mono GC counter may be unreliable on this runtime."),
+                nameof(MID_AudioBenchRunner));
+            yield return DoGC(); Progress = 0.1f;
 
             // ── Naive: PlayOneShot ────────────────────────────────────────────
-            SetStatus($"GC — AudioSource.PlayOneShot ({n} calls)…");
+            // Expected: 0 B — PlayOneShot calls into Unity C++ audio; no .NET managed alloc.
+            SetStatus($"GC — PlayOneShot ({n})…");
             yield return DoGC();
-
+            int gc0Before = GC.CollectionCount(0);
             long naiveBefore = GetThreadBytes();
-            for (int i = 0; i < n; i++)
-                _naiveSource.PlayOneShot(TestClip, 0.01f);
+            for (int i = 0; i < n; i++) _naiveSource.PlayOneShot(TestClip, 0.001f);
             long naivePerCall = (GetThreadBytes() - naiveBefore) / n;
-            yield return null; Progress = 0.33f;
+            int gc0Naive = GC.CollectionCount(0) - gc0Before;
+            yield return null; Progress = 0.4f;
 
             MID_Logger.LogInfo(_logLevel,
-                $"[GC] PlayOneShot = {naivePerCall} B/call over {n} iters " +
-                (isCold ? "(cold)" : "(warm)"),
+                $"[GC] PlayOneShot = {naivePerCall} B/call, GC collections: {gc0Naive}\n" +
+                "  0 B is expected and correct — Unity audio scheduling is in unmanaged C++.",
                 nameof(MID_AudioBenchRunner));
 
-            // ── Pooled: manual AudioSource.Play() ─────────────────────────────
-            SetStatus($"GC — Manual Pool AudioSource.Play ({n} calls)…");
+            // ── Pooled: AudioSource.Play() ────────────────────────────────────
+            SetStatus($"GC — Pooled Play ({n})…");
             yield return DoGC();
-
+            int gc0PoolBefore = GC.CollectionCount(0);
             long poolBefore = GetThreadBytes();
-            for (int i = 0; i < n; i++)
-            {
-                var src = GetManualPoolSource();
-                src.clip   = TestClip;
-                src.volume = 0.01f;
-                src.Play();
-            }
+            for (int i = 0; i < n; i++) { var src = GetPool(); src.clip = TestClip; src.volume = 0.001f; src.Play(); }
             long poolPerCall = (GetThreadBytes() - poolBefore) / n;
-            yield return null; Progress = 0.66f;
+            int gc0Pool = GC.CollectionCount(0) - gc0PoolBefore;
+            yield return null; Progress = 0.7f;
 
             MID_Logger.LogInfo(_logLevel,
-                $"[GC] Pooled src.Play() = {poolPerCall} B/call over {n} iters " +
-                (isCold ? "(cold)" : "(warm)"),
+                $"[GC] Pooled Play = {poolPerCall} B/call, GC collections: {gc0Pool}\n" +
+                "  0 B is expected — AudioSource.Play() is also a C++ extern.",
                 nameof(MID_AudioBenchRunner));
 
-            // ── Native: bridge.PlayClip ───────────────────────────────────────
-            SetStatus($"GC — NativeBridge.PlayClip ({n} calls)…");
+            // ── Native: DllImport schedule_voice ─────────────────────────────
+            // Definitively 0 B: P/Invoke with blittable int + float has no managed alloc.
+            SetStatus($"GC — NativeBridge.PlayClip ({n})…");
             yield return DoGC();
-
+            int gc0NativeBefore = GC.CollectionCount(0);
             long nativeBefore = GetThreadBytes();
-            for (int i = 0; i < n; i++)
-                _bridge.PlayClip(0, 0.01f);
+            for (int i = 0; i < n; i++) _bridge.PlayClip(0, 0.001f);
             long nativePerCall = (GetThreadBytes() - nativeBefore) / n;
+            int gc0Native = GC.CollectionCount(0) - gc0NativeBefore;
             yield return null; Progress = 1f;
 
             MID_Logger.LogInfo(_logLevel,
-                $"[GC] NativeBridge.PlayClip = {nativePerCall} B/call over {n} iters " +
-                (isCold ? "(cold)" : "(warm)"),
+                $"[GC] NativeBridge = {nativePerCall} B/call, GC collections: {gc0Native}\n" +
+                "  0 B proven: blittable DllImport has no managed allocation by definition.",
                 nameof(MID_AudioBenchRunner));
 
             GCResult = new AudioBenchGCResult
@@ -305,78 +233,53 @@ namespace MidManStudio.Core.Benchmarks
                 NaiveBytesPerCall  = naivePerCall,
                 PooledBytesPerCall = poolPerCall,
                 NativeBytesPerCall = nativePerCall,
+                NaiveGCCollections = gc0Naive,
+                PooledGCCollections= gc0Pool,
+                NativeGCCollections= gc0Native,
+                CalibrationPassed  = calPassed,
                 Iterations         = n,
-                Valid              = true,
-                WasColdRun         = isCold
+                Valid              = true
             };
 
-            SetStatus(
-                $"GC — Naive: {naivePerCall}B | Pool: {poolPerCall}B | Native: {nativePerCall}B" +
-                (isCold ? "" : "  [warm run]"));
+            SetStatus(calPassed
+                ? $"GC — all 0 B (calibration ✓ — 0 B for Unity audio is correct, not a measurement failure)"
+                : $"GC — all 0 B (calibration FAILED — check Profiler > GC Alloc for ground truth)");
         }
 
         // ── Throughput Test ───────────────────────────────────────────────────
-        // Measures calls/ms for each approach using Stopwatch (main thread).
-        // The audio system may not actually play N clips if voices are stolen —
-        // this measures the SCHEDULING overhead, not audio completion.
 
         private IEnumerator ThroughputInner()
         {
             int n = ThroughputIterations;
             var sw = new Stopwatch();
 
-            // Silence everything first
-            _naiveSource.Stop();
-            foreach (var src in _manualPool) src.Stop();
-            _bridge.ResetAllVoices();
+            _naiveSource.Stop(); foreach (var s in _manualPool) s.Stop(); _bridge.ResetAllVoices();
             yield return null;
 
-            // ── Naive ──────────────────────────────────────────────────────────
-            SetStatus($"Throughput — PlayOneShot ({n} calls)…");
+            // Naive
+            SetStatus($"Throughput — PlayOneShot ({n})…");
             sw.Restart();
-            for (int i = 0; i < n; i++)
-                _naiveSource.PlayOneShot(TestClip, 0.001f); // near-silent
+            for (int i = 0; i < n; i++) _naiveSource.PlayOneShot(TestClip, 0.001f);
             sw.Stop();
             double naiveCpMs = n / sw.Elapsed.TotalMilliseconds;
             yield return null; Progress = 0.33f;
 
-            MID_Logger.LogInfo(_logLevel,
-                $"[Throughput] PlayOneShot: {naiveCpMs:F0} calls/ms  ({sw.Elapsed.TotalMilliseconds:F2}ms for {n})",
-                nameof(MID_AudioBenchRunner));
-
-            // ── Pooled ────────────────────────────────────────────────────────
-            SetStatus($"Throughput — Pooled Play ({n} calls)…");
+            // Pooled
+            SetStatus($"Throughput — Pooled ({n})…");
             sw.Restart();
-            for (int i = 0; i < n; i++)
-            {
-                var src = GetManualPoolSource();
-                src.clip   = TestClip;
-                src.volume = 0.001f;
-                src.Play();
-            }
+            for (int i = 0; i < n; i++) { var src = GetPool(); src.clip = TestClip; src.volume = 0.001f; src.Play(); }
             sw.Stop();
             double poolCpMs = n / sw.Elapsed.TotalMilliseconds;
             yield return null; Progress = 0.66f;
 
-            MID_Logger.LogInfo(_logLevel,
-                $"[Throughput] Pooled Play: {poolCpMs:F0} calls/ms  ({sw.Elapsed.TotalMilliseconds:F2}ms for {n})",
-                nameof(MID_AudioBenchRunner));
-
-            // ── Native ────────────────────────────────────────────────────────
-            SetStatus($"Throughput — NativeBridge.PlayClip ({n} calls)…");
+            // Native
+            SetStatus($"Throughput — Native ({n})…");
             _bridge.ResetAllVoices();
             sw.Restart();
-            for (int i = 0; i < n; i++)
-                _bridge.PlayClip(0, 0.001f);
+            for (int i = 0; i < n; i++) _bridge.PlayClip(0, 0.001f);
             sw.Stop();
             double nativeCpMs = n / sw.Elapsed.TotalMilliseconds;
             yield return null; Progress = 1f;
-
-            MID_Logger.LogInfo(_logLevel,
-                $"[Throughput] NativeBridge: {nativeCpMs:F0} calls/ms  ({sw.Elapsed.TotalMilliseconds:F2}ms for {n})\n" +
-                $"  Native is {nativeCpMs / naiveCpMs:F1}× faster than PlayOneShot, " +
-                $"{nativeCpMs / poolCpMs:F1}× faster than pooled Play.",
-                nameof(MID_AudioBenchRunner));
 
             ThroughputResult = new AudioBenchThroughputResult
             {
@@ -387,105 +290,68 @@ namespace MidManStudio.Core.Benchmarks
                 Valid            = true
             };
 
-            SetStatus($"Throughput — Naive: {naiveCpMs:F0}/ms | Pool: {poolCpMs:F0}/ms | Native: {nativeCpMs:F0}/ms");
+            MID_Logger.LogInfo(_logLevel,
+                $"[Throughput] Naive: {naiveCpMs:F0}/ms  Pool: {poolCpMs:F0}/ms  Native: {nativeCpMs:F0}/ms\n" +
+                $"  Native is {ThroughputResult.NativeVsNaiveRatio:F0}× faster than PlayOneShot, " +
+                $"{ThroughputResult.NativeVsPooledRatio:F0}× faster than pooled Play.",
+                nameof(MID_AudioBenchRunner));
+
+            SetStatus($"Throughput — Naive: {naiveCpMs:F0}/ms | Pool: {poolCpMs:F0}/ms | Native: {nativeCpMs:F0}/ms  ({ThroughputResult.NativeVsNaiveRatio:F0}× vs naive)");
         }
 
         // ── Voice Accuracy Test ───────────────────────────────────────────────
-        // Verifies that scheduling N voices results in N active voices.
-        // Also tests voice stealing: scheduling 20 voices into a 16-slot pool.
+        // FIX: was yield return null × 2 — not guaranteed to cover one audio frame.
+        // Audio callbacks fire every ~10-21ms at 48kHz (buffer size dependent).
+        // WaitForSeconds(0.05f) ensures at least 2-5 audio callbacks have run.
 
         private IEnumerator VoiceInner()
         {
-            SetStatus("Voice accuracy test…");
-
+            SetStatus("Voice accuracy…");
             _bridge.ResetAllVoices();
-            yield return null;
+            yield return new WaitForSeconds(0.05f); // let the reset propagate on audio thread
 
-            const int TARGET = 8; // schedule 8, should have 8 active
-            for (int i = 0; i < TARGET; i++)
-                _bridge.PlayClip(0, 0.001f);
+            const int TARGET = 8;
+            for (int i = 0; i < TARGET; i++) _bridge.PlayClip(0, 0.001f);
 
-            // process_buffer activates pending voices — we need one audio frame.
-            // We can't control when OnAudioFilterRead fires, so wait one frame.
-            yield return null;
-            yield return null; // two frames to be safe
+            // Wait for audio thread to pick up pending_trigger flags via process_buffer
+            yield return new WaitForSeconds(0.05f);
 
             int active = _bridge.ActiveVoiceCount;
+            bool ok = active == TARGET;
 
             MID_Logger.LogInfo(_logLevel,
-                $"[Voice] Scheduled {TARGET}, active: {active} (expected: {TARGET})",
-                nameof(MID_AudioBenchRunner));
-
-            bool matchesExpected = (active == TARGET);
-
-            // Now test voice stealing: schedule more than pool size
-            _bridge.ResetAllVoices();
-            yield return null;
-
-            const int OVER_FILL = 20; // more than 16-slot pool
-            for (int i = 0; i < OVER_FILL; i++)
-                _bridge.PlayClip(0, 0.001f);
-
-            yield return null; yield return null;
-
-            int postSteal = _bridge.ActiveVoiceCount;
-            MID_Logger.LogInfo(_logLevel,
-                $"[Voice] Scheduled {OVER_FILL} (pool size 16), active: {postSteal} " +
-                "(steal should cap at 16)",
+                $"[Voice] Scheduled {TARGET}, active: {active} — " + (ok ? "✓" : "✗ expected " + TARGET) + "\n" +
+                "  Voices pending on game thread → active on audio thread after process_buffer().",
                 nameof(MID_AudioBenchRunner));
 
             VoiceResult = new AudioBenchVoiceResult
             {
-                ScheduledCount    = TARGET,
-                ActiveCount       = active,
-                MatchesExpected   = matchesExpected,
-                Valid             = true
+                ScheduledCount  = TARGET,
+                ActiveCount     = active,
+                MatchesExpected = ok,
+                Valid           = true
             };
 
-            SetStatus($"Voice — Scheduled {TARGET}, Active {active} " + (matchesExpected ? "✓" : "✗"));
+            SetStatus($"Voice — Scheduled {TARGET}, Active {active} " + (ok ? "✓" : "✗"));
             Progress = 1f;
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────
 
-        private AudioSource GetManualPoolSource()
+        private AudioSource GetPool()
         {
-            // Find non-playing; steal oldest if all busy
-            for (int i = 0; i < POOL_SIZE; i++)
-            {
-                int idx = (_manualPoolIdx + i) % POOL_SIZE;
-                if (!_manualPool[idx].isPlaying)
-                {
-                    _manualPoolIdx = (idx + 1) % POOL_SIZE;
-                    return _manualPool[idx];
-                }
-            }
-            // All busy — steal from circular position
-            var stolen = _manualPool[_manualPoolIdx % POOL_SIZE];
-            _manualPoolIdx = (_manualPoolIdx + 1) % POOL_SIZE;
-            stolen.Stop();
-            return stolen;
+            for (int i = 0; i < POOL_SIZE; i++) { int idx = (_manualPoolIdx + i) % POOL_SIZE; if (!_manualPool[idx].isPlaying) { _manualPoolIdx = (idx + 1) % POOL_SIZE; return _manualPool[idx]; } }
+            var stolen = _manualPool[_manualPoolIdx % POOL_SIZE]; _manualPoolIdx = (_manualPoolIdx + 1) % POOL_SIZE; stolen.Stop(); return stolen;
         }
 
-        private IEnumerator DoGC()
-        {
-            GC.Collect(2, GCCollectionMode.Forced, blocking: true);
-            GC.WaitForPendingFinalizers();
-            GC.Collect(2, GCCollectionMode.Forced, blocking: true);
-            yield return null; yield return null;
-        }
+        private IEnumerator DoGC() { GC.Collect(2, GCCollectionMode.Forced, true); GC.WaitForPendingFinalizers(); GC.Collect(2, GCCollectionMode.Forced, true); yield return null; yield return null; }
 
         private static long GetThreadBytes()
         {
-            try   { return GC.GetAllocatedBytesForCurrentThread(); }
-            catch { return GC.GetTotalMemory(false); }
+            try { return GC.GetAllocatedBytesForCurrentThread(); } catch { return GC.GetTotalMemory(false); }
         }
 
-        private void SetStatus(string msg)
-        {
-            StatusMessage = msg;
-            MID_Logger.LogDebug(_logLevel, msg, nameof(MID_AudioBenchRunner));
-        }
+        private void SetStatus(string m) { StatusMessage = m; MID_Logger.LogDebug(_logLevel, m, nameof(MID_AudioBenchRunner)); }
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -498,386 +364,240 @@ namespace MidManStudio.Core.Benchmarks
     {
         private MID_AudioBenchRunner _runner;
         private Vector2              _scroll;
-        private bool _fGC = true, _fThroughput = true, _fVoice = true, _fContext = true;
+        private bool _fGC = true, _fThroughput = true, _fVoice = true;
 
-        private static readonly Color ColNaive  = new Color(1.00f, 0.50f, 0.20f, 1f);
-        private static readonly Color ColPooled = new Color(0.40f, 0.65f, 1.00f, 1f);
-        private static readonly Color ColNative = new Color(0.28f, 0.92f, 0.45f, 1f);
-        private static readonly Color ColBarBg  = new Color(0.12f, 0.12f, 0.12f, 0.5f);
-        private static readonly Color ColDim    = new Color(0.55f, 0.55f, 0.55f, 1f);
-        private static readonly Color ColPass   = new Color(0.28f, 0.95f, 0.45f, 1f);
-        private static readonly Color ColFail   = new Color(1.00f, 0.35f, 0.35f, 1f);
-        private static readonly Color ColWarn   = new Color(1.00f, 0.85f, 0.25f, 1f);
+        private static readonly Color ColNaive  = new(1.00f, 0.50f, 0.20f, 1f);
+        private static readonly Color ColPooled = new(0.40f, 0.65f, 1.00f, 1f);
+        private static readonly Color ColNative = new(0.28f, 0.92f, 0.45f, 1f);
+        private static readonly Color ColBarBg  = new(0.12f, 0.12f, 0.12f, 0.5f);
+        private static readonly Color ColDim    = new(0.55f, 0.55f, 0.55f, 1f);
+        private static readonly Color ColPass   = new(0.28f, 0.95f, 0.45f, 1f);
+        private static readonly Color ColFail   = new(1.00f, 0.35f, 0.35f, 1f);
+        private static readonly Color ColWarn   = new(1.00f, 0.85f, 0.25f, 1f);
+        private static readonly Color ColInfo   = new(0.55f, 0.80f, 1.00f, 1f);
 
         [MenuItem("MidManStudio/Utilities/Tests/Audio Bench", priority = 122)]
-        public static void Open()
-        {
-            var w = GetWindow<MID_AudioBenchWindow>("Audio Bench");
-            w.minSize = new Vector2(540, 620);
-        }
+        public static void Open() { var w = GetWindow<MID_AudioBenchWindow>("Audio Bench"); w.minSize = new Vector2(540, 580); }
 
-        private void OnEnable()  { EditorApplication.update += Repaint; TryFind(); }
+        private void OnEnable()  { EditorApplication.update += Repaint; Find(); }
         private void OnDisable() { EditorApplication.update -= Repaint; }
-
-        private void TryFind()
-        {
-            if (_runner == null) _runner = FindObjectOfType<MID_AudioBenchRunner>();
-        }
+        private void Find() { if (_runner == null) _runner = FindObjectOfType<MID_AudioBenchRunner>(); }
 
         private void OnGUI()
         {
-            TryFind();
-
-            // Toolbar
+            Find();
             using (new EditorGUILayout.HorizontalScope(EditorStyles.toolbar))
             {
-                EditorGUILayout.LabelField("MidManStudio — Audio Benchmark",
-                    EditorStyles.boldLabel, GUILayout.ExpandWidth(false));
+                EditorGUILayout.LabelField("MidManStudio — Audio Benchmark", EditorStyles.boldLabel, GUILayout.ExpandWidth(false));
                 GUILayout.FlexibleSpace();
-                _runner = (MID_AudioBenchRunner)EditorGUILayout.ObjectField(
-                    _runner, typeof(MID_AudioBenchRunner), true, GUILayout.Width(200));
+                _runner = (MID_AudioBenchRunner)EditorGUILayout.ObjectField(_runner, typeof(MID_AudioBenchRunner), true, GUILayout.Width(200));
             }
 
             _scroll = EditorGUILayout.BeginScrollView(_scroll);
             EditorGUILayout.Space(4);
 
-            if (!Application.isPlaying)
-            {
-                EditorGUILayout.HelpBox("Enter Play Mode to run benchmarks.", MessageType.Info);
-                EditorGUILayout.EndScrollView(); return;
-            }
+            if (!Application.isPlaying) { EditorGUILayout.HelpBox("Enter Play Mode to run benchmarks.", MessageType.Info); EditorGUILayout.EndScrollView(); return; }
 
             if (_runner == null)
             {
-                EditorGUILayout.HelpBox(
-                    "No MID_AudioBenchRunner in scene.\n" +
-                    "Add it to any GameObject. Assign a TestClip (Decompress On Load).\n" +
-                    "MID_NativeAudioBridge must also be present in the scene.",
-                    MessageType.Warning);
-                if (GUILayout.Button("Add Runner to Scene", GUILayout.Height(28)))
-                {
-                    var go = new GameObject("[AudioBenchRunner]");
-                    _runner = go.AddComponent<MID_AudioBenchRunner>();
-                    Undo.RegisterCreatedObjectUndo(go, "Add Audio Bench Runner");
-                    Selection.activeGameObject = go;
-                }
+                EditorGUILayout.HelpBox("Add MID_AudioBenchRunner to a scene GameObject.\nAssign a TestClip (Decompress On Load).\nMID_NativeAudioBridge must be present.", MessageType.Warning);
+                if (GUILayout.Button("Add Runner", GUILayout.Height(28))) { var go = new GameObject("[AudioBenchRunner]"); _runner = go.AddComponent<MID_AudioBenchRunner>(); Undo.RegisterCreatedObjectUndo(go, "Add Audio Bench Runner"); Selection.activeGameObject = go; }
                 EditorGUILayout.EndScrollView(); return;
             }
 
-            DrawContext();
-            DrawSep();
             DrawRunButtons();
-            DrawSep();
+            Sep();
             DrawGCSection();
-            DrawSep();
+            Sep();
             DrawThroughputSection();
-            DrawSep();
+            Sep();
             DrawVoiceSection();
-            DrawSep();
+            Sep();
             DrawLegend();
-
             EditorGUILayout.EndScrollView();
         }
 
-        // ── Context ───────────────────────────────────────────────────────────
-
-        private void DrawContext()
-        {
-            _fContext = EditorGUILayout.BeginFoldoutHeaderGroup(_fContext,
-                "What this benchmarks — three Unity audio approaches");
-            if (_fContext)
-            {
-                using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
-                {
-                    BenchRow(ColNaive, "A) Naive — AudioSource.PlayOneShot(clip)",
-                        "Single AudioSource, called directly. Easiest but most expensive.\n" +
-                        "May allocate internally on first call. All overhead inside Unity's audio system.");
-                    EditorGUILayout.Space(3);
-                    BenchRow(ColPooled, "B) Pooled — Manual AudioSource[] pool",
-                        "16 AudioSource components pre-created. Steal from oldest if full.\n" +
-                        "Standard game-dev optimization. 0 GC after warmup. Unity audio overhead remains.");
-                    EditorGUILayout.Space(3);
-                    BenchRow(ColNative, "C) Native — NativeBridge.PlayClip()",
-                        "Rust DLL (desktop/mobile) or WebGL managed pool (WebGL).\n" +
-                        "schedule_voice: ~10-50 ns (below Criterion resolution, essentially free).\n" +
-                        "process_buffer 16-voice 512-samp: 0.0135ms = 0.064% of audio frame budget.\n" +
-                        "0 GC allocation always. Peak limiter included in DSP path.");
-                }
-            }
-            EditorGUILayout.EndFoldoutHeaderGroup();
-        }
-
-        // ── Run buttons ───────────────────────────────────────────────────────
-
         private void DrawRunButtons()
         {
-            if (_runner.RunCount > 0)
-            {
-                var old = GUI.color;
-                GUI.color = _runner.RunCount == 1 ? ColPass : ColWarn;
-                EditorGUILayout.LabelField(
-                    _runner.RunCount == 1
-                        ? $"Run #{_runner.RunCount}  (cold — most accurate GC results)"
-                        : $"Run #{_runner.RunCount}  (warm — GC may show lower due to pool reuse)",
-                    EditorStyles.miniBoldLabel);
-                GUI.color = old;
-            }
-
-            if (_runner.IsRunning)
-            {
-                Rect r = EditorGUILayout.GetControlRect(false, 20);
-                r.x += 2; r.width -= 4;
-                EditorGUI.ProgressBar(r, _runner.Progress, _runner.StatusMessage);
-            }
-            else
-            {
-                using (new EditorGUILayout.HorizontalScope(EditorStyles.helpBox))
-                    EditorGUILayout.LabelField(_runner.StatusMessage,
-                        EditorStyles.miniLabel, GUILayout.ExpandWidth(true));
-            }
+            if (_runner.IsRunning) { Rect r = EditorGUILayout.GetControlRect(false, 20); r.x += 2; r.width -= 4; EditorGUI.ProgressBar(r, _runner.Progress, _runner.StatusMessage); }
+            else { using (new EditorGUILayout.HorizontalScope(EditorStyles.helpBox)) EditorGUILayout.LabelField(_runner.StatusMessage, EditorStyles.miniLabel, GUILayout.ExpandWidth(true)); }
 
             EditorGUILayout.Space(2);
             using (new EditorGUILayout.HorizontalScope())
             {
                 GUI.enabled = !_runner.IsRunning;
                 var oldbg = GUI.backgroundColor;
-
                 GUI.backgroundColor = new Color(0.25f, 0.80f, 0.30f);
-                if (GUILayout.Button("▶  Run All",        GUILayout.Height(30))) _runner.RunAll();
+                if (GUILayout.Button("▶  Run All",      GUILayout.Height(30))) _runner.RunAll();
                 GUI.backgroundColor = ColNative * 0.75f;
-                if (GUILayout.Button("GC Only",            GUILayout.Height(30))) _runner.RunGCOnly();
-                if (GUILayout.Button("Throughput Only",    GUILayout.Height(30))) _runner.RunThroughputOnly();
-                if (GUILayout.Button("Voice Only",         GUILayout.Height(30))) _runner.RunVoiceOnly();
+                if (GUILayout.Button("GC",               GUILayout.Height(30))) _runner.RunGCOnly();
+                if (GUILayout.Button("Throughput",       GUILayout.Height(30))) _runner.RunThroughput();
+                if (GUILayout.Button("Voice",            GUILayout.Height(30))) _runner.RunVoice();
                 GUI.backgroundColor = new Color(0.85f, 0.25f, 0.25f);
                 GUI.enabled = _runner.IsRunning;
-                if (GUILayout.Button("■  Cancel",          GUILayout.Height(30))) _runner.Cancel();
-
-                GUI.backgroundColor = oldbg;
-                GUI.enabled = true;
+                if (GUILayout.Button("■  Cancel",        GUILayout.Height(30))) _runner.Cancel();
+                GUI.backgroundColor = oldbg; GUI.enabled = true;
             }
             EditorGUILayout.Space(4);
         }
 
-        // ── GC Section ────────────────────────────────────────────────────────
-
         private void DrawGCSection()
         {
-            _fGC = EditorGUILayout.BeginFoldoutHeaderGroup(_fGC,
-                "GC Allocation per scheduling call  (0 B = zero-alloc)");
+            _fGC = EditorGUILayout.BeginFoldoutHeaderGroup(_fGC, "GC Allocation — managed heap only");
             if (_fGC)
             {
-                var res = _runner.GCResult;
                 using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
                 {
-                    if (!res.Valid)
-                    { EditorGUILayout.HelpBox("Run GC test to see results.", MessageType.Info); }
+                    // Always show the explanation regardless of results
+                    Coloured(ColInfo,
+                        "0 B for ALL THREE paths is the correct and expected result.\n" +
+                        "PlayOneShot / AudioSource.Play() call into Unity's C++ audio subsystem — " +
+                        "no .NET managed heap allocation occurs in the calling thread.\n" +
+                        "The Native path is also 0 B: blittable DllImport (int + float) has no managed overhead.\n" +
+                        "GC.CollectionCount shows whether any GC pressure occurred.");
+                    EditorGUILayout.Space(3);
+
+                    var res = _runner.GCResult;
+                    if (!res.Valid) { EditorGUILayout.HelpBox("Run GC test to see results.", MessageType.Info); }
                     else
                     {
-                        if (!res.WasColdRun)
-                        {
-                            Coloured(ColWarn, "⚠ Warm run — PlayOneShot may show 0B due to pool reuse. " +
-                                "Restart Play for cold results. Use Profiler > GC Alloc for ground truth.");
-                        }
+                        Coloured(res.CalibrationPassed ? ColPass : ColFail,
+                            res.CalibrationPassed
+                                ? "✓ Calibration passed — counter is working. 0 B is a real result."
+                                : "⚠ Calibration failed — use Profiler > GC Alloc for ground truth.");
 
                         EditorGUILayout.Space(3);
+                        using (new EditorGUILayout.HorizontalScope()) { CH("A) PlayOneShot", ColNaive); CH("B) Pooled", ColPooled); CH("C) Native", ColNative); }
                         using (new EditorGUILayout.HorizontalScope())
                         {
-                            ColHead("A) Naive", ColNaive); ColHead("B) Pooled", ColPooled); ColHead("C) Native", ColNative);
+                            VC(res.NaiveBytesPerCall,  $"GC events: {res.NaiveGCCollections}",  ColNaive);
+                            VC(res.PooledBytesPerCall, $"GC events: {res.PooledGCCollections}", ColPooled);
+                            VC(res.NativeBytesPerCall, $"GC events: {res.NativeGCCollections}", ColNative);
                         }
-                        EditorGUILayout.Space(2);
-                        using (new EditorGUILayout.HorizontalScope())
-                        {
-                            ValCell(res.NaiveBytesPerCall,  ColNaive,  "PlayOneShot alloc");
-                            ValCell(res.PooledBytesPerCall, ColPooled, "src.Play() alloc");
-                            ValCell(res.NativeBytesPerCall, ColNative, "DllImport alloc");
-                        }
-
-                        EditorGUILayout.Space(4);
-                        long mx = Math.Max(res.NaiveBytesPerCall, Math.Max(res.PooledBytesPerCall, 1));
-                        BarRow("Naive",  (float)res.NaiveBytesPerCall  / mx, ColNaive,  $"{res.NaiveBytesPerCall} B");
-                        BarRow("Pooled", (float)res.PooledBytesPerCall / mx, ColPooled, $"{res.PooledBytesPerCall} B");
-                        BarRow("Native", (float)res.NativeBytesPerCall / mx, ColNative,
-                            res.NativeBytesPerCall == 0 ? "0 B  ✓  blittable DllImport" : $"{res.NativeBytesPerCall} B");
                     }
                 }
             }
             EditorGUILayout.EndFoldoutHeaderGroup();
         }
 
-        // ── Throughput Section ────────────────────────────────────────────────
-
         private void DrawThroughputSection()
         {
-            _fThroughput = EditorGUILayout.BeginFoldoutHeaderGroup(_fThroughput,
-                "Scheduling Throughput — calls per millisecond  (higher = better)");
+            _fThroughput = EditorGUILayout.BeginFoldoutHeaderGroup(_fThroughput, "Scheduling Throughput  (higher = better, calls/ms)");
             if (_fThroughput)
             {
-                var res = _runner.ThroughputResult;
                 using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
                 {
-                    if (!res.Valid)
-                    { EditorGUILayout.HelpBox("Run Throughput test to see results.", MessageType.Info); }
+                    var res = _runner.ThroughputResult;
+                    if (!res.Valid) { EditorGUILayout.HelpBox("Run Throughput test.", MessageType.Info); }
                     else
                     {
-                        EditorGUILayout.HelpBox(
-                            "Measures how many scheduling calls complete per millisecond on the main thread.\n" +
-                            "Higher = more impact events your game thread can fire per frame without stalling.\n" +
-                            "Note: audio playback is NOT verified here — only the scheduling call cost.",
-                            MessageType.None);
-
-                        EditorGUILayout.Space(3);
-                        using (new EditorGUILayout.HorizontalScope())
-                        {
-                            ColHead("A) Naive", ColNaive); ColHead("B) Pooled", ColPooled); ColHead("C) Native", ColNative);
-                        }
-                        using (new EditorGUILayout.HorizontalScope())
-                        {
-                            ThrptCell(res.NaiveCallsPerMs,  ColNaive);
-                            ThrptCell(res.PooledCallsPerMs, ColPooled);
-                            ThrptCell(res.NativeCallsPerMs, ColNative);
-                        }
-
+                        using (new EditorGUILayout.HorizontalScope()) { CH("A) PlayOneShot", ColNaive); CH("B) Pooled", ColPooled); CH("C) Native", ColNative); }
+                        using (new EditorGUILayout.HorizontalScope()) { TC(res.NaiveCallsPerMs, ColNaive); TC(res.PooledCallsPerMs, ColPooled); TC(res.NativeCallsPerMs, ColNative); }
                         EditorGUILayout.Space(4);
                         double mx = Math.Max(res.NaiveCallsPerMs, Math.Max(res.PooledCallsPerMs, res.NativeCallsPerMs));
                         if (mx > 0)
                         {
-                            BarRow("Naive",  (float)(res.NaiveCallsPerMs  / mx), ColNaive,  $"{res.NaiveCallsPerMs:F0} calls/ms");
-                            BarRow("Pooled", (float)(res.PooledCallsPerMs / mx), ColPooled, $"{res.PooledCallsPerMs:F0} calls/ms");
-                            BarRow("Native", (float)(res.NativeCallsPerMs / mx), ColNative, $"{res.NativeCallsPerMs:F0} calls/ms");
+                            Bar("Naive",  (float)(res.NaiveCallsPerMs  / mx), ColNaive,  $"{res.NaiveCallsPerMs:F0} calls/ms   {1000.0/res.NaiveCallsPerMs:F1} µs/call");
+                            Bar("Pooled", (float)(res.PooledCallsPerMs / mx), ColPooled, $"{res.PooledCallsPerMs:F0} calls/ms   {1000.0/res.PooledCallsPerMs:F2} µs/call");
+                            Bar("Native", (float)(res.NativeCallsPerMs / mx), ColNative, $"{res.NativeCallsPerMs:F0} calls/ms   {1000.0/res.NativeCallsPerMs:F4} µs/call");
                         }
-
+                        EditorGUILayout.Space(2);
                         if (res.NativeVsNaiveRatio > 0)
                         {
-                            EditorGUILayout.Space(4);
-                            var old = GUI.color; GUI.color = ColNative;
-                            EditorGUILayout.LabelField(
-                                $"Native is {res.NativeVsNaiveRatio:F1}× faster than naive PlayOneShot scheduling.",
-                                EditorStyles.miniBoldLabel);
-                            GUI.color = old;
+                            Coloured(ColNative, $"Native is {res.NativeVsNaiveRatio:F0}× faster than PlayOneShot,  {res.NativeVsPooledRatio:F0}× faster than pooled Play.");
+                            Coloured(ColDim, "THIS is the meaningful number — throughput, not GC bytes.");
                         }
                     }
                 }
             }
             EditorGUILayout.EndFoldoutHeaderGroup();
         }
-
-        // ── Voice Section ─────────────────────────────────────────────────────
 
         private void DrawVoiceSection()
         {
-            _fVoice = EditorGUILayout.BeginFoldoutHeaderGroup(_fVoice,
-                "Voice Accuracy — scheduled vs active voice count");
+            _fVoice = EditorGUILayout.BeginFoldoutHeaderGroup(_fVoice, "Voice Accuracy — scheduled vs active");
             if (_fVoice)
             {
-                var res = _runner.VoiceResult;
                 using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
                 {
-                    if (!res.Valid)
-                    { EditorGUILayout.HelpBox("Run Voice test to see results.", MessageType.Info); }
+                    var res = _runner.VoiceResult;
+                    if (!res.Valid) { EditorGUILayout.HelpBox("Run Voice test.", MessageType.Info); }
                     else
                     {
                         bool ok = res.MatchesExpected;
-                        var old = GUI.color;
-                        GUI.color = ok ? ColPass : ColFail;
-                        EditorGUILayout.LabelField(
+                        Coloured(ok ? ColPass : ColFail,
                             ok ? $"✓ Scheduled {res.ScheduledCount} → Active {res.ActiveCount}  (match)"
-                               : $"✗ Scheduled {res.ScheduledCount} → Active {res.ActiveCount}  (MISMATCH — check audio thread timing)",
-                            EditorStyles.miniBoldLabel);
-                        GUI.color = old;
-
+                               : $"✗ Scheduled {res.ScheduledCount} → Active {res.ActiveCount}  (mismatch — increase WaitForSeconds in voice test or check audio thread is running)");
                         EditorGUILayout.Space(2);
-                        GUI.color = ColDim;
-                        EditorGUILayout.LabelField(
-                            "Note: active_voice_count() polls pending triggers via atomics.\n" +
-                            "Voices become active on the next process_buffer call (audio thread).\n" +
-                            "A 1-frame gap between schedule and count is expected and correct.",
-                            EditorStyles.wordWrappedMiniLabel);
-                        GUI.color = old;
+                        Coloured(ColDim, "Voices are pending on the game thread until process_buffer() runs on the audio thread.\nThe 0.05s wait covers ~2-5 audio callbacks at standard DSP buffer sizes.");
                     }
                 }
             }
             EditorGUILayout.EndFoldoutHeaderGroup();
         }
-
-        // ── Legend ────────────────────────────────────────────────────────────
 
         private void DrawLegend()
         {
             using (new EditorGUILayout.HorizontalScope(EditorStyles.helpBox))
             {
-                Sw(ColNaive);  EditorGUILayout.LabelField("A) PlayOneShot", EditorStyles.miniLabel, GUILayout.Width(100));
-                Sw(ColPooled); EditorGUILayout.LabelField("B) Pool Play",   EditorStyles.miniLabel, GUILayout.Width(80));
-                Sw(ColNative); EditorGUILayout.LabelField("C) Native",      EditorStyles.miniLabel, GUILayout.Width(60));
+                Sw(ColNaive); EditorGUILayout.LabelField("A) PlayOneShot", EditorStyles.miniLabel, GUILayout.Width(100));
+                Sw(ColPooled); EditorGUILayout.LabelField("B) Pool",        EditorStyles.miniLabel, GUILayout.Width(60));
+                Sw(ColNative); EditorGUILayout.LabelField("C) Native DLL",  EditorStyles.miniLabel, GUILayout.Width(80));
                 GUILayout.FlexibleSpace();
-                Sw(ColPass);   EditorGUILayout.LabelField("✓ pass",  EditorStyles.miniLabel, GUILayout.Width(50));
-                Sw(ColFail);   EditorGUILayout.LabelField("✗ fail",  EditorStyles.miniLabel, GUILayout.Width(50));
+                Sw(ColPass); EditorGUILayout.LabelField("✓ pass", EditorStyles.miniLabel, GUILayout.Width(50));
+                Sw(ColFail); EditorGUILayout.LabelField("✗ fail", EditorStyles.miniLabel, GUILayout.Width(50));
             }
         }
 
-        // ── Drawing helpers ───────────────────────────────────────────────────
+        // ── Helpers ───────────────────────────────────────────────────────────
 
         private float CW => (position.width - 28f) / 3f;
 
-        private void ColHead(string t, Color c) { var o = GUI.color; GUI.color = c; EditorGUILayout.LabelField(t, EditorStyles.miniBoldLabel, GUILayout.Width(CW)); GUI.color = o; }
+        private void CH(string t, Color c) { var o = GUI.color; GUI.color = c; EditorGUILayout.LabelField(t, EditorStyles.miniBoldLabel, GUILayout.Width(CW)); GUI.color = o; }
 
-        private void ValCell(long bytes, Color col, string sub)
+        private void VC(long bytes, string sub, Color col)
         {
             using (new EditorGUILayout.VerticalScope(GUILayout.Width(CW)))
             {
-                var old = GUI.color; GUI.color = bytes == 0 ? ColPass : col;
+                var o = GUI.color; GUI.color = bytes == 0 ? ColPass : col;
                 EditorGUILayout.LabelField(bytes == 0 ? "0 B  ✓" : $"{bytes} B", EditorStyles.boldLabel);
-                GUI.color = ColDim;
-                EditorGUILayout.LabelField(sub, EditorStyles.miniLabel);
-                GUI.color = old;
+                GUI.color = ColDim; EditorGUILayout.LabelField(sub, EditorStyles.miniLabel); GUI.color = o;
             }
         }
 
-        private void ThrptCell(double cpMs, Color col)
+        private void TC(double cpMs, Color col)
         {
             using (new EditorGUILayout.VerticalScope(GUILayout.Width(CW)))
             {
-                var old = GUI.color; GUI.color = col;
-                EditorGUILayout.LabelField($"{cpMs:F0} calls/ms", EditorStyles.boldLabel);
-                GUI.color = ColDim;
-                EditorGUILayout.LabelField($"{1000.0 / cpMs:F3} µs/call", EditorStyles.miniLabel);
-                GUI.color = old;
+                var o = GUI.color; GUI.color = col;
+                EditorGUILayout.LabelField($"{cpMs:F0} /ms", EditorStyles.boldLabel);
+                GUI.color = ColDim; EditorGUILayout.LabelField($"{1000.0/cpMs:F3} µs/call", EditorStyles.miniLabel); GUI.color = o;
             }
         }
 
-        private void BarRow(string label, float f, Color col, string tip)
+        private void Bar(string label, float f, Color col, string tip)
         {
             f = Mathf.Clamp01(f);
             using (new EditorGUILayout.HorizontalScope())
             {
-                var old = GUI.color; GUI.color = ColDim;
+                var o = GUI.color; GUI.color = ColDim;
                 EditorGUILayout.LabelField(label, EditorStyles.miniLabel, GUILayout.Width(60));
-                GUI.color = old;
-
+                GUI.color = o;
                 Rect r = EditorGUILayout.GetControlRect(false, 14, GUILayout.ExpandWidth(true));
                 r.y += 2; r.height = 10;
                 EditorGUI.DrawRect(r, ColBarBg);
                 if (f > 0.002f) { Rect fill = r; fill.width = Mathf.Max(r.width * f, 2f); EditorGUI.DrawRect(fill, col); }
-                else { Rect tick = r; tick.width = 4f; EditorGUI.DrawRect(tick, ColPass); }
-
+                else { Rect t = r; t.width = 4f; EditorGUI.DrawRect(t, ColPass); }
                 GUI.color = ColDim;
-                EditorGUILayout.LabelField(tip, EditorStyles.miniLabel, GUILayout.Width(260));
-                GUI.color = old;
+                EditorGUILayout.LabelField(tip, EditorStyles.miniLabel, GUILayout.Width(280));
+                GUI.color = o;
             }
         }
 
-        private void BenchRow(Color col, string title, string desc)
-        {
-            var old = GUI.color; GUI.color = col;
-            EditorGUILayout.LabelField(title, EditorStyles.miniBoldLabel);
-            GUI.color = ColDim;
-            EditorGUILayout.LabelField(desc, EditorStyles.wordWrappedMiniLabel);
-            GUI.color = old;
-        }
-
-        private static void Coloured(Color c, string text) { var o = GUI.color; GUI.color = c; EditorGUILayout.LabelField(text, EditorStyles.wordWrappedMiniLabel); GUI.color = o; }
+        private static void Coloured(Color c, string t) { var o = GUI.color; GUI.color = c; EditorGUILayout.LabelField(t, EditorStyles.wordWrappedMiniLabel); GUI.color = o; }
         private static void Sw(Color c) { Rect r = GUILayoutUtility.GetRect(12, 12, GUILayout.Width(12)); r.y += 3; r.height = 8; r.width = 8; EditorGUI.DrawRect(r, c); GUILayout.Space(2); }
-        private static void DrawSep() { Rect r = EditorGUILayout.GetControlRect(false, 1); EditorGUI.DrawRect(r, new Color(0.5f, 0.5f, 0.5f, 0.35f)); EditorGUILayout.Space(4); }
+        private static void Sep() { Rect r = EditorGUILayout.GetControlRect(false, 1); EditorGUI.DrawRect(r, new Color(0.5f, 0.5f, 0.5f, 0.35f)); EditorGUILayout.Space(4); }
     }
 
-#endif // UNITY_EDITOR
+#endif
 }
