@@ -1,29 +1,14 @@
 // GlobalFXManager.cs
 // Unified CPU-based visual + audio effect manager.
 //
-// Architecture:
-//   Effects are registered as FXEntry items in a [MID_NamedList] inspector list.
-//   Each entry binds a (EffectCategory, EffectType) pair to an in-scene ParticleSystem.
-//   At Awake(), a dictionary is built for O(1) lookup by (category, effectType).
+// ADDED: Convenience overloads for TriggerImpact, TriggerMuzzleFlash, and EjectShell
+//   that do not require an EffectType argument. These default to EffectType.Generic
+//   (Impact/Explosion) or EffectType.SmallMuzzle (MuzzleFlash) / EffectType.BrassShell
+//   (ShellEjection). This preserves backward compatibility with call sites that were
+//   written before EffectType was added to the API.
 //
-//   EffectCategory and EffectType are code-generated enums (like PoolableObjectType).
-//   Users extend them via EffectCategoryProviderSO and EffectTypeProviderSO assets,
-//   then re-run MidManStudio > Utilities > Effect Type Generator.
-//
-// Usage:
-//   GlobalFXManager.Instance.TriggerImpact(EffectType.MetalSurface, hitPos, hitNormal);
-//   GlobalFXManager.Instance.TriggerMuzzleFlash(EffectType.MediumMuzzle, muzzlePos, fireDir);
-//   GlobalFXManager.Instance.EjectShell(EffectType.BrassShell, ejectorPos, ejectionVelocity);
-//   GlobalFXManager.Instance.TriggerEffect(EffectCategory.Explosion, EffectType.LargeExplosion, pos, up, 20);
-//
-// ParticleSystem requirements (verify per-system in Inspector):
-//   Simulation Space = World  — REQUIRED. EmitParams.position won't work in Local space.
-//   Loop = false              — managed by this script; looping breaks EmitParams usage.
-//   Play On Awake = false     — managed by this script.
-//
-// Throttling:
-//   Spatial throttle prevents duplicate sparks from nearby simultaneous hits.
-//   Per-category frame caps prevent voice-stealing audio spam.
+// ADDED: volumeOverride parameter alias on the no-type TriggerImpact overload to
+//   match the named-parameter call style used in TestSceneBootstrapper.
 
 using System.Collections.Generic;
 using UnityEngine;
@@ -50,7 +35,6 @@ namespace MidManStudio.Core.Audio
         [SerializeField] private float _spatialThrottleRadius = 0.4f;
 
         [Header("Per-Category Frame Caps")]
-        [Tooltip("Max Impact emissions per frame (including all EffectTypes in that category).")]
         [SerializeField] private int _maxImpactPerFrame      = 12;
         [SerializeField] private int _maxMuzzlePerFrame      = 8;
         [SerializeField] private int _maxShellPerFrame       = 16;
@@ -70,17 +54,9 @@ namespace MidManStudio.Core.Audio
 
         // ── Runtime state ─────────────────────────────────────────────────────
 
-        // O(1) lookup by (category, effectType)
-        // Key = (int)category * 100_000 + (int)effectType — avoids ValueTuple heap alloc per lookup
         private readonly Dictionary<long, FXEntry> _lookup = new();
-
-        // Per-frame spatial throttle: list of (category, position) pairs
         private readonly List<(EffectCategory cat, Vector3 pos)> _frameEmissions = new(64);
-
-        // Per-frame category counts
         private readonly Dictionary<int, int> _frameCounts = new();
-
-        // Pre-allocated EmitParams — reused every call, zero alloc in hot path
         private ParticleSystem.EmitParams _emitParams;
 
         // ── Unity Lifecycle ───────────────────────────────────────────────────
@@ -101,21 +77,14 @@ namespace MidManStudio.Core.Audio
             _frameCounts.Clear();
         }
 
-        // ── Public API — primary ──────────────────────────────────────────────
+        // ── Public API — primary (with EffectType) ────────────────────────────
 
-        /// <summary>
-        /// Trigger an effect by category and type at the given world position.
-        /// particleCount = -1 uses the entry's configured defaultParticleCount.
-        /// Spatially throttled within the same category per frame.
-        /// </summary>
+        /// <summary>Trigger an effect by category and type at the given world position.</summary>
         public void TriggerEffect(EffectCategory category, EffectType effectType,
                                    Vector3 position, Vector3 normal,
                                    int particleCount = -1, float audioVolume = 1f)
             => TriggerEffect((int)category, (int)effectType, position, normal, particleCount, audioVolume);
 
-        /// <summary>
-        /// Raw-int overload — use when your game code extends beyond the generated enums.
-        /// </summary>
         public void TriggerEffect(int category, int effectType,
                                    Vector3 position, Vector3 normal,
                                    int particleCount = -1, float audioVolume = 1f)
@@ -125,7 +94,6 @@ namespace MidManStudio.Core.Audio
             long key = MakeKey(category, effectType);
             if (!_lookup.TryGetValue(key, out var entry))
             {
-                // Fallback: try the Generic type for this category
                 long fallback = MakeKey(category, (int)EffectType.Generic);
                 if (!_lookup.TryGetValue(fallback, out entry))
                 {
@@ -140,19 +108,16 @@ namespace MidManStudio.Core.Audio
 
             int count = particleCount >= 0 ? particleCount : entry.defaultParticleCount;
 
-            // Emit via EmitParams — no transform move, no allocations
             _emitParams.position             = position;
             _emitParams.rotation3D           = Quaternion.LookRotation(normal).eulerAngles;
             _emitParams.applyShapeToPosition = false;
             entry.particleSystem.Emit(_emitParams, count);
 
             RecordEmission((EffectCategory)category, position);
-
-            // Route audio
             PlayCategoryAudio((EffectCategory)category, audioVolume);
         }
 
-        // ── Public API — convenience wrappers ────────────────────────────────
+        // ── Public API — with EffectType (explicit) ───────────────────────────
 
         /// <summary>Trigger an impact effect at a surface hit point.</summary>
         public void TriggerImpact(EffectType type, Vector3 position, Vector3 normal,
@@ -164,7 +129,7 @@ namespace MidManStudio.Core.Audio
                                         int particleCount = -1, float audioVolume = 0.8f)
             => TriggerEffect(EffectCategory.MuzzleFlash, type, position, direction, particleCount, audioVolume);
 
-        /// <summary>Eject a shell casing. ejectionVelocity drives particle initial velocity.</summary>
+        /// <summary>Eject a shell casing with explicit EffectType.</summary>
         public void EjectShell(EffectType type, Vector3 position, Vector3 ejectionVelocity,
                                 float audioVolume = 0.4f)
         {
@@ -183,10 +148,34 @@ namespace MidManStudio.Core.Audio
             PlayCategoryAudio(EffectCategory.ShellEjection, audioVolume);
         }
 
+        // ── Public API — convenience overloads (no EffectType) ───────────────
+        // These default to Generic/SmallMuzzle/BrassShell for backward compatibility
+        // with call sites that do not specify an EffectType.
+
         /// <summary>
-        /// Returns the ParticleSystem registered for a category/type pair.
-        /// Returns false if not found. Use for advanced manual control.
+        /// Trigger a generic impact effect. Defaults to EffectType.Generic.
+        /// Use TriggerImpact(EffectType, ...) for surface-specific effects.
         /// </summary>
+        public void TriggerImpact(Vector3 position, Vector3 normal,
+                                   int particleCount = -1, float volumeOverride = 1f)
+            => TriggerImpact(EffectType.Generic, position, normal, particleCount, volumeOverride);
+
+        /// <summary>
+        /// Trigger a generic muzzle flash. Defaults to EffectType.SmallMuzzle.
+        /// Use TriggerMuzzleFlash(EffectType, ...) for weapon-specific flashes.
+        /// </summary>
+        public void TriggerMuzzleFlash(Vector3 position, Vector3 direction,
+                                        int particleCount = -1, float audioVolume = 0.8f)
+            => TriggerMuzzleFlash(EffectType.SmallMuzzle, position, direction, particleCount, audioVolume);
+
+        /// <summary>
+        /// Eject a generic brass shell. Defaults to EffectType.BrassShell.
+        /// </summary>
+        public void EjectShell(Vector3 position, Vector3 ejectionVelocity, float audioVolume = 0.4f)
+            => EjectShell(EffectType.BrassShell, position, ejectionVelocity, audioVolume);
+
+        // ── TryGetEffect ──────────────────────────────────────────────────────
+
         public bool TryGetEffect(EffectCategory category, EffectType type, out ParticleSystem ps)
         {
             ps = null;
@@ -199,7 +188,6 @@ namespace MidManStudio.Core.Audio
 
         private bool CanEmit(EffectCategory category, Vector3 position)
         {
-            // Frame cap check
             int cat = (int)category;
             int max = category switch
             {
@@ -213,8 +201,6 @@ namespace MidManStudio.Core.Audio
             _frameCounts.TryGetValue(cat, out int currentCount);
             if (currentCount >= max) return false;
 
-            // Spatial throttle — only applied to Impact category by default
-            // (muzzle flashes and shells are positionally unique per weapon)
             if (category == EffectCategory.Impact || category == EffectCategory.Explosion)
             {
                 float rSq = _spatialThrottleRadius * _spatialThrottleRadius;
@@ -308,8 +294,7 @@ namespace MidManStudio.Core.Audio
                 if (main.loop)
                 {
                     MID_Logger.LogWarning(_logLevel,
-                        $"FXEntry '{entry.Name}': Loop is enabled — disabling. " +
-                        "GlobalFXManager controls emission via Emit().",
+                        $"FXEntry '{entry.Name}': Loop is enabled — disabling.",
                         nameof(GlobalFXManager));
                     main.loop = false;
                 }
@@ -318,8 +303,6 @@ namespace MidManStudio.Core.Audio
 
         // ── Utilities ─────────────────────────────────────────────────────────
 
-        // Encodes (category, effectType) as a single long to avoid ValueTuple per lookup.
-        // Supports categories 0–999,999 and types 0–99,999 (well beyond practical limits).
         private static long MakeKey(int category, int effectType) =>
             (long)category * 100_000L + effectType;
     }
