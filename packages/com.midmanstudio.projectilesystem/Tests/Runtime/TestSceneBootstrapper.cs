@@ -2,7 +2,6 @@
 //
 // FIXES:
 //   + Targets spawn in OFFLINE mode too (no NetworkManager / not server).
-//     Previously gated on IsServer → LocalOnly had no targets → no collision.
 //   + Subscribes BOTH ServerProjectileAuthority.Adapter.OnProjectileHit (networked)
 //     AND LocalProjectileManager.OnHit (offline) for damage routing.
 //   + Hit events → GlobalFXManager.TriggerImpact + MID_NativeAudioBridge.PlayClip.
@@ -10,6 +9,15 @@
 //     targets and player spawn immediately in Start().
 //   + All 3D collision targets registered (CollisionTarget3D) alongside 2D.
 //   + BobTargets syncs both 2D and 3D collision positions every frame.
+//
+// FIX (layer registration):
+//   RegisterTargetCollision now passes go.layer to RegisterTarget2D/3D so the
+//   projectile system's HitLayers mask can filter per-target layer correctly.
+//   Targets will only be hit by projectiles whose HitLayers includes the target's layer.
+//
+// UPDATED (GlobalFXManager API):
+//   TriggerImpact and TriggerMuzzleFlash calls now use the backward-compatible
+//   no-EffectType overloads added in GlobalFXManager.
 
 using System.Collections;
 using System.Collections.Generic;
@@ -119,8 +127,6 @@ namespace TestGame
             SetLobbyUIActive(true);
 
             // ── Offline auto-spawn ────────────────────────────────────────────
-            // If no lobby manager OR auto-spawn enabled with no network session,
-            // skip the lobby flow and go straight to the test session.
             if (_autoSpawnOffline && _lobbyManager == null)
             {
                 yield return null; // one frame for all Awake()s to finish
@@ -242,10 +248,14 @@ namespace TestGame
                 var sc = go.GetComponent<SphereCollider>();
                 if (sc != null) radius = sc.radius * Mathf.Max(go.transform.lossyScale.x, 0.01f);
 
-                RegisterTargetCollision(pos, regId, radius);
+                // FIX: pass the target's Unity layer so HitLayers mask filtering works.
+                // Set the "Target" layer on the prefab and exclude it from your player's
+                // projectile HitLayers to prevent friendly-fire between pattern shots.
+                int targetLayer = go.layer;
+                RegisterTargetCollision(pos, regId, radius, targetLayer);
 
                 MID_Logger.LogDebug(_logLevel,
-                    $"Spawned target id={regId} pos={pos} r={radius:F2}",
+                    $"Spawned target id={regId} pos={pos} r={radius:F2} layer={targetLayer}",
                     nameof(TestSceneBootstrapper));
             }
 
@@ -254,7 +264,7 @@ namespace TestGame
                 nameof(TestSceneBootstrapper));
         }
 
-        private void RegisterTargetCollision(Vector3 pos, uint regId, float radius)
+        private void RegisterTargetCollision(Vector3 pos, uint regId, float radius, int unityLayer)
         {
             if (_projectileSystem == null) return;
 
@@ -264,7 +274,7 @@ namespace TestGame
                 Radius   = radius,
                 TargetId = regId,
                 Active   = 1
-            });
+            }, unityLayer);
 
             _projectileSystem.RegisterTarget3D(new CollisionTarget3D
             {
@@ -272,7 +282,7 @@ namespace TestGame
                 Radius   = radius,
                 TargetId = regId,
                 Active   = 1
-            });
+            }, unityLayer);
         }
 
         private void OnTargetDestroyed(TestTarget target)
@@ -323,14 +333,13 @@ namespace TestGame
             if (_targetMap.TryGetValue(targetId, out var target))
                 target.TakeDamage(damage);
 
-            // Impact FX via GlobalFXManager
+            // Impact FX via GlobalFXManager — uses the no-EffectType overload (defaults to Generic)
             GlobalFXManager.Instance?.TriggerImpact(
                 hitPos, Vector3.up,
                 particleCount: 6,
                 volumeOverride: _hitSoundVolume);
 
-            // Impact sound via NativeAudio (GlobalFXManager also handles audio if configured,
-            // but call explicitly here as a fallback)
+            // Impact sound fallback when GlobalFXManager is absent or has no audio configured
             if (GlobalFXManager.Instance == null)
                 MID_NativeAudioBridge.Instance?.PlayClip(_hitSoundClipIndex, _hitSoundVolume);
         }
@@ -346,35 +355,36 @@ namespace TestGame
                 float t = Time.time * _targetBobSpeed;
                 for (int i = 0; i < _targets.Count; i++)
                 {
-                    var target = _targets[i];
-                    if (target == null || !target.gameObject.activeSelf) continue;
+                    var tgt = _targets[i];
+                    if (tgt == null || !tgt.gameObject.activeSelf) continue;
 
                     float phase = i / (float)Mathf.Max(_targets.Count, 1) * Mathf.PI * 2f;
                     float newY  = Mathf.Sin(t + phase) * _targetBobAmplitude;
-                    var   pos   = target.transform.position;
-                    target.transform.position = new Vector3(pos.x, newY, pos.z);
+                    var   pos   = tgt.transform.position;
+                    tgt.transform.position = new Vector3(pos.x, newY, pos.z);
 
                     if (_projectileSystem == null) continue;
 
-                    uint   regId  = target.RegistrationId;
+                    uint   regId  = tgt.RegistrationId;
                     float  radius = _targetCollisionRadius;
-                    var    sc     = target.GetComponent<SphereCollider>();
+                    var    sc     = tgt.GetComponent<SphereCollider>();
                     if (sc != null)
-                        radius = sc.radius * Mathf.Max(target.transform.lossyScale.x, 0.01f);
+                        radius = sc.radius * Mathf.Max(tgt.transform.lossyScale.x, 0.01f);
 
-                    byte active = (byte)(target.gameObject.activeSelf ? 1 : 0);
+                    byte active = (byte)(tgt.gameObject.activeSelf ? 1 : 0);
+                    int  layer  = tgt.gameObject.layer;
 
                     _projectileSystem.RegisterTarget2D(new CollisionTarget
                     {
                         X = pos.x, Y = newY,
                         Radius = radius, TargetId = regId, Active = active
-                    });
+                    }, layer);
 
                     _projectileSystem.RegisterTarget3D(new CollisionTarget3D
                     {
                         X = pos.x, Y = newY, Z = pos.z,
                         Radius = radius, TargetId = regId, Active = active
-                    });
+                    }, layer);
                 }
                 yield return null;
             }

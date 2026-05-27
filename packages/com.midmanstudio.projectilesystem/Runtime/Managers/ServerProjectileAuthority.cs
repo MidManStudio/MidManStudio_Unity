@@ -4,10 +4,15 @@
 // Sends position snapshots every N ticks for client reconciliation.
 //
 // FIX: Added TrailPool?.SyncToSimulation(_projs2D, _count2D) after Tick2D so
-//      trail renderer positions are updated every physics step on the server
-//      (and in offline/host-mode where the server IS the local machine).
-//      Without this call the TrailObjectPool never moved trail renderers and
-//      all trails appeared frozen at their spawn origin.
+//      trail renderer positions are updated every physics step on the server.
+//
+// FIX (3D trails): Added TrailPool?.SyncToSimulation3D(_projs3D, _count3D) after
+//      Tick3D. Previously missing entirely — 3D sim trails never moved.
+//
+// ADDED: Collision layer filtering. RegisterTarget2D/3D now accepts an optional
+//      int unityLayer parameter. Hits are filtered in Collision2D/3D by checking
+//      whether the projectile config's HitLayers mask includes the target's layer.
+//      Defaults to layer 0 (pass-all when config HitLayers = ~0).
 
 using System;
 using System.Runtime.InteropServices;
@@ -127,6 +132,18 @@ namespace MidManStudio.Projectiles.Managers
 
         #endregion
 
+        #region Layer Tracking
+        // Stores the Unity layer of each registered target for hit filtering.
+        // Key = TargetId, Value = Unity layer index (0-31).
+
+        private readonly System.Collections.Generic.Dictionary<uint, int> _targetLayerDict2D
+            = new System.Collections.Generic.Dictionary<uint, int>(64);
+
+        private readonly System.Collections.Generic.Dictionary<uint, int> _targetLayerDict3D
+            = new System.Collections.Generic.Dictionary<uint, int>(64);
+
+        #endregion
+
         #region Snapshot Staging
 
         private ProjectileSnapshot2D[] _snapshots2D;
@@ -209,9 +226,7 @@ namespace MidManStudio.Projectiles.Managers
             {
                 Tick2D(dt);
                 Collision2D();
-                // FIX: sync trail renderer positions every physics step.
-                // Without this the TrailObjectPool never moved its renderers
-                // and all trails appeared frozen at their spawn origin.
+                // Sync trail renderer positions every physics step.
                 TrailPool?.SyncToSimulation(_projs2D, _count2D);
                 CompactDead2D();
             }
@@ -220,6 +235,9 @@ namespace MidManStudio.Projectiles.Managers
             {
                 Tick3D(dt);
                 Collision3D();
+                // FIX: sync 3D trail renderer positions — was previously missing,
+                // causing 3D sim projectile trails to never move from spawn origin.
+                TrailPool?.SyncToSimulation3D(_projs3D, _count3D);
                 CompactDead3D();
             }
 
@@ -246,6 +264,10 @@ namespace MidManStudio.Projectiles.Managers
                 ref var h   = ref _hits2D[i];
                 int     idx = (int)h.ProjIndex;
                 if (idx < 0 || idx >= _count2D) continue;
+
+                // Layer filtering: skip hit if projectile config's HitLayers
+                // does not include the target's Unity layer.
+                if (!PassesLayerFilter2D(h.ProjId, h.TargetId)) continue;
 
                 bool headshot = CheckHeadshot2D(in h);
                 Adapter.ProcessHit(in h, headshot);
@@ -295,6 +317,8 @@ namespace MidManStudio.Projectiles.Managers
                 int     idx = (int)h.ProjIndex;
                 if (idx < 0 || idx >= _count3D) continue;
 
+                if (!PassesLayerFilter3D(h.ProjId, h.TargetId)) continue;
+
                 bool headshot = CheckHeadshot3D(in h);
                 Adapter.ProcessHit3D(in h, headshot);
 
@@ -321,6 +345,54 @@ namespace MidManStudio.Projectiles.Managers
                 write++;
             }
             _count3D = write;
+        }
+
+        #endregion
+
+        #region Layer Filter Helpers
+
+        /// <summary>
+        /// Returns true if the projectile's config HitLayers includes the target's layer.
+        /// Returns true unconditionally when HitLayers = ~0 (all layers, the default).
+        /// </summary>
+        private bool PassesLayerFilter2D(uint projId, uint targetId)
+        {
+            if (!_targetLayerDict2D.TryGetValue(targetId, out int layer)) return true;
+            if (!Adapter.IsRegistered(projId)) return true;
+            // RustSimAdapter stores game data by projId, look up configId from buffer
+            ushort configId = GetConfigId2D(projId);
+            return PassesLayerMask(configId, layer);
+        }
+
+        private bool PassesLayerFilter3D(uint projId, uint targetId)
+        {
+            if (!_targetLayerDict3D.TryGetValue(targetId, out int layer)) return true;
+            ushort configId = GetConfigId3D(projId);
+            return PassesLayerMask(configId, layer);
+        }
+
+        private ushort GetConfigId2D(uint projId)
+        {
+            for (int i = 0; i < _count2D; i++)
+                if (_projs2D[i].ProjId == projId) return _projs2D[i].ConfigId;
+            return 0;
+        }
+
+        private ushort GetConfigId3D(uint projId)
+        {
+            for (int i = 0; i < _count3D; i++)
+                if (_projs3D[i].ProjId == projId) return _projs3D[i].ConfigId;
+            return 0;
+        }
+
+        private static bool PassesLayerMask(ushort configId, int targetLayer)
+        {
+            var cfg = ProjectileRegistry.Instance?.Get(configId);
+            if (cfg == null) return true;
+            int mask = cfg.HitLayers.value;
+            // -1 (all bits set) means "hit everything" — skip the check
+            if (mask == -1) return true;
+            return (mask & (1 << targetLayer)) != 0;
         }
 
         #endregion
@@ -443,8 +515,11 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Public API — Targets
 
-        public void RegisterTarget2D(in CollisionTarget target)
+        /// <param name="unityLayer">The target GameObject's Unity layer (0-31). Used for hit layer filtering.</param>
+        public void RegisterTarget2D(in CollisionTarget target, int unityLayer = 0)
         {
+            _targetLayerDict2D[target.TargetId] = unityLayer;
+
             for (int i = 0; i < _targetCount2D; i++)
             {
                 if (_targets2D[i].TargetId != target.TargetId) continue;
@@ -454,8 +529,11 @@ namespace MidManStudio.Projectiles.Managers
             _targets2D[_targetCount2D++] = target;
         }
 
-        public void RegisterTarget3D(in CollisionTarget3D target)
+        /// <param name="unityLayer">The target GameObject's Unity layer (0-31). Used for hit layer filtering.</param>
+        public void RegisterTarget3D(in CollisionTarget3D target, int unityLayer = 0)
         {
+            _targetLayerDict3D[target.TargetId] = unityLayer;
+
             for (int i = 0; i < _targetCount3D; i++)
             {
                 if (_targets3D[i].TargetId != target.TargetId) continue;
@@ -481,6 +559,8 @@ namespace MidManStudio.Projectiles.Managers
         {
             _targetCount2D = 0;
             _targetCount3D = 0;
+            _targetLayerDict2D.Clear();
+            _targetLayerDict3D.Clear();
         }
 
         #endregion

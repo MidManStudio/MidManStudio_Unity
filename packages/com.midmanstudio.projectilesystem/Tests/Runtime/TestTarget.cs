@@ -1,18 +1,10 @@
 // TestTarget.cs
 // Networked destructible 3D target — sphere mesh, no SpriteRenderer.
 //
-// PREFAB SETUP:
-//   • MeshFilter (sphere mesh)    — body visual
-//   • MeshRenderer                — material / colour
-//   • SphereCollider              — physics hit detection
-//   • NetworkObject               — for multiplayer (optional for offline)
-//   • TestTarget                  — this script
-//   NO SpriteRenderer needed.
-//
-// FX / AUDIO:
-//   Death  → GlobalFXManager.TriggerImpact  (big burst)
-//   Damage → MID_NativeAudioBridge.PlayClip (impact sound)
-//   Colour → Lerp green→red by health, white flash on hit
+// UPDATED (GlobalFXManager API):
+//   TriggerImpact calls now use the no-EffectType overload
+//   TriggerImpact(Vector3, Vector3, int, float) that was added for backward
+//   compatibility. No logic changes otherwise.
 
 using System;
 using System.Collections;
@@ -46,15 +38,12 @@ namespace TestGame
         [SerializeField] private int   _hitParticleCount     = 6;
 
         [Header("Audio (NativeAudioBridge clip indices)")]
-        [Tooltip("Clip index for damage-taken sound.")]
         [SerializeField] private int   _damageSoundClipIndex = 1;
         [SerializeField, Range(0f,1f)] private float _damageSoundVolume = 0.5f;
-        [Tooltip("Clip index for death/explosion sound.")]
         [SerializeField] private int   _deathSoundClipIndex  = 2;
         [SerializeField, Range(0f,1f)] private float _deathSoundVolume  = 1.0f;
 
         [Header("Collision")]
-        [Tooltip("Radius for projectile system registration. Auto-read from SphereCollider if present.")]
         [SerializeField] private float _collisionRadius = 0.6f;
 
         [Header("Debug")]
@@ -82,7 +71,7 @@ namespace TestGame
 
         private Vector3    _spawnPosition;
         private Quaternion _spawnRotation;
-        private Material   _bodyMaterial;  // instanced material for colour tinting
+        private Material   _bodyMaterial;
         private Coroutine  _flashCoroutine;
 
         #endregion
@@ -102,7 +91,6 @@ namespace TestGame
             _spawnPosition = transform.position;
             _spawnRotation = transform.rotation;
 
-            // Instance the body material so we can tint it without affecting the shared asset
             if (_bodyRenderer != null)
             {
                 _bodyMaterial = new Material(_bodyRenderer.sharedMaterial);
@@ -130,7 +118,7 @@ namespace TestGame
         // For offline (no NetworkObject) use
         private void Start()
         {
-            if (IsSpawned) return; // already handled by OnNetworkSpawn
+            if (IsSpawned) return;
 
             _spawnPosition = transform.position;
             _spawnRotation = transform.rotation;
@@ -141,6 +129,7 @@ namespace TestGame
                 _bodyRenderer.material = _bodyMaterial;
             }
 
+            _offlineHp = _maxHealth;
             RefreshVisuals(_maxHealth);
         }
 
@@ -153,10 +142,8 @@ namespace TestGame
 
         #region Public API
 
-        /// <summary>Apply damage. Server-only (or offline).</summary>
         public void TakeDamage(float amount)
         {
-            // Works in both networked (IsServer check) and offline (no NetworkObject)
             bool canAct = !IsSpawned || IsServer;
             if (!canAct) return;
 
@@ -189,7 +176,6 @@ namespace TestGame
 
         #region Death + Respawn
 
-        // Offline health state (used when not a NetworkObject)
         private float _offlineHp;
         private bool  _offlineDead;
 
@@ -206,7 +192,6 @@ namespace TestGame
             }
             else
             {
-                // Offline
                 if (_offlineDead) return;
                 _offlineDead = true;
                 OnDestroyedServer?.Invoke(this);
@@ -287,10 +272,10 @@ namespace TestGame
 
         private void PlayHitFX(Vector3 pos)
         {
+            // Uses no-EffectType overload — defaults to EffectType.Generic
             GlobalFXManager.Instance?.TriggerImpact(
                 pos, Vector3.up, _hitParticleCount, _damageSoundVolume);
 
-            // Sound only if GlobalFX doesn't handle audio
             if (GlobalFXManager.Instance == null)
                 MID_NativeAudioBridge.Instance?.PlayClip(
                     _damageSoundClipIndex, _damageSoundVolume);
@@ -298,7 +283,7 @@ namespace TestGame
 
         private void PlayDeathFX(Vector3 pos)
         {
-            // Big burst for death
+            // Uses no-EffectType overload — defaults to EffectType.Generic
             GlobalFXManager.Instance?.TriggerImpact(
                 pos, Vector3.up, _deathParticleCount, _deathSoundVolume);
 
@@ -323,7 +308,6 @@ namespace TestGame
 
             if (_bodyMaterial != null)
             {
-                // Green at full health → red at zero
                 _bodyMaterial.color = Color.Lerp(
                     new Color(0.9f, 0.2f, 0.1f),
                     new Color(0.2f, 0.9f, 0.3f),

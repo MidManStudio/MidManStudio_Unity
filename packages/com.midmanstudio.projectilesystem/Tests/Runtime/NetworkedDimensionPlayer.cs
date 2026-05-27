@@ -1,16 +1,9 @@
 // NetworkedDimensionPlayer.cs
 //
-// FIXES:
-//   + Pattern 3D: BuildSpawnPointsFromPattern now uses local coordinate frame
-//     (right = cross(dir, up), localUp = cross(right, dir)) so horizontal/vertical
-//     spread is always relative to the fire direction, not world axes.
-//     Previously Quaternion.Euler(-y, x, 0) * baseDir rotated in world space
-//     causing all ring/fan bullets to overlap when camera was pitched.
-//   + Fire() in networked mode now packs ExtraDirections into ProjectileFireRequest
-//     so the server uses per-projectile directions for patterns.
-//   + Dash: LeftShift gives a short speed burst in movement direction.
-//   + Mouse look runs whenever Use3DFireConvention() regardless of dimension.
-//   + Audio/FX via GlobalFXManager + MID_NativeAudioBridge.
+// UPDATED (GlobalFXManager API):
+//   TriggerMuzzleFlash now uses the no-EffectType overload
+//   TriggerMuzzleFlash(Vector3, Vector3, int, float) added for backward compatibility.
+//   All other logic unchanged from previous version.
 
 using UnityEngine;
 using Unity.Netcode;
@@ -230,11 +223,9 @@ namespace TestGame
             if (Input.GetKeyDown(KeyCode.Alpha4)) ChangeMode(PlayerShootMode.Raycast);
             if (Input.GetKeyDown(KeyCode.Alpha5)) ChangeMode(PlayerShootMode.Physics);
 
-            // Mouse look: active in 3D dimension OR when using 3D fire convention
             if (_currentDimension == Dimension.ThreeD || Use3DFireConvention())
                 HandleMouseLook();
 
-            // Dash trigger
             if (Input.GetKeyDown(_dashKey) && Time.time >= _nextDashTime && !_isDashing)
                 StartDash();
 
@@ -253,7 +244,6 @@ namespace TestGame
 
         private void StartDash()
         {
-            // Compute dash direction from current input (or forward if no input)
             float h = Input.GetAxisRaw("Horizontal");
             float v = Input.GetAxisRaw("Vertical");
 
@@ -400,6 +390,7 @@ namespace TestGame
                 _fallbackAudioSource.PlayOneShot(_fallbackFireClip, _fallbackVolume);
             }
 
+            // Uses no-EffectType overload — defaults to EffectType.SmallMuzzle
             GlobalFXManager.Instance?.TriggerMuzzleFlash(
                 origin, dir, _muzzleFlashParticleCount, _muzzleFlashVolume);
         }
@@ -500,7 +491,6 @@ namespace TestGame
                 ExtraDirections        = extraDirs
             };
 
-            // Send directly via bridge (bypasses MID_MasterProjectileSystem.Fire which rebuilds pts)
             var bridge = MID_MasterProjectileSystem.Instance.GetBridge();
             bridge?.FireServerRpc(request);
         }
@@ -644,15 +634,9 @@ namespace TestGame
             var  angleDirs = _shotPattern.SampleDirections();
             var  pts       = new SpawnPoint[angleDirs.Length];
 
-            // FIX: build a local coordinate frame from baseDir so that
-            // horizontal spread rotates around the "local up" of the fire direction,
-            // and vertical spread rotates around the "local right".
-            // Previously Quaternion.Euler(-y, x, 0) * baseDir rotated in world space,
-            // which caused all bullets to cluster when the camera was pitched.
             Vector3 localRight, localUp;
             if (use3D)
             {
-                // For 3D: build frame from fire direction
                 Vector3 worldUp  = Mathf.Abs(Vector3.Dot(baseDir.normalized, Vector3.up)) > 0.98f
                     ? Vector3.forward : Vector3.up;
                 localRight = Vector3.Cross(baseDir, worldUp).normalized;
@@ -660,9 +644,8 @@ namespace TestGame
             }
             else
             {
-                // For 2D: right is world-right-ish perp to baseDir in XY plane
                 localRight = Vector3.Cross(baseDir, Vector3.forward).normalized;
-                localUp    = Vector3.forward; // Z-axis for 2D rotation
+                localUp    = Vector3.forward;
             }
 
             for (int i = 0; i < angleDirs.Length; i++)
@@ -672,14 +655,12 @@ namespace TestGame
 
                 if (use3D)
                 {
-                    // Rotate baseDir: yaw around localUp, pitch around localRight
                     Quaternion yawRot   = Quaternion.AngleAxis( angles.x, localUp);
                     Quaternion pitchRot = Quaternion.AngleAxis(-angles.y, localRight);
                     sDir = pitchRot * yawRot * baseDir;
                 }
                 else
                 {
-                    // 2D: rotate around Z in screen space
                     sDir = Quaternion.Euler(0f, 0f, angles.x) * baseDir;
                 }
 

@@ -2,15 +2,17 @@
 //
 // FIX (scale):
 //   GetRustSpawnParams now uses _fullSizeX as the base ScaleStart when
-//   UseScaleGrowth is FALSE. Previously ScaleStart = 1.0 caused all
-//   non-growing projectiles to render as 1×1 world-unit quads regardless
-//   of what _fullSizeX/_fullSizeY were set to.
+//   UseScaleGrowth is FALSE.
 //
 // FIX (live wave/circular params):
-//   OnValidate now calls RegisterMovementParams() during play mode so that
-//   changing _waveAmplitude, _waveFrequency, _circularRadius etc. in the
-//   inspector mid-game immediately re-pushes the new values to Rust.
-//   Without this, values set at startup were permanently locked.
+//   OnValidate now calls RegisterMovementParams() during play mode.
+//
+// ADDED: _hitLayers (LayerMask) — controls which Unity layers this projectile's
+//   Rust collision hits are allowed to register against. Defaults to Everything
+//   (~0 / -1). Set to a specific layer mask in the inspector to prevent
+//   projectiles from colliding with the firing player, allies, etc.
+//   The filtering happens in ServerProjectileAuthority.Collision2D/3D and
+//   LocalProjectileManager.ProcessHit2D/3D after Rust returns hits.
 
 using UnityEngine;
 using System;
@@ -81,6 +83,19 @@ namespace MidManStudio.Projectiles.Config
 
         [SerializeField, Range(1, 16)] private byte _maxCollisions = 1;
         public byte MaxCollisions => _maxCollisions;
+
+        // ── Collision Layers ──────────────────────────────────────────────────
+        [Header("Collision Layers")]
+        [Tooltip("Which Unity layers this projectile can register hits against.\n" +
+                 "Default = Everything. Exclude the 'Player' layer to prevent\n" +
+                 "friendly-fire or self-damage from pattern projectiles.")]
+        [SerializeField] private LayerMask _hitLayers = ~0;
+
+        /// <summary>
+        /// Unity LayerMask of layers this projectile can hit.
+        /// Value -1 (all bits set) means hit everything.
+        /// </summary>
+        public LayerMask HitLayers => _hitLayers;
 
         // ── Scale Growth ──────────────────────────────────────────────────────
         [Header("Size & Scale Growth")]
@@ -206,7 +221,7 @@ namespace MidManStudio.Projectiles.Config
         // ── Wave/Circular registration ────────────────────────────────────────
         [Header("Wave Movement (only used when MovementType = Wave)")]
         [SerializeField] private float _waveAmplitude   = 1f;
-        [SerializeField] private float _waveFrequency   = 2f;
+        [SerializeField] private float _waveFrequency   = 1f;
         [SerializeField] private float _wavePhaseOffset = 0f;
         [SerializeField] private bool  _waveVertical    = false;
 
@@ -252,9 +267,6 @@ namespace MidManStudio.Projectiles.Config
             if (_fullSizeX <= 0f) _fullSizeX = 0.05f;
             if (_fullSizeY <= 0f) _fullSizeY = 0.05f;
 
-            // FIX: Re-push wave/circular params to Rust when values change in the
-            // inspector during play mode. Without this, changes to amplitude,
-            // frequency, radius etc. have no effect until the next domain reload.
             if (Application.isPlaying)
                 RegisterMovementParams();
         }

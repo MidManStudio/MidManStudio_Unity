@@ -4,6 +4,13 @@
 //   + Awake finds MID_MasterProjectileSystem and auto-wires if it has null _localManager.
 //   + OnHit event now always fires even when _targets dict has no matching LocalDamageTarget
 //     (raw CollisionTarget path) so TestSceneBootstrapper.OnLocalHit receives all hits.
+//
+// FIX (collision layer filtering):
+//   RegisterTarget2D/3D and RegisterTarget(LocalDamageTarget) now accept an optional
+//   int unityLayer = 0 parameter. ProcessHit2D/3D filter hits against the projectile
+//   config's HitLayers mask before applying damage, matching ServerProjectileAuthority
+//   behaviour. Prevents pattern shots from damaging the shooting player when the Player
+//   layer is excluded from HitLayers in the config.
 
 using System;
 using System.Collections.Generic;
@@ -28,6 +35,8 @@ namespace MidManStudio.Projectiles.Managers
         public float      Radius;
         public bool       Active;
         public GameObject SourceObject;
+        /// <summary>Unity layer index (0-31) used for HitLayers mask filtering.</summary>
+        public int        UnityLayer;
     }
 
     // ── Offline hit payload ────────────────────────────────────────────────────
@@ -108,6 +117,12 @@ namespace MidManStudio.Projectiles.Managers
 
         private readonly Dictionary<uint, LocalDamageTarget> _targets
             = new Dictionary<uint, LocalDamageTarget>(64);
+
+        // Layer lookup keyed by TargetId — for HitLayers mask filtering
+        private readonly Dictionary<uint, int> _targetLayers2D
+            = new Dictionary<uint, int>(64);
+        private readonly Dictionary<uint, int> _targetLayers3D
+            = new Dictionary<uint, int>(64);
 
         #endregion
 
@@ -217,7 +232,7 @@ namespace MidManStudio.Projectiles.Managers
                         ProcessHit3D(in _hits3D[i]);
                 }
 
-                // FIX: sync 3D trails each physics step
+                // Sync 3D trail renderer positions every physics step
                 _trailPool?.SyncToSimulation3D(_projs3D, _count3D);
                 CompactDead3D();
             }
@@ -241,11 +256,58 @@ namespace MidManStudio.Projectiles.Managers
 
         #endregion
 
+        #region Layer Filter Helpers
+
+        /// <summary>
+        /// Returns true if the projectile config's HitLayers mask includes the target's layer.
+        /// Always returns true when the config is not found or HitLayers = ~0 (all layers).
+        /// </summary>
+        private bool PassesLayerFilter2D(uint projId, uint targetId)
+        {
+            if (!_targetLayers2D.TryGetValue(targetId, out int layer)) return true;
+            ushort configId = GetConfigId2D(projId);
+            return PassesLayerMask(configId, layer);
+        }
+
+        private bool PassesLayerFilter3D(uint projId, uint targetId)
+        {
+            if (!_targetLayers3D.TryGetValue(targetId, out int layer)) return true;
+            ushort configId = GetConfigId3D(projId);
+            return PassesLayerMask(configId, layer);
+        }
+
+        private ushort GetConfigId2D(uint projId)
+        {
+            if (_localData.TryGetValue(projId, out var d)) return d.ConfigId;
+            return 0;
+        }
+
+        private ushort GetConfigId3D(uint projId)
+        {
+            if (_localData.TryGetValue(projId, out var d)) return d.ConfigId;
+            return 0;
+        }
+
+        private static bool PassesLayerMask(ushort configId, int targetLayer)
+        {
+            var cfg = ProjectileRegistry.HasInstance
+                ? ProjectileRegistry.Instance.Get(configId) : null;
+            if (cfg == null) return true;
+            int mask = cfg.HitLayers.value;
+            if (mask == -1) return true;   // Everything — skip check
+            return (mask & (1 << targetLayer)) != 0;
+        }
+
+        #endregion
+
         #region Hit Processing
 
         private void ProcessHit2D(in HitResult hit)
         {
             if (!_localData.TryGetValue(hit.ProjId, out var data)) return;
+
+            // Layer filter: skip if projectile config doesn't allow hitting this layer
+            if (!PassesLayerFilter2D(hit.ProjId, hit.TargetId)) return;
 
             var config = ProjectileRegistry.Instance.Get(data.ConfigId);
             if (config == null) return;
@@ -294,6 +356,9 @@ namespace MidManStudio.Projectiles.Managers
         private void ProcessHit3D(in HitResult3D hit)
         {
             if (!_localData.TryGetValue(hit.ProjId, out var data)) return;
+
+            // Layer filter
+            if (!PassesLayerFilter3D(hit.ProjId, hit.TargetId)) return;
 
             var config = ProjectileRegistry.Instance.Get(data.ConfigId);
             if (config == null) return;
@@ -473,10 +538,13 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Public API — Targets (rich LocalDamageTarget objects)
 
-        public uint RegisterTarget(LocalDamageTarget target)
+        /// <param name="unityLayer">The target GameObject's Unity layer (0-31).</param>
+        public uint RegisterTarget(LocalDamageTarget target, int unityLayer = 0)
         {
             if (target == null) return 0;
+            target.UnityLayer = unityLayer;
             _targets[target.LocalId] = target;
+            _targetLayers2D[target.LocalId] = unityLayer;
             WriteToCollisionBuffer2D(target);
             return target.LocalId;
         }
@@ -499,6 +567,8 @@ namespace MidManStudio.Projectiles.Managers
         public void RemoveTarget(uint localId)
         {
             _targets.Remove(localId);
+            _targetLayers2D.Remove(localId);
+            _targetLayers3D.Remove(localId);
             DeactivateInBuffer2D(localId);
         }
 
@@ -534,17 +604,21 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Public API — Targets (direct CollisionTarget structs)
 
-        public void RegisterTarget2D(in CollisionTarget target)
+        /// <param name="unityLayer">The target GameObject's Unity layer (0-31).</param>
+        public void RegisterTarget2D(in CollisionTarget target, int unityLayer = 0)
         {
+            _targetLayers2D[target.TargetId] = unityLayer;
+
             for (int i = 0; i < _targetCount2D; i++)
             {
                 if (_targets2D[i].TargetId != target.TargetId) continue;
                 _targets2D[i] = target;
                 if (_targets.TryGetValue(target.TargetId, out var ex))
                 {
-                    ex.Position = new Vector3(target.X, target.Y, 0f);
-                    ex.Radius   = target.Radius;
-                    ex.Active   = target.Active != 0;
+                    ex.Position   = new Vector3(target.X, target.Y, 0f);
+                    ex.Radius     = target.Radius;
+                    ex.Active     = target.Active != 0;
+                    ex.UnityLayer = unityLayer;
                     _targets[target.TargetId] = ex;
                 }
                 return;
@@ -565,22 +639,27 @@ namespace MidManStudio.Projectiles.Managers
                     Position     = new Vector3(target.X, target.Y, 0f),
                     Radius       = target.Radius,
                     Active       = target.Active != 0,
+                    UnityLayer   = unityLayer,
                     SourceObject = null
                 };
             }
         }
 
-        public void RegisterTarget3D(in CollisionTarget3D target)
+        /// <param name="unityLayer">The target GameObject's Unity layer (0-31).</param>
+        public void RegisterTarget3D(in CollisionTarget3D target, int unityLayer = 0)
         {
+            _targetLayers3D[target.TargetId] = unityLayer;
+
             for (int i = 0; i < _targetCount3D; i++)
             {
                 if (_targets3D[i].TargetId != target.TargetId) continue;
                 _targets3D[i] = target;
                 if (_targets.TryGetValue(target.TargetId, out var ex))
                 {
-                    ex.Position = new Vector3(target.X, target.Y, target.Z);
-                    ex.Radius   = target.Radius;
-                    ex.Active   = target.Active != 0;
+                    ex.Position   = new Vector3(target.X, target.Y, target.Z);
+                    ex.Radius     = target.Radius;
+                    ex.Active     = target.Active != 0;
+                    ex.UnityLayer = unityLayer;
                     _targets[target.TargetId] = ex;
                 }
                 return;
@@ -600,6 +679,7 @@ namespace MidManStudio.Projectiles.Managers
                     Position     = new Vector3(target.X, target.Y, target.Z),
                     Radius       = target.Radius,
                     Active       = target.Active != 0,
+                    UnityLayer   = unityLayer,
                     SourceObject = null
                 };
             }
@@ -632,6 +712,8 @@ namespace MidManStudio.Projectiles.Managers
             _targetCount2D = 0;
             _targetCount3D = 0;
             _targets.Clear();
+            _targetLayers2D.Clear();
+            _targetLayers3D.Clear();
         }
 
         #endregion
