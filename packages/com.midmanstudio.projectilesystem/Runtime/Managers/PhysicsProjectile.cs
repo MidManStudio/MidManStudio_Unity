@@ -1,10 +1,26 @@
 // PhysicsProjectile.cs
-// FIX: OnNetworkSpawn now selects correct visual pool type (2D or 3D).
-//      Visual is a ProjectileVisualBase fetched from LocalObjectPool and
-//      moved as a child of this transform — correctly shows mesh for 3D.
-// ADDED: _configId field so the visual can be initialised with the right config.
+//
+// FIXES:
+//   + Visual spawns in OnNetworkSpawn as before, but is RE-INITIALISED in
+//     OnProjectileInitialised once BulletVelocity NetworkVariable is available.
+//   + RetrySpawnVisual coroutine: if LocalObjectPool isn't ready at OnNetworkSpawn
+//     (e.g. pool cold-started or client receives spawn before pool Awake), the
+//     visual is retried on the next frame.
+//   + Visual direction is now derived from transform.forward at OnNetworkSpawn
+//     (NetworkTransform syncs rotation with the spawn message, so it's valid).
+//   + OnProjectileInitialised re-orientates the visual with final BulletVelocity
+//     and proper launch direction (rigidbody velocity direction).
+//
+// TRAIL NOTE:
+//   The trail for physics projectiles comes from the TrailRenderer on the pool
+//   visual prefab (ProjectileVisual3D._trailRenderer). It follows the visual
+//   which is parented to this transform. No separate TrailObjectPool is used
+//   for physics projectiles — that system is for the Rust simulation buffers.
+//   Make sure your 3D visual prefab has a TrailRenderer assigned and
+//   the ProjectileConfigSO has HasTrail = true.
 
 using System;
+using System.Collections;
 using UnityEngine;
 using Unity.Netcode;
 using MidManStudio.Core.Logging;
@@ -35,10 +51,14 @@ namespace MidManStudio.Projectiles.Managers
         [SerializeField] protected LayerMask _damageLayerMask = -1;
 
         [Header("Visual Pool")]
-        [Tooltip("Config ID for this projectile — used to initialise the pool visual.")]
+        [Tooltip("Config ID for this projectile — used to initialise the pool visual.\n" +
+                 "Must match a registered ProjectileConfigSO with Is3D = true for 3D visuals.")]
         [SerializeField] private ushort _visualConfigId = 0;
-        [Tooltip("True = 3D pool visual (MeshRenderer). False = 2D pool visual (SpriteRenderer).")]
+
+        [Tooltip("True = spawn 3D pool visual (MeshRenderer + TrailRenderer).\n" +
+                 "False = spawn 2D pool visual (SpriteRenderer).")]
         [SerializeField] private bool _use3DVisual = true;
+
         [SerializeField] private PoolableObjectType _visual2DPoolType
             = PoolableObjectType.Projectile_Visual2D;
         [SerializeField] private PoolableObjectType _visual3DPoolType
@@ -68,9 +88,12 @@ namespace MidManStudio.Projectiles.Managers
         private float _damageMultiplier = 1f;
 
         // Pool visual for this physics projectile
-        private GameObject        _poolVisualGO;
+        private GameObject           _poolVisualGO;
         private ProjectileVisualBase _poolVisual;
         private PoolableObjectType   _usedPoolType;
+
+        // Coroutine handle for retry
+        private Coroutine _retryCoroutine;
 
         #endregion
 
@@ -84,12 +107,24 @@ namespace MidManStudio.Projectiles.Managers
             if (_use2D) _rb2D = GetComponent<Rigidbody2D>();
             else        _rb3D = GetComponent<Rigidbody>();
 
-            // Spawn pool visual on all clients (and host)
+            // Spawn visual on all clients (and host).
+            // transform.forward is valid here — NetworkTransform sends the initial
+            // rotation in the same message that triggers OnNetworkSpawn.
             SpawnPoolVisual();
+
+            // If the pool wasn't ready (cold start / pool not yet Awake on this client),
+            // retry on the next frame.
+            if (_poolVisualGO == null)
+                _retryCoroutine = StartCoroutine(RetrySpawnVisual());
         }
 
         public override void OnNetworkDespawn()
         {
+            if (_retryCoroutine != null)
+            {
+                StopCoroutine(_retryCoroutine);
+                _retryCoroutine = null;
+            }
             ReturnPoolVisual();
             base.OnNetworkDespawn();
         }
@@ -100,36 +135,73 @@ namespace MidManStudio.Projectiles.Managers
 
         private void SpawnPoolVisual()
         {
-            if (LocalObjectPool.Instance == null) return;
+            if (LocalObjectPool.Instance == null)
+            {
+                MID_Logger.LogWarning(_logLevel,
+                    "SpawnPoolVisual: LocalObjectPool.Instance is null.",
+                    nameof(PhysicsProjectile));
+                return;
+            }
 
             _usedPoolType = _use3DVisual ? _visual3DPoolType : _visual2DPoolType;
 
+            // Use current transform.forward as direction — valid at OnNetworkSpawn
+            // because NetworkTransform syncs rotation with the initial spawn message.
             Vector3    dir = transform.forward;
             Quaternion rot = Network.ClientPredictionManager.GetDirectionRotation(dir);
 
             _poolVisualGO = LocalObjectPool.Instance.GetObject(_usedPoolType, transform.position, rot);
-            if (_poolVisualGO == null) return;
+            if (_poolVisualGO == null)
+            {
+                MID_Logger.LogWarning(_logLevel,
+                    $"SpawnPoolVisual: Pool returned null for type {_usedPoolType}. " +
+                    "Check pool prewarm count and prefab assignments.",
+                    nameof(PhysicsProjectile));
+                return;
+            }
 
             _poolVisual = _poolVisualGO.GetComponent<ProjectileVisualBase>();
 
             if (_poolVisual != null)
             {
-                // Initialise visual with config
+                // BulletVelocity NetworkVariable may be 0 here if InitialiseProjectile
+                // hasn't been called yet (it's called after Spawn). We use a sensible default.
+                // OnProjectileInitialised will re-init with the correct speed.
                 float speed = BulletVelocity > 0f ? BulletVelocity : 10f;
                 _poolVisual.InitializeClientVisual(_visualConfigId, transform.position, dir, speed);
             }
 
-            // Parent so visual follows the physics object automatically
+            // Parent the visual so it follows this physics object automatically
             _poolVisualGO.transform.SetParent(transform);
             _poolVisualGO.transform.localPosition = Vector3.zero;
             _poolVisualGO.transform.localRotation = Quaternion.identity;
+
+            MID_Logger.LogDebug(_logLevel,
+                $"SpawnPoolVisual OK: type={_usedPoolType} config={_visualConfigId}",
+                nameof(PhysicsProjectile));
+        }
+
+        /// <summary>
+        /// Retry visual spawn one frame later if the pool was not ready at OnNetworkSpawn.
+        /// </summary>
+        private IEnumerator RetrySpawnVisual()
+        {
+            yield return null; // wait one frame
+            _retryCoroutine = null;
+
+            if (!IsSpawned || _poolVisualGO != null) yield break;
+
+            MID_Logger.LogDebug(_logLevel,
+                "RetrySpawnVisual: retrying after one frame.",
+                nameof(PhysicsProjectile));
+            SpawnPoolVisual();
         }
 
         private void ReturnPoolVisual()
         {
             if (_poolVisualGO == null) return;
 
-            // Unparent before returning so pool doesn't disable the parent
+            // Unparent before returning so pool doesn't inherit the parent's lifetime
             _poolVisualGO.transform.SetParent(null);
 
             if (_poolVisual != null)
@@ -167,12 +239,15 @@ namespace MidManStudio.Projectiles.Managers
         {
             _hasHit = false;
 
+            Vector3 launchDir;
+
             if (_use2D && _rb2D != null)
             {
                 _rb2D.gravityScale = _useGravity ? 1f : 0f;
                 _rb2D.drag         = _drag;
                 _rb2D.isKinematic  = false;
                 _rb2D.velocity     = (Vector2)(transform.right * BulletVelocity);
+                launchDir          = transform.right;
             }
             else if (!_use2D && _rb3D != null)
             {
@@ -181,14 +256,33 @@ namespace MidManStudio.Projectiles.Managers
                 _rb3D.angularDrag = _angularDrag;
                 _rb3D.isKinematic = false;
                 _rb3D.velocity    = transform.forward * BulletVelocity;
+                launchDir         = transform.forward;
+            }
+            else
+            {
+                launchDir = transform.forward;
             }
 
-            // Re-orient pool visual to match launch direction
-            if (_poolVisualGO != null)
+            // If visual failed to spawn initially (pool was cold), try again now.
+            // OnProjectileInitialised runs on the server right after Spawn(),
+            // by which point the pool should be ready.
+            if (_poolVisualGO == null)
+                SpawnPoolVisual();
+
+            // Re-initialise visual with final speed + correct direction.
+            // This is important because at OnNetworkSpawn, BulletVelocity was 0.
+            if (_poolVisual != null)
             {
-                Vector3 launchDir = _use2D
-                    ? (Vector3)(transform.right * BulletVelocity).normalized
-                    : transform.forward;
+                float speed = BulletVelocity > 0f ? BulletVelocity : 10f;
+                _poolVisual.InitializeClientVisual(
+                    _visualConfigId,
+                    transform.position,
+                    launchDir,
+                    speed);
+            }
+            else if (_poolVisualGO != null)
+            {
+                // Visual exists but no ProjectileVisualBase component — just orient it
                 Network.ClientPredictionManager.ApplyDirectionRotation(
                     _poolVisualGO.transform, launchDir);
             }
@@ -203,7 +297,8 @@ namespace MidManStudio.Projectiles.Managers
 
         protected override void OnSpawnImpactEffectClient(Vector3 position)
         {
-            ReturnPoolVisual(); // hide visual immediately on impact
+            // Hide visual immediately on impact — trail will fade naturally
+            ReturnPoolVisual();
         }
 
         protected override void OnSpawnKillEffectClient(Vector3 position) { }
@@ -222,7 +317,9 @@ namespace MidManStudio.Projectiles.Managers
         private void OnCollisionEnter2D(Collision2D col)
         {
             if (!IsServer || _hasHit) return;
-            Vector3 pt = col.contacts.Length > 0 ? (Vector3)col.contacts[0].point : transform.position;
+            Vector3 pt = col.contacts.Length > 0
+                ? (Vector3)col.contacts[0].point
+                : transform.position;
             ProcessHit2D(col.gameObject, pt);
         }
 
@@ -263,20 +360,23 @@ namespace MidManStudio.Projectiles.Managers
         private void ApplyDirectHit(NetworkObject targetNetObj, Vector3 hitPoint, bool is2D)
         {
             if (targetNetObj == null) return;
-            FireHitEvent((uint)targetNetObj.NetworkObjectId, _baseDamage * _damageMultiplier, hitPoint, is2D);
+            FireHitEvent((uint)targetNetObj.NetworkObjectId,
+                _baseDamage * _damageMultiplier, hitPoint, is2D);
         }
 
         private void ApplyExplosionDamage3D(Vector3 centre)
         {
             var cols  = new Collider[32];
-            int count = Physics.OverlapSphereNonAlloc(centre, _explosionRadius, cols, _damageLayerMask);
+            int count = Physics.OverlapSphereNonAlloc(
+                centre, _explosionRadius, cols, _damageLayerMask);
             for (int i = 0; i < count; i++)
             {
                 var no = cols[i].GetComponentInParent<NetworkObject>();
                 if (no == null) continue;
                 float dist    = Vector3.Distance(centre, cols[i].transform.position);
                 float falloff = 1f - Mathf.Clamp01(dist / _explosionRadius);
-                FireHitEvent((uint)no.NetworkObjectId, _baseDamage * _damageMultiplier * falloff, centre, false);
+                FireHitEvent((uint)no.NetworkObjectId,
+                    _baseDamage * _damageMultiplier * falloff, centre, false);
             }
         }
 
@@ -289,9 +389,11 @@ namespace MidManStudio.Projectiles.Managers
             {
                 var no = cols[i].GetComponentInParent<NetworkObject>();
                 if (no == null) continue;
-                float dist    = Vector2.Distance((Vector2)centre, (Vector2)cols[i].transform.position);
+                float dist    = Vector2.Distance(
+                    (Vector2)centre, (Vector2)cols[i].transform.position);
                 float falloff = 1f - Mathf.Clamp01(dist / _explosionRadius);
-                FireHitEvent((uint)no.NetworkObjectId, _baseDamage * _damageMultiplier * falloff, centre, true);
+                FireHitEvent((uint)no.NetworkObjectId,
+                    _baseDamage * _damageMultiplier * falloff, centre, true);
             }
         }
 
