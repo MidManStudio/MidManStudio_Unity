@@ -16,7 +16,7 @@ GameObject:
   - component: {fileID: 4755190934069035331}
   - component: {fileID: 2361679234294197832}
   - component: {fileID: 8186125018304576148}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Player
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -139,6 +139,10 @@ MonoBehaviour:
   _moveSpeed2D: 6
   _moveSpeed3D: 5
   _jumpForce: 7
+  _dashKey: 304
+  _dashSpeed: 16
+  _dashDuration: 0.12
+  _dashCooldown: 0.9
   _mouseSensitivity: 2
   _pitchMin: -80
   _pitchMax: 80
@@ -315,7 +319,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 4563258006698101327}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Head
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -331,7 +335,7 @@ Transform:
   m_GameObject: {fileID: 2462724857620622903}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0.883, z: 0}
+  m_LocalPosition: {x: 0.461, y: 0.633, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -347,7 +351,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 5459619381007346436}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: ShotPoint
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -363,7 +367,7 @@ Transform:
   m_GameObject: {fileID: 8002899303338167545}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0.503, y: -0.522, z: 0.581}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []

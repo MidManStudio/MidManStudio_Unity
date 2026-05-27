@@ -12,7 +12,7 @@ GameObject:
   - component: {fileID: 4255165185788312224}
   - component: {fileID: 5962359493519195879}
   - component: {fileID: 4769129971356231919}
-  m_Layer: 0
+  m_Layer: 6
   m_Name: Canvas
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -114,7 +114,7 @@ GameObject:
   - component: {fileID: 1431138512912806627}
   - component: {fileID: 8158106321705166943}
   - component: {fileID: 1247791617389590654}
-  m_Layer: 0
+  m_Layer: 6
   m_Name: Text
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -248,7 +248,7 @@ GameObject:
   - component: {fileID: 8642094516491252014}
   - component: {fileID: 288388248912265778}
   - component: {fileID: 2136787769212838204}
-  m_Layer: 0
+  m_Layer: 6
   m_Name: HealthBar
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -326,7 +326,7 @@ GameObject:
   - component: {fileID: 2504589183921582692}
   - component: {fileID: -2717590598365100149}
   - component: {fileID: 5617753259341382408}
-  m_Layer: 0
+  m_Layer: 6
   m_Name: Target
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -432,7 +432,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  GlobalObjectIdHash: 1197409613
+  GlobalObjectIdHash: 2363422870
   AlwaysReplicateAsRoot: 0
   SynchronizeTransform: 1
   ActiveSceneSynchronization: 0

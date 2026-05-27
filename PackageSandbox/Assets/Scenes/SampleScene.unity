@@ -208,7 +208,7 @@ MeshFilter:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 100733517}
-  m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+  m_Mesh: {fileID: 10207, guid: 0000000000000000e000000000000000, type: 0}
 --- !u!4 &100733521
 Transform:
   m_ObjectHideFlags: 0
@@ -1053,7 +1053,7 @@ Camera:
   near clip plane: 0.1
   far clip plane: 5000
   field of view: 40
-  orthographic: 0
+  orthographic: 1
   orthographic size: 10
   m_Depth: -1
   m_CullingMask:
@@ -1397,7 +1397,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7c935aa54abfb40738d1818ed85a8d88, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _dimensionToggleKey: 96
+  _dimensionToggleKey: 99
   _mainCamera: {fileID: 330585545}
   _orthoSize: 8
   _perspectiveFov: 60
@@ -2707,7 +2707,7 @@ MonoBehaviour:
   _hitValidationTolerance: 2
   _serverRaycastLayers:
     serializedVersion: 2
-    m_Bits: 1
+    m_Bits: 65
   _logLevel: 2
 --- !u!114 &1044549677
 MonoBehaviour:
@@ -2975,7 +2975,7 @@ MonoBehaviour:
     displayName: 
     prefab: {fileID: 5978565870698086511, guid: ce5cc1fbe06bb414d8bd2f2ea98de913,
       type: 3}
-    prewarmCount: 6
+    prewarmCount: 10
   _logLevel: 2
 --- !u!114 &1194435583
 MonoBehaviour:
@@ -14131,7 +14131,7 @@ Transform:
   m_GameObject: {fileID: 1783256103}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalPosition: {x: 0, y: 0.93, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -15065,7 +15065,7 @@ AudioSource:
   serializedVersion: 4
   OutputAudioMixerGroup: {fileID: 0}
   m_audioClip: {fileID: 0}
-  m_PlayOnAwake: 1
+  m_PlayOnAwake: 0
   m_Volume: 1
   m_Pitch: 1
   Loop: 0

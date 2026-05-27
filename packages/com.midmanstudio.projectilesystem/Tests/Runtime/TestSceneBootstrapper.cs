@@ -27,6 +27,7 @@ using MidManStudio.Projectiles.Core;
 
 namespace TestGame
 {
+    [DefaultExecutionOrder(100)]
     public class TestSceneBootstrapper : MonoBehaviour
     {
         #region Inspector

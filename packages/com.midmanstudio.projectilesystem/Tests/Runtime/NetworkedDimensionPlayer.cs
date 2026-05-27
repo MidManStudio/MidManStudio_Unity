@@ -23,6 +23,7 @@ using MidManStudio.Projectiles.Managers;
 using MidManStudio.Projectiles.Adapters;
 using MidManStudio.Projectiles.Config;
 using MidManStudio.Core.Pools;
+using MidManStudio.Projectiles.Network;
 
 namespace TestGame
 {
