@@ -9,7 +9,7 @@ using UnityEngine;
 using Unity.Netcode;
 using TMPro;
 using MidManStudio.Core.Audio;
-using MidManStudio.Core.Effects;
+using MidManStudio.Core.FX;
 using MidManStudio.Core.Logging;
 using MidManStudio.Netcode.Pools;
 using MidManStudio.Projectiles.Managers;

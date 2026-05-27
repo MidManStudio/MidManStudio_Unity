@@ -14685,7 +14685,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1834557256}
-  - component: {fileID: 1834557255}
+  - component: {fileID: 1834557257}
   m_Layer: 0
   m_Name: EffectsMan
   m_TagString: Untagged
@@ -14693,29 +14693,6 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &1834557255
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1834557254}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: c88aaacfabb2f4916937a70699e5c4b5, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  _logLevel: 2
-  _impactSystem: {fileID: 1249727888}
-  _muzzleFlashSystem: {fileID: 1624825341}
-  _shellEjectionSystem: {fileID: 2098443076}
-  _spatialThrottleRadius: 0.4
-  _maxImpactsPerFrame: 12
-  _maxMuzzlePerFrame: 8
-  _nativeAudio: {fileID: 1878769834}
-  _impactClipIndex: 0
-  _muzzleClipIndex: 1
-  _shellClipIndex: 2
 --- !u!4 &1834557256
 Transform:
   m_ObjectHideFlags: 0
@@ -14734,6 +14711,46 @@ Transform:
   - {fileID: 2098443078}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1834557257
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1834557254}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 453e5cc62233c4ef9839310bf602dc6f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _logLevel: 2
+  _effects:
+  - category: 0
+    effectType: 0
+    displayName: 
+    particleSystem: {fileID: 1249727888}
+    defaultParticleCount: 4
+  - category: 1
+    effectType: 10
+    displayName: 
+    particleSystem: {fileID: 1624825341}
+    defaultParticleCount: 4
+  - category: 2
+    effectType: 20
+    displayName: 
+    particleSystem: {fileID: 2098443076}
+    defaultParticleCount: 4
+  _spatialThrottleRadius: 0.4
+  _maxImpactPerFrame: 12
+  _maxMuzzlePerFrame: 8
+  _maxShellPerFrame: 16
+  _maxExplosionPerFrame: 4
+  _maxOtherPerFrame: 8
+  _audio: {fileID: 1878769834}
+  _impactAudioClipIndex: 0
+  _muzzleAudioClipIndex: 1
+  _shellAudioClipIndex: 2
+  _explosionAudioClipIndex: -1
 --- !u!1 &1845744662
 GameObject:
   m_ObjectHideFlags: 0
@@ -15051,9 +15068,9 @@ MonoBehaviour:
   - {fileID: 8300000, guid: cd5266216457741da9ee9ceffc71d35d, type: 3}
   - {fileID: 8300000, guid: 73ae5e1c6df24458fbd2db07f94db1c5, type: 3}
   - {fileID: 8300000, guid: bfd82fd50cb09463da4b2de8f895954d, type: 3}
-  _webglPoolSize: 16
-  _debugActiveVoices: 0
-  _debugPlatform: 
+  _poolSize: 16
+  _spatialBlend: 0
+  _activeVoiceCount: 0
 --- !u!82 &1878769835
 AudioSource:
   m_ObjectHideFlags: 0

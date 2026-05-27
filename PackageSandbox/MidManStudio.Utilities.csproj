@@ -61,6 +61,9 @@
     <Analyzer Include="/Applications/Unity/Hub/Editor/2022.3.13f1/Unity.app/Contents/Tools/Unity.SourceGenerators/Unity.Properties.SourceGenerator.dll" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Audio/MID_AudioLimiter.cs">
+      <Link>Runtime/Audio/MID_AudioLimiter.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/UIState/MID_UIStateManager.cs">
       <Link>Runtime/UIState/MID_UIStateManager.cs</Link>
     </Compile>
@@ -70,14 +73,17 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Libraries/Configs/MID_LibrarySO.cs">
       <Link>Runtime/Libraries/Configs/MID_LibrarySO.cs</Link>
     </Compile>
-    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Effects/GlobalFXManager.cs">
-      <Link>Runtime/Effects/GlobalFXManager.cs</Link>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/FXSystems/Config/FXEntryDefinition.cs">
+      <Link>Runtime/FXSystems/Config/FXEntryDefinition.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/LocalParticlePool.cs">
       <Link>Runtime/PoolSystems/LocalParticlePool.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Events/MID_GameEventListener.cs">
       <Link>Runtime/Events/MID_GameEventListener.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/FXSystems/Config/EffectTypeProviderSO.cs">
+      <Link>Runtime/FXSystems/Config/EffectTypeProviderSO.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/SceneManagement/SceneNetworkDependency.cs">
       <Link>Runtime/SceneManagement/SceneNetworkDependency.cs</Link>
@@ -193,17 +199,26 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Helpers/MID_NamedListAttribute.cs">
       <Link>Runtime/Helpers/MID_NamedListAttribute.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/FXSystems/GlobalFXManager.cs">
+      <Link>Runtime/FXSystems/GlobalFXManager.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/Config/ObjectPoolTypeProviderSO.cs">
       <Link>Runtime/PoolSystems/Config/ObjectPoolTypeProviderSO.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Events/MID_EventBus.cs">
       <Link>Runtime/Events/MID_EventBus.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/FXSystems/Generated/EffectCategory.cs">
+      <Link>Runtime/FXSystems/Generated/EffectCategory.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/TickDispatcher/MID_TickDelay.cs">
       <Link>Runtime/TickDispatcher/MID_TickDelay.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/UIParticlePoolManager.cs">
       <Link>Runtime/PoolSystems/UIParticlePoolManager.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/FXSystems/Config/EffectTypeGeneratorSettingsSO.cs">
+      <Link>Runtime/FXSystems/Config/EffectTypeGeneratorSettingsSO.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/UIState/MID_UIStateButton.cs">
       <Link>Runtime/UIState/MID_UIStateButton.cs</Link>
@@ -220,11 +235,20 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Events/MID_DelayedGameEventListener.cs">
       <Link>Runtime/Events/MID_DelayedGameEventListener.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/FXSystems/Generated/EffectType.cs">
+      <Link>Runtime/FXSystems/Generated/EffectType.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/FXSystems/Config/EffectCategoryProviderSO.cs">
+      <Link>Runtime/FXSystems/Config/EffectCategoryProviderSO.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/BasicPoolConfig.cs">
       <Link>Runtime/PoolSystems/BasicPoolConfig.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/PoolableParticleType.cs">
       <Link>Runtime/PoolSystems/PoolableParticleType.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/FXSystems/FXEntry.cs">
+      <Link>Runtime/FXSystems/FXEntry.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Helpers/MID_BaseSO.cs">
       <Link>Runtime/Helpers/MID_BaseSO.cs</Link>

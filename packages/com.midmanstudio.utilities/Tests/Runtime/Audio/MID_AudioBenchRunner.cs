@@ -157,7 +157,7 @@ namespace MidManStudio.Core.Benchmarks
                 if (i % 10 == 0) yield return null;
             }
             yield return new WaitForSeconds(TestClip.length + 0.1f);
-            _naiveSource.Stop(); foreach (var src in _manualPool) src.Stop(); _bridge.ResetAllVoices();
+            _naiveSource.Stop(); foreach (var src in _manualPool) src.Stop(); 
             yield return DoGC(); SetStatus("Warm-up done."); yield return null;
         }
 
@@ -253,7 +253,7 @@ namespace MidManStudio.Core.Benchmarks
             int n = ThroughputIterations;
             var sw = new Stopwatch();
 
-            _naiveSource.Stop(); foreach (var s in _manualPool) s.Stop(); _bridge.ResetAllVoices();
+            _naiveSource.Stop(); foreach (var s in _manualPool) s.Stop(); _bridge.StopAll();
             yield return null;
 
             // Naive
@@ -274,7 +274,7 @@ namespace MidManStudio.Core.Benchmarks
 
             // Native
             SetStatus($"Throughput — Native ({n})…");
-            _bridge.ResetAllVoices();
+            _bridge.StopAll();
             sw.Restart();
             for (int i = 0; i < n; i++) _bridge.PlayClip(0, 0.001f);
             sw.Stop();
@@ -307,7 +307,7 @@ namespace MidManStudio.Core.Benchmarks
         private IEnumerator VoiceInner()
         {
             SetStatus("Voice accuracy…");
-            _bridge.ResetAllVoices();
+            _bridge.StopAll();
             yield return new WaitForSeconds(0.05f); // let the reset propagate on audio thread
 
             const int TARGET = 8;

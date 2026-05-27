@@ -23,6 +23,9 @@ MonoBehaviour:
   _maxRange: 50
   _piercingType: 0
   _maxCollisions: 1
+  _hitLayers:
+    serializedVersion: 2
+    m_Bits: 64
   _fullSizeX: 0.2
   _fullSizeY: 0.2
   _useScaleGrowth: 0

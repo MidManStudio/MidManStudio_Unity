@@ -85,6 +85,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/PoolSystems/PoolTypeGenerator.cs">
       <Link>Editor/PoolSystems/PoolTypeGenerator.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/FXSystems/PackageEffectProviderBootstrapper.cs">
+      <Link>Editor/FXSystems/PackageEffectProviderBootstrapper.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/MID_ScriptUtilitiesWindow.cs">
       <Link>Editor/Helpers/MID_ScriptUtilitiesWindow.cs</Link>
     </Compile>
@@ -93,6 +96,9 @@
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Audio/MID_NativeAudioBridgeEditor.cs">
       <Link>Editor/Audio/MID_NativeAudioBridgeEditor.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/FXSystems/EffectTypeGenerator.cs">
+      <Link>Editor/FXSystems/EffectTypeGenerator.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/UIState/MID_UIStateContextEditor.cs">
       <Link>Editor/UIState/MID_UIStateContextEditor.cs</Link>

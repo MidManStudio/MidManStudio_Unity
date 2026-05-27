@@ -24,7 +24,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using Unity.Netcode;
 using MidManStudio.Core.Audio;
-using MidManStudio.Core.Effects;
+using MidManStudio.Core.FX;
 using MidManStudio.Core.Logging;
 using MidManStudio.Core.Pools;
 using MidManStudio.Netcode.LocalMultiplayer;
