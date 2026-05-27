@@ -1,9 +1,14 @@
 // NetworkedDimensionPlayer.cs
 //
-// UPDATED (GlobalFXManager API):
-//   TriggerMuzzleFlash now uses the no-EffectType overload
-//   TriggerMuzzleFlash(Vector3, Vector3, int, float) added for backward compatibility.
-//   All other logic unchanged from previous version.
+// FIXES:
+//   + HandleMouseLook now only accumulates _yaw/_pitch and updates _headPivot.
+//     Body (Rigidbody) yaw is applied in FixedUpdate via _rb.MoveRotation —
+//     eliminates the Update vs. FixedUpdate fight that caused camera shake.
+//   + BuildSpawnPointsFromPattern: basis vectors corrected.
+//     OLD: localRight = Cross(baseDir, worldUp) = LEFT (inverted pitch)
+//     NEW: localRight = Cross(worldUp, baseDir) = RIGHT (matches editor gizmo)
+//   + Added null-direction guard in BuildSpawnPointsFromPattern so degenerate
+//     directions default to baseDir instead of Vector3.zero.
 
 using UnityEngine;
 using Unity.Netcode;
@@ -127,9 +132,9 @@ namespace TestGame
         private float     _pitch;
 
         // Dash state
-        private float _nextDashTime;
-        private bool  _isDashing;
-        private float _dashEndTime;
+        private float   _nextDashTime;
+        private bool    _isDashing;
+        private float   _dashEndTime;
         private Vector3 _dashDir;
 
         #endregion
@@ -205,6 +210,7 @@ namespace TestGame
         {
             if (!IsOwner)
             {
+                // Remote players: mirror networked pitch on head pivot
                 if (_headPivot != null)
                     _headPivot.localRotation = Quaternion.Euler(_netPitch.Value, 0f, 0f);
                 return;
@@ -223,6 +229,10 @@ namespace TestGame
             if (Input.GetKeyDown(KeyCode.Alpha4)) ChangeMode(PlayerShootMode.Raycast);
             if (Input.GetKeyDown(KeyCode.Alpha5)) ChangeMode(PlayerShootMode.Physics);
 
+            // FIX: HandleMouseLook only accumulates _yaw/_pitch and updates _headPivot.
+            // Body rotation is applied in FixedUpdate via _rb.MoveRotation to avoid
+            // fighting the physics engine (previously transform.rotation in Update
+            // caused continuous jitter/shake when the Rigidbody was active).
             if (_currentDimension == Dimension.ThreeD || Use3DFireConvention())
                 HandleMouseLook();
 
@@ -236,6 +246,13 @@ namespace TestGame
         {
             if (!IsOwner) return;
             HandleMovement();
+
+            // FIX: Apply body yaw via MoveRotation in FixedUpdate — not in Update.
+            // This works WITH the Rigidbody instead of against it, eliminating shake.
+            if (_currentDimension == Dimension.ThreeD || Use3DFireConvention())
+            {
+                _rb.MoveRotation(Quaternion.Euler(0f, _yaw, 0f));
+            }
         }
 
         #endregion
@@ -305,18 +322,25 @@ namespace TestGame
 
         #region Mouse Look
 
+        /// <summary>
+        /// FIX: Only accumulates yaw/pitch and updates the head pivot.
+        /// Body rotation is applied via _rb.MoveRotation in FixedUpdate.
+        /// Previously, setting transform.rotation here conflicted with Rigidbody.
+        /// </summary>
         private void HandleMouseLook()
         {
             _yaw   += Input.GetAxisRaw("Mouse X") * _mouseSensitivity;
             _pitch -= Input.GetAxisRaw("Mouse Y") * _mouseSensitivity;
             _pitch  = Mathf.Clamp(_pitch, _pitchMin, _pitchMax);
 
-            transform.rotation = Quaternion.Euler(0f, _yaw, 0f);
+            // Head pivot rotates freely in Update — it's a plain Transform, not a Rigidbody.
             if (_headPivot != null)
             {
                 _headPivot.localRotation = Quaternion.Euler(_pitch, 0f, 0f);
                 _netPitch.Value = _pitch;
             }
+
+            // NOTE: Body yaw (transform.rotation) is now applied in FixedUpdate.
         }
 
         #endregion
@@ -390,7 +414,6 @@ namespace TestGame
                 _fallbackAudioSource.PlayOneShot(_fallbackFireClip, _fallbackVolume);
             }
 
-            // Uses no-EffectType overload — defaults to EffectType.SmallMuzzle
             GlobalFXManager.Instance?.TriggerMuzzleFlash(
                 origin, dir, _muzzleFlashParticleCount, _muzzleFlashVolume);
         }
@@ -627,6 +650,18 @@ namespace TestGame
             return pts;
         }
 
+        /// <summary>
+        /// Build spawn points from a ProjectilePatternSO.
+        ///
+        /// FIX: Basis vector computation corrected.
+        ///   OLD: localRight = Cross(baseDir, worldUp) → gives LEFT vector, inverting pitch
+        ///   NEW: localRight = Cross(worldUp, baseDir) → gives RIGHT vector (matches gizmo)
+        ///        localUp    = Cross(baseDir, localRight) → gives correct local up
+        ///
+        /// This makes the 3D pattern match ProjectilePatternEditor's scene gizmo which uses
+        /// Quaternion.Euler(-V, H, 0) * t.forward. Any positive vertical angle now correctly
+        /// tilts projectiles UP instead of DOWN.
+        /// </summary>
         private SpawnPoint[] BuildSpawnPointsFromPattern(
             Vector3 origin, Vector3 baseDir, ProjectileConfigSO cfg)
         {
@@ -635,33 +670,51 @@ namespace TestGame
             var  pts       = new SpawnPoint[angleDirs.Length];
 
             Vector3 localRight, localUp;
+
             if (use3D)
             {
-                Vector3 worldUp  = Mathf.Abs(Vector3.Dot(baseDir.normalized, Vector3.up)) > 0.98f
-                    ? Vector3.forward : Vector3.up;
-                localRight = Vector3.Cross(baseDir, worldUp).normalized;
-                localUp    = Vector3.Cross(localRight, baseDir).normalized;
+                Vector3 fwd = baseDir.sqrMagnitude > 0.001f ? baseDir.normalized : Vector3.forward;
+
+                // Choose a worldUp that isn't parallel to fwd (avoids degenerate cross product)
+                Vector3 worldUp = Mathf.Abs(Vector3.Dot(fwd, Vector3.up)) > 0.98f
+                    ? Vector3.forward
+                    : Vector3.up;
+
+                // FIX: Cross(worldUp, fwd) = right  (Cross(fwd, worldUp) was returning left)
+                localRight = Vector3.Cross(worldUp, fwd).normalized;
+
+                // forward × right = up  (correct local up relative to fwd)
+                localUp = Vector3.Cross(fwd, localRight).normalized;
             }
             else
             {
+                // 2D: right = Cross(baseDir, forward), up = forward (screen-space Z)
                 localRight = Vector3.Cross(baseDir, Vector3.forward).normalized;
                 localUp    = Vector3.forward;
             }
 
             for (int i = 0; i < angleDirs.Length; i++)
             {
-                var    angles     = angleDirs[i];
+                var    angles = angleDirs[i];
                 Vector3 sDir;
 
                 if (use3D)
                 {
+                    // H = yaw around localUp, V = pitch around localRight
+                    // Matches Quaternion.Euler(-V, H, 0) * fwd from the editor gizmo
                     Quaternion yawRot   = Quaternion.AngleAxis( angles.x, localUp);
                     Quaternion pitchRot = Quaternion.AngleAxis(-angles.y, localRight);
                     sDir = pitchRot * yawRot * baseDir;
+
+                    // Guard degenerate direction (shouldn't happen with valid patterns)
+                    if (sDir.sqrMagnitude < 0.001f)
+                        sDir = baseDir;
                 }
                 else
                 {
                     sDir = Quaternion.Euler(0f, 0f, angles.x) * baseDir;
+                    if (sDir.sqrMagnitude < 0.001f)
+                        sDir = baseDir;
                 }
 
                 float speedMult = _shotPattern.GetSpeedMultiplier(i, _shotPattern.RngSeed);
@@ -700,12 +753,14 @@ namespace TestGame
             else
             {
                 _rb.constraints = RigidbodyConstraints.FreezeRotationX
+                                | RigidbodyConstraints.FreezeRotationY
                                 | RigidbodyConstraints.FreezeRotationZ;
                 _rb.useGravity  = true;
                 var p = transform.position;
                 transform.position = new Vector3(p.x, p.y, 0f);
                 _rb.velocity = new Vector3(_rb.velocity.x, 0f, _rb.velocity.z);
             }
+            // NOTE: FreezeRotation so _rb.MoveRotation has full control in FixedUpdate
         }
 
         private static void ApplyCursorState(Dimension dim)
