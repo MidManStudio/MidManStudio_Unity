@@ -1,17 +1,10 @@
-// MID_MasterProjectileSystem.cs — same as before, two accessors added:
-//   + GetBridge() → exposes _networkBridge for direct RPC in NetworkedDimensionPlayer
-//   + GetBridgeTick() → server tick shorthand
-//   + _localManager auto-found in Initialise() if not assigned in inspector
+// packages/com.midmanstudio.projectilesystem/Runtime/Managers/MID_MasterProjectileSystem.cs
 //
-// FIX (LocalOnly collision in host mode):
-//   RegisterTarget2D/3D previously only called _localManager when !IsNetworked.
-//   In host mode IsNetworked = true, so _localManager never got targets, and
-//   LocalOnly-mode projectiles (which live in _localManager) never produced hits.
-//   Fix: _localManager always receives target registrations regardless of network
-//   state so LocalOnly shoot mode works in any configuration.
-//   Same fix applied to Deactivate and ClearAllTargets for consistency.
+// ADDED: GetRaycastHandler() — exposes _raycastHandler so external systems
+//   (TestSceneBootstrapper) can subscribe to OnServerHitConfirmed for damage
+//   routing without the event being lost.
 //
-// ADDED: int unityLayer = 0 parameter to RegisterTarget2D/3D for layer filtering.
+// All previous fixes retained.
 
 using System;
 using UnityEngine;
@@ -79,8 +72,10 @@ namespace MidManStudio.Projectiles.Managers
             && NetworkManager.Singleton.IsServer
             && NetworkManager.Singleton.IsClient;
 
-        public ServerProjectileAuthority      GetAuthority() => _authority;
-        public MID_ProjectileNetworkBridge    GetBridge()    => _networkBridge;
+        public ServerProjectileAuthority      GetAuthority()      => _authority;
+        public MID_ProjectileNetworkBridge    GetBridge()         => _networkBridge;
+        /// <summary>Exposes the raycast handler so external systems can subscribe to OnServerHitConfirmed.</summary>
+        public RaycastProjectileHandler       GetRaycastHandler() => _raycastHandler;
         public int GetBridgeTick() => _networkBridge?.GetServerTick() ?? 0;
 
         #endregion
@@ -109,7 +104,6 @@ namespace MidManStudio.Projectiles.Managers
 
             BatchSpawnHelper.Initialise();
 
-            // FIX: auto-find LocalProjectileManager if not assigned in inspector
             if (_localManager == null)
                 _localManager = FindObjectOfType<LocalProjectileManager>();
 
@@ -131,7 +125,7 @@ namespace MidManStudio.Projectiles.Managers
 
             MID_Logger.LogInfo(_logLevel,
                 $"Initialised. Mode: {(IsNetworked ? "Networked" : "Offline")} " +
-                $"LocalManager: {(_localManager != null ? "found" : "MISSING")}",
+                $"LocalManager: {(_localManager != null ? "OK" : "MISSING")}",
                 nameof(MID_MasterProjectileSystem));
         }
 
@@ -315,19 +309,13 @@ namespace MidManStudio.Projectiles.Managers
         #endregion
 
         #region Public API — Targets
-        // FIX: _localManager always receives target registrations regardless of network
-        // state. Previously only called when !IsNetworked, causing LocalOnly shoot mode
-        // to have no registered targets when running in host/server mode.
 
-        /// <summary>Register a 2D collision target. unityLayer is the GameObject's layer (0-31).</summary>
         public void RegisterTarget2D(in CollisionTarget target, int unityLayer = 0)
         {
             if (IsServer)     _authority?.RegisterTarget2D(target, unityLayer);
-            // Always register with local manager for LocalOnly shoot mode support
             _localManager?.RegisterTarget2D(target, unityLayer);
         }
 
-        /// <summary>Register a 3D collision target. unityLayer is the GameObject's layer (0-31).</summary>
         public void RegisterTarget3D(in CollisionTarget3D target, int unityLayer = 0)
         {
             if (IsServer)     _authority?.RegisterTarget3D(target, unityLayer);

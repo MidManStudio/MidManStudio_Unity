@@ -1,4 +1,4 @@
-// LocalLobbyManager.cs
+// packages/com.midmanstudio.netcode/Runtime/LocalMultiplayer/LocalLobbyManager.cs
 // Generic LAN / WiFi offline lobby manager for Unity Netcode for GameObjects.
 // Zero game-specific dependencies — all game hooks are exposed as events.
 //
@@ -21,6 +21,13 @@
 //   2. Assign NetworkManager and UnityTransport in the inspector.
 //   3. Subscribe to events before calling any Start*/Join* methods.
 //   4. Optionally call SetTeamProvider() with your game's team manager.
+//
+// FIX LOG:
+//   • Added IsInitialized property + OnInitialized event so UI can wait for
+//     the 0.1 s init delay without a race condition.
+//   • SendDiscoveryRequests now also sends to 127.0.0.1 so that same-machine
+//     discovery works reliably (broadcast packets don't loop back on every OS).
+//   • BroadcastLoop now also sends to 127.0.0.1 for the same reason.
 
 using System;
 using System.Collections;
@@ -96,6 +103,12 @@ namespace MidManStudio.Netcode.LocalMultiplayer
         /// </summary>
         public Action<LocalLobbySnapshot> OnGameStartReceived;
 
+        /// <summary>
+        /// Fires once when initialization is complete (after the 0.1 s startup delay).
+        /// UI code should wait for this before calling StartSearching() or StartHosting().
+        /// </summary>
+        public Action OnInitialized;
+
         #endregion
 
         #region Singleton
@@ -145,6 +158,8 @@ namespace MidManStudio.Netcode.LocalMultiplayer
         public bool IsSearching   => _isSearching;
         public bool IsInLobby     => _networkManager != null &&
                                      (_networkManager.IsConnectedClient || _networkManager.IsHost);
+        /// <summary>True after the 0.1 s startup delay completes.</summary>
+        public bool IsInitialized => _isInitialized;
         public string PlayerName  => _playerName;
 
         #endregion
@@ -178,6 +193,10 @@ namespace MidManStudio.Netcode.LocalMultiplayer
             _networkManager.OnClientDisconnectCallback   += HandleClientDisconnected;
 
             _isInitialized = true;
+
+            // FIX: fire the event so UI can safely call StartSearching()
+            OnInitialized?.Invoke();
+
             MID_Logger.LogInfo(_logLevel, "LocalLobbyManager initialized.",
                 nameof(LocalLobbyManager));
         }
@@ -612,7 +631,7 @@ namespace MidManStudio.Netcode.LocalMultiplayer
             else
             {
                 RequestTeamChangeServerRpc(clientId, targetTeamId);
-                return true; // result arrives via ClientRpc
+                return true;
             }
         }
 
@@ -799,12 +818,25 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                     string json = JsonUtility.ToJson(_currentLobby);
                     byte[] data = System.Text.Encoding.UTF8.GetBytes(json);
 
+                    // Broadcast to all subnet broadcast addresses
                     foreach (var addr in GetBroadcastAddresses())
                         await _udpServer.SendAsync(data, data.Length, new IPEndPoint(addr, broadcastPort));
 
+                    // FIX: also send to loopback so same-machine clients can receive it
+                    try
+                    {
+                        await _udpServer.SendAsync(data, data.Length,
+                            new IPEndPoint(IPAddress.Loopback, broadcastPort));
+                    }
+                    catch { /* loopback optional — ignore if not available */ }
+
                     await Task.Delay((int)(_discoveryInterval * 1000));
                 }
-                catch (Exception e) { if (_isHosting) MID_Logger.LogError(_logLevel, $"Broadcast error: {e.Message}", nameof(LocalLobbyManager)); }
+                catch (Exception e)
+                {
+                    if (_isHosting)
+                        MID_Logger.LogError(_logLevel, $"Broadcast error: {e.Message}", nameof(LocalLobbyManager));
+                }
             }
         }
 
@@ -822,7 +854,11 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                         await _udpServer.SendAsync(resp, resp.Length, result.RemoteEndPoint);
                     }
                 }
-                catch (Exception e) { if (_isHosting) MID_Logger.LogError(_logLevel, $"Discovery listen error: {e.Message}", nameof(LocalLobbyManager)); }
+                catch (Exception e)
+                {
+                    if (_isHosting)
+                        MID_Logger.LogError(_logLevel, $"Discovery listen error: {e.Message}", nameof(LocalLobbyManager));
+                }
             }
         }
 
@@ -879,7 +915,11 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                     }
                     catch { /* malformed packet */ }
                 }
-                catch (Exception e) { if (_isSearching && _udpClient != null) MID_Logger.LogError(_logLevel, $"Listen error: {e.Message}", nameof(LocalLobbyManager)); }
+                catch (Exception e)
+                {
+                    if (_isSearching && _udpClient != null)
+                        MID_Logger.LogError(_logLevel, $"Listen error: {e.Message}", nameof(LocalLobbyManager));
+                }
             }
         }
 
@@ -890,11 +930,27 @@ namespace MidManStudio.Netcode.LocalMultiplayer
             {
                 try
                 {
+                    // Send to all broadcast addresses on the LAN
                     foreach (var addr in GetBroadcastAddresses())
                         await _udpClient.SendAsync(data, data.Length, new IPEndPoint(addr, broadcastPort));
+
+                    // FIX: also send to loopback for same-machine discovery.
+                    // The server is bound to broadcastPort on all interfaces; it will receive
+                    // this and respond directly to our source port, which ListenForBroadcasts picks up.
+                    try
+                    {
+                        await _udpClient.SendAsync(data, data.Length,
+                            new IPEndPoint(IPAddress.Loopback, broadcastPort));
+                    }
+                    catch { /* loopback optional — ignore if not available */ }
+
                     await Task.Delay((int)(_discoveryInterval * 1000));
                 }
-                catch (Exception e) { if (_isSearching) MID_Logger.LogError(_logLevel, $"Discovery send error: {e.Message}", nameof(LocalLobbyManager)); }
+                catch (Exception e)
+                {
+                    if (_isSearching)
+                        MID_Logger.LogError(_logLevel, $"Discovery send error: {e.Message}", nameof(LocalLobbyManager));
+                }
             }
         }
 

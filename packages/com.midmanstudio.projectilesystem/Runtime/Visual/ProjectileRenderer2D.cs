@@ -1,12 +1,12 @@
 // ProjectileRenderer2D.cs
 // FIXES:
-//   1. Instanced path now groups by configId → each config uses its correct mesh
-//   2. MPB.SetTexture("_MainTex") applied per draw call → sprite texture auto-used
-//   3. Sprite UV rect computed from config sprite for both paths
-//   4. Combined mesh path uses first alive projectile's texture
-//   5. Aspect ratio (FullSizeY/FullSizeX) correctly applied in both paths
-//   6. Custom shapes with > 4 verts render correctly in instanced path;
-//      fall back to bounding quad only in combined-mesh (old HW) path
+//   1. UseSprite = false no longer skips rendering. Projectiles without a sprite
+//      render using their CustomShape (or default quad) tinted white.
+//   2. CustomShape is respected even when UseSprite = false.
+//   3. Combined-mesh path now does two passes — one for sprite configs (atlas
+//      texture) and one for shape-only configs (white texture) — so they can
+//      never corrupt each other's texture binding.
+//   4. Instanced path: Texture2D.whiteTexture used as fallback when no sprite.
 
 using System.Collections.Generic;
 using MidManStudio.Projectiles.Config;
@@ -29,9 +29,9 @@ namespace MidManStudio.Projectiles.Visuals
 
         // ── Instanced path ─────────────────────────────────────────────────
         private const int BATCH_SIZE = 1023;
-        private Matrix4x4[] _matrices;
-        private Vector4[]   _uvRects;
-        private Vector4[]   _colors;
+        private Matrix4x4[]           _matrices;
+        private Vector4[]             _uvRects;
+        private Vector4[]             _colors;
         private MaterialPropertyBlock _mpb;
 
         // ── Combined mesh path ─────────────────────────────────────────────
@@ -47,7 +47,7 @@ namespace MidManStudio.Projectiles.Visuals
         private readonly Dictionary<ushort, List<int>> _configGroups = new(32);
 
         private RenderPath _path;
-        private Mesh _defaultQuad;
+        private Mesh       _defaultQuad;
 
         // ─────────────────────────────────────────────────────────────────────
 
@@ -73,7 +73,7 @@ namespace MidManStudio.Projectiles.Visuals
                 _tris  = new int[MAX_QUADS * 6];
             }
 
-            // Identity MPB for combined path — prevents wrong material default _UVRect
+            // Identity MPB for combined path
             _combinedMpb = new MaterialPropertyBlock();
             _combinedMpb.SetVector("_UVRect", new Vector4(0f, 0f, 1f, 1f));
             _combinedMpb.SetVector("_Color",  new Vector4(1f, 1f, 1f, 1f));
@@ -97,11 +97,9 @@ namespace MidManStudio.Projectiles.Visuals
             if (_atlasMaterial == null)
             {
                 Debug.LogWarning(
-                    "[ProjectileRenderer2D] _atlasMaterial is not assigned. " +
-                    "Assign a material using InstancedProjectile_URP.shader.", this);
+                    "[ProjectileRenderer2D] _atlasMaterial is not assigned.", this);
                 return;
             }
-
             if (count == 0) return;
 
             if (_path == RenderPath.Instanced)
@@ -112,13 +110,12 @@ namespace MidManStudio.Projectiles.Visuals
 
         // ── Instanced path ────────────────────────────────────────────────────
         //
-        // Groups alive projectiles by configId so each group gets:
-        //   • its own mesh (Quad / Needle / Diamond / Arrow / Custom)
-        //   • its own sprite texture set via MPB.SetTexture("_MainTex")
-        //   • the correct UV rect for its sprite within that texture
-        //
-        // All instances in one DrawMeshInstanced call share the same mesh and
-        // texture; this is why grouping by configId is required.
+        // Groups alive projectiles by configId.  Each config may or may not use
+        // a sprite.  Sprite configs use the atlas texture + computed UV rect.
+        // Non-sprite configs (UseSprite = false, or no sprite assigned) use
+        // Texture2D.whiteTexture and full UV (0,0,1,1) — the shape mesh
+        // (CustomShape or default quad) renders as a solid white shape, tinted
+        // by the per-instance _Color (lifetime fade).
 
         private void RenderInstanced(NativeProjectile[] projs, int count)
         {
@@ -131,7 +128,7 @@ namespace MidManStudio.Projectiles.Visuals
                 ref var p = ref projs[i];
                 if (p.Alive == 0) continue;
                 var cfg = reg.Get(p.ConfigId);
-                if (cfg == null || !cfg.UseSprite) continue;
+                if (cfg == null) continue;   // FIX: removed !cfg.UseSprite skip
 
                 if (!_configGroups.TryGetValue(p.ConfigId, out var lst))
                 {
@@ -147,14 +144,30 @@ namespace MidManStudio.Projectiles.Visuals
                 var cfg = reg.Get(kv.Key);
                 if (cfg == null) continue;
 
-                Mesh      mesh    = GetMeshForConfig(cfg);
-                Texture2D tex     = cfg.ProjectileSprite?.texture;
-                Vector4   uvRect  = ComputeSpriteUVRect(cfg);
-                float     aspectY = cfg.FullSizeX > 0.001f
-                                    ? cfg.FullSizeY / cfg.FullSizeX : 1f;
+                Mesh mesh = GetMeshForConfig(cfg);
 
-                var   idxList = kv.Value;
-                int   start   = 0;
+                // FIX: choose texture and UV rect based on whether a sprite is used.
+                // Non-sprite configs get Texture2D.whiteTexture + full UV so the
+                // mesh shape is visible as a solid white (or lifetime-faded) shape.
+                Texture2D tex;
+                Vector4   uvRect;
+
+                if (cfg.UseSprite && cfg.ProjectileSprite?.texture != null)
+                {
+                    tex    = cfg.ProjectileSprite.texture;
+                    uvRect = ComputeSpriteUVRect(cfg);
+                }
+                else
+                {
+                    tex    = Texture2D.whiteTexture;
+                    uvRect = new Vector4(0f, 0f, 1f, 1f);
+                }
+
+                float aspectY = cfg.FullSizeX > 0.001f
+                                ? cfg.FullSizeY / cfg.FullSizeX : 1f;
+
+                var idxList = kv.Value;
+                int start   = 0;
 
                 while (start < idxList.Count)
                 {
@@ -179,10 +192,7 @@ namespace MidManStudio.Projectiles.Visuals
                     {
                         _mpb.SetVectorArray("_UVRect", _uvRects);
                         _mpb.SetVectorArray("_Color",  _colors);
-
-                        // KEY FIX: set the sprite's texture for this batch
-                        if (tex != null)
-                            _mpb.SetTexture("_MainTex", tex);
+                        _mpb.SetTexture("_MainTex", tex);   // always set — never null
 
                         Graphics.DrawMeshInstanced(
                             mesh, 0, _atlasMaterial, _matrices, n, _mpb,
@@ -198,16 +208,22 @@ namespace MidManStudio.Projectiles.Visuals
 
         // ── Combined mesh path ────────────────────────────────────────────────
         //
-        // Builds a single combined mesh from all alive projectiles and issues one
-        // Graphics.DrawMesh call.  UVs are baked per-vertex; texture is set via MPB.
-        // Meshes with > 4 verts (Needle=5, Arrow=7) fall back to bounding quad here —
-        // use the instanced path for correct custom shapes on modern hardware.
+        // Two-pass approach so sprite and non-sprite projectiles never share the
+        // same draw call with conflicting textures:
+        //   Pass 1 — sprite configs  → atlas material + sprite texture
+        //   Pass 2 — no-sprite configs → atlas material + Texture2D.whiteTexture
 
         private void RenderCombined(NativeProjectile[] projs, int count)
         {
+            RenderCombinedGroup(projs, count, spritePass: true);
+            RenderCombinedGroup(projs, count, spritePass: false);
+        }
+
+        private void RenderCombinedGroup(NativeProjectile[] projs, int count, bool spritePass)
+        {
             var       reg      = ProjectileRegistry.Instance;
             int       qi       = 0;
-            Texture2D firstTex = null;
+            Texture2D firstTex = spritePass ? null : Texture2D.whiteTexture;
 
             for (int i = 0; i < count && qi < MAX_QUADS; i++)
             {
@@ -215,18 +231,25 @@ namespace MidManStudio.Projectiles.Visuals
                 if (p.Alive == 0) continue;
 
                 var cfg = reg.Get(p.ConfigId);
-                if (cfg == null || !cfg.UseSprite) continue;
+                if (cfg == null) continue;
 
-                // Grab the first texture we find for the batch draw call
-                if (firstTex == null && cfg.ProjectileSprite?.texture != null)
+                // Route to correct pass
+                bool hasSprite = cfg.UseSprite && cfg.ProjectileSprite?.texture != null;
+                if (spritePass  && !hasSprite) continue;
+                if (!spritePass &&  hasSprite) continue;
+
+                // Track first texture for sprite pass
+                if (spritePass && firstTex == null)
                     firstTex = cfg.ProjectileSprite.texture;
 
                 float aspectY = cfg.FullSizeX > 0.001f ? cfg.FullSizeY / cfg.FullSizeX : 1f;
-                float sx = p.ScaleX;
-                float sy = p.ScaleX * aspectY;
+                float sx      = p.ScaleX;
+                float sy      = p.ScaleX * aspectY;
 
-                Vector4 uvRect = ComputeSpriteUVRect(cfg);
-                Vector4 tint   = ComputeTint(ref p);
+                Vector4 uvRect = spritePass ? ComputeSpriteUVRect(cfg)
+                                            : new Vector4(0f, 0f, 1f, 1f);
+
+                Vector4 tint = ComputeTint(ref p);
                 var c32 = new Color32(
                     (byte)(tint.x * 255f), (byte)(tint.y * 255f),
                     (byte)(tint.z * 255f), (byte)(tint.w * 255f));
@@ -243,7 +266,6 @@ namespace MidManStudio.Projectiles.Visuals
 
                 if (vc <= 4)
                 {
-                    // Exact mesh — up to 4 verts supported directly
                     for (int v = 0; v < vc; v++)
                     {
                         _verts[vBase + v] = RotateScale(
@@ -255,7 +277,6 @@ namespace MidManStudio.Projectiles.Visuals
                             uvRect.y + srcUVs[v].y * uvRect.w);
                         _cols[vBase + v] = c32;
                     }
-                    // Pad unused verts to degenerate (zero alpha, same pos)
                     for (int v = vc; v < 4; v++)
                     {
                         _verts[vBase + v] = _verts[vBase];
@@ -270,18 +291,17 @@ namespace MidManStudio.Projectiles.Visuals
                 }
                 else
                 {
-                    // > 4 verts (Needle, Arrow, large Custom) — approximate bounding quad.
-                    // For correct custom shapes use instanced path (modern hardware).
+                    // > 4 verts — bounding quad fallback
                     float hx = sx * 0.5f, hy = sy * 0.5f;
                     _verts[vBase+0] = RotateScale(p.X, p.Y, -hx, -hy, cos, sin);
                     _verts[vBase+1] = RotateScale(p.X, p.Y,  hx, -hy, cos, sin);
                     _verts[vBase+2] = RotateScale(p.X, p.Y,  hx,  hy, cos, sin);
                     _verts[vBase+3] = RotateScale(p.X, p.Y, -hx,  hy, cos, sin);
-                    _uvs[vBase+0]   = new Vector2(uvRect.x,            uvRect.y);
-                    _uvs[vBase+1]   = new Vector2(uvRect.x + uvRect.z, uvRect.y);
-                    _uvs[vBase+2]   = new Vector2(uvRect.x + uvRect.z, uvRect.y + uvRect.w);
-                    _uvs[vBase+3]   = new Vector2(uvRect.x,            uvRect.y + uvRect.w);
-                    _cols[vBase+0]  = _cols[vBase+1] = _cols[vBase+2] = _cols[vBase+3] = c32;
+                    _uvs[vBase+0] = new Vector2(uvRect.x,            uvRect.y);
+                    _uvs[vBase+1] = new Vector2(uvRect.x + uvRect.z, uvRect.y);
+                    _uvs[vBase+2] = new Vector2(uvRect.x + uvRect.z, uvRect.y + uvRect.w);
+                    _uvs[vBase+3] = new Vector2(uvRect.x,            uvRect.y + uvRect.w);
+                    _cols[vBase+0] = _cols[vBase+1] = _cols[vBase+2] = _cols[vBase+3] = c32;
                     int tBase = qi * 6;
                     _tris[tBase+0]=vBase;   _tris[tBase+1]=vBase+1; _tris[tBase+2]=vBase+2;
                     _tris[tBase+3]=vBase;   _tris[tBase+4]=vBase+2; _tris[tBase+5]=vBase+3;
@@ -290,17 +310,17 @@ namespace MidManStudio.Projectiles.Visuals
                 qi++;
             }
 
-            _combinedMesh.Clear();
             if (qi == 0) return;
 
+            _combinedMesh.Clear();
             _combinedMesh.SetVertices(_verts, 0, qi * 4);
             _combinedMesh.SetUVs(0, _uvs,    0, qi * 4);
             _combinedMesh.SetColors(_cols,    0, qi * 4);
             _combinedMesh.SetTriangles(_tris, 0, qi * 6, 0);
             _combinedMesh.bounds = new Bounds(Vector3.zero, Vector3.one * 10000f);
 
-            if (firstTex != null)
-                _combinedMpb.SetTexture("_MainTex", firstTex);
+            // Always set a valid texture — never leave it unset
+            _combinedMpb.SetTexture("_MainTex", firstTex ?? Texture2D.whiteTexture);
 
             Graphics.DrawMesh(
                 _combinedMesh, Matrix4x4.identity, _atlasMaterial,
@@ -338,11 +358,6 @@ namespace MidManStudio.Projectiles.Visuals
             return _defaultQuad;
         }
 
-        /// <summary>
-        /// Returns the UV rect of the config's sprite within its source texture.
-        /// For a sprite packed in an atlas this maps to the atlas sub-rect.
-        /// For a standalone sprite this returns (0,0,1,1).
-        /// </summary>
         private static Vector4 ComputeSpriteUVRect(ProjectileConfigSO cfg)
         {
             var sprite = cfg.ProjectileSprite;

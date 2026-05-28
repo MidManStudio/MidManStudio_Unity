@@ -1,26 +1,14 @@
 // ProjectileRenderer3D.cs
 //
-// FIX (shaky / wrong-looking 3D visuals):
-//   Previous implementation used MeshFilter + MeshRenderer on this GameObject.
-//   The mesh vertices were in WORLD SPACE, but Unity applies the GameObject's
-//   transform ON TOP of the mesh — so any non-zero position/rotation on the
-//   hosting object caused all projectiles to be double-offset and shake as
-//   the object moved.
+// FIX (UseSprite = false / custom shape):
+//   Removed !cfg.UseSprite skip so non-sprite projectiles still render.
+//   Two-pass draw: sprite configs use their sprite texture; non-sprite configs
+//   use Texture2D.whiteTexture with full UV (0,0,1,1) so the shape is visible.
 //
-//   Fix: switched to Graphics.DrawMesh with Matrix4x4.identity — identical to
-//   ProjectileRenderer2D's approach. World-space vertices are submitted directly
-//   with no additional transform applied.
-//
-// FIX (orientation):
-//   Previous code: LookRotation(vel) perpendicular to velocity made the quad
-//   show its EDGE to the camera — you saw a thin sliver, not the bullet face.
-//   New approach: elongated billboard along travel direction, thin axis toward
-//   camera. The quad's long axis = travel direction, short axis = cross(travel,
-//   camToProj). This gives the classic tracer/streak appearance from all angles.
-//
-// FIX (texture):
-//   MPB.SetTexture("_MainTex") applied per DrawMesh call — correct sprite atlas
-//   texture is used instead of the material's static default.
+// Previous fixes retained:
+//   World-space vertices via Graphics.DrawMesh with Matrix4x4.identity (no shake).
+//   Billboard orientation: elongated quad along travel direction.
+//   MPB.SetTexture per draw call.
 
 using MidManStudio.Projectiles.Config;
 using MidManStudio.Projectiles.Core;
@@ -57,7 +45,6 @@ namespace MidManStudio.Projectiles.Visuals
         private Color32[] _cols;
         private int[]     _tris;
 
-        // Property block for per-draw-call texture override
         private MaterialPropertyBlock _mpb;
 
         #endregion
@@ -88,6 +75,7 @@ namespace MidManStudio.Projectiles.Visuals
         /// <summary>
         /// Build and submit the combined world-space mesh for all alive 3D projectiles.
         /// Call from LateUpdate every display frame.
+        /// Two passes: sprite configs then non-sprite configs, to keep textures separate.
         /// </summary>
         public void Render(NativeProjectile3D[] projs, int count)
         {
@@ -97,10 +85,22 @@ namespace MidManStudio.Projectiles.Visuals
                 return;
             }
 
+            // Pass 1: sprite projectiles
+            RenderPass(projs, count, spritePass: true);
+            // Pass 2: non-sprite / custom-shape projectiles
+            RenderPass(projs, count, spritePass: false);
+        }
+
+        #endregion
+
+        #region Render Pass
+
+        private void RenderPass(NativeProjectile3D[] projs, int count, bool spritePass)
+        {
             Camera    cam      = _renderCamera != null ? _renderCamera : Camera.main;
             var       reg      = ProjectileRegistry.Instance;
             int       qi       = 0;
-            Texture2D firstTex = null;
+            Texture2D firstTex = spritePass ? null : Texture2D.whiteTexture;
 
             for (int i = 0; i < count && qi < _maxQuads; i++)
             {
@@ -108,32 +108,34 @@ namespace MidManStudio.Projectiles.Visuals
                 if (p.Alive == 0) continue;
 
                 var cfg = reg.Get(p.ConfigId);
-                if (cfg == null || !cfg.UseSprite) continue;
+                if (cfg == null) continue;   // FIX: removed !cfg.UseSprite skip
 
-                if (firstTex == null && cfg.ProjectileSprite?.texture != null)
+                // Route to correct pass
+                bool hasSprite = cfg.UseSprite && cfg.ProjectileSprite?.texture != null;
+                if (spritePass  && !hasSprite) continue;
+                if (!spritePass &&  hasSprite) continue;
+
+                // Track first sprite texture for sprite pass
+                if (spritePass && firstTex == null)
                     firstTex = cfg.ProjectileSprite.texture;
 
                 Vector3 vel = new Vector3(p.Vx, p.Vy, p.Vz);
                 Vector3 pos = new Vector3(p.X,  p.Y,  p.Z);
 
-                // ── Billboard elongated along travel direction ─────────────────
-                // forward  = travel direction  (long axis of the bullet streak)
-                // perpAxis = cross(forward, camToProj)  →  camera-facing thin axis
                 Vector3 forward, perpAxis;
 
                 if (vel.sqrMagnitude > 0.0001f)
                 {
                     forward = vel.normalized;
 
-                    // Direction from camera to this projectile (not normalized — we normalize after cross)
                     Vector3 camToProj = cam != null
                         ? (pos - cam.transform.position)
                         : Vector3.back;
-                    camToProj = camToProj.sqrMagnitude > 0.0001f ? camToProj.normalized : Vector3.back;
+                    camToProj = camToProj.sqrMagnitude > 0.0001f
+                        ? camToProj.normalized : Vector3.back;
 
                     perpAxis = Vector3.Cross(forward, camToProj);
 
-                    // Fallbacks when forward ≈ camToProj (shooting straight at/away from camera)
                     if (perpAxis.sqrMagnitude < 0.001f)
                         perpAxis = Vector3.Cross(forward, Vector3.up);
                     if (perpAxis.sqrMagnitude < 0.001f)
@@ -147,34 +149,33 @@ namespace MidManStudio.Projectiles.Visuals
                     perpAxis = Vector3.right;
                 }
 
-                float hx = p.ScaleX * 0.5f;       // half-length along travel
-                float hy = cfg.FullSizeY * 0.5f;   // half-width perpendicular to travel
+                float hx = p.ScaleX * 0.5f;
+                float hy = cfg.FullSizeY * 0.5f;
 
                 int vBase = qi * 4;
 
-                // Quad: elongated along forward, thin along perpAxis
-                //   0 = tail-sideA   1 = tip-sideA
-                //   3 = tail-sideB   2 = tip-sideB
                 _verts[vBase + 0] = pos - forward * hx - perpAxis * hy;
                 _verts[vBase + 1] = pos + forward * hx - perpAxis * hy;
                 _verts[vBase + 2] = pos + forward * hx + perpAxis * hy;
                 _verts[vBase + 3] = pos - forward * hx + perpAxis * hy;
 
-                // Atlas UVs
-                Vector4 uv = reg.GetUVRect(p.ConfigId);
+                // FIX: UV rect — sprite pass uses atlas rect; non-sprite uses full (0,0,1,1)
+                Vector4 uv = hasSprite
+                    ? reg.GetUVRect(p.ConfigId)
+                    : new Vector4(0f, 0f, 1f, 1f);
+
                 _uvs[vBase + 0] = new Vector2(uv.x,        uv.y);
                 _uvs[vBase + 1] = new Vector2(uv.x + uv.z, uv.y);
                 _uvs[vBase + 2] = new Vector2(uv.x + uv.z, uv.y + uv.w);
                 _uvs[vBase + 3] = new Vector2(uv.x,        uv.y + uv.w);
 
-                // Lifetime fade
-                Color32 col = ComputeTint(p.Lifetime, p.MaxLifetime, _fadeInFraction, _fadeOutFraction);
+                Color32 col = ComputeTint(p.Lifetime, p.MaxLifetime,
+                    _fadeInFraction, _fadeOutFraction);
                 _cols[vBase + 0] = col;
                 _cols[vBase + 1] = col;
                 _cols[vBase + 2] = col;
                 _cols[vBase + 3] = col;
 
-                // CCW winding
                 int tBase = qi * 6;
                 _tris[tBase + 0] = vBase;
                 _tris[tBase + 1] = vBase + 1;
@@ -186,23 +187,18 @@ namespace MidManStudio.Projectiles.Visuals
                 qi++;
             }
 
-            _mesh.Clear();
             if (qi == 0) return;
 
+            _mesh.Clear();
             _mesh.SetVertices(_verts, 0, qi * 4);
             _mesh.SetUVs(0, _uvs,    0, qi * 4);
             _mesh.SetColors(_cols,    0, qi * 4);
             _mesh.SetTriangles(_tris, 0, qi * 6, 0);
-
-            // Expanded bounds so the mesh is never frustum-culled at camera edges
             _mesh.bounds = new Bounds(Vector3.zero, Vector3.one * 10000f);
 
-            // Apply sprite texture via MPB — avoids creating a material instance
-            if (firstTex != null)
-                _mpb.SetTexture("_MainTex", firstTex);
+            // Always set a valid texture — never leave it unset
+            _mpb.SetTexture("_MainTex", firstTex ?? Texture2D.whiteTexture);
 
-            // FIX: Graphics.DrawMesh with Matrix4x4.identity — vertices are already
-            // in world space. No secondary transform applied, no shaking.
             Graphics.DrawMesh(
                 _mesh,
                 Matrix4x4.identity,
