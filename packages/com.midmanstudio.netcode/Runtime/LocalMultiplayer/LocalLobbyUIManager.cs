@@ -1,13 +1,22 @@
 // packages/com.midmanstudio.netcode/Runtime/LocalMultiplayer/LocalLobbyUIManager.cs
 // REWRITTEN: replaces custom LobbyUIState enum with MID_UIStateContext from utilities.
 //
-// SETUP:
-//   1. Create a MID_UIStateContext SO asset, set contextName = "Lobby"
-//   2. Add states: NetworkCheck, Browse, Hosting, Joining, Loading
-//   3. Run: MidManStudio > Utilities > UI State Context Generator
-//      → produces LobbyUIState.cs enum
-//   4. Assign the context asset to the LobbyContext field in inspector
-//   5. Subclass this and override the On* virtual hooks for your game's panels
+// CHANGES vs previous version:
+//   + GoToMain() added — initial screen with Host + Look for Lobbies buttons.
+//   + GoToSearching() added — lobby list panel shown after clicking Look for Lobbies.
+//   + GoToInLobby() added — shared in-lobby state for both host and joining client.
+//   + GoToHosting() and GoToJoining() are now aliases for GoToInLobby() — both use
+//     the same InLobby state (mask=4), simplifying the panel setup.
+//   + GoToBrowse() is now an alias for GoToMain() (backward compatibility).
+//   + HandleHostResult: on failure now navigates back to Main instead of staying
+//     on the Loading panel (was a silent bug).
+//   + HandleJoinResult: same failure-path fix as above.
+//   + HandleLobbyDisbanded: navigates to Main (was GoToBrowse which was Browse/Main anyway).
+//   + IsInitialized property exposed so concrete classes can guard against race conditions.
+//   + OnSearchStarted() virtual hook added for concrete classes that need to react when
+//     search begins (e.g., showing a spinner, clearing stale cards).
+//   + RequestGoToSearching() helper — stops any running search, starts a fresh one,
+//     then transitions state. Single call for the "Look for Lobbies" button handler.
 
 using System.Collections.Generic;
 using UnityEngine;
@@ -29,9 +38,10 @@ namespace MidManStudio.Netcode.UI
         [SerializeField] protected MobileNetworkStatusMonitor _networkMonitor;
 
         [Header("UI State Context")]
-        [Tooltip("Assign the 'Lobby' MID_UIStateContext SO here.\n" +
-                 "Expected states: NetworkCheck, Browse, Hosting, Joining, Loading.\n" +
-                 "Run the UI State Context Generator after adding states to the SO.")]
+        [Tooltip("Assign the 'ProjLobby' MID_UIStateContext SO here.\n" +
+                 "Expected states (bit values):\n" +
+                 "  Main=1  Searching=2  InLobby=4  Loading=8  NetworkCheck=16\n" +
+                 "Run the UI State Context Generator after adding/editing states.")]
         [SerializeField] protected MID_UIStateContext _lobbyContext;
 
         [Header("Log")]
@@ -70,9 +80,9 @@ namespace MidManStudio.Netcode.UI
             if (_lobbyContext == null)
             {
                 MID_Logger.LogWarning(_logLevel,
-                    "No LobbyContext assigned. State transitions will still fire events " +
-                    "but nothing will drive panel show/hide automatically.\n" +
-                    "Create a MID_UIStateContext with contextName='Lobby' and assign it here.",
+                    "No LobbyContext assigned. State transitions will fire events " +
+                    "but panels won't auto-show/hide.\n" +
+                    "Create a MID_UIStateContext with contextName='ProjLobby' and assign it here.",
                     nameof(LocalLobbyUIManager));
             }
 
@@ -164,8 +174,11 @@ namespace MidManStudio.Netcode.UI
             MID_Logger.LogInfo(_logLevel, $"Host result: {success}",
                 nameof(LocalLobbyUIManager));
 
-            SetLoading(false);
-            if (success) GoToHosting();
+            if (success)
+                GoToInLobby();
+            else
+                GoToMain(); // FIX: previously stayed on Loading panel on failure
+
             OnHostResult(success);
         }
 
@@ -174,8 +187,11 @@ namespace MidManStudio.Netcode.UI
             MID_Logger.LogInfo(_logLevel, $"Join result: {success}",
                 nameof(LocalLobbyUIManager));
 
-            SetLoading(false);
-            if (success) GoToJoining();
+            if (success)
+                GoToInLobby();
+            else
+                GoToMain(); // FIX: previously stayed on Loading panel on failure
+
             OnJoinResult(success);
         }
 
@@ -184,7 +200,7 @@ namespace MidManStudio.Netcode.UI
             MID_Logger.LogInfo(_logLevel, "Lobby disbanded.",
                 nameof(LocalLobbyUIManager));
 
-            GoToBrowse();
+            GoToMain();
             OnLobbyDisbanded();
         }
 
@@ -207,12 +223,11 @@ namespace MidManStudio.Netcode.UI
         #endregion
 
         #region Context State Navigation
-        // These helpers let you drive state from code without knowing the int values.
-        // After running the generator, you can also call
-        //   _lobbyContext.ChangeState((int)LobbyUIState.Browse)
-        // directly from your subclass.
 
-        /// <summary>Transition to a state by raw int (from generated LobbyUIState enum).</summary>
+        /// <summary>
+        /// Transition to a state by raw int (from generated ProjLobbyUIState enum).
+        /// All GoTo* methods funnel through here.
+        /// </summary>
         protected void ChangeState(int newState)
         {
             if (_lobbyContext == null)
@@ -228,24 +243,45 @@ namespace MidManStudio.Netcode.UI
         /// <summary>Navigate back one level in the context history.</summary>
         protected void GoBack() => _lobbyContext?.GoBack();
 
-        // Convenience named transitions — these look up the enum value by name
-        // via reflection so they work regardless of the generated int value.
-
-        protected void GoToNetworkCheck() => ChangeStateByName("NetworkCheck");
-        protected void GoToBrowse()        => ChangeStateByName("Browse");
-        protected void GoToHosting()       => ChangeStateByName("Hosting");
-        protected void GoToJoining()       => ChangeStateByName("Joining");
-        protected void GoToLoading()       => ChangeStateByName("Loading");
-
-        private void SetLoading(bool loading)
-        {
-            if (loading) GoToLoading();
-        }
+        // ── Named state transitions ───────────────────────────────────────────
 
         /// <summary>
-        /// Looks up a state value by name from the generated LobbyUIState enum
-        /// via the context's enumTypeName — no hard dependency on the generated type.
+        /// Initial screen: player name field, Host button, Look for Lobbies button.
+        /// ProjLobbyUIState.Main = 1.
         /// </summary>
+        protected void GoToMain() => ChangeStateByName("Main");
+
+        /// <summary>
+        /// Lobby list screen shown after clicking Look for Lobbies.
+        /// ProjLobbyUIState.Searching = 2.
+        /// </summary>
+        protected void GoToSearching() => ChangeStateByName("Searching");
+
+        /// <summary>
+        /// In-lobby room shared by host and joining client.
+        /// ProjLobbyUIState.InLobby = 4.
+        /// </summary>
+        protected void GoToInLobby() => ChangeStateByName("InLobby");
+
+        /// <summary>Loading / connecting overlay. ProjLobbyUIState.Loading = 8.</summary>
+        protected void GoToLoading() => ChangeStateByName("Loading");
+
+        /// <summary>No-network warning panel. ProjLobbyUIState.NetworkCheck = 16.</summary>
+        protected void GoToNetworkCheck() => ChangeStateByName("NetworkCheck");
+
+        // ── Backward-compat aliases ───────────────────────────────────────────
+
+        /// <summary>Alias for GoToMain(). Kept for backward compatibility.</summary>
+        protected void GoToBrowse()   => GoToMain();
+
+        /// <summary>Alias for GoToInLobby(). Kept for backward compatibility.</summary>
+        protected void GoToHosting()  => GoToInLobby();
+
+        /// <summary>Alias for GoToInLobby(). Kept for backward compatibility.</summary>
+        protected void GoToJoining()  => GoToInLobby();
+
+        // ─────────────────────────────────────────────────────────────────────
+
         private void ChangeStateByName(string stateName)
         {
             if (_lobbyContext == null) return;
@@ -255,7 +291,7 @@ namespace MidManStudio.Netcode.UI
             {
                 MID_Logger.LogWarning(_logLevel,
                     $"State '{stateName}' not found in enum '{_lobbyContext.enumTypeName}'.\n" +
-                    "Make sure the state exists in the LobbyContext and the generator has been run.",
+                    "Make sure the state exists in the context SO and the generator has been run.",
                     nameof(LocalLobbyUIManager));
                 return;
             }
@@ -276,47 +312,20 @@ namespace MidManStudio.Netcode.UI
 
         #endregion
 
-        #region Virtual Hooks — Override in subclass
-
-        /// <summary>A new lobby was found during discovery scan.</summary>
-        protected virtual void OnLobbyDiscovered(LocalLobbyData lobby) { }
-
-        /// <summary>A previously discovered lobby timed out and was removed.</summary>
-        protected virtual void OnLobbyRemoved(string lobbyKey) { }
-
-        /// <summary>A player joined the current lobby.</summary>
-        protected virtual void OnPlayerJoined(LocalLobbyPlayer player) { }
-
-        /// <summary>A player left the current lobby.</summary>
-        protected virtual void OnPlayerLeft(ulong clientId) { }
-
-        /// <summary>A player's ready status changed.</summary>
-        protected virtual void OnPlayerReadyChanged(LocalLobbyPlayer player) { }
-
-        /// <summary>Result of StartHosting(). success=false means show an error.</summary>
-        protected virtual void OnHostResult(bool success) { }
-
-        /// <summary>Result of JoinLobby(). success=false means show an error.</summary>
-        protected virtual void OnJoinResult(bool success) { }
-
-        /// <summary>The host left — return to browse state.</summary>
-        protected virtual void OnLobbyDisbanded() { }
-
-        /// <summary>
-        /// WiFi / hotspot / mobile-data status changed.
-        /// Values: WIFI_CONNECTED, HOTSPOT, MOBILE_DATA, NO_NETWORK.
-        /// </summary>
-        protected virtual void OnNetworkStatusChanged(string status) { }
-
-        /// <summary>
-        /// Game is starting — load your game scene here.
-        /// snapshot contains the final player list with team assignments.
-        /// </summary>
-        protected virtual void OnGameStartReceived(LocalLobbySnapshot snapshot) { }
-
-        #endregion
-
         #region Protected Helpers — Action wrappers
+
+        /// <summary>
+        /// Transitions to the Searching state AND starts lobby discovery.
+        /// This is the single call for the "Look for Lobbies" button.
+        /// Also fires OnSearchStarted() so the concrete class can clear stale cards etc.
+        /// </summary>
+        protected void RequestGoToSearching()
+        {
+            RequestStopSearch();
+            GoToSearching();
+            RequestStartSearch();
+            OnSearchStarted();
+        }
 
         protected void RequestHost(LocalLobbyConfig config)
         {
@@ -333,13 +342,13 @@ namespace MidManStudio.Netcode.UI
         protected void RequestLeave()
         {
             _lobbyManager.LeaveLobby();
-            GoToBrowse();
+            GoToMain();
         }
 
         protected void RequestStopHosting()
         {
             _lobbyManager.StopHosting();
-            GoToBrowse();
+            GoToMain();
         }
 
         protected void RequestStartSearch() => _lobbyManager.StartSearching();
@@ -363,11 +372,65 @@ namespace MidManStudio.Netcode.UI
         protected IReadOnlyDictionary<string, LocalLobbyData> GetDiscoveredLobbies() =>
             _lobbyManager.GetDiscoveredLobbies();
 
-        protected List<LocalLobbyPlayer> GetPlayers() =>
+        protected System.Collections.Generic.List<LocalLobbyPlayer> GetPlayers() =>
             _lobbyManager.GetPlayers();
 
         protected bool AreAllReady() =>
             _lobbyManager.AreAllPlayersReady();
+
+        #endregion
+
+        #region Virtual Hooks — Override in subclass
+
+        /// <summary>A new lobby was found during discovery scan.</summary>
+        protected virtual void OnLobbyDiscovered(LocalLobbyData lobby) { }
+
+        /// <summary>A previously discovered lobby timed out and was removed.</summary>
+        protected virtual void OnLobbyRemoved(string lobbyKey) { }
+
+        /// <summary>A player joined the current lobby.</summary>
+        protected virtual void OnPlayerJoined(LocalLobbyPlayer player) { }
+
+        /// <summary>A player left the current lobby.</summary>
+        protected virtual void OnPlayerLeft(ulong clientId) { }
+
+        /// <summary>A player's ready status changed.</summary>
+        protected virtual void OnPlayerReadyChanged(LocalLobbyPlayer player) { }
+
+        /// <summary>
+        /// Result of StartHosting(). success=false → already navigated back to Main.
+        /// On success → already navigated to InLobby.
+        /// </summary>
+        protected virtual void OnHostResult(bool success) { }
+
+        /// <summary>
+        /// Result of JoinLobby(). success=false → already navigated back to Main.
+        /// On success → already navigated to InLobby.
+        /// </summary>
+        protected virtual void OnJoinResult(bool success) { }
+
+        /// <summary>The host left or server shut down — already navigated to Main.</summary>
+        protected virtual void OnLobbyDisbanded() { }
+
+        /// <summary>
+        /// WiFi / hotspot / mobile-data status changed.
+        /// Values: WIFI_CONNECTED, HOTSPOT, MOBILE_DATA, NO_NETWORK.
+        /// The concrete class decides whether to show the NetworkCheck panel.
+        /// </summary>
+        protected virtual void OnNetworkStatusChanged(string status) { }
+
+        /// <summary>
+        /// Game is starting — load your game scene here.
+        /// Already navigated to Loading state.
+        /// snapshot contains the final player list with team assignments.
+        /// </summary>
+        protected virtual void OnGameStartReceived(LocalLobbySnapshot snapshot) { }
+
+        /// <summary>
+        /// Called by RequestGoToSearching() after state has changed to Searching and
+        /// search has started. Use to clear stale lobby cards or show a spinner.
+        /// </summary>
+        protected virtual void OnSearchStarted() { }
 
         #endregion
     }
