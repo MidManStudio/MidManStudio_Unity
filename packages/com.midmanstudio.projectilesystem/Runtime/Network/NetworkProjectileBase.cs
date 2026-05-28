@@ -1,27 +1,16 @@
 // packages/com.midmanstudio.projectilesystem/Runtime/Network/NetworkProjectileBase.cs
 //
-// Extracted sync scaffolding from your Projectile.cs.
-// Extends NetworkTransform — that IS the position sync.
-// Owns ONLY:
-//   - Identity NetworkVariables (owner, firedBy, velocity, visualSynch, isBotOwned, weaponLevel, serverIsActualOwner)
-//   - OnNetworkSpawn  → get visual from LocalObjectPool, call Initialize
-//   - OnNetworkDespawn → ReturnToPoolImmediate
-//   - OnNetworkTransformStateUpdated → forward position tick to visual
-//   - HasHitObjectClientRpc
-//   - NotifyCollisionClientRpc   (your DoSometingOnCollisionClientRpc equivalent)
-//   - SpawnImpactEffectClientRpc (your SpawnCoolProjectilCollisionEffectClientRpc equivalent)
-//   - SpawnKillEffectClientRpc   (your SpawnPlayerKillEffectClientRpc equivalent)
-//   - DestroyProjectile()
-//   - InitialiseProjectile() — sets all NetworkVariables, starts lifetime clock
-//   - Virtual hooks for game layer
-//
-// YOUR GAME LAYER (derive from this in your game assembly):
-//   - Config lookup, damage, collision, explosion, effects — all yours
-//   - Override OnProjectileInitialised() to set Rigidbody velocity etc.
-//   - Override OnImpactServer() to call ExplodeProjectile() etc.
-//   - Override OnCollisionNotifiedClient() for audio/particles
-//   - Override OnSpawnImpactEffectClient() for LocalParticlePool call
-//   - Override OnSpawnKillEffectClient() to Instantiate kill effect
+// CHANGES:
+//   + ShouldAutoSpawnVisual (protected virtual bool, default true):
+//     PhysicsProjectile overrides false to prevent the double-visual bug where
+//     NetworkProjectileBase.OnNetworkSpawn spawned a pool visual AND
+//     PhysicsProjectile.SpawnPoolVisual spawned a second one. The base visual
+//     was never parented, so it sat frozen in the air.
+//   + n_BulletVelocity.OnValueChanged subscription:
+//     On non-server clients, when BulletVelocity syncs from the server the new
+//     protected virtual OnNetworkVelocityReceived() is called so derived classes
+//     (PhysicsProjectile) can initialise their pool visual with the correct
+//     speed and direction — previously that init only ran on the server.
 
 using UnityEngine;
 using Unity.Netcode;
@@ -55,8 +44,6 @@ namespace MidManStudio.Projectiles.Network
 
         // ─────────────────────────────────────────────────────────────────────
         //  NetworkVariables
-        //  Extracted 1-to-1 from your Projectile.cs NetworkVariables block.
-        //  Names kept identical so grep/search works across both files.
         // ─────────────────────────────────────────────────────────────────────
 
         [Header("Network Variables")]
@@ -85,7 +72,7 @@ namespace MidManStudio.Projectiles.Network
             = new NetworkVariable<bool>();
 
         // ─────────────────────────────────────────────────────────────────────
-        //  Accessors — read by derived class
+        //  Accessors
         // ─────────────────────────────────────────────────────────────────────
 
         protected ulong  OwnerMidId               => n_ProjectilesOwner.Value;
@@ -97,7 +84,7 @@ namespace MidManStudio.Projectiles.Network
         protected bool   ServerIsActuallyOwner     => n_ServerIsActualyOwner.Value;
 
         // ─────────────────────────────────────────────────────────────────────
-        //  Visual reference — your existing ProjectileVisual via interface
+        //  Visual
         // ─────────────────────────────────────────────────────────────────────
 
         protected INetworkProjectileVisual ProjectileVisualInstance { get; private set; }
@@ -108,8 +95,27 @@ namespace MidManStudio.Projectiles.Network
         // ─────────────────────────────────────────────────────────────────────
 
         private float _endOfLifeTime;
-        private bool  _initialised;
+        private bool  _initialized;
         private bool  _destroying;
+
+        // ─────────────────────────────────────────────────────────────────────
+        //  Virtual extension points
+        // ─────────────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Override to false in derived classes that manage their own pool visual
+        /// (e.g. PhysicsProjectile) to prevent a second, unparented visual from
+        /// being spawned by the base class in OnNetworkSpawn.
+        /// </summary>
+        protected virtual bool ShouldAutoSpawnVisual => true;
+
+        /// <summary>
+        /// Called on non-server clients when the BulletVelocity NetworkVariable
+        /// value is received from the server (i.e. > 0).  Override in derived
+        /// classes to initialise visuals with the correct speed and direction.
+        /// NOT called on the server — server initialises via OnProjectileInitialised.
+        /// </summary>
+        protected virtual void OnNetworkVelocityReceived() { }
 
         // ─────────────────────────────────────────────────────────────────────
         //  NGO lifecycle
@@ -118,22 +124,30 @@ namespace MidManStudio.Projectiles.Network
         public override void OnNetworkSpawn()
         {
             _destroying  = false;
-            _initialised = false;
+            _initialized = false;
 
-            // Get visual from pool — mirrors your Projectile.cs OnNetworkSpawn
-            _visualGO = LocalObjectPool.Instance.GetObject(
-                _visualPoolType, transform.position, transform.rotation);
+            // Only spawn the base pool visual when the derived class has not
+            // opted out (PhysicsProjectile manages its own visual).
+            if (ShouldAutoSpawnVisual)
+            {
+                _visualGO = LocalObjectPool.Instance.GetObject(
+                    _visualPoolType, transform.position, transform.rotation);
 
-            ProjectileVisualInstance = _visualGO != null
-                ? _visualGO.GetComponent<INetworkProjectileVisual>()
-                : null;
+                ProjectileVisualInstance = _visualGO != null
+                    ? _visualGO.GetComponent<INetworkProjectileVisual>()
+                    : null;
+            }
+
+            // Subscribe so clients get a hook when velocity data arrives.
+            n_BulletVelocity.OnValueChanged += HandleBulletVelocityChanged;
 
             base.OnNetworkSpawn();
         }
 
         public override void OnNetworkDespawn()
         {
-            // Return visual — mirrors your Projectile.cs OnNetworkDespawn
+            n_BulletVelocity.OnValueChanged -= HandleBulletVelocityChanged;
+
             if (ProjectileVisualInstance != null)
             {
                 if (_visualGO != null)
@@ -148,8 +162,18 @@ namespace MidManStudio.Projectiles.Network
         }
 
         // ─────────────────────────────────────────────────────────────────────
+        //  NetworkVariable callback
+        // ─────────────────────────────────────────────────────────────────────
+
+        private void HandleBulletVelocityChanged(float oldVal, float newVal)
+        {
+            // Only act on clients (not the server — server uses OnProjectileInitialised).
+            if (!IsServer && newVal > 0f)
+                OnNetworkVelocityReceived();
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
         //  Update — server lifetime watchdog
-        //  Mirrors HandleServerUpdate() in your Projectile.cs
         // ─────────────────────────────────────────────────────────────────────
 
         protected override void Update()
@@ -158,9 +182,9 @@ namespace MidManStudio.Projectiles.Network
 
             if (IsServer)
             {
-                base.Update(); // NetworkTransform tick
+                base.Update();
 
-                if (_initialised
+                if (_initialized
                     && NetworkManager.ServerTime.TimeAsFloat >= _endOfLifeTime)
                 {
                     DestroyProjectile();
@@ -170,7 +194,6 @@ namespace MidManStudio.Projectiles.Network
 
         // ─────────────────────────────────────────────────────────────────────
         //  NetworkTransform override
-        //  Mirrors OnNetworkTransformStateUpdated in your Projectile.cs exactly.
         // ─────────────────────────────────────────────────────────────────────
 
         protected override void OnNetworkTransformStateUpdated(
@@ -189,9 +212,6 @@ namespace MidManStudio.Projectiles.Network
 
         // ─────────────────────────────────────────────────────────────────────
         //  Initialise
-        //  Call on server right after SpawnPhysicsProjectile() returns.
-        //  Sets all NetworkVariables then calls Initialize on the visual.
-        //  Mirrors InitializeServerProjectile() in your Projectile.cs.
         // ─────────────────────────────────────────────────────────────────────
 
         public virtual void InitialiseProjectile(
@@ -205,7 +225,6 @@ namespace MidManStudio.Projectiles.Network
         {
             if (!IsServer) return;
 
-            // Write NetworkVariables
             n_ProjectilesOwner.Value       = ownerMidId;
             n_FiredByNetworkObjectId.Value = firedByNetworkObjectId;
             n_BulletVelocity.Value         = bulletVelocity;
@@ -214,29 +233,19 @@ namespace MidManStudio.Projectiles.Network
             n_ServerIsActualyOwner.Value   = serverIsActualOwner;
             n_EnableVisualSynch.Value      = enableVisualSynch;
 
-            // Lifetime clock — mirrors EndOfLifeTime = NetworkManager.ServerTime.TimeAsFloat + TimeToLive
             _endOfLifeTime = NetworkManager.ServerTime.TimeAsFloat + TimeToLive;
 
-            // Parent visual under this transform on server
-            // Mirrors ProjectileVisualInstance.transform.SetParent(transform) in your code
             if (_visualGO != null)
                 _visualGO.transform.SetParent(transform);
 
-            _initialised = true;
+            _initialized = true;
 
-            // Let derived class do config lookup, set Rigidbody velocity, etc.
             OnProjectileInitialised();
-
-            // Now call Initialize on the visual — derived class knows projectile name/config
-            // so it does this call itself inside OnProjectileInitialised if needed,
-            // OR we call the virtual below so base can wire it generically.
             InitialiseVisual();
         }
 
         // ─────────────────────────────────────────────────────────────────────
         //  Destroy
-        //  Mirrors DestroyProjectile() in your Projectile.cs.
-        //  Pattern: notify clients → virtual hook → return visual → Despawn.
         // ─────────────────────────────────────────────────────────────────────
 
         protected void DestroyProjectile()
@@ -244,13 +253,9 @@ namespace MidManStudio.Projectiles.Network
             if (!IsServer || !IsSpawned || _destroying) return;
             _destroying = true;
 
-            // Mirrors DoSometingOnCollisionClientRpc call in your DestroyProjectile()
             NotifyCollisionClientRpc();
-
-            // Virtual: derived class calls ExplodeProjectile(), SpawnKillEffectClientRpc, etc.
             OnImpactServer();
 
-            // Mirrors CleanupVisualImmediate() + HasHitObjectClientRpc call in your code
             if (ProjectileVisualInstance != null)
             {
                 ProjectileVisualInstance.ReturnToPoolImmediate();
@@ -259,15 +264,13 @@ namespace MidManStudio.Projectiles.Network
             }
 
             HasHitObjectClientRpc(transform.position, NetworkManager.ServerTime.Tick);
-
             NetworkObject.Despawn();
         }
 
         // ─────────────────────────────────────────────────────────────────────
-        //  RPCs — extracted 1-to-1 from your Projectile.cs
+        //  RPCs
         // ─────────────────────────────────────────────────────────────────────
 
-        /// Mirrors HasHitObjectClientRpc in your Projectile.cs.
         [ClientRpc]
         private void HasHitObjectClientRpc(
             Vector3 position, int tick,
@@ -277,14 +280,12 @@ namespace MidManStudio.Projectiles.Network
                 ProjectileVisualInstance.SetHitPosition(position, tick);
         }
 
-        /// Mirrors DoSometingOnCollisionClientRpc in your Projectile.cs.
         [ClientRpc]
         private void NotifyCollisionClientRpc(ClientRpcParams p = default)
         {
             OnCollisionNotifiedClient();
         }
 
-        /// Mirrors SpawnCoolProjectilCollisionEffectClientRpc in your Projectile.cs.
         [ClientRpc]
         protected void SpawnImpactEffectClientRpc(
             Vector3 position,
@@ -293,7 +294,6 @@ namespace MidManStudio.Projectiles.Network
             OnSpawnImpactEffectClient(position);
         }
 
-        /// Mirrors SpawnPlayerKillEffectClientRpc in your Projectile.cs.
         [ClientRpc]
         protected void SpawnKillEffectClientRpc(
             Vector3 position,
@@ -303,31 +303,14 @@ namespace MidManStudio.Projectiles.Network
         }
 
         // ─────────────────────────────────────────────────────────────────────
-        //  Virtual hooks — all empty, all yours to override
+        //  Virtual hooks
         // ─────────────────────────────────────────────────────────────────────
 
-        /// Server. Called after NetworkVariables are set.
-        /// Set Rigidbody velocity, physics material, collider size, etc.
-        protected virtual void OnProjectileInitialised() { }
-
-        /// Server. Called inside DestroyProjectile() before Despawn.
-        /// Call ExplodeProjectile(), SpawnKillEffectClientRpc, etc.
-        protected virtual void OnImpactServer() { }
-
-        /// ALL clients. NotifyCollisionClientRpc arrived.
-        /// Mirrors DoSometingOnCollisionClientRpc body.
-        protected virtual void OnCollisionNotifiedClient() { }
-
-        /// ALL clients. SpawnImpactEffectClientRpc arrived.
-        /// Call LocalParticlePool.Instance.GetObject(...) here.
+        protected virtual void OnProjectileInitialised()       { }
+        protected virtual void OnImpactServer()                { }
+        protected virtual void OnCollisionNotifiedClient()     { }
         protected virtual void OnSpawnImpactEffectClient(Vector3 position) { }
-
-        /// ALL clients. SpawnKillEffectClientRpc arrived.
-        /// Instantiate your kill effect prefab here.
-        protected virtual void OnSpawnKillEffectClient(Vector3 position) { }
-
-        /// Override to call ProjectileVisualInstance.Initialize() with your projectile name.
-        /// Base does nothing — derived class knows the name/config.
-        protected virtual void InitialiseVisual() { }
+        protected virtual void OnSpawnKillEffectClient(Vector3 position)   { }
+        protected virtual void InitialiseVisual()              { }
     }
 }
