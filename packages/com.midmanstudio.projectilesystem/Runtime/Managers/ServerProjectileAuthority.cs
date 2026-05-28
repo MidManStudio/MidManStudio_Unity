@@ -1,22 +1,25 @@
 // ServerProjectileAuthority.cs
 // Server-only. Owns the Rust sim buffers (2D and 3D).
-// Runs tick + collision every FixedUpdate.
-// Sends position snapshots every N ticks for client reconciliation.
 //
-// FIX (piercing): Added _pierceImmunity2D / _pierceImmunity3D HashSets.
-//   After a projectile ticks (moves), immunity is cleared so stale pairs are
-//   removed.  Collision is then checked.  If a piercing projectile hits a
-//   target but stays registered, that (projId, targetId) pair is added to
-//   immunity so the same target cannot be hit again until the next tick
-//   (by which time the projectile has moved on).  Without this the Rust
-//   collision system reported a hit every FixedUpdate for as long as the
-//   bullet overlapped the target, draining collisionsRemaining in one frame.
+// KEY FIX (Rust Sim invisible on host):
+//   Added _renderer2D / _renderer3D serialized references and LateUpdate()
+//   that calls Render() with the server buffers.
+//   Previously nothing rendered the server-side buffers — LocalProjectileManager
+//   has its own empty buffer in networked mode, SpawnConfirmedClientRpc skips
+//   the host (IsServer early return), so Rust Sim projectiles were simulated
+//   but never drawn. Assign the scene's ProjectileRenderer2D/3D here.
 //
-// FIX: Added TrailPool?.SyncToSimulation(_projs2D, _count2D) after Tick2D.
-// FIX (3D trails): Added TrailPool?.SyncToSimulation3D after Tick3D.
-// ADDED: Collision layer filtering (retained from previous version).
+// FIX (piercing — permanent target immunity):
+//   _hitTargets2D / _hitTargets3D: per-projectile sets of targetIds that have
+//   already been hit. Unlike the per-tick immunity this is permanent for the
+//   projectile's lifetime, so a piercing bullet hits each target AT MOST ONCE
+//   regardless of speed or target size. Sets are removed when the projectile dies.
+//
+// FIX (trails, 3D): TrailPool?.SyncToSimulation3D after Tick3D.
+// RETAINED: Collision layer filtering, snapshot, state save/restore.
 
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using UnityEngine;
 using Unity.Netcode;
@@ -30,10 +33,6 @@ using MidManStudio.Projectiles.Network;
 
 namespace MidManStudio.Projectiles.Managers
 {
-    // ─────────────────────────────────────────────────────────────────────────
-    //  Snapshot structs
-    // ─────────────────────────────────────────────────────────────────────────
-
     public struct ProjectileSnapshot2D : INetworkSerializable
     {
         public uint  ProjId;
@@ -68,10 +67,6 @@ namespace MidManStudio.Projectiles.Managers
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    //  ServerProjectileAuthority
-    // ─────────────────────────────────────────────────────────────────────────
-
     public class ServerProjectileAuthority : MonoBehaviour
     {
         #region Configuration
@@ -84,13 +79,20 @@ namespace MidManStudio.Projectiles.Managers
         [SerializeField] private int _maxHitsPerTick   = 256;
 
         [Header("Collision Tuning")]
-        [Tooltip("World units per collision grid cell (~2× largest target radius). 0 = Rust default (4.0).")]
         [SerializeField] private float _cellSize2D = 4f;
         [SerializeField] private float _cellSize3D = 4f;
 
         [Header("Snapshot")]
-        [Tooltip("Send position snapshot every N FixedUpdates.")]
         [SerializeField] private int _snapshotIntervalTicks = 4;
+
+        [Header("Rendering (Host / Offline)")]
+        [Tooltip("Assign the scene ProjectileRenderer2D here.\n" +
+                 "In host mode this renders the server-side Rust buffer.\n" +
+                 "Leave null on dedicated server (headless — no rendering).")]
+        [SerializeField] private ProjectileRenderer2D _renderer2D;
+
+        [Tooltip("Assign the scene ProjectileRenderer3D here.")]
+        [SerializeField] private ProjectileRenderer3D _renderer3D;
 
         [Header("Debug")]
         [SerializeField] private bool _enableLogs = false;
@@ -136,27 +138,75 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Layer Tracking
 
-        private readonly System.Collections.Generic.Dictionary<uint, int> _targetLayerDict2D
-            = new System.Collections.Generic.Dictionary<uint, int>(64);
-        private readonly System.Collections.Generic.Dictionary<uint, int> _targetLayerDict3D
-            = new System.Collections.Generic.Dictionary<uint, int>(64);
+        private readonly Dictionary<uint, int> _targetLayerDict2D = new(64);
+        private readonly Dictionary<uint, int> _targetLayerDict3D = new(64);
 
         #endregion
 
-        #region Pierce Immunity
-        // Tracks (projId, targetId) pairs that must not register a collision this
-        // tick because the projectile already pierced that target and hasn't moved
-        // away yet.  Cleared AFTER tick (position update) and BEFORE collision
-        // check, so stale immunity is removed once the bullet has moved.
+        #region Piercing — Permanent Per-Projectile Target Immunity
+        // Key: projId.  Value: set of targetIds already hit by this projectile.
+        // Each target can only be hit ONCE per projectile lifetime.
+        // Entries are removed when the projectile dies (CompactDead).
 
-        private readonly System.Collections.Generic.HashSet<long> _pierceImmunity2D
-            = new System.Collections.Generic.HashSet<long>(64);
-        private readonly System.Collections.Generic.HashSet<long> _pierceImmunity3D
-            = new System.Collections.Generic.HashSet<long>(64);
+        private readonly Dictionary<uint, HashSet<uint>> _hitTargets2D = new(128);
+        private readonly Dictionary<uint, HashSet<uint>> _hitTargets3D = new(128);
 
-        /// Pack (projId, targetId) into one long key — no heap allocation.
-        private static long PierceKey(uint projId, uint targetId)
-            => ((long)projId << 32) | targetId;
+        private static readonly Stack<HashSet<uint>> _setPool = new(32);
+
+        private static HashSet<uint> RentSet()
+            => _setPool.Count > 0 ? _setPool.Pop() : new HashSet<uint>(4);
+
+        private static void ReturnSet(HashSet<uint> s) { s.Clear(); _setPool.Push(s); }
+
+        private bool AlreadyHit2D(uint projId, uint targetId)
+        {
+            if (!_hitTargets2D.TryGetValue(projId, out var set)) return false;
+            return set.Contains(targetId);
+        }
+
+        private bool AlreadyHit3D(uint projId, uint targetId)
+        {
+            if (!_hitTargets3D.TryGetValue(projId, out var set)) return false;
+            return set.Contains(targetId);
+        }
+
+        private void RecordHit2D(uint projId, uint targetId)
+        {
+            if (!_hitTargets2D.TryGetValue(projId, out var set))
+            {
+                set = RentSet();
+                _hitTargets2D[projId] = set;
+            }
+            set.Add(targetId);
+        }
+
+        private void RecordHit3D(uint projId, uint targetId)
+        {
+            if (!_hitTargets3D.TryGetValue(projId, out var set))
+            {
+                set = RentSet();
+                _hitTargets3D[projId] = set;
+            }
+            set.Add(targetId);
+        }
+
+        private void ClearHitRecord2D(uint projId)
+        {
+            if (_hitTargets2D.TryGetValue(projId, out var set))
+            {
+                ReturnSet(set);
+                _hitTargets2D.Remove(projId);
+            }
+        }
+
+        private void ClearHitRecord3D(uint projId)
+        {
+            if (_hitTargets3D.TryGetValue(projId, out var set))
+            {
+                ReturnSet(set);
+                _hitTargets3D.Remove(projId);
+            }
+        }
 
         #endregion
 
@@ -183,10 +233,8 @@ namespace MidManStudio.Projectiles.Managers
         {
             Adapter = new RustSimAdapter();
             Adapter.OnProjectileDied += OnAdapterProjectileDied;
-
             AllocateBuffers();
             BatchSpawnHelper.Initialise();
-
             Log("ServerProjectileAuthority initialised.");
         }
 
@@ -229,6 +277,23 @@ namespace MidManStudio.Projectiles.Managers
 
         #endregion
 
+        #region LateUpdate — Render Server Buffers (Host / Offline)
+
+        /// <summary>
+        /// Renders the server-side Rust sim buffers on host or offline.
+        /// Pure clients receive visuals from ClientPredictionManager pool objects.
+        /// This is the ONLY render path for host-side Rust Sim projectiles because
+        /// SpawnConfirmedClientRpc.IsServer early-returns to prevent double visuals.
+        /// </summary>
+        private void LateUpdate()
+        {
+            if (!IsServer()) return;
+            _renderer2D?.Render(_projs2D, _count2D);
+            _renderer3D?.Render(_projs3D, _count3D);
+        }
+
+        #endregion
+
         #region FixedUpdate — Main Sim Loop
 
         private void FixedUpdate()
@@ -241,15 +306,6 @@ namespace MidManStudio.Projectiles.Managers
             if (_count2D > 0)
             {
                 Tick2D(dt);
-
-                // FIX: clear pierce immunity AFTER projectiles move (tick) and
-                // BEFORE collision check.  This removes stale immunity from the
-                // previous frame so a fast-moving bullet that has genuinely
-                // entered a new target can hit it, while a slow bullet that is
-                // still overlapping the same target it already pierced will re-hit
-                // only after moving at least one physics step away.
-                _pierceImmunity2D.Clear();
-
                 Collision2D();
                 TrailPool?.SyncToSimulation(_projs2D, _count2D);
                 CompactDead2D();
@@ -258,7 +314,6 @@ namespace MidManStudio.Projectiles.Managers
             if (_count3D > 0)
             {
                 Tick3D(dt);
-                _pierceImmunity3D.Clear();
                 Collision3D();
                 TrailPool?.SyncToSimulation3D(_projs3D, _count3D);
                 CompactDead3D();
@@ -288,26 +343,20 @@ namespace MidManStudio.Projectiles.Managers
                 int     idx = (int)h.ProjIndex;
                 if (idx < 0 || idx >= _count2D) continue;
 
-                // FIX: pierce immunity — skip this (proj, target) pair if
-                // we already processed a hit between them this tick.
-                long pierceKey = PierceKey(h.ProjId, h.TargetId);
-                if (_pierceImmunity2D.Contains(pierceKey)) continue;
-
+                // FIX: permanent per-projectile target immunity — each target hit at most once
+                if (AlreadyHit2D(h.ProjId, h.TargetId)) continue;
                 if (!PassesLayerFilter2D(h.ProjId, h.TargetId)) continue;
 
                 bool headshot = CheckHeadshot2D(in h);
                 Adapter.ProcessHit(in h, headshot);
 
+                // Record hit regardless of pierce (prevents re-hitting same target)
+                RecordHit2D(h.ProjId, h.TargetId);
+
                 if (!Adapter.IsRegistered(h.ProjId))
                 {
-                    // Projectile is dead (non-piercing, or pierce count exhausted)
+                    // Projectile died
                     if (idx < _count2D) _projs2D[idx].Alive = 0;
-                }
-                else
-                {
-                    // Projectile pierced — remember this pair so it won't
-                    // re-hit until the next FixedUpdate (post-tick immunity clear).
-                    _pierceImmunity2D.Add(pierceKey);
                 }
             }
         }
@@ -322,6 +371,7 @@ namespace MidManStudio.Projectiles.Managers
                     uint deadId = _projs2D[read].ProjId;
                     Adapter.NotifyDead(deadId);
                     TrailPool?.NotifyDead(deadId);
+                    ClearHitRecord2D(deadId);    // free the hit-target set back to pool
                     continue;
                 }
                 if (write != read) _projs2D[write] = _projs2D[read];
@@ -350,21 +400,17 @@ namespace MidManStudio.Projectiles.Managers
                 int     idx = (int)h.ProjIndex;
                 if (idx < 0 || idx >= _count3D) continue;
 
-                long pierceKey = PierceKey(h.ProjId, h.TargetId);
-                if (_pierceImmunity3D.Contains(pierceKey)) continue;
-
+                if (AlreadyHit3D(h.ProjId, h.TargetId)) continue;
                 if (!PassesLayerFilter3D(h.ProjId, h.TargetId)) continue;
 
                 bool headshot = CheckHeadshot3D(in h);
                 Adapter.ProcessHit3D(in h, headshot);
 
+                RecordHit3D(h.ProjId, h.TargetId);
+
                 if (!Adapter.IsRegistered(h.ProjId))
                 {
                     if (idx < _count3D) _projs3D[idx].Alive = 0;
-                }
-                else
-                {
-                    _pierceImmunity3D.Add(pierceKey);
                 }
             }
         }
@@ -379,6 +425,7 @@ namespace MidManStudio.Projectiles.Managers
                     uint deadId = _projs3D[read].ProjId;
                     Adapter.NotifyDead(deadId);
                     TrailPool?.NotifyDead(deadId);
+                    ClearHitRecord3D(deadId);
                     continue;
                 }
                 if (write != read) _projs3D[write] = _projs3D[read];
@@ -450,7 +497,6 @@ namespace MidManStudio.Projectiles.Managers
                     Y = _projs2D[i].Y, ServerTick = serverTick
                 };
             }
-
             for (int i = 0; i < _count3D; i++)
             {
                 if (_projs3D[i].Alive == 0) continue;
@@ -493,8 +539,7 @@ namespace MidManStudio.Projectiles.Managers
             return true;
         }
 
-        public void NotifyBatchSpawned2D(
-            int spawned, uint baseId, ServerProjectileData templateData)
+        public void NotifyBatchSpawned2D(int spawned, uint baseId, ServerProjectileData templateData)
         {
             for (uint i = 0; i < (uint)spawned; i++)
             {
@@ -507,8 +552,7 @@ namespace MidManStudio.Projectiles.Managers
             _count2D += spawned;
         }
 
-        public void NotifyBatchSpawned3D(
-            int spawned, uint baseId, ServerProjectileData templateData)
+        public void NotifyBatchSpawned3D(int spawned, uint baseId, ServerProjectileData templateData)
         {
             for (uint i = 0; i < (uint)spawned; i++)
             {
@@ -552,7 +596,6 @@ namespace MidManStudio.Projectiles.Managers
         public void RegisterTarget2D(in CollisionTarget target, int unityLayer = 0)
         {
             _targetLayerDict2D[target.TargetId] = unityLayer;
-
             for (int i = 0; i < _targetCount2D; i++)
             {
                 if (_targets2D[i].TargetId != target.TargetId) continue;
@@ -565,7 +608,6 @@ namespace MidManStudio.Projectiles.Managers
         public void RegisterTarget3D(in CollisionTarget3D target, int unityLayer = 0)
         {
             _targetLayerDict3D[target.TargetId] = unityLayer;
-
             for (int i = 0; i < _targetCount3D; i++)
             {
                 if (_targets3D[i].TargetId != target.TargetId) continue;
@@ -597,7 +639,7 @@ namespace MidManStudio.Projectiles.Managers
 
         #endregion
 
-        #region Public API — Guided / Wave / Circular
+        #region Public API — Guided
 
         public void SetAcceleration2D(uint projId, Vector2 accelDir)
         {
@@ -605,8 +647,7 @@ namespace MidManStudio.Projectiles.Managers
             {
                 if (_projs2D[i].ProjId != projId) continue;
                 Vector2 n = accelDir.normalized;
-                _projs2D[i].Ax = n.x;
-                _projs2D[i].Ay = n.y;
+                _projs2D[i].Ax = n.x; _projs2D[i].Ay = n.y;
                 return;
             }
         }
@@ -617,9 +658,7 @@ namespace MidManStudio.Projectiles.Managers
             {
                 if (_projs3D[i].ProjId != projId) continue;
                 Vector3 n = accelDir.normalized;
-                _projs3D[i].Ax = n.x;
-                _projs3D[i].Ay = n.y;
-                _projs3D[i].Az = n.z;
+                _projs3D[i].Ax = n.x; _projs3D[i].Ay = n.y; _projs3D[i].Az = n.z;
                 return;
             }
         }
@@ -631,12 +670,12 @@ namespace MidManStudio.Projectiles.Managers
         public int SaveState2D(byte[] buf)
         {
             if (buf == null || buf.Length < _count2D * 72) return 0;
-            var pin     = GCHandle.Alloc(buf, GCHandleType.Pinned);
-            int written = ProjectileLib.save_state(
+            var pin = GCHandle.Alloc(buf, GCHandleType.Pinned);
+            int n   = ProjectileLib.save_state(
                 _pinProjs2D.AddrOfPinnedObject(), _count2D,
                 pin.AddrOfPinnedObject(), buf.Length);
             pin.Free();
-            return written;
+            return n;
         }
 
         public int RestoreState2D(byte[] buf, int byteCount)
@@ -654,15 +693,10 @@ namespace MidManStudio.Projectiles.Managers
 
         #endregion
 
-        #region Headshot Detection — Virtual Hooks
+        #region Headshot / Events
 
         protected virtual bool CheckHeadshot2D(in HitResult   hit) => false;
         protected virtual bool CheckHeadshot3D(in HitResult3D hit) => false;
-
-        #endregion
-
-        #region Internal Events
-
         private void OnAdapterProjectileDied(uint projId) { }
 
         #endregion
