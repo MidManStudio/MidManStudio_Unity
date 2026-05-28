@@ -1,33 +1,17 @@
 // packages/com.midmanstudio.netcode/Runtime/LocalMultiplayer/LocalLobbyManager.cs
 // Generic LAN / WiFi offline lobby manager for Unity Netcode for GameObjects.
-// Zero game-specific dependencies — all game hooks are exposed as events.
 //
-// WHAT THIS DOES:
-//   • Host a LAN lobby via NGO (UnityTransport)
-//   • Broadcast and discover lobbies via UDP
-//   • Manage the player list (join, leave, ready states, bots)
-//   • Optionally delegate team logic to an ILocalLobbyTeamProvider
-//   • Fire OnGameStartReceived on all clients when the host triggers game start
-//
-// WHAT THIS DOES NOT DO:
-//   • Load scenes            — subscribe to OnGameStartReceived and do it yourself
-//   • Show intro animations  — same
-//   • Define game modes/maps — pass them as strings in LocalLobbyConfig
-//   • Manage teams           — implement ILocalLobbyTeamProvider and inject it
-//
-// SETUP:
-//   1. Add this component to a persistent NetworkBehaviour GameObject.
-//      The GameObject MUST have a NetworkObject component.
-//   2. Assign NetworkManager and UnityTransport in the inspector.
-//   3. Subscribe to events before calling any Start*/Join* methods.
-//   4. Optionally call SetTeamProvider() with your game's team manager.
-//
-// FIX LOG:
-//   • Added IsInitialized property + OnInitialized event so UI can wait for
-//     the 0.1 s init delay without a race condition.
-//   • SendDiscoveryRequests now also sends to 127.0.0.1 so that same-machine
-//     discovery works reliably (broadcast packets don't loop back on every OS).
-//   • BroadcastLoop now also sends to 127.0.0.1 for the same reason.
+// FIX LOG (cumulative):
+//   v1 → v2: IsInitialized property + OnInitialized event so UI does not call
+//             StartSearching() before the 0.1 s init delay completes.
+//   v2 → v3: BroadcastLoop and SendDiscoveryRequests also send to 127.0.0.1 so
+//             same-machine host and client can discover each other when broadcast
+//             packets don't loop back on the OS.
+//   v3 → v4: ServerListenAddress set to "0.0.0.0" in StartHosting() so the NGO
+//             server socket binds to ALL interfaces, not just the loopback address
+//             that sits in the Inspector by default. Without this, any join attempt
+//             to the host's WiFi IP (even from the same machine) times out because
+//             the socket is only listening on 127.0.0.1.
 
 using System;
 using System.Collections;
@@ -50,12 +34,12 @@ namespace MidManStudio.Netcode.LocalMultiplayer
     [Serializable]
     public class LocalLobbyConfig
     {
-        public string LobbyName    = "Local Game";
-        public int    MaxPlayers   = 4;
-        public string GameMode     = "";
-        public string GameMap      = "";
-        public string CustomData   = "";
-        public int    ServerPort   = 7777;
+        public string LobbyName     = "Local Game";
+        public int    MaxPlayers    = 4;
+        public string GameMode      = "";
+        public string GameMap       = "";
+        public string CustomData    = "";
+        public int    ServerPort    = 7777;
         public int    BroadcastPort = 7778;
     }
 
@@ -66,16 +50,16 @@ namespace MidManStudio.Netcode.LocalMultiplayer
         #region Inspector
 
         [Header("References")]
-        [SerializeField] private NetworkManager    _networkManager;
-        [SerializeField] private UnityTransport    _transport;
+        [SerializeField] private NetworkManager  _networkManager;
+        [SerializeField] private UnityTransport  _transport;
 
         [Header("Discovery")]
         [SerializeField] private float _discoveryInterval = 1f;
         [SerializeField] private float _lobbyTimeout      = 5f;
 
         [Header("Bots")]
-        [SerializeField] private bool     _fillWithBots   = false;
-        [SerializeField] private int      _maxBots        = 4;
+        [SerializeField] private bool     _fillWithBots    = false;
+        [SerializeField] private int      _maxBots         = 4;
         [SerializeField] private string[] _botNamePrefixes = { "Player", "Bot", "Pro", "Noob" };
         [SerializeField] private string[] _botNameSuffixes = { "123", "007", "42", "99" };
 
@@ -84,28 +68,22 @@ namespace MidManStudio.Netcode.LocalMultiplayer
 
         #endregion
 
-        #region Events — subscribe before calling Start*/Join*
+        #region Events
 
-        public Action<LocalLobbyData>   OnLobbyDiscovered;
-        public Action<string>           OnLobbyRemoved;         // lobby key
-        public Action<LocalLobbyPlayer> OnPlayerJoined;
-        public Action<ulong>            OnPlayerLeft;
-        public Action<LocalLobbyPlayer> OnPlayerReadyStatusChanged;
-        public Action<bool>             OnHostResult;
-        public Action<bool>             OnJoinResult;
-        public Action                   OnLobbyDisbanded;
-        public Action<string>           OnNetworkStatusChanged; // status string
-
-        /// <summary>
-        /// Fires on ALL clients (including host) when the host triggers game start.
-        /// Subscribe here and load your scene / show your intro.
-        /// The snapshot contains the final player list with team assignments.
-        /// </summary>
+        public Action<LocalLobbyData>    OnLobbyDiscovered;
+        public Action<string>            OnLobbyRemoved;
+        public Action<LocalLobbyPlayer>  OnPlayerJoined;
+        public Action<ulong>             OnPlayerLeft;
+        public Action<LocalLobbyPlayer>  OnPlayerReadyStatusChanged;
+        public Action<bool>              OnHostResult;
+        public Action<bool>              OnJoinResult;
+        public Action                    OnLobbyDisbanded;
+        public Action<string>            OnNetworkStatusChanged;
         public Action<LocalLobbySnapshot> OnGameStartReceived;
 
         /// <summary>
-        /// Fires once when initialization is complete (after the 0.1 s startup delay).
-        /// UI code should wait for this before calling StartSearching() or StartHosting().
+        /// Fires once when the 0.1 s startup delay completes and the manager is ready.
+        /// UI should wait for this before calling StartSearching() or StartHosting().
         /// </summary>
         public Action OnInitialized;
 
@@ -114,7 +92,6 @@ namespace MidManStudio.Netcode.LocalMultiplayer
         #region Singleton
 
         private static LocalLobbyManager _instance;
-
         public static LocalLobbyManager Instance
         {
             get
@@ -124,7 +101,6 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                 return _instance;
             }
         }
-
         public static bool HasInstance => _instance != null;
 
         #endregion
@@ -139,13 +115,13 @@ namespace MidManStudio.Netcode.LocalMultiplayer
         private UdpClient _udpServer;
         private UdpClient _udpClient;
 
-        private LocalLobbyConfig               _activeConfig;
-        private LocalLobbyData                 _currentLobby;
-        private readonly List<LocalLobbyPlayer> _players     = new();
+        private LocalLobbyConfig                    _activeConfig;
+        private LocalLobbyData                      _currentLobby;
+        private readonly List<LocalLobbyPlayer>     _players    = new();
         private readonly Dictionary<string, LocalLobbyData> _discovered = new();
         private NetworkList<NetworkLobbyPlayerData> _netPlayers;
 
-        private string _playerName  = "Player";
+        private string _playerName   = "Player";
         private string _playerIconId = "default";
 
         private ILocalLobbyTeamProvider _teamProvider;
@@ -154,13 +130,13 @@ namespace MidManStudio.Netcode.LocalMultiplayer
 
         #region Properties
 
-        public bool IsHosting     => _isHosting;
-        public bool IsSearching   => _isSearching;
-        public bool IsInLobby     => _networkManager != null &&
-                                     (_networkManager.IsConnectedClient || _networkManager.IsHost);
+        public bool   IsHosting     => _isHosting;
+        public bool   IsSearching   => _isSearching;
+        public bool   IsInLobby     => _networkManager != null &&
+                                       (_networkManager.IsConnectedClient || _networkManager.IsHost);
         /// <summary>True after the 0.1 s startup delay completes.</summary>
-        public bool IsInitialized => _isInitialized;
-        public string PlayerName  => _playerName;
+        public bool   IsInitialized => _isInitialized;
+        public string PlayerName    => _playerName;
 
         #endregion
 
@@ -169,10 +145,8 @@ namespace MidManStudio.Netcode.LocalMultiplayer
         private void Awake()
         {
             if (_instance != null && _instance != this) { Destroy(gameObject); return; }
-            _instance = this;
-
+            _instance   = this;
             _netPlayers = new NetworkList<NetworkLobbyPlayerData>();
-
             LoadPlayerIdentity();
             StartCoroutine(InitAsync());
         }
@@ -189,12 +163,10 @@ namespace MidManStudio.Netcode.LocalMultiplayer
 
             if (!ValidateNetworkManager()) yield break;
 
-            _networkManager.OnClientConnectedCallback    += HandleClientConnected;
-            _networkManager.OnClientDisconnectCallback   += HandleClientDisconnected;
+            _networkManager.OnClientConnectedCallback  += HandleClientConnected;
+            _networkManager.OnClientDisconnectCallback += HandleClientDisconnected;
 
             _isInitialized = true;
-
-            // FIX: fire the event so UI can safely call StartSearching()
             OnInitialized?.Invoke();
 
             MID_Logger.LogInfo(_logLevel, "LocalLobbyManager initialized.",
@@ -232,11 +204,10 @@ namespace MidManStudio.Netcode.LocalMultiplayer
             if (_networkManager != null && _networkManager.IsListening)
             {
                 if (_networkManager.IsServer)
-                {
                     foreach (var id in _networkManager.ConnectedClientsIds.ToList())
                         if (id != _networkManager.LocalClientId)
                             _networkManager.DisconnectClient(id);
-                }
+
                 yield return new WaitForSeconds(0.2f);
                 _networkManager.Shutdown();
                 yield return new WaitForSeconds(0.3f);
@@ -274,8 +245,7 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                 var existing = _players.Find(p => p.ClientId == np.ClientId);
                 if (existing == null)
                 {
-                    var player = new LocalLobbyPlayer(np.ClientId, np.PlayerName.ToString(),
-                                                      np.IsHost)
+                    var player = new LocalLobbyPlayer(np.ClientId, np.PlayerName.ToString(), np.IsHost)
                     {
                         IsReady      = np.IsReady,
                         PlayerIconId = np.PlayerIconId.ToString(),
@@ -311,10 +281,9 @@ namespace MidManStudio.Netcode.LocalMultiplayer
 
             if (_networkManager.IsServer)
             {
-                bool isHost = clientId == _networkManager.LocalClientId;
-                string name = isHost ? _playerName : $"Player {clientId}";
-
-                int teamId = _teamProvider?.OnPlayerJoined(clientId, isHost) ?? -1;
+                bool   isHost  = clientId == _networkManager.LocalClientId;
+                string name    = isHost ? _playerName : $"Player {clientId}";
+                int    teamId  = _teamProvider?.OnPlayerJoined(clientId, isHost) ?? -1;
 
                 AddPlayerLocal(clientId, name, _playerIconId, isHost, false, teamId);
                 StartCoroutine(AddToNetListDelayed(clientId, name, isHost, teamId));
@@ -370,8 +339,6 @@ namespace MidManStudio.Netcode.LocalMultiplayer
         public void SetTeamProvider(ILocalLobbyTeamProvider provider)
         {
             _teamProvider = provider;
-            MID_Logger.LogInfo(_logLevel, "Team provider set.",
-                nameof(LocalLobbyManager));
         }
 
         public async void StartHosting(LocalLobbyConfig config = null)
@@ -388,25 +355,34 @@ namespace MidManStudio.Netcode.LocalMultiplayer
 
             _currentLobby = new LocalLobbyData
             {
-                LobbyName      = _activeConfig.LobbyName,
-                HostName       = _playerName,
-                HostAddress    = GetLocalIP(),
-                Port           = _activeConfig.ServerPort,
-                CurrentPlayers = 1,
-                MaxPlayers     = _activeConfig.MaxPlayers,
-                GameMode       = _activeConfig.GameMode,
-                GameMap        = _activeConfig.GameMap,
-                CustomData     = _activeConfig.CustomData,
+                LobbyName         = _activeConfig.LobbyName,
+                HostName          = _playerName,
+                HostAddress       = GetLocalIP(),
+                Port              = _activeConfig.ServerPort,
+                CurrentPlayers    = 1,
+                MaxPlayers        = _activeConfig.MaxPlayers,
+                GameMode          = _activeConfig.GameMode,
+                GameMap           = _activeConfig.GameMap,
+                CustomData        = _activeConfig.CustomData,
                 LastDiscoveryTime = Time.time,
-                TimeoutTime    = Time.time + _lobbyTimeout
+                TimeoutTime       = Time.time + _lobbyTimeout
             };
 
             try
             {
                 if (!ValidateNetworkManager()) throw new Exception("NetworkManager invalid.");
 
+                // Set the address the client will connect to (the host's LAN IP).
                 _transport.ConnectionData.Address = _currentLobby.HostAddress;
                 _transport.ConnectionData.Port    = (ushort)_activeConfig.ServerPort;
+
+                // FIX: bind the server socket to ALL interfaces (0.0.0.0), not just
+                // loopback (127.0.0.1).  The Inspector default is 127.0.0.1, which
+                // means the server only accepts loopback connections.  Any client that
+                // connects via the LAN/WiFi IP — including a second process on the
+                // same machine — times out because packets arriving on the WiFi
+                // interface are silently dropped.
+                _transport.ConnectionData.ServerListenAddress = "0.0.0.0";
 
                 _isHosting = true;
                 if (!_networkManager.StartHost())
@@ -417,7 +393,9 @@ namespace MidManStudio.Netcode.LocalMultiplayer
 
                 OnHostResult?.Invoke(true);
                 MID_Logger.LogInfo(_logLevel,
-                    $"Hosting lobby '{_currentLobby.LobbyName}' on {_currentLobby.HostAddress}:{_currentLobby.Port}",
+                    $"Hosting '{_currentLobby.LobbyName}' on " +
+                    $"{_currentLobby.HostAddress}:{_currentLobby.Port} " +
+                    $"(ServerListenAddress=0.0.0.0)",
                     nameof(LocalLobbyManager));
             }
             catch (Exception e)
@@ -477,6 +455,10 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                 _players.Clear();
                 _currentLobby = lobby;
 
+                MID_Logger.LogInfo(_logLevel,
+                    $"Joining {lobby.HostAddress}:{lobby.Port}",
+                    nameof(LocalLobbyManager));
+
                 if (!_networkManager.StartClient())
                     throw new Exception("StartClient() returned false.");
 
@@ -490,7 +472,7 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                     }
                 }
 
-                throw new Exception("Connection timeout.");
+                throw new Exception("Connection timeout — server may not be reachable.");
             }
             catch (Exception e)
             {
@@ -590,30 +572,32 @@ namespace MidManStudio.Netcode.LocalMultiplayer
             if (_isHosting) { if (fill) FillWithBots(); else RemoveAllBots(); }
         }
 
-        public List<LocalLobbyPlayer> GetPlayers() => new List<LocalLobbyPlayer>(_players);
-        public LocalLobbyData GetCurrentLobby() => _currentLobby;
-        public int RealPlayerCount => _players.Count(p => !p.IsBot);
+        public List<LocalLobbyPlayer> GetPlayers()         => new(_players);
+        public LocalLobbyData         GetCurrentLobby()    => _currentLobby;
+        public int                    RealPlayerCount      => _players.Count(p => !p.IsBot);
 
         #endregion
 
         #region Public API — Game Start
 
-        /// <summary>
-        /// Host calls this to start the game.
-        /// Validates all players ready, prepares team assignments via the team provider,
-        /// then fires OnGameStartReceived on all connected clients (including host).
-        /// </summary>
         public void RequestGameStart()
         {
-            if (!IsHost) { MID_Logger.LogError(_logLevel, "Only host can start the game.", nameof(LocalLobbyManager)); return; }
-            if (!AreAllPlayersReady()) { MID_Logger.LogError(_logLevel, "Not all players are ready.", nameof(LocalLobbyManager)); return; }
+            if (!IsHost)
+            {
+                MID_Logger.LogError(_logLevel, "Only host can start the game.", nameof(LocalLobbyManager));
+                return;
+            }
+            if (!AreAllPlayersReady())
+            {
+                MID_Logger.LogError(_logLevel, "Not all players are ready.", nameof(LocalLobbyManager));
+                return;
+            }
 
             _teamProvider?.OnPrepareGameStart(_players);
-
             string serializedTeams = _teamProvider?.SerializeState() ?? "";
             GameStartClientRpc(serializedTeams);
 
-            MID_Logger.LogInfo(_logLevel, "Game start triggered — sent to all clients.",
+            MID_Logger.LogInfo(_logLevel, "Game start triggered.",
                 nameof(LocalLobbyManager));
         }
 
@@ -646,10 +630,15 @@ namespace MidManStudio.Netcode.LocalMultiplayer
             {
                 using var unityClass = new AndroidJavaClass("com.unity3d.player.UnityPlayer");
                 using var activity   = unityClass.GetStatic<AndroidJavaObject>("currentActivity");
-                using var intent     = new AndroidJavaObject("android.content.Intent", "android.settings.WIRELESS_SETTINGS");
+                using var intent     = new AndroidJavaObject("android.content.Intent",
+                                           "android.settings.WIRELESS_SETTINGS");
                 activity.Call("startActivity", intent);
             }
-            catch (Exception e) { MID_Logger.LogError(_logLevel, $"Cannot open hotspot settings: {e.Message}", nameof(LocalLobbyManager)); }
+            catch (Exception e)
+            {
+                MID_Logger.LogError(_logLevel, $"Cannot open hotspot settings: {e.Message}",
+                    nameof(LocalLobbyManager));
+            }
 #elif UNITY_IOS && !UNITY_EDITOR
             UnityEngine.Application.OpenURL("App-Prefs:root=WIFI");
 #endif
@@ -662,10 +651,15 @@ namespace MidManStudio.Netcode.LocalMultiplayer
             {
                 using var unityClass = new AndroidJavaClass("com.unity3d.player.UnityPlayer");
                 using var activity   = unityClass.GetStatic<AndroidJavaObject>("currentActivity");
-                using var intent     = new AndroidJavaObject("android.content.Intent", "android.settings.WIFI_SETTINGS");
+                using var intent     = new AndroidJavaObject("android.content.Intent",
+                                           "android.settings.WIFI_SETTINGS");
                 activity.Call("startActivity", intent);
             }
-            catch (Exception e) { MID_Logger.LogError(_logLevel, $"Cannot open WiFi settings: {e.Message}", nameof(LocalLobbyManager)); }
+            catch (Exception e)
+            {
+                MID_Logger.LogError(_logLevel, $"Cannot open WiFi settings: {e.Message}",
+                    nameof(LocalLobbyManager));
+            }
 #elif UNITY_IOS && !UNITY_EDITOR
             UnityEngine.Application.OpenURL("App-Prefs:root=WIFI");
 #endif
@@ -716,9 +710,9 @@ namespace MidManStudio.Netcode.LocalMultiplayer
             {
                 if (_netPlayers[i].ClientId != clientId) continue;
                 var np = _netPlayers[i];
-                np.PlayerName  = name;
+                np.PlayerName   = name;
                 np.PlayerIconId = iconId;
-                _netPlayers[i] = np;
+                _netPlayers[i]  = np;
                 break;
             }
             BroadcastNameUpdateClientRpc(clientId, name, iconId);
@@ -771,8 +765,7 @@ namespace MidManStudio.Netcode.LocalMultiplayer
             var snapshot = new LocalLobbySnapshot(_currentLobby, _players);
             OnGameStartReceived?.Invoke(snapshot);
 
-            MID_Logger.LogInfo(_logLevel, "Game start received.",
-                nameof(LocalLobbyManager));
+            MID_Logger.LogInfo(_logLevel, "Game start received.", nameof(LocalLobbyManager));
         }
 
         #endregion
@@ -785,10 +778,14 @@ namespace MidManStudio.Netcode.LocalMultiplayer
             {
                 _udpServer = new UdpClient();
                 _udpServer.EnableBroadcast = true;
-                _udpServer.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+                _udpServer.Client.SetSocketOption(
+                    SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
                 _udpServer.Client.Bind(new IPEndPoint(IPAddress.Any, broadcastPort));
+
                 ListenAndBroadcast(broadcastPort);
-                MID_Logger.LogInfo(_logLevel, $"Discovery server started on port {broadcastPort}.",
+
+                MID_Logger.LogInfo(_logLevel,
+                    $"Discovery server started on port {broadcastPort}.",
                     nameof(LocalLobbyManager));
             }
             catch (Exception e)
@@ -801,9 +798,7 @@ namespace MidManStudio.Netcode.LocalMultiplayer
 
         private async void ListenAndBroadcast(int broadcastPort)
         {
-            var broadcastTask = BroadcastLoop(broadcastPort);
-            var listenTask    = ListenForDiscoveryRequests();
-            await Task.WhenAll(broadcastTask, listenTask);
+            await Task.WhenAll(BroadcastLoop(broadcastPort), ListenForDiscoveryRequests());
         }
 
         private async Task BroadcastLoop(int broadcastPort)
@@ -818,24 +813,27 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                     string json = JsonUtility.ToJson(_currentLobby);
                     byte[] data = System.Text.Encoding.UTF8.GetBytes(json);
 
-                    // Broadcast to all subnet broadcast addresses
                     foreach (var addr in GetBroadcastAddresses())
-                        await _udpServer.SendAsync(data, data.Length, new IPEndPoint(addr, broadcastPort));
+                        await _udpServer.SendAsync(data, data.Length,
+                            new IPEndPoint(addr, broadcastPort));
 
-                    // FIX: also send to loopback so same-machine clients can receive it
+                    // Also send to loopback so a client on the same machine can receive
+                    // responses to its DISCOVER_LOBBY requests without relying on OS
+                    // broadcast loopback (which is unreliable on some platforms).
                     try
                     {
                         await _udpServer.SendAsync(data, data.Length,
                             new IPEndPoint(IPAddress.Loopback, broadcastPort));
                     }
-                    catch { /* loopback optional — ignore if not available */ }
+                    catch { /* loopback optional */ }
 
                     await Task.Delay((int)(_discoveryInterval * 1000));
                 }
                 catch (Exception e)
                 {
                     if (_isHosting)
-                        MID_Logger.LogError(_logLevel, $"Broadcast error: {e.Message}", nameof(LocalLobbyManager));
+                        MID_Logger.LogError(_logLevel, $"Broadcast error: {e.Message}",
+                            nameof(LocalLobbyManager));
                 }
             }
         }
@@ -846,18 +844,21 @@ namespace MidManStudio.Netcode.LocalMultiplayer
             {
                 try
                 {
-                    var result  = await _udpServer.ReceiveAsync();
-                    string msg  = System.Text.Encoding.UTF8.GetString(result.Buffer);
+                    var result = await _udpServer.ReceiveAsync();
+                    string msg = System.Text.Encoding.UTF8.GetString(result.Buffer);
+
                     if (msg == "DISCOVER_LOBBY")
                     {
-                        byte[] resp = System.Text.Encoding.UTF8.GetBytes(JsonUtility.ToJson(_currentLobby));
+                        byte[] resp = System.Text.Encoding.UTF8.GetBytes(
+                            JsonUtility.ToJson(_currentLobby));
                         await _udpServer.SendAsync(resp, resp.Length, result.RemoteEndPoint);
                     }
                 }
                 catch (Exception e)
                 {
                     if (_isHosting)
-                        MID_Logger.LogError(_logLevel, $"Discovery listen error: {e.Message}", nameof(LocalLobbyManager));
+                        MID_Logger.LogError(_logLevel, $"Discovery listen error: {e.Message}",
+                            nameof(LocalLobbyManager));
                 }
             }
         }
@@ -865,7 +866,9 @@ namespace MidManStudio.Netcode.LocalMultiplayer
         private void StopDiscoveryServer()
         {
             if (_udpServer == null) return;
-            _udpServer.Close(); _udpServer.Dispose(); _udpServer = null;
+            _udpServer.Close();
+            _udpServer.Dispose();
+            _udpServer = null;
         }
 
         #endregion
@@ -878,8 +881,10 @@ namespace MidManStudio.Netcode.LocalMultiplayer
             {
                 _udpClient = new UdpClient();
                 _udpClient.EnableBroadcast = true;
-                _udpClient.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+                _udpClient.Client.SetSocketOption(
+                    SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
                 _udpClient.Client.Bind(new IPEndPoint(IPAddress.Any, 0));
+
                 ListenForBroadcasts();
                 SendDiscoveryRequests(broadcastPort);
             }
@@ -908,17 +913,18 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                         lobby.LastDiscoveryTime = Time.time;
                         lobby.TimeoutTime       = Time.time + _lobbyTimeout;
 
-                        string key = lobby.Key;
-                        bool isNew = !_discovered.ContainsKey(key);
+                        string key   = lobby.Key;
+                        bool   isNew = !_discovered.ContainsKey(key);
                         _discovered[key] = lobby;
                         if (isNew) OnLobbyDiscovered?.Invoke(lobby);
                     }
-                    catch { /* malformed packet */ }
+                    catch { /* malformed packet — ignore */ }
                 }
                 catch (Exception e)
                 {
                     if (_isSearching && _udpClient != null)
-                        MID_Logger.LogError(_logLevel, $"Listen error: {e.Message}", nameof(LocalLobbyManager));
+                        MID_Logger.LogError(_logLevel, $"Listen error: {e.Message}",
+                            nameof(LocalLobbyManager));
                 }
             }
         }
@@ -930,26 +936,27 @@ namespace MidManStudio.Netcode.LocalMultiplayer
             {
                 try
                 {
-                    // Send to all broadcast addresses on the LAN
                     foreach (var addr in GetBroadcastAddresses())
-                        await _udpClient.SendAsync(data, data.Length, new IPEndPoint(addr, broadcastPort));
+                        await _udpClient.SendAsync(data, data.Length,
+                            new IPEndPoint(addr, broadcastPort));
 
-                    // FIX: also send to loopback for same-machine discovery.
-                    // The server is bound to broadcastPort on all interfaces; it will receive
-                    // this and respond directly to our source port, which ListenForBroadcasts picks up.
+                    // Send directly to loopback so the host on the same machine receives
+                    // the request on its bound socket and responds to our source port.
+                    // This is the reliable same-machine discovery path.
                     try
                     {
                         await _udpClient.SendAsync(data, data.Length,
                             new IPEndPoint(IPAddress.Loopback, broadcastPort));
                     }
-                    catch { /* loopback optional — ignore if not available */ }
+                    catch { /* loopback optional */ }
 
                     await Task.Delay((int)(_discoveryInterval * 1000));
                 }
                 catch (Exception e)
                 {
                     if (_isSearching)
-                        MID_Logger.LogError(_logLevel, $"Discovery send error: {e.Message}", nameof(LocalLobbyManager));
+                        MID_Logger.LogError(_logLevel, $"Discovery send error: {e.Message}",
+                            nameof(LocalLobbyManager));
                 }
             }
         }
@@ -957,7 +964,9 @@ namespace MidManStudio.Netcode.LocalMultiplayer
         private void StopDiscoveryClient()
         {
             if (_udpClient == null) return;
-            _udpClient.Close(); _udpClient.Dispose(); _udpClient = null;
+            _udpClient.Close();
+            _udpClient.Dispose();
+            _udpClient = null;
         }
 
         private void TickLobbyTimeout()
@@ -995,10 +1004,11 @@ namespace MidManStudio.Netcode.LocalMultiplayer
             {
                 for (int i = 0; i < needed - current; i++)
                 {
-                    ulong botId = NextBotId();
-                    string name = BotName();
-                    int teamId  = _teamProvider?.OnPlayerJoined(botId, false) ?? -1;
-                    var bot     = new LocalLobbyPlayer(botId, name, false, true) { IsReady = true, TeamId = teamId };
+                    ulong  botId  = NextBotId();
+                    string name   = BotName();
+                    int    teamId = _teamProvider?.OnPlayerJoined(botId, false) ?? -1;
+                    var    bot    = new LocalLobbyPlayer(botId, name, false, true)
+                                   { IsReady = true, TeamId = teamId };
                     _players.Add(bot);
                     OnPlayerJoined?.Invoke(bot);
                     OnPlayerReadyStatusChanged?.Invoke(bot);
@@ -1049,7 +1059,7 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                                     bool isHost, bool isBot, int teamId)
         {
             var p = new LocalLobbyPlayer(id, name, isHost, isBot)
-            { PlayerIconId = iconId, TeamId = teamId };
+                    { PlayerIconId = iconId, TeamId = teamId };
             _players.Add(p);
             OnPlayerJoined?.Invoke(p);
         }
@@ -1071,13 +1081,13 @@ namespace MidManStudio.Netcode.LocalMultiplayer
             }
         }
 
-        private IEnumerator AddToNetListDelayed(ulong clientId, string name, bool isHost, int teamId)
+        private IEnumerator AddToNetListDelayed(ulong clientId, string name,
+                                                bool isHost, int teamId)
         {
             yield return new WaitForSeconds(0.5f);
             if (!IsServer || !IsSpawned) yield break;
 
             var p = _players.Find(x => x.ClientId == clientId);
-
             _netPlayers.Add(new NetworkLobbyPlayerData
             {
                 ClientId     = clientId,
@@ -1106,7 +1116,8 @@ namespace MidManStudio.Netcode.LocalMultiplayer
         {
             if (_networkManager == null)
             {
-                MID_Logger.LogError(_logLevel, "NetworkManager is null.", nameof(LocalLobbyManager));
+                MID_Logger.LogError(_logLevel, "NetworkManager is null.",
+                    nameof(LocalLobbyManager));
                 return false;
             }
             if (_networkManager.NetworkConfig == null)
@@ -1132,7 +1143,8 @@ namespace MidManStudio.Netcode.LocalMultiplayer
             }
             catch (Exception e)
             {
-                MID_Logger.LogError(_logLevel, $"Cleanup error: {e.Message}", nameof(LocalLobbyManager));
+                MID_Logger.LogError(_logLevel, $"Cleanup error: {e.Message}",
+                    nameof(LocalLobbyManager));
             }
         }
 
@@ -1154,12 +1166,12 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                         if (addr.Address.AddressFamily != AddressFamily.InterNetwork) continue;
                         string ip = addr.Address.ToString();
                         if (!ip.StartsWith("192.168.43.") && !ip.StartsWith("192.168.49.") &&
-                            !ip.StartsWith("172.20.10.") && !IPAddress.IsLoopback(addr.Address))
+                            !ip.StartsWith("172.20.10.")  && !IPAddress.IsLoopback(addr.Address))
                             return ip;
                     }
                 }
 
-                // Priority 2: Hotspot IPs (host-side)
+                // Priority 2: Hotspot IPs
                 foreach (var ni in interfaces)
                 {
                     foreach (var addr in ni.GetIPProperties().UnicastAddresses)
@@ -1185,7 +1197,8 @@ namespace MidManStudio.Netcode.LocalMultiplayer
             }
             catch (Exception e)
             {
-                MID_Logger.LogError(_logLevel, $"GetLocalIP error: {e.Message}", nameof(LocalLobbyManager));
+                MID_Logger.LogError(_logLevel, $"GetLocalIP error: {e.Message}",
+                    nameof(LocalLobbyManager));
             }
 
             return "127.0.0.1";
@@ -1209,7 +1222,7 @@ namespace MidManStudio.Netcode.LocalMultiplayer
 
                         byte[] ip   = ua.Address.GetAddressBytes();
                         byte[] mask = ua.IPv4Mask.GetAddressBytes();
-                        var bc      = new byte[4];
+                        var    bc   = new byte[4];
                         for (int i = 0; i < 4; i++) bc[i] = (byte)(ip[i] | ~mask[i]);
                         list.Add(new IPAddress(bc));
                     }
@@ -1217,7 +1230,8 @@ namespace MidManStudio.Netcode.LocalMultiplayer
             }
             catch (Exception e)
             {
-                MID_Logger.LogError(_logLevel, $"GetBroadcastAddresses error: {e.Message}", nameof(LocalLobbyManager));
+                MID_Logger.LogError(_logLevel, $"GetBroadcastAddresses error: {e.Message}",
+                    nameof(LocalLobbyManager));
             }
             return list;
         }
