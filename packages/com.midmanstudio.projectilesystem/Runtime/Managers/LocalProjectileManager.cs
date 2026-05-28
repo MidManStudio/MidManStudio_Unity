@@ -1,16 +1,16 @@
 // LocalProjectileManager.cs
 // CHANGES:
+//   + FIX (piercing): Added _pierceImmunity2D / _pierceImmunity3D HashSets.
+//     Cleared AFTER tick (so the bullet has moved), BEFORE collision check.
+//     ProcessHit2D/3D checks immunity before processing, adds to immunity on
+//     a successful pierce (collisionsRemaining still > 0 after the hit).
+//     Without this fix a slow or large piercing projectile would drain all
+//     pierce charges in a single frame by hitting the same target every tick.
 //   + FixedUpdate now calls TrailPool.SyncToSimulation3D for _projs3D buffer.
 //   + Awake finds MID_MasterProjectileSystem and auto-wires if it has null _localManager.
-//   + OnHit event now always fires even when _targets dict has no matching LocalDamageTarget
-//     (raw CollisionTarget path) so TestSceneBootstrapper.OnLocalHit receives all hits.
-//
-// FIX (collision layer filtering):
-//   RegisterTarget2D/3D and RegisterTarget(LocalDamageTarget) now accept an optional
-//   int unityLayer = 0 parameter. ProcessHit2D/3D filter hits against the projectile
-//   config's HitLayers mask before applying damage, matching ServerProjectileAuthority
-//   behaviour. Prevents pattern shots from damaging the shooting player when the Player
-//   layer is excluded from HitLayers in the config.
+//   + OnHit event always fires even when _targets dict has no matching LocalDamageTarget.
+//   + RegisterTarget2D/3D accept an optional int unityLayer = 0 parameter.
+//     ProcessHit2D/3D filter hits against the projectile config's HitLayers mask.
 
 using System;
 using System.Collections.Generic;
@@ -35,7 +35,6 @@ namespace MidManStudio.Projectiles.Managers
         public float      Radius;
         public bool       Active;
         public GameObject SourceObject;
-        /// <summary>Unity layer index (0-31) used for HitLayers mask filtering.</summary>
         public int        UnityLayer;
     }
 
@@ -108,6 +107,18 @@ namespace MidManStudio.Projectiles.Managers
 
         #endregion
 
+        #region Pierce Immunity
+        // FIX: same immunity pattern as ServerProjectileAuthority.
+        // Cleared after tick, before collision.
+
+        private readonly HashSet<long> _pierceImmunity2D = new HashSet<long>(64);
+        private readonly HashSet<long> _pierceImmunity3D = new HashSet<long>(64);
+
+        private static long PierceKey(uint projId, uint targetId)
+            => ((long)projId << 32) | targetId;
+
+        #endregion
+
         #region Local State
 
         private uint _nextProjId = 1;
@@ -118,7 +129,6 @@ namespace MidManStudio.Projectiles.Managers
         private readonly Dictionary<uint, LocalDamageTarget> _targets
             = new Dictionary<uint, LocalDamageTarget>(64);
 
-        // Layer lookup keyed by TargetId — for HitLayers mask filtering
         private readonly Dictionary<uint, int> _targetLayers2D
             = new Dictionary<uint, int>(64);
         private readonly Dictionary<uint, int> _targetLayers3D
@@ -197,6 +207,10 @@ namespace MidManStudio.Projectiles.Managers
                 ProjectileLib.tick_projectiles(
                     _pinProjs2D.AddrOfPinnedObject(), _count2D, dt);
 
+                // FIX: clear pierce immunity AFTER tick (bullet has moved),
+                // BEFORE collision check, so stale pairs are flushed.
+                _pierceImmunity2D.Clear();
+
                 if (_targetCount2D > 0)
                 {
                     ProjectileLib.check_hits_grid_ex(
@@ -219,6 +233,8 @@ namespace MidManStudio.Projectiles.Managers
                 ProjectileLib.tick_projectiles_3d(
                     _pinProjs3D.AddrOfPinnedObject(), _count3D, dt);
 
+                _pierceImmunity3D.Clear();
+
                 if (_targetCount3D > 0)
                 {
                     ProjectileLib.check_hits_grid_3d(
@@ -232,7 +248,6 @@ namespace MidManStudio.Projectiles.Managers
                         ProcessHit3D(in _hits3D[i]);
                 }
 
-                // Sync 3D trail renderer positions every physics step
                 _trailPool?.SyncToSimulation3D(_projs3D, _count3D);
                 CompactDead3D();
             }
@@ -258,10 +273,6 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Layer Filter Helpers
 
-        /// <summary>
-        /// Returns true if the projectile config's HitLayers mask includes the target's layer.
-        /// Always returns true when the config is not found or HitLayers = ~0 (all layers).
-        /// </summary>
         private bool PassesLayerFilter2D(uint projId, uint targetId)
         {
             if (!_targetLayers2D.TryGetValue(targetId, out int layer)) return true;
@@ -294,7 +305,7 @@ namespace MidManStudio.Projectiles.Managers
                 ? ProjectileRegistry.Instance.Get(configId) : null;
             if (cfg == null) return true;
             int mask = cfg.HitLayers.value;
-            if (mask == -1) return true;   // Everything — skip check
+            if (mask == -1) return true;
             return (mask & (1 << targetLayer)) != 0;
         }
 
@@ -306,7 +317,10 @@ namespace MidManStudio.Projectiles.Managers
         {
             if (!_localData.TryGetValue(hit.ProjId, out var data)) return;
 
-            // Layer filter: skip if projectile config doesn't allow hitting this layer
+            // FIX: pierce immunity check
+            long pierceKey = PierceKey(hit.ProjId, hit.TargetId);
+            if (_pierceImmunity2D.Contains(pierceKey)) return;
+
             if (!PassesLayerFilter2D(hit.ProjId, hit.TargetId)) return;
 
             var config = ProjectileRegistry.Instance.Get(data.ConfigId);
@@ -343,13 +357,16 @@ namespace MidManStudio.Projectiles.Managers
             data.CollisionsRemaining--;
             if (data.CollisionsRemaining <= 0)
             {
+                // Kill projectile
                 int idx = (int)hit.ProjIndex;
                 if (idx < _count2D) _projs2D[idx].Alive = 0;
                 _localData.Remove(hit.ProjId);
             }
             else
             {
+                // FIX: projectile pierced — update count and add immunity
                 _localData[hit.ProjId] = data;
+                _pierceImmunity2D.Add(pierceKey);
             }
         }
 
@@ -357,7 +374,9 @@ namespace MidManStudio.Projectiles.Managers
         {
             if (!_localData.TryGetValue(hit.ProjId, out var data)) return;
 
-            // Layer filter
+            long pierceKey = PierceKey(hit.ProjId, hit.TargetId);
+            if (_pierceImmunity3D.Contains(pierceKey)) return;
+
             if (!PassesLayerFilter3D(hit.ProjId, hit.TargetId)) return;
 
             var config = ProjectileRegistry.Instance.Get(data.ConfigId);
@@ -401,6 +420,7 @@ namespace MidManStudio.Projectiles.Managers
             else
             {
                 _localData[hit.ProjId] = data;
+                _pierceImmunity3D.Add(pierceKey);
             }
         }
 
@@ -538,7 +558,6 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Public API — Targets (rich LocalDamageTarget objects)
 
-        /// <param name="unityLayer">The target GameObject's Unity layer (0-31).</param>
         public uint RegisterTarget(LocalDamageTarget target, int unityLayer = 0)
         {
             if (target == null) return 0;
@@ -604,7 +623,6 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Public API — Targets (direct CollisionTarget structs)
 
-        /// <param name="unityLayer">The target GameObject's Unity layer (0-31).</param>
         public void RegisterTarget2D(in CollisionTarget target, int unityLayer = 0)
         {
             _targetLayers2D[target.TargetId] = unityLayer;
@@ -630,7 +648,6 @@ namespace MidManStudio.Projectiles.Managers
             }
             _targets2D[_targetCount2D++] = target;
 
-            // Ensure _targets dict has an entry for hit-event routing
             if (!_targets.ContainsKey(target.TargetId))
             {
                 _targets[target.TargetId] = new LocalDamageTarget
@@ -645,7 +662,6 @@ namespace MidManStudio.Projectiles.Managers
             }
         }
 
-        /// <param name="unityLayer">The target GameObject's Unity layer (0-31).</param>
         public void RegisterTarget3D(in CollisionTarget3D target, int unityLayer = 0)
         {
             _targetLayers3D[target.TargetId] = unityLayer;
