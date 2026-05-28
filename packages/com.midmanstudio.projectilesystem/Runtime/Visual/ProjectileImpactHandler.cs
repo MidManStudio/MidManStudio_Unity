@@ -33,6 +33,7 @@ using MidManStudio.Core.Pools;
 using MidManStudio.Core.Logging;
 using MidManStudio.Core.FX;
 using MidManStudio.Projectiles.Config;
+using MidManStudio.Core.Audio;
 
 namespace MidManStudio.Projectiles.Visuals
 {

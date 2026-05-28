@@ -1909,6 +1909,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1fb048779c7a3416db63808f2d0b2790, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  _preferGlobalFX: 1
+  _defaultGlobalFXType: 0
+  _defaultGlobalFXParticleCount: 6
+  _configEffectTypeBindings: []
+  _headshotEffectType: 5
+  _headshotParticleCount: 12
   _defaultParticleType: 100
   _bindings: []
   _logLevel: 0
@@ -14739,7 +14745,7 @@ MonoBehaviour:
     effectType: 20
     displayName: 
     particleSystem: {fileID: 2098443076}
-    defaultParticleCount: 4
+    defaultParticleCount: 1
   _spatialThrottleRadius: 0.4
   _maxImpactPerFrame: 12
   _maxMuzzlePerFrame: 8
