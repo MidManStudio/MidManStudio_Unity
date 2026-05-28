@@ -1,7 +1,19 @@
-// MID_ProjectileNetworkBridge.cs
-// FIX: ProjectileFireRequest now carries per-projectile directions so patterns
-//      work correctly in networked mode. ExtraDirections serialized manually.
-// All previous host-mode fixes retained.
+// packages/com.midmanstudio.projectilesystem/Runtime/Network/MID_ProjectileNetworkBridge.cs
+//
+// FIX (pattern projectiles vibrating in host mode):
+//   SpawnConfirmedClientRpc now returns early when IsServer (i.e. host or
+//   dedicated server). On a host, ProjectileRenderer2D already renders
+//   projectiles directly from the server's Rust buffer every LateUpdate.
+//   Previously, ClientPredictionManager also spawned separate pool-visual
+//   objects for the host's own projectiles, producing two sets of visuals at
+//   slightly different positions every frame — the source of the vibration.
+//   Pure clients (IsServer == false) still use prediction visuals as before.
+//   SendSnapshotClientRpc / HitConfirmedClientRpc are unchanged — the
+//   prediction dict is empty for host so they are harmless no-ops.
+//
+// Previous fixes retained:
+//   + ProjectileFireRequest carries per-projectile directions for patterns.
+//   + All host-mode fixes retained.
 
 using System;
 using System.Runtime.InteropServices;
@@ -24,7 +36,7 @@ namespace MidManStudio.Projectiles.Network
     {
         public ushort  ConfigId;
         public Vector3 Origin;
-        public Vector3 Direction;       // direction for projectile[0]
+        public Vector3 Direction;
         public float   Speed;
         public uint    RngSeed;
         public byte    ProjectileCount;
@@ -34,12 +46,8 @@ namespace MidManStudio.Projectiles.Network
         public byte    WeaponLevel;
         public float   DamageMultiplier;
         public int     ClientFireTick;
-
-        // Per-projectile directions for pattern support.
-        // ExtraDirectionCount = ProjectileCount - 1 (capped at 63).
-        // ExtraDirections[i] is the direction for projectile[i+1].
         public byte      ExtraDirectionCount;
-        public Vector3[] ExtraDirections;   // may be null when ExtraDirectionCount == 0
+        public Vector3[] ExtraDirections;
 
         public void NetworkSerialize<T>(BufferSerializer<T> s) where T : IReaderWriter
         {
@@ -83,8 +91,6 @@ namespace MidManStudio.Projectiles.Network
         public Vector3 Direction;
         public float   Speed;
         public ulong   OwnerMidId;
-
-        // Per-projectile directions mirrored from request
         public byte      ExtraDirectionCount;
         public Vector3[] ExtraDirections;
 
@@ -113,7 +119,6 @@ namespace MidManStudio.Projectiles.Network
             }
         }
 
-        /// <summary>Get the direction for projectile at index i.</summary>
         public Vector3 GetDirection(int i)
         {
             if (i == 0) return Direction;
@@ -241,9 +246,7 @@ namespace MidManStudio.Projectiles.Network
                 DamageMultiplier       = request.DamageMultiplier
             };
 
-            // FIX: reconstruct all per-projectile spawn points from directions
-            var spawnPts = BuildServerSpawnPoints(request);
-
+            var spawnPts   = BuildServerSpawnPoints(request);
             var rustParams = ProjectileRegistry.Instance.GetRustSpawnParams(
                 request.ConfigId, clampedSpeed);
 
@@ -339,10 +342,19 @@ namespace MidManStudio.Projectiles.Network
 
         #region Server → Clients
 
+        /// <summary>
+        /// FIX: Returns early for IsServer (host AND dedicated server).
+        /// On a host, ProjectileRenderer2D renders directly from the Rust buffer,
+        /// so spawning ClientPredictionManager pool-visuals would create a second
+        /// set of visuals at slightly different positions — causing the visible
+        /// vibration with pattern shots. Pure clients (IsServer==false) still
+        /// receive prediction visuals as before since they have no local Rust buffer.
+        /// </summary>
         [ClientRpc]
         public void SpawnConfirmedClientRpc(SpawnConfirmation confirmation)
         {
-            if (IsServer && !IsClient) return;
+            // Server (host or dedicated): renderer handles visuals — skip prediction.
+            if (IsServer) return;
 
             MID_Logger.LogDebug(_logLevel,
                 $"SpawnConfirmedClientRpc: baseId={confirmation.BaseProjId} " +
@@ -390,11 +402,6 @@ namespace MidManStudio.Projectiles.Network
             return Mathf.Clamp(deltaTicks * tickInterval, 0f, 0.5f);
         }
 
-        /// <summary>
-        /// FIX: Reconstruct per-projectile spawn points from the fire request.
-        /// Each projectile now uses its own direction from ExtraDirections,
-        /// not a duplicate of the first direction.
-        /// </summary>
         private static SpawnPoint[] BuildServerSpawnPoints(ProjectileFireRequest request)
         {
             int count = request.ProjectileCount;
