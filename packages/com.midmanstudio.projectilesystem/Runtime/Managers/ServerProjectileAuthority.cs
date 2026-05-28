@@ -3,16 +3,18 @@
 // Runs tick + collision every FixedUpdate.
 // Sends position snapshots every N ticks for client reconciliation.
 //
-// FIX: Added TrailPool?.SyncToSimulation(_projs2D, _count2D) after Tick2D so
-//      trail renderer positions are updated every physics step on the server.
+// FIX (piercing): Added _pierceImmunity2D / _pierceImmunity3D HashSets.
+//   After a projectile ticks (moves), immunity is cleared so stale pairs are
+//   removed.  Collision is then checked.  If a piercing projectile hits a
+//   target but stays registered, that (projId, targetId) pair is added to
+//   immunity so the same target cannot be hit again until the next tick
+//   (by which time the projectile has moved on).  Without this the Rust
+//   collision system reported a hit every FixedUpdate for as long as the
+//   bullet overlapped the target, draining collisionsRemaining in one frame.
 //
-// FIX (3D trails): Added TrailPool?.SyncToSimulation3D(_projs3D, _count3D) after
-//      Tick3D. Previously missing entirely — 3D sim trails never moved.
-//
-// ADDED: Collision layer filtering. RegisterTarget2D/3D now accepts an optional
-//      int unityLayer parameter. Hits are filtered in Collision2D/3D by checking
-//      whether the projectile config's HitLayers mask includes the target's layer.
-//      Defaults to layer 0 (pass-all when config HitLayers = ~0).
+// FIX: Added TrailPool?.SyncToSimulation(_projs2D, _count2D) after Tick2D.
+// FIX (3D trails): Added TrailPool?.SyncToSimulation3D after Tick3D.
+// ADDED: Collision layer filtering (retained from previous version).
 
 using System;
 using System.Runtime.InteropServices;
@@ -133,14 +135,28 @@ namespace MidManStudio.Projectiles.Managers
         #endregion
 
         #region Layer Tracking
-        // Stores the Unity layer of each registered target for hit filtering.
-        // Key = TargetId, Value = Unity layer index (0-31).
 
         private readonly System.Collections.Generic.Dictionary<uint, int> _targetLayerDict2D
             = new System.Collections.Generic.Dictionary<uint, int>(64);
-
         private readonly System.Collections.Generic.Dictionary<uint, int> _targetLayerDict3D
             = new System.Collections.Generic.Dictionary<uint, int>(64);
+
+        #endregion
+
+        #region Pierce Immunity
+        // Tracks (projId, targetId) pairs that must not register a collision this
+        // tick because the projectile already pierced that target and hasn't moved
+        // away yet.  Cleared AFTER tick (position update) and BEFORE collision
+        // check, so stale immunity is removed once the bullet has moved.
+
+        private readonly System.Collections.Generic.HashSet<long> _pierceImmunity2D
+            = new System.Collections.Generic.HashSet<long>(64);
+        private readonly System.Collections.Generic.HashSet<long> _pierceImmunity3D
+            = new System.Collections.Generic.HashSet<long>(64);
+
+        /// Pack (projId, targetId) into one long key — no heap allocation.
+        private static long PierceKey(uint projId, uint targetId)
+            => ((long)projId << 32) | targetId;
 
         #endregion
 
@@ -225,8 +241,16 @@ namespace MidManStudio.Projectiles.Managers
             if (_count2D > 0)
             {
                 Tick2D(dt);
+
+                // FIX: clear pierce immunity AFTER projectiles move (tick) and
+                // BEFORE collision check.  This removes stale immunity from the
+                // previous frame so a fast-moving bullet that has genuinely
+                // entered a new target can hit it, while a slow bullet that is
+                // still overlapping the same target it already pierced will re-hit
+                // only after moving at least one physics step away.
+                _pierceImmunity2D.Clear();
+
                 Collision2D();
-                // Sync trail renderer positions every physics step.
                 TrailPool?.SyncToSimulation(_projs2D, _count2D);
                 CompactDead2D();
             }
@@ -234,9 +258,8 @@ namespace MidManStudio.Projectiles.Managers
             if (_count3D > 0)
             {
                 Tick3D(dt);
+                _pierceImmunity3D.Clear();
                 Collision3D();
-                // FIX: sync 3D trail renderer positions — was previously missing,
-                // causing 3D sim projectile trails to never move from spawn origin.
                 TrailPool?.SyncToSimulation3D(_projs3D, _count3D);
                 CompactDead3D();
             }
@@ -265,8 +288,11 @@ namespace MidManStudio.Projectiles.Managers
                 int     idx = (int)h.ProjIndex;
                 if (idx < 0 || idx >= _count2D) continue;
 
-                // Layer filtering: skip hit if projectile config's HitLayers
-                // does not include the target's Unity layer.
+                // FIX: pierce immunity — skip this (proj, target) pair if
+                // we already processed a hit between them this tick.
+                long pierceKey = PierceKey(h.ProjId, h.TargetId);
+                if (_pierceImmunity2D.Contains(pierceKey)) continue;
+
                 if (!PassesLayerFilter2D(h.ProjId, h.TargetId)) continue;
 
                 bool headshot = CheckHeadshot2D(in h);
@@ -274,7 +300,14 @@ namespace MidManStudio.Projectiles.Managers
 
                 if (!Adapter.IsRegistered(h.ProjId))
                 {
+                    // Projectile is dead (non-piercing, or pierce count exhausted)
                     if (idx < _count2D) _projs2D[idx].Alive = 0;
+                }
+                else
+                {
+                    // Projectile pierced — remember this pair so it won't
+                    // re-hit until the next FixedUpdate (post-tick immunity clear).
+                    _pierceImmunity2D.Add(pierceKey);
                 }
             }
         }
@@ -317,6 +350,9 @@ namespace MidManStudio.Projectiles.Managers
                 int     idx = (int)h.ProjIndex;
                 if (idx < 0 || idx >= _count3D) continue;
 
+                long pierceKey = PierceKey(h.ProjId, h.TargetId);
+                if (_pierceImmunity3D.Contains(pierceKey)) continue;
+
                 if (!PassesLayerFilter3D(h.ProjId, h.TargetId)) continue;
 
                 bool headshot = CheckHeadshot3D(in h);
@@ -325,6 +361,10 @@ namespace MidManStudio.Projectiles.Managers
                 if (!Adapter.IsRegistered(h.ProjId))
                 {
                     if (idx < _count3D) _projs3D[idx].Alive = 0;
+                }
+                else
+                {
+                    _pierceImmunity3D.Add(pierceKey);
                 }
             }
         }
@@ -351,15 +391,10 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Layer Filter Helpers
 
-        /// <summary>
-        /// Returns true if the projectile's config HitLayers includes the target's layer.
-        /// Returns true unconditionally when HitLayers = ~0 (all layers, the default).
-        /// </summary>
         private bool PassesLayerFilter2D(uint projId, uint targetId)
         {
             if (!_targetLayerDict2D.TryGetValue(targetId, out int layer)) return true;
             if (!Adapter.IsRegistered(projId)) return true;
-            // RustSimAdapter stores game data by projId, look up configId from buffer
             ushort configId = GetConfigId2D(projId);
             return PassesLayerMask(configId, layer);
         }
@@ -390,7 +425,6 @@ namespace MidManStudio.Projectiles.Managers
             var cfg = ProjectileRegistry.Instance?.Get(configId);
             if (cfg == null) return true;
             int mask = cfg.HitLayers.value;
-            // -1 (all bits set) means "hit everything" — skip the check
             if (mask == -1) return true;
             return (mask & (1 << targetLayer)) != 0;
         }
@@ -515,7 +549,6 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Public API — Targets
 
-        /// <param name="unityLayer">The target GameObject's Unity layer (0-31). Used for hit layer filtering.</param>
         public void RegisterTarget2D(in CollisionTarget target, int unityLayer = 0)
         {
             _targetLayerDict2D[target.TargetId] = unityLayer;
@@ -529,7 +562,6 @@ namespace MidManStudio.Projectiles.Managers
             _targets2D[_targetCount2D++] = target;
         }
 
-        /// <param name="unityLayer">The target GameObject's Unity layer (0-31). Used for hit layer filtering.</param>
         public void RegisterTarget3D(in CollisionTarget3D target, int unityLayer = 0)
         {
             _targetLayerDict3D[target.TargetId] = unityLayer;
@@ -565,7 +597,7 @@ namespace MidManStudio.Projectiles.Managers
 
         #endregion
 
-        #region Public API — Guided / Wave / Circular Direction Updates
+        #region Public API — Guided / Wave / Circular
 
         public void SetAcceleration2D(uint projId, Vector2 accelDir)
         {
@@ -631,10 +663,7 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Internal Events
 
-        private void OnAdapterProjectileDied(uint projId)
-        {
-            // Trail notification happens in CompactDead — no double-notify needed here.
-        }
+        private void OnAdapterProjectileDied(uint projId) { }
 
         #endregion
 
