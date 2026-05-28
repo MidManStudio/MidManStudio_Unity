@@ -1,14 +1,14 @@
 // packages/com.midmanstudio.projectilesystem/Tests/Runtime/ProjectileTestLobbyUI.cs
 //
-// CHANGES vs original:
-//   + Uses LobbyEntryCard and PlayerEntryCard components instead of raw TMP_Text arrays.
-//   + _lobbyEntries and _playerEntries now keyed to their card component directly.
-//   + OnLobbyDiscovered: Instantiate → card.Populate(data, JoinLobby)
-//   + OnPlayerJoined:    Instantiate → card.Populate(player)
-//   + OnPlayerReadyChanged: card.Refresh(player) — no card teardown
-//   + OnLobbyRemoved: Destroy card GameObject
-//   + OnPlayerLeft:   Destroy card GameObject
-//   + _hostButton label auto-generates lobby name from player name.
+// FIXES vs previous version:
+//   • Start() no longer calls RequestStartSearch() directly — that was a race
+//     condition because LocalLobbyManager._isInitialized is false for 0.1 s
+//     after Awake. Now we subscribe to OnInitialized and start search there.
+//   • BeginSearch() is the single search entry point: it stops any running
+//     search, clears lobby cards, then calls RequestStartSearch().
+//   • BeginSearch() is called on: initialization, returning to browse panel
+//     (OnLobbyDisbanded, OnJoinResult=false, OnHostResult=false, OnLeaveClicked).
+//   • OnHostResult=false now goes back to browse AND restarts search.
 
 using System.Collections.Generic;
 using UnityEngine;
@@ -70,21 +70,16 @@ namespace TestGame
         // ── Lobby config ──────────────────────────────────────────────────────
 
         [Header("Lobby Config")]
-        [SerializeField] private int _maxPlayers   = 4;
-        [SerializeField] private int _serverPort   = 7777;
+        [SerializeField] private int _maxPlayers    = 4;
+        [SerializeField] private int _serverPort    = 7777;
         [SerializeField] private int _broadcastPort = 7778;
 
         // ─────────────────────────────────────────────────────────────────────
         //  State
         // ─────────────────────────────────────────────────────────────────────
 
-        // Key → card component (not the raw GO; the card owns the GO)
-        private readonly Dictionary<string, LobbyEntryCard> _lobbyCards
-            = new Dictionary<string, LobbyEntryCard>(8);
-
-        private readonly Dictionary<ulong, PlayerEntryCard> _playerCards
-            = new Dictionary<ulong, PlayerEntryCard>(8);
-
+        private readonly Dictionary<string, LobbyEntryCard>  _lobbyCards  = new(8);
+        private readonly Dictionary<ulong, PlayerEntryCard>  _playerCards = new(8);
         private bool _localReady;
 
         // ─────────────────────────────────────────────────────────────────────
@@ -110,8 +105,65 @@ namespace TestGame
 
         private void Start()
         {
-            RequestStartSearch();
+            // FIX: do NOT call RequestStartSearch() here.
+            // LocalLobbyManager.InitializeAsync() has a 0.1 s WaitForSeconds before it
+            // sets _isInitialized = true. Calling StartSearching() before that returns
+            // immediately due to the guard check, so discovery never starts.
+            // Instead we subscribe to OnInitialized, which fires after the delay.
             ShowPanel(_panelBrowse);
+
+            if (_lobbyManager != null)
+            {
+                if (_lobbyManager.IsInitialized)
+                {
+                    // Already initialized (e.g. scene was reloaded) — start immediately.
+                    BeginSearch();
+                }
+                else
+                {
+                    // Normal case: wait for the manager's 0.1 s init delay.
+                    _lobbyManager.OnInitialized += OnLobbyManagerInitialized;
+                }
+            }
+            else
+            {
+                MID_Logger.LogError(_logLevel,
+                    "LocalLobbyManager reference is null in ProjectileTestLobbyUI.",
+                    nameof(ProjectileTestLobbyUI));
+            }
+        }
+
+        protected override void OnDestroy()
+        {
+            // Unsubscribe in case Start fired but OnInitialized hadn't yet
+            if (_lobbyManager != null)
+                _lobbyManager.OnInitialized -= OnLobbyManagerInitialized;
+
+            base.OnDestroy();
+        }
+
+        // Called once when the lobby manager finishes its startup delay.
+        private void OnLobbyManagerInitialized()
+        {
+            _lobbyManager.OnInitialized -= OnLobbyManagerInitialized;
+            BeginSearch();
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        //  Search helpers
+        // ─────────────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Single entry point for starting/restarting lobby discovery.
+        /// Clears the lobby card list, stops any running search, then starts a fresh one.
+        /// Call this whenever the browse panel becomes visible.
+        /// </summary>
+        private void BeginSearch()
+        {
+            ClearLobbyCards();
+            RequestStopSearch();
+            RequestStartSearch();
+            SetStatusText("Searching for nearby lobbies…");
         }
 
         // ─────────────────────────────────────────────────────────────────────
@@ -163,7 +215,6 @@ namespace TestGame
 
         protected override void OnPlayerReadyChanged(LocalLobbyPlayer player)
         {
-            // Refresh the existing card in-place — no teardown needed.
             if (_playerCards.TryGetValue(player.ClientId, out var card))
                 card.Refresh(player);
 
@@ -181,8 +232,10 @@ namespace TestGame
             }
             else
             {
+                // FIX: restart search when falling back to browse
                 ShowPanel(_panelBrowse);
                 SetStatusText("Host failed — check WiFi / hotspot.");
+                BeginSearch();
             }
         }
 
@@ -196,8 +249,10 @@ namespace TestGame
             }
             else
             {
+                // FIX: restart search when falling back to browse
                 ShowPanel(_panelBrowse);
                 SetStatusText("Join failed — host may have left.");
+                BeginSearch();
             }
         }
 
@@ -206,6 +261,8 @@ namespace TestGame
             ClearPlayerCards();
             ShowPanel(_panelBrowse);
             SetStatusText("Lobby disbanded by host.");
+            // FIX: restart search so the list isn't permanently empty
+            BeginSearch();
         }
 
         protected override void OnNetworkStatusChanged(string status)
@@ -224,6 +281,7 @@ namespace TestGame
             else if (hasLan && IsShowingPanel(_panelNetworkCheck))
             {
                 ShowPanel(_panelBrowse);
+                BeginSearch();
             }
         }
 
@@ -307,7 +365,9 @@ namespace TestGame
             else
                 RequestLeave();
 
+            // FIX: restart search after returning to browse
             ShowPanel(_panelBrowse);
+            BeginSearch();
         }
 
         // ─────────────────────────────────────────────────────────────────────
