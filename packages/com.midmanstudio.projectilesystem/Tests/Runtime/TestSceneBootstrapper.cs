@@ -1,23 +1,17 @@
-// TestSceneBootstrapper.cs
+// packages/com.midmanstudio.projectilesystem/Tests/Runtime/TestSceneBootstrapper.cs
 //
-// FIXES:
-//   + Targets spawn in OFFLINE mode too (no NetworkManager / not server).
-//   + Subscribes BOTH ServerProjectileAuthority.Adapter.OnProjectileHit (networked)
-//     AND LocalProjectileManager.OnHit (offline) for damage routing.
-//   + Hit events → GlobalFXManager.TriggerImpact + MID_NativeAudioBridge.PlayClip.
-//   + _autoSpawnOffline flag: when true and no LocalLobbyManager is found,
-//     targets and player spawn immediately in Start().
-//   + All 3D collision targets registered (CollisionTarget3D) alongside 2D.
-//   + BobTargets syncs both 2D and 3D collision positions every frame.
-//
-// FIX (layer registration):
-//   RegisterTargetCollision now passes go.layer to RegisterTarget2D/3D so the
-//   projectile system's HitLayers mask can filter per-target layer correctly.
-//   Targets will only be hit by projectiles whose HitLayers includes the target's layer.
-//
-// UPDATED (GlobalFXManager API):
-//   TriggerImpact and TriggerMuzzleFlash calls now use the backward-compatible
-//   no-EffectType overloads added in GlobalFXManager.
+// CHANGES:
+//   + [DefaultExecutionOrder(-50)]: runs before default-order scripts so pools,
+//     registry, and targets are ready before player scripts need them.
+//     Previous value (100) ran AFTER most scripts.
+//   + SubscribeHitEvents now also subscribes to
+//     RaycastProjectileHandler.OnServerHitConfirmed (via GetRaycastHandler()).
+//     Previously raycast confirmed hits fired an event nobody listened to, so
+//     no damage was applied and no FX played.
+//   + UnsubscribeHitEvents mirrors the new subscription.
+//   + ApplyHit fallback: when targetId == 0 (offline raycast — no NetworkObject
+//     on targets), finds the nearest active target within 2 world units of the
+//     hit position. This covers the offline / auto-spawn test scenario.
 
 using System.Collections;
 using System.Collections.Generic;
@@ -35,7 +29,7 @@ using MidManStudio.Projectiles.Core;
 
 namespace TestGame
 {
-    [DefaultExecutionOrder(100)]
+    [DefaultExecutionOrder(-50)]   // run before default-order scripts
     public class TestSceneBootstrapper : MonoBehaviour
     {
         #region Inspector
@@ -61,8 +55,7 @@ namespace TestGame
         [SerializeField] private float      _targetBobSpeed     = 1.2f;
 
         [Header("Offline / Auto Spawn")]
-        [Tooltip("When true and no lobby session started, spawn targets+player immediately.\n" +
-                 "Use this for solo projectile testing without a multiplayer lobby.")]
+        [Tooltip("When true and no lobby session started, spawn targets+player immediately.")]
         [SerializeField] private bool _autoSpawnOffline = true;
 
         [Header("Player Prefab")]
@@ -74,7 +67,6 @@ namespace TestGame
         [SerializeField] private Canvas _gameHUDCanvas;
 
         [Header("Audio — NativeAudioBridge clip indices")]
-        [Tooltip("Clip index for projectile impact sound.")]
         [SerializeField] private int   _hitSoundClipIndex = 1;
         [SerializeField, Range(0f,1f)] private float _hitSoundVolume = 0.5f;
 
@@ -89,6 +81,9 @@ namespace TestGame
         private readonly List<TestTarget>             _targets   = new(16);
         private bool _sessionStarted;
 
+        // Cache raycast handler ref so we can unsubscribe reliably in OnDestroy.
+        private RaycastProjectileHandler _cachedRaycastHandler;
+
         #endregion
 
         #region Unity Lifecycle
@@ -102,13 +97,11 @@ namespace TestGame
 
         private IEnumerator Start()
         {
-            // ── Pool init ─────────────────────────────────────────────────────
-            if (_objectPool != null && !_objectPool.HasBeenInitialized())
+            if (_objectPool  != null && !_objectPool.HasBeenInitialized())
                 _objectPool.CallInitializePool();
             if (_particlePool != null && !_particlePool.HasBeenInitialized())
                 _particlePool.CallInitializePool();
 
-            // ── Register projectile configs ───────────────────────────────────
             if (_registry != null && _configs != null)
             {
                 foreach (var cfg in _configs)
@@ -120,16 +113,14 @@ namespace TestGame
                 }
             }
 
-            // ── Lobby event ───────────────────────────────────────────────────
             if (_lobbyManager != null)
                 _lobbyManager.OnGameStartReceived += HandleGameStart;
 
             SetLobbyUIActive(true);
 
-            // ── Offline auto-spawn ────────────────────────────────────────────
             if (_autoSpawnOffline && _lobbyManager == null)
             {
-                yield return null; // one frame for all Awake()s to finish
+                yield return null;
                 StartOfflineSession();
             }
 
@@ -168,7 +159,6 @@ namespace TestGame
             SubscribeHitEvents();
             StartCoroutine(BobTargets());
 
-            // Spawn local player (no NetworkObject needed)
             if (_playerPrefab != null)
                 Instantiate(_playerPrefab, GetSpawnPoint(0), Quaternion.identity);
         }
@@ -189,7 +179,6 @@ namespace TestGame
                 SubscribeHitEvents();
                 StartCoroutine(BobTargets());
 
-                // Spawn player NetworkObjects
                 if (_playerPrefab != null)
                 {
                     for (int i = 0; i < snapshot.Players.Count; i++)
@@ -236,21 +225,17 @@ namespace TestGame
                     continue;
                 }
 
-                uint regId          = (uint)(100 + i);
+                uint regId = (uint)(100 + i);
                 target.RegistrationId = regId;
                 _targets.Add(target);
                 _targetMap[regId] = target;
 
                 target.OnDestroyedServer += OnTargetDestroyed;
 
-                // Determine collision radius: prefer SphereCollider, else inspector value
                 float radius = _targetCollisionRadius;
                 var sc = go.GetComponent<SphereCollider>();
                 if (sc != null) radius = sc.radius * Mathf.Max(go.transform.lossyScale.x, 0.01f);
 
-                // FIX: pass the target's Unity layer so HitLayers mask filtering works.
-                // Set the "Target" layer on the prefab and exclude it from your player's
-                // projectile HitLayers to prevent friendly-fire between pattern shots.
                 int targetLayer = go.layer;
                 RegisterTargetCollision(pos, regId, radius, targetLayer);
 
@@ -297,13 +282,18 @@ namespace TestGame
 
         private void SubscribeHitEvents()
         {
-            // Networked: server authority adapter
+            // Rust sim hits (server authority)
             if (_projectileSystem?.GetAuthority()?.Adapter != null)
                 _projectileSystem.GetAuthority().Adapter.OnProjectileHit += OnProjectileHit;
 
-            // Offline: local manager
+            // Offline / LocalOnly hits
             if (LocalProjectileManager.HasInstance)
                 LocalProjectileManager.Instance.OnHit += OnLocalHit;
+
+            // Raycast confirmed hits — previously nobody subscribed, so no damage was applied.
+            _cachedRaycastHandler = _projectileSystem?.GetRaycastHandler();
+            if (_cachedRaycastHandler != null)
+                _cachedRaycastHandler.OnServerHitConfirmed += OnRaycastHitServer;
         }
 
         private void UnsubscribeHitEvents()
@@ -313,9 +303,15 @@ namespace TestGame
 
             if (LocalProjectileManager.HasInstance)
                 LocalProjectileManager.Instance.OnHit -= OnLocalHit;
+
+            if (_cachedRaycastHandler != null)
+            {
+                _cachedRaycastHandler.OnServerHitConfirmed -= OnRaycastHitServer;
+                _cachedRaycastHandler = null;
+            }
         }
 
-        // Networked hit
+        // Rust sim (networked) hit
         private void OnProjectileHit(ProjectileHitPayload payload)
         {
             ApplyHit(payload.TargetId, payload.Damage, payload.HitPosition);
@@ -327,19 +323,47 @@ namespace TestGame
             ApplyHit(payload.RawTargetId, payload.Damage, payload.HitPosition);
         }
 
+        // Raycast confirmed hit (server-side event)
+        private void OnRaycastHitServer(ProjectileHitPayload payload)
+        {
+            ApplyHit(payload.TargetId, payload.Damage, payload.HitPosition);
+        }
+
+        /// <summary>
+        /// Apply damage to the target identified by targetId.
+        /// Fallback: when targetId == 0 (offline raycast — targets have no NetworkObject)
+        /// the nearest active target within 2 world units of hitPos is damaged instead.
+        /// </summary>
         private void ApplyHit(uint targetId, float damage, Vector3 hitPos)
         {
-            // Damage the target
-            if (_targetMap.TryGetValue(targetId, out var target))
-                target.TakeDamage(damage);
+            TestTarget hitTarget = null;
 
-            // Impact FX via GlobalFXManager — uses the no-EffectType overload (defaults to Generic)
+            if (_targetMap.TryGetValue(targetId, out var mappedTarget))
+            {
+                hitTarget = mappedTarget;
+            }
+            else if (targetId == 0 && damage > 0f)
+            {
+                // Offline raycast path: no NetworkObject ID available.
+                // Snap to the nearest active target within tolerance.
+                const float snapRadius = 2f;
+                float bestDist = snapRadius;
+                foreach (var t in _targets)
+                {
+                    if (t == null || !t.gameObject.activeSelf) continue;
+                    float d = Vector3.Distance(hitPos, t.transform.position);
+                    if (d < bestDist) { bestDist = d; hitTarget = t; }
+                }
+            }
+
+            hitTarget?.TakeDamage(damage);
+
+            // FX
             GlobalFXManager.Instance?.TriggerImpact(
                 hitPos, Vector3.up,
                 particleCount: 6,
                 volumeOverride: _hitSoundVolume);
 
-            // Impact sound fallback when GlobalFXManager is absent or has no audio configured
             if (GlobalFXManager.Instance == null)
                 MID_NativeAudioBridge.Instance?.PlayClip(_hitSoundClipIndex, _hitSoundVolume);
         }
