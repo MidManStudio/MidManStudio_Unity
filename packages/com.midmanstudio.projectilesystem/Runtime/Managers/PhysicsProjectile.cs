@@ -1,23 +1,17 @@
-// PhysicsProjectile.cs
+// packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectile.cs
 //
 // FIXES:
-//   + Visual spawns in OnNetworkSpawn as before, but is RE-INITIALISED in
-//     OnProjectileInitialised once BulletVelocity NetworkVariable is available.
-//   + RetrySpawnVisual coroutine: if LocalObjectPool isn't ready at OnNetworkSpawn
-//     (e.g. pool cold-started or client receives spawn before pool Awake), the
-//     visual is retried on the next frame.
-//   + Visual direction is now derived from transform.forward at OnNetworkSpawn
-//     (NetworkTransform syncs rotation with the spawn message, so it's valid).
-//   + OnProjectileInitialised re-orientates the visual with final BulletVelocity
-//     and proper launch direction (rigidbody velocity direction).
-//
-// TRAIL NOTE:
-//   The trail for physics projectiles comes from the TrailRenderer on the pool
-//   visual prefab (ProjectileVisual3D._trailRenderer). It follows the visual
-//   which is parented to this transform. No separate TrailObjectPool is used
-//   for physics projectiles — that system is for the Rust simulation buffers.
-//   Make sure your 3D visual prefab has a TrailRenderer assigned and
-//   the ProjectileConfigSO has HasTrail = true.
+//   + ShouldAutoSpawnVisual overridden to false — prevents NetworkProjectileBase
+//     from spawning a second, unparented pool visual in OnNetworkSpawn. Previously
+//     that base visual sat frozen at the spawn point while the physics object moved.
+//   + OnNetworkVelocityReceived override — on non-server clients, re-initialises
+//     the pool visual with the correct speed and forward direction once the
+//     BulletVelocity NetworkVariable arrives. Previously only the server called
+//     InitializeClientVisual (inside OnProjectileInitialised), so client visuals
+//     showed a default/uninitialized appearance.
+//   + SpawnPoolVisual: visual is parented to transform immediately on spawn for
+//     ALL clients so it follows the NetworkTransform-synced position.
+//   + RetrySpawnVisual: unchanged but now only retries the ONE physics visual.
 
 using System;
 using System.Collections;
@@ -51,8 +45,7 @@ namespace MidManStudio.Projectiles.Managers
         [SerializeField] protected LayerMask _damageLayerMask = -1;
 
         [Header("Visual Pool")]
-        [Tooltip("Config ID for this projectile — used to initialise the pool visual.\n" +
-                 "Must match a registered ProjectileConfigSO with Is3D = true for 3D visuals.")]
+        [Tooltip("Config ID for this projectile — used to initialise the pool visual.")]
         [SerializeField] private ushort _visualConfigId = 0;
 
         [Tooltip("True = spawn 3D pool visual (MeshRenderer + TrailRenderer).\n" +
@@ -87,15 +80,19 @@ namespace MidManStudio.Projectiles.Managers
         private byte  _weaponLevel;
         private float _damageMultiplier = 1f;
 
-        // Pool visual for this physics projectile
         private GameObject           _poolVisualGO;
         private ProjectileVisualBase _poolVisual;
         private PoolableObjectType   _usedPoolType;
 
-        // Coroutine handle for retry
         private Coroutine _retryCoroutine;
 
         #endregion
+
+        // ─────────────────────────────────────────────────────────────────────
+        //  Opt out of the base-class auto-visual to prevent the double-spawn bug.
+        //  PhysicsProjectile manages its own pool visual entirely.
+        // ─────────────────────────────────────────────────────────────────────
+        protected override bool ShouldAutoSpawnVisual => false;
 
         #region NGO Lifecycle
 
@@ -107,13 +104,11 @@ namespace MidManStudio.Projectiles.Managers
             if (_use2D) _rb2D = GetComponent<Rigidbody2D>();
             else        _rb3D = GetComponent<Rigidbody>();
 
-            // Spawn visual on all clients (and host).
-            // transform.forward is valid here — NetworkTransform sends the initial
-            // rotation in the same message that triggers OnNetworkSpawn.
+            // Spawn visual on ALL clients (server and clients).
+            // transform.forward/rotation is valid here — NetworkTransform sends
+            // the initial rotation with the same message that triggers OnNetworkSpawn.
             SpawnPoolVisual();
 
-            // If the pool wasn't ready (cold start / pool not yet Awake on this client),
-            // retry on the next frame.
             if (_poolVisualGO == null)
                 _retryCoroutine = StartCoroutine(RetrySpawnVisual());
         }
@@ -127,6 +122,27 @@ namespace MidManStudio.Projectiles.Managers
             }
             ReturnPoolVisual();
             base.OnNetworkDespawn();
+        }
+
+        #endregion
+
+        #region Client-side visual init hook
+
+        /// <summary>
+        /// Called by NetworkProjectileBase on non-server clients when the
+        /// BulletVelocity NetworkVariable arrives from the server.
+        /// Re-initialises the pool visual with the correct speed and direction.
+        /// </summary>
+        protected override void OnNetworkVelocityReceived()
+        {
+            if (_poolVisual == null) return;
+            Vector3 dir = transform.forward; // rotation is already synced by NetworkTransform
+            _poolVisual.InitializeClientVisual(
+                _visualConfigId, transform.position, dir, BulletVelocity);
+
+            MID_Logger.LogDebug(_logLevel,
+                $"OnNetworkVelocityReceived: re-init visual configId={_visualConfigId} speed={BulletVelocity}",
+                nameof(PhysicsProjectile));
         }
 
         #endregion
@@ -145,8 +161,6 @@ namespace MidManStudio.Projectiles.Managers
 
             _usedPoolType = _use3DVisual ? _visual3DPoolType : _visual2DPoolType;
 
-            // Use current transform.forward as direction — valid at OnNetworkSpawn
-            // because NetworkTransform syncs rotation with the initial spawn message.
             Vector3    dir = transform.forward;
             Quaternion rot = Network.ClientPredictionManager.GetDirectionRotation(dir);
 
@@ -154,8 +168,7 @@ namespace MidManStudio.Projectiles.Managers
             if (_poolVisualGO == null)
             {
                 MID_Logger.LogWarning(_logLevel,
-                    $"SpawnPoolVisual: Pool returned null for type {_usedPoolType}. " +
-                    "Check pool prewarm count and prefab assignments.",
+                    $"SpawnPoolVisual: Pool returned null for type {_usedPoolType}.",
                     nameof(PhysicsProjectile));
                 return;
             }
@@ -164,14 +177,13 @@ namespace MidManStudio.Projectiles.Managers
 
             if (_poolVisual != null)
             {
-                // BulletVelocity NetworkVariable may be 0 here if InitialiseProjectile
-                // hasn't been called yet (it's called after Spawn). We use a sensible default.
-                // OnProjectileInitialised will re-init with the correct speed.
                 float speed = BulletVelocity > 0f ? BulletVelocity : 10f;
                 _poolVisual.InitializeClientVisual(_visualConfigId, transform.position, dir, speed);
             }
 
-            // Parent the visual so it follows this physics object automatically
+            // Parent immediately on ALL clients so the visual follows the
+            // NetworkTransform-synced position without waiting for the server
+            // to call OnProjectileInitialised (which is server-only).
             _poolVisualGO.transform.SetParent(transform);
             _poolVisualGO.transform.localPosition = Vector3.zero;
             _poolVisualGO.transform.localRotation = Quaternion.identity;
@@ -181,12 +193,9 @@ namespace MidManStudio.Projectiles.Managers
                 nameof(PhysicsProjectile));
         }
 
-        /// <summary>
-        /// Retry visual spawn one frame later if the pool was not ready at OnNetworkSpawn.
-        /// </summary>
         private IEnumerator RetrySpawnVisual()
         {
-            yield return null; // wait one frame
+            yield return null;
             _retryCoroutine = null;
 
             if (!IsSpawned || _poolVisualGO != null) yield break;
@@ -201,7 +210,6 @@ namespace MidManStudio.Projectiles.Managers
         {
             if (_poolVisualGO == null) return;
 
-            // Unparent before returning so pool doesn't inherit the parent's lifetime
             _poolVisualGO.transform.SetParent(null);
 
             if (_poolVisual != null)
@@ -263,14 +271,12 @@ namespace MidManStudio.Projectiles.Managers
                 launchDir = transform.forward;
             }
 
-            // If visual failed to spawn initially (pool was cold), try again now.
-            // OnProjectileInitialised runs on the server right after Spawn(),
-            // by which point the pool should be ready.
+            // If pool wasn't ready at OnNetworkSpawn, try again now (server only).
             if (_poolVisualGO == null)
                 SpawnPoolVisual();
 
-            // Re-initialise visual with final speed + correct direction.
-            // This is important because at OnNetworkSpawn, BulletVelocity was 0.
+            // Re-initialise visual with correct speed + launch direction on the server.
+            // Clients receive this via OnNetworkVelocityReceived instead.
             if (_poolVisual != null)
             {
                 float speed = BulletVelocity > 0f ? BulletVelocity : 10f;
@@ -282,7 +288,6 @@ namespace MidManStudio.Projectiles.Managers
             }
             else if (_poolVisualGO != null)
             {
-                // Visual exists but no ProjectileVisualBase component — just orient it
                 Network.ClientPredictionManager.ApplyDirectionRotation(
                     _poolVisualGO.transform, launchDir);
             }
@@ -297,7 +302,6 @@ namespace MidManStudio.Projectiles.Managers
 
         protected override void OnSpawnImpactEffectClient(Vector3 position)
         {
-            // Hide visual immediately on impact — trail will fade naturally
             ReturnPoolVisual();
         }
 
