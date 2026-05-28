@@ -1,12 +1,13 @@
 // ProjectileVisual_.cs  — 2D pool visual
 //
-// Inherits ProjectileVisualBase.
-// Handles: SpriteRenderer, TrailRenderer, 2D Z-axis rotation.
+// FIX: ApplySpriteOptimised no longer disables the SpriteRenderer when the
+//   config has no sprite (UseSprite=false or ProjectileSprite not assigned).
+//   Instead a 1×1 white sprite is generated at runtime and used as a fallback,
+//   so raycast and client-prediction pool visuals are always visible.
+//   The _fallbackSprite is static and created once, shared across all instances.
 //
-// FIXES carried forward:
-//   + Correct 2D rotation via atan2 → Z-Euler (not LookRotation)
-//   + _trailConfigured flag properly gates re-application on recycled objects
-//   + SpriteRenderer.sortingOrder > TrailRenderer.sortingOrder
+// FIX: Correct 2D rotation via atan2 → Z-Euler (not LookRotation).
+// FIX: _trailConfigured flag properly gates re-application on recycled objects.
 
 using UnityEngine;
 using MidManStudio.Projectiles.Config;
@@ -34,13 +35,50 @@ namespace MidManStudio.Projectiles.Visuals
         private ushort _cachedConfigId;
         private bool   _configInitialised;
 
+        // Shared across all instances — created once, never destroyed
+        private static Sprite _fallbackSprite;
+
+        #endregion
+
+        #region Fallback Sprite
+
+        /// <summary>
+        /// Returns a 1×1 white sprite used when the config has no sprite assigned.
+        /// Ensures the SpriteRenderer is always visible so raycast / pool visuals
+        /// can be seen even for configs with UseSprite = false.
+        /// </summary>
+        private static Sprite GetFallbackSprite()
+        {
+            if (_fallbackSprite != null) return _fallbackSprite;
+
+            // Build a 4×4 solid-white texture
+            var tex = new Texture2D(4, 4, TextureFormat.RGBA32, false)
+            {
+                filterMode = FilterMode.Point,
+                wrapMode   = TextureWrapMode.Clamp
+            };
+
+            Color32[] pixels = new Color32[16];
+            for (int i = 0; i < 16; i++) pixels[i] = new Color32(255, 255, 255, 255);
+            tex.SetPixels32(pixels);
+            tex.Apply(false, true);
+
+            // PPU = 4 → sprite is 1 world-unit wide/tall at default scale
+            _fallbackSprite = Sprite.Create(
+                tex,
+                new Rect(0, 0, 4, 4),
+                new Vector2(0.5f, 0.5f),
+                pixelsPerUnit: 4f);
+            _fallbackSprite.name = "FallbackProjectileSprite";
+            return _fallbackSprite;
+        }
+
         #endregion
 
         #region ProjectileVisualBase
 
         protected override void ApplyRotation(Vector3 dir)
         {
-            // 2D: rotate around Z so the sprite tip points along dir
             if (dir.sqrMagnitude < 0.001f) return;
             float angle = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
             transform.rotation = Quaternion.Euler(0f, 0f, angle);
@@ -94,15 +132,17 @@ namespace MidManStudio.Projectiles.Visuals
         private void ApplySpriteOptimised(Sprite sprite)
         {
             if (projectileSpriteRend == null) return;
-            bool shouldShow = sprite != null;
-            projectileSpriteRend.enabled      = shouldShow;
+
+            // FIX: always enable — use fallback white sprite when none assigned
+            projectileSpriteRend.enabled      = true;
             projectileSpriteRend.sortingOrder  = _spriteSortingOrder;
 
-            if (!shouldShow) return;
-            if (_cachedSprite != sprite)
+            Sprite toUse = sprite != null ? sprite : GetFallbackSprite();
+
+            if (_cachedSprite != toUse)
             {
-                projectileSpriteRend.sprite = sprite;
-                _cachedSprite = sprite;
+                projectileSpriteRend.sprite = toUse;
+                _cachedSprite = toUse;
             }
         }
 
