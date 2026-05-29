@@ -1,7 +1,10 @@
 // SimulationMode.cs
-// Simulation and network routing enums.
-// NOTE: ProjectileMovementType and ProjectilePiercingType are defined in ProjectileLib.cs
-// to keep all FFI-adjacent enums in one place.
+// CHANGE: merged RustSim2D and RustSim3D into RustSim.
+// ProjectileConfigSO.Is3D already controls which Rust buffer (2D/3D) is used —
+// there is no reason to duplicate that choice in the simulation-mode override.
+// Byte value 1 (RustSim2D) is preserved so existing serialised configs are not corrupted.
+// Value 2 (RustSim3D) is intentionally left as a gap; any SO that had it will show "(2)"
+// in the inspector and can simply be re-assigned to RustSim.
 
 namespace MidManStudio.Projectiles.Core
 {
@@ -12,19 +15,22 @@ namespace MidManStudio.Projectiles.Core
     public enum SimulationMode : byte
     {
         /// <summary>Instant hitscan. Server casts ray; client visual travels to endpoint.</summary>
-        Raycast = 0,
+        Raycast       = 0,
 
-        /// <summary>Rust 2D tick + spatial-grid collision every FixedUpdate. Clients predict.</summary>
-        RustSim2D = 1,
+        /// <summary>
+        /// Rust tick + spatial-grid collision every FixedUpdate.
+        /// ProjectileConfigSO.Is3D selects the 2D or 3D Rust buffer automatically.
+        /// Clients predict; server is authoritative.
+        /// </summary>
+        RustSim       = 1,
 
-        /// <summary>Rust 3D tick loop with NativeProjectile3D buffer.</summary>
-        RustSim3D = 2,
+        // 2 was RustSim3D — removed; Is3D on the config handles the distinction.
 
         /// <summary>Unity Rigidbody2D/3D. Server owns physics; clients via NetworkTransform.</summary>
         PhysicsObject = 3,
 
         /// <summary>Single-player / offline. Full Rust sim, no NGO, no RPCs.</summary>
-        LocalOnly = 4
+        LocalOnly     = 4
     }
 
     /// <summary>
@@ -33,7 +39,7 @@ namespace MidManStudio.Projectiles.Core
     public enum NetworkVariant : byte
     {
         /// <summary>No network — LocalOnly mode.</summary>
-        None = 0,
+        None       = 0,
 
         /// <summary>Server authoritative — server runs sim, clients predict + reconcile.</summary>
         ServerAuth = 1
