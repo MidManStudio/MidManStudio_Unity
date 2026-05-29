@@ -1,22 +1,8 @@
 // packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectileBase.cs
 //
 // Abstract base for 2D and 3D physics projectiles.
-// Derive PhysicsProjectile2D and PhysicsProjectile3D from this.
-// Each concrete class adds the matching Rigidbody type and collision callbacks.
-//
-// This class owns:
-//   - Owner context (ownerMidId, weaponLevel, etc.)
-//   - Pool visual management (spawn, retry, return)
-//   - Visual pool type selection via config.Is3D
-//   - OnHitServerConfirmed event
-//   - Shared hit/explosion helpers that call FireHitEvent
-//   - ShouldAutoSpawnVisual = false (prevents base NetworkProjectileBase double-spawn)
-//
-// Derived classes own:
-//   - GetComponent for their Rigidbody type
-//   - OnProjectileInitialised: set velocity on their Rigidbody
-//   - Collision callbacks (OnCollisionEnter / OnCollisionEnter2D etc.)
-//   - StopPhysics for their Rigidbody type
+// RequireComponent is declared here for components shared by both variants.
+// Each derived class adds its own RequireComponent for its Rigidbody type.
 
 using System;
 using System.Collections;
@@ -32,14 +18,15 @@ using MidManStudio.Projectiles.Visuals;
 namespace MidManStudio.Projectiles.Managers
 {
     [DisallowMultipleComponent]
+    [RequireComponent(typeof(NetworkObject))]
     public abstract class PhysicsProjectileBase : NetworkProjectileBase
     {
         #region Inspector
 
         [Header("Damage")]
-        [SerializeField] protected float     _baseDamage      = 30f;
+        [SerializeField] protected float     _baseDamage       = 30f;
         [SerializeField, Min(0f)] protected float _explosionRadius = 0f;
-        [SerializeField] protected LayerMask _damageLayerMask  = -1;
+        [SerializeField] protected LayerMask _damageLayerMask   = -1;
 
         [Header("Visual Pool")]
         [Tooltip("Config ID used to drive visual appearance.")]
@@ -66,7 +53,7 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Shared State
 
-        protected bool  HasHit           { get; set; }
+        protected bool HasHit { get; set; }
 
         private ulong _ownerMidId;
         private ulong _firedByNetworkObjectId;
@@ -81,7 +68,6 @@ namespace MidManStudio.Projectiles.Managers
 
         #endregion
 
-        // ── Prevent base class auto-spawning a visual ─────────────────────────
         protected override bool ShouldAutoSpawnVisual => false;
 
         #region NGO Lifecycle
@@ -109,29 +95,26 @@ namespace MidManStudio.Projectiles.Managers
 
         #endregion
 
-        #region Abstract / Virtual Hooks for Derived Classes
+        #region Abstract / Virtual Hooks
 
         /// <summary>
-        /// Called in OnNetworkSpawn before SpawnPoolVisual.
-        /// Derived class should cache its Rigidbody reference here.
+        /// Cache Rigidbody reference. Called in OnNetworkSpawn before SpawnPoolVisual.
+        /// Log clearly if the component is missing.
         /// </summary>
         protected abstract void OnPhysicsSetup();
 
         /// <summary>
-        /// Called in OnProjectileInitialised after visual setup.
-        /// Derived class should configure and launch its Rigidbody here.
+        /// Configure and launch the Rigidbody. Called in OnProjectileInitialised.
         /// Returns the launch direction for visual orientation.
         /// </summary>
         protected abstract Vector3 OnLaunch(float bulletVelocity);
 
-        /// <summary>
-        /// Zero velocity and set isKinematic = true on the Rigidbody.
-        /// </summary>
+        /// <summary>Zero velocity and set isKinematic = true.</summary>
         protected abstract void StopPhysics();
 
         /// <summary>
-        /// True if the projectile uses 2D physics (drives pool visual type selection
-        /// when no config is registered).
+        /// True when this is a 2D physics projectile.
+        /// Drives default visual pool type selection when no config is registered.
         /// </summary>
         protected abstract bool Is2D { get; }
 
@@ -142,7 +125,7 @@ namespace MidManStudio.Projectiles.Managers
         protected override void OnNetworkVelocityReceived()
         {
             if (_poolVisual == null) return;
-            Vector3 dir = GetLaunchDirection();
+            Vector3 dir = GetDefaultLaunchDir();
             _poolVisual.InitializeClientVisual(
                 _visualConfigId, transform.position, dir, BulletVelocity);
         }
@@ -168,16 +151,12 @@ namespace MidManStudio.Projectiles.Managers
         }
 
         protected override void OnImpactServer()
-        {
-            SpawnImpactEffectClientRpc(transform.position);
-        }
+            => SpawnImpactEffectClientRpc(transform.position);
 
         protected override void OnCollisionNotifiedClient() { }
 
         protected override void OnSpawnImpactEffectClient(Vector3 position)
-        {
-            ReturnPoolVisual();
-        }
+            => ReturnPoolVisual();
 
         protected override void OnSpawnKillEffectClient(Vector3 position) { }
 
@@ -201,33 +180,38 @@ namespace MidManStudio.Projectiles.Managers
 
         #endregion
 
-        #region Hit Processing (shared, called by derived collision handlers)
+        #region Hit Processing (called by derived collision handlers)
 
         protected void HandleHit3D(GameObject hitGO, Vector3 hitPoint)
         {
-            if (HasHit) return;
+            if (!IsServer || HasHit) return;
             HasHit = true;
             StopPhysics();
             if (_explosionRadius > 0.01f) ApplyExplosionDamage3D(hitPoint);
-            else ApplyDirectHit(hitGO.GetComponentInParent<NetworkObject>(), hitPoint, false);
+            else ApplyDirectHit(
+                hitGO.GetComponentInParent<NetworkObject>(), hitPoint, false);
             DestroyProjectile();
         }
 
         protected void HandleHit2D(GameObject hitGO, Vector3 hitPoint)
         {
-            if (HasHit) return;
+            if (!IsServer || HasHit) return;
             HasHit = true;
             StopPhysics();
             if (_explosionRadius > 0.01f) ApplyExplosionDamage2D(hitPoint);
-            else ApplyDirectHit(hitGO.GetComponentInParent<NetworkObject>(), hitPoint, true);
+            else ApplyDirectHit(
+                hitGO.GetComponentInParent<NetworkObject>(), hitPoint, true);
             DestroyProjectile();
         }
 
-        private void ApplyDirectHit(NetworkObject targetNetObj, Vector3 hitPoint, bool is2D)
+        private void ApplyDirectHit(
+            NetworkObject targetNetObj, Vector3 hitPoint, bool is2D)
         {
             if (targetNetObj == null) return;
-            FireHitEvent((uint)targetNetObj.NetworkObjectId,
-                _baseDamage * _damageMultiplier, hitPoint, is2D);
+            FireHitEvent(
+                (uint)targetNetObj.NetworkObjectId,
+                _baseDamage * _damageMultiplier,
+                hitPoint, is2D);
         }
 
         private void ApplyExplosionDamage3D(Vector3 centre)
@@ -241,8 +225,10 @@ namespace MidManStudio.Projectiles.Managers
                 if (no == null) continue;
                 float dist    = Vector3.Distance(centre, cols[i].transform.position);
                 float falloff = 1f - Mathf.Clamp01(dist / _explosionRadius);
-                FireHitEvent((uint)no.NetworkObjectId,
-                    _baseDamage * _damageMultiplier * falloff, centre, false);
+                FireHitEvent(
+                    (uint)no.NetworkObjectId,
+                    _baseDamage * _damageMultiplier * falloff,
+                    centre, false);
             }
         }
 
@@ -258,14 +244,17 @@ namespace MidManStudio.Projectiles.Managers
                 float dist    = Vector2.Distance(
                     (Vector2)centre, (Vector2)cols[i].transform.position);
                 float falloff = 1f - Mathf.Clamp01(dist / _explosionRadius);
-                FireHitEvent((uint)no.NetworkObjectId,
-                    _baseDamage * _damageMultiplier * falloff, centre, true);
+                FireHitEvent(
+                    (uint)no.NetworkObjectId,
+                    _baseDamage * _damageMultiplier * falloff,
+                    centre, true);
             }
         }
 
-        private void FireHitEvent(uint targetId, float damage, Vector3 hitPoint, bool is2D)
+        private void FireHitEvent(
+            uint targetId, float damage, Vector3 hitPoint, bool is2D)
         {
-            var payload = new ProjectileHitPayload
+            OnHitServerConfirmed?.Invoke(new ProjectileHitPayload
             {
                 ProjId                 = 0,
                 ConfigId               = 0,
@@ -279,13 +268,12 @@ namespace MidManStudio.Projectiles.Managers
                 FiredByNetworkObjectId = _firedByNetworkObjectId,
                 IsBotOwner             = _isBotOwner,
                 WeaponLevel            = _weaponLevel,
-            };
-            OnHitServerConfirmed?.Invoke(payload);
+            });
         }
 
         #endregion
 
-        #region Visual Pool (shared)
+        #region Visual Pool
 
         private void SpawnPoolVisual()
         {
@@ -297,7 +285,6 @@ namespace MidManStudio.Projectiles.Managers
                 return;
             }
 
-            // Prefer config.Is3D if registered; fall back to !Is2D
             bool use3DVisual = !Is2D;
             if (ProjectileRegistry.HasInstance)
             {
@@ -307,7 +294,7 @@ namespace MidManStudio.Projectiles.Managers
 
             _usedPoolType = use3DVisual ? _visual3DPoolType : _visual2DPoolType;
 
-            Vector3    dir = GetLaunchDirection();
+            Vector3    dir = GetDefaultLaunchDir();
             Quaternion rot = Network.ClientPredictionManager.GetDirectionRotation(dir);
 
             _poolVisualGO = LocalObjectPool.Instance.GetObject(
@@ -316,8 +303,9 @@ namespace MidManStudio.Projectiles.Managers
             if (_poolVisualGO == null)
             {
                 MID_Logger.LogWarning(_logLevel,
-                    $"SpawnPoolVisual: Pool returned null for type {_usedPoolType}. " +
-                    "Ensure LocalObjectPool has a prefab assigned for this pool type.",
+                    $"SpawnPoolVisual: LocalObjectPool returned null for " +
+                    $"type {_usedPoolType}. " +
+                    "Ensure the pool has a prefab assigned for this type.",
                     nameof(PhysicsProjectileBase));
                 return;
             }
@@ -340,6 +328,9 @@ namespace MidManStudio.Projectiles.Managers
             yield return null;
             _retryCoroutine = null;
             if (!IsSpawned || _poolVisualGO != null) yield break;
+            MID_Logger.LogDebug(_logLevel,
+                "RetrySpawnVisual: pool wasn't ready, retrying.",
+                nameof(PhysicsProjectileBase));
             SpawnPoolVisual();
         }
 
@@ -355,8 +346,7 @@ namespace MidManStudio.Projectiles.Managers
             _poolVisual   = null;
         }
 
-        /// <summary>Returns the expected fire direction for this projectile type.</summary>
-        private Vector3 GetLaunchDirection()
+        private Vector3 GetDefaultLaunchDir()
             => Is2D ? transform.right : transform.forward;
 
         #endregion
