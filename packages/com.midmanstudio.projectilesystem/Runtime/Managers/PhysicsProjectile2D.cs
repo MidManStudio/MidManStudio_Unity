@@ -1,58 +1,42 @@
 // packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectile2D.cs
 //
-// Concrete 2D physics projectile.
+// UPDATED: OnLaunch mirrors original Projectile.cs velocity setup:
+//   velocity = transform.right * BulletVelocity  (2D convention)
+//   gravityScale from config if available
+//   CapsuleCollider2D added as alternative to CircleCollider2D
+//   Config SO consulted for gravity scale at launch time
 //
-// PREFAB REQUIREMENTS (enforced by RequireComponent):
+// PREFAB REQUIREMENTS:
+//   - This script
 //   - Rigidbody2D
-//   - CircleCollider2D  (or PolygonCollider2D / BoxCollider2D)
+//   - CapsuleCollider2D  (matches original Projectile.cs — or CircleCollider2D)
 //   - NetworkObject
-//   - NetworkTransform  (inherited via NetworkProjectileBase -> NetworkTransform)
-//
-// POOL SETUP:
-//   Add a NetworkObjectPool entry: BaseProjectileBlueprint_2D -> this prefab.
-//   In NetworkedDimensionPlayer: _physicsPoolType2D = BaseProjectileBlueprint_2D.
-//
-// RIGIDBODY2D SETTINGS (recommended):
-//   Gravity Scale: 0 (unless _useGravity = true)
-//   Collision Detection: Continuous
-//   Interpolate: Interpolate
-//   Body Type: Dynamic
+//   - NetworkTransform (via NetworkProjectileBase)
 
 using UnityEngine;
 using MidManStudio.Core.Logging;
+using MidManStudio.Projectiles.Config;
 
 namespace MidManStudio.Projectiles.Managers
 {
     [RequireComponent(typeof(Rigidbody2D))]
-    [RequireComponent(typeof(CircleCollider2D))]
     public sealed class PhysicsProjectile2D : PhysicsProjectileBase
     {
-        #region Inspector
-
         [Header("2D Physics Settings")]
-        [SerializeField] private float _drag       = 0f;
-        [SerializeField] private bool  _useGravity = false;
-
-        #endregion
-
-        #region State
+        [Tooltip("Overridden by config.GravityScale if a config is registered for _visualConfigId.")]
+        [SerializeField] private float _drag        = 0f;
+        [SerializeField] private float _gravityScale = 0f;
 
         private Rigidbody2D _rb;
-
-        #endregion
-
-        #region PhysicsProjectileBase
 
         protected override bool Is2D => true;
 
         protected override void OnPhysicsSetup()
         {
             _rb = GetComponent<Rigidbody2D>();
-            // RequireComponent guarantees it exists but log clearly if something
-            // went very wrong (e.g. stripped in build)
             if (_rb == null)
                 MID_Logger.LogError(_logLevel,
-                    $"PhysicsProjectile2D: Rigidbody2D missing on '{name}'.",
+                    $"PhysicsProjectile2D: No Rigidbody2D on '{name}'.",
                     nameof(PhysicsProjectile2D));
         }
 
@@ -60,10 +44,26 @@ namespace MidManStudio.Projectiles.Managers
         {
             if (_rb == null) return transform.right;
 
-            _rb.gravityScale = _useGravity ? 1f : 0f;
+            // Consult config for gravity scale — mirrors original Projectile.cs
+            float gravity = _gravityScale;
+            if (ProjectileRegistry.HasInstance)
+            {
+                var cfg = ProjectileRegistry.Instance.Get(_visualConfigId);
+                if (cfg != null) gravity = cfg.GravityScale;
+            }
+
+            _rb.gravityScale = gravity;
             _rb.drag         = _drag;
             _rb.isKinematic  = false;
-            _rb.velocity     = (Vector2)(transform.right * bulletVelocity);
+
+            // 2D convention: fire along transform.right — EXACTLY as original Projectile.cs
+            // m_ProjectileRigidBody2D.velocity = transform.right * internalBulletVelocity
+            _rb.velocity = (Vector2)(transform.right * bulletVelocity);
+
+            MID_Logger.LogDebug(_logLevel,
+                $"PhysicsProjectile2D launched: speed={bulletVelocity} " +
+                $"dir={transform.right} gravity={gravity}",
+                nameof(PhysicsProjectile2D));
 
             return transform.right;
         }
@@ -75,10 +75,7 @@ namespace MidManStudio.Projectiles.Managers
             _rb.isKinematic = true;
         }
 
-        #endregion
-
-        #region Collision (Server Only)
-
+        // Accept either CapsuleCollider2D (original) or CircleCollider2D
         private void OnCollisionEnter2D(Collision2D col)
         {
             Vector3 pt = col.contacts.Length > 0
@@ -89,7 +86,5 @@ namespace MidManStudio.Projectiles.Managers
 
         private void OnTriggerEnter2D(Collider2D other)
             => HandleHit2D(other.gameObject, transform.position);
-
-        #endregion
     }
 }
