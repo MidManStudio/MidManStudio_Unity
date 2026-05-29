@@ -1,16 +1,17 @@
 // LocalProjectileManager.cs
 // CHANGES:
-//   + FIX (piercing): Added _pierceImmunity2D / _pierceImmunity3D HashSets.
-//     Cleared AFTER tick (so the bullet has moved), BEFORE collision check.
-//     ProcessHit2D/3D checks immunity before processing, adds to immunity on
-//     a successful pierce (collisionsRemaining still > 0 after the hit).
-//     Without this fix a slow or large piercing projectile would drain all
-//     pierce charges in a single frame by hitting the same target every tick.
-//   + FixedUpdate now calls TrailPool.SyncToSimulation3D for _projs3D buffer.
-//   + Awake finds MID_MasterProjectileSystem and auto-wires if it has null _localManager.
-//   + OnHit event always fires even when _targets dict has no matching LocalDamageTarget.
-//   + RegisterTarget2D/3D accept an optional int unityLayer = 0 parameter.
-//     ProcessHit2D/3D filter hits against the projectile config's HitLayers mask.
+//   + PIERCE IMMUNITY UPGRADE: Replaced per-tick HashSet (_pierceImmunity2D/3D,
+//     cleared every frame) with permanent per-projectile hit-sets matching
+//     ServerProjectileAuthority. Each target can only be hit ONCE per projectile
+//     lifetime regardless of speed or target size.
+//     Dictionary<uint, HashSet<uint>> _hitTargets2D/3D keyed by projId.
+//     Sets are pooled (Stack<HashSet<uint>>) and returned on projectile death
+//     to avoid GC pressure.
+//   + Removed _pierceImmunity2D / _pierceImmunity3D HashSets entirely.
+//   + CompactDead2D/3D now calls ClearHitRecord2D/3D for each dead projectile.
+//   + ProcessHit2D/3D checks AlreadyHit before processing, calls RecordHit after.
+//   + All other fixes from previous session retained:
+//     layer filtering, TrailPool.SyncToSimulation3D, OnHit always fires.
 
 using System;
 using System.Collections.Generic;
@@ -107,15 +108,70 @@ namespace MidManStudio.Projectiles.Managers
 
         #endregion
 
-        #region Pierce Immunity
-        // FIX: same immunity pattern as ServerProjectileAuthority.
-        // Cleared after tick, before collision.
+        #region Permanent Per-Projectile Pierce Immunity
+        // Mirrors ServerProjectileAuthority pattern exactly.
+        // Each target is hit AT MOST ONCE per projectile lifetime.
+        // Sets are pooled to avoid GC allocation per spawn.
 
-        private readonly HashSet<long> _pierceImmunity2D = new HashSet<long>(64);
-        private readonly HashSet<long> _pierceImmunity3D = new HashSet<long>(64);
+        private readonly Dictionary<uint, HashSet<uint>> _hitTargets2D = new(128);
+        private readonly Dictionary<uint, HashSet<uint>> _hitTargets3D = new(128);
 
-        private static long PierceKey(uint projId, uint targetId)
-            => ((long)projId << 32) | targetId;
+        private static readonly Stack<HashSet<uint>> _setPool = new(32);
+
+        private static HashSet<uint> RentSet()
+            => _setPool.Count > 0 ? _setPool.Pop() : new HashSet<uint>(4);
+
+        private static void ReturnSet(HashSet<uint> s) { s.Clear(); _setPool.Push(s); }
+
+        private bool AlreadyHit2D(uint projId, uint targetId)
+        {
+            if (!_hitTargets2D.TryGetValue(projId, out var set)) return false;
+            return set.Contains(targetId);
+        }
+
+        private bool AlreadyHit3D(uint projId, uint targetId)
+        {
+            if (!_hitTargets3D.TryGetValue(projId, out var set)) return false;
+            return set.Contains(targetId);
+        }
+
+        private void RecordHit2D(uint projId, uint targetId)
+        {
+            if (!_hitTargets2D.TryGetValue(projId, out var set))
+            {
+                set = RentSet();
+                _hitTargets2D[projId] = set;
+            }
+            set.Add(targetId);
+        }
+
+        private void RecordHit3D(uint projId, uint targetId)
+        {
+            if (!_hitTargets3D.TryGetValue(projId, out var set))
+            {
+                set = RentSet();
+                _hitTargets3D[projId] = set;
+            }
+            set.Add(targetId);
+        }
+
+        private void ClearHitRecord2D(uint projId)
+        {
+            if (_hitTargets2D.TryGetValue(projId, out var set))
+            {
+                ReturnSet(set);
+                _hitTargets2D.Remove(projId);
+            }
+        }
+
+        private void ClearHitRecord3D(uint projId)
+        {
+            if (_hitTargets3D.TryGetValue(projId, out var set))
+            {
+                ReturnSet(set);
+                _hitTargets3D.Remove(projId);
+            }
+        }
 
         #endregion
 
@@ -207,10 +263,6 @@ namespace MidManStudio.Projectiles.Managers
                 ProjectileLib.tick_projectiles(
                     _pinProjs2D.AddrOfPinnedObject(), _count2D, dt);
 
-                // FIX: clear pierce immunity AFTER tick (bullet has moved),
-                // BEFORE collision check, so stale pairs are flushed.
-                _pierceImmunity2D.Clear();
-
                 if (_targetCount2D > 0)
                 {
                     ProjectileLib.check_hits_grid_ex(
@@ -232,8 +284,6 @@ namespace MidManStudio.Projectiles.Managers
             {
                 ProjectileLib.tick_projectiles_3d(
                     _pinProjs3D.AddrOfPinnedObject(), _count3D, dt);
-
-                _pierceImmunity3D.Clear();
 
                 if (_targetCount3D > 0)
                 {
@@ -317,10 +367,8 @@ namespace MidManStudio.Projectiles.Managers
         {
             if (!_localData.TryGetValue(hit.ProjId, out var data)) return;
 
-            // FIX: pierce immunity check
-            long pierceKey = PierceKey(hit.ProjId, hit.TargetId);
-            if (_pierceImmunity2D.Contains(pierceKey)) return;
-
+            // Permanent pierce immunity — each target hit at most once per projectile
+            if (AlreadyHit2D(hit.ProjId, hit.TargetId)) return;
             if (!PassesLayerFilter2D(hit.ProjId, hit.TargetId)) return;
 
             var config = ProjectileRegistry.Instance.Get(data.ConfigId);
@@ -329,7 +377,8 @@ namespace MidManStudio.Projectiles.Managers
             _targets.TryGetValue(hit.TargetId, out var target);
             if (target != null && !target.Active) return;
 
-            bool  headshot = target != null && CheckHeadshotLocal(target, hit.HitX, hit.HitY, 0f);
+            bool  headshot = target != null
+                && CheckHeadshotLocal(target, hit.HitX, hit.HitY, 0f);
             bool  crit     = data.IsCrit;
             float normDist = config.MaxRange > 0f
                 ? Mathf.Clamp01(hit.TravelDist / config.MaxRange) : 0f;
@@ -340,33 +389,36 @@ namespace MidManStudio.Projectiles.Managers
 
             var payload = new LocalHitPayload
             {
-                ProjId      = hit.ProjId,
-                ConfigId    = data.ConfigId,
-                Is3D        = false,
-                Target      = target,
-                RawTargetId = hit.TargetId,
-                Damage      = damage,
-                IsHeadshot  = headshot,
-                IsCrit      = crit,
-                HitPosition = new Vector3(hit.HitX, hit.HitY, 0f),
+                ProjId       = hit.ProjId,
+                ConfigId     = data.ConfigId,
+                Is3D         = false,
+                Target       = target,
+                RawTargetId  = hit.TargetId,
+                Damage       = damage,
+                IsHeadshot   = headshot,
+                IsCrit       = crit,
+                HitPosition  = new Vector3(hit.HitX, hit.HitY, 0f),
                 OwnerLocalId = data.OwnerLocalId
             };
 
             OnHit?.Invoke(payload);
 
+            // Record this target as hit for this projectile (permanent for lifetime)
+            RecordHit2D(hit.ProjId, hit.TargetId);
+
             data.CollisionsRemaining--;
             if (data.CollisionsRemaining <= 0)
             {
-                // Kill projectile
+                // Kill the projectile in the Rust buffer
                 int idx = (int)hit.ProjIndex;
-                if (idx < _count2D) _projs2D[idx].Alive = 0;
+                if (idx >= 0 && idx < _count2D) _projs2D[idx].Alive = 0;
                 _localData.Remove(hit.ProjId);
+                // Hit record will be cleared by CompactDead2D
             }
             else
             {
-                // FIX: projectile pierced — update count and add immunity
+                // Still piercing — update remaining count
                 _localData[hit.ProjId] = data;
-                _pierceImmunity2D.Add(pierceKey);
             }
         }
 
@@ -374,9 +426,7 @@ namespace MidManStudio.Projectiles.Managers
         {
             if (!_localData.TryGetValue(hit.ProjId, out var data)) return;
 
-            long pierceKey = PierceKey(hit.ProjId, hit.TargetId);
-            if (_pierceImmunity3D.Contains(pierceKey)) return;
-
+            if (AlreadyHit3D(hit.ProjId, hit.TargetId)) return;
             if (!PassesLayerFilter3D(hit.ProjId, hit.TargetId)) return;
 
             var config = ProjectileRegistry.Instance.Get(data.ConfigId);
@@ -385,7 +435,8 @@ namespace MidManStudio.Projectiles.Managers
             _targets.TryGetValue(hit.TargetId, out var target);
             if (target != null && !target.Active) return;
 
-            bool  headshot = target != null && CheckHeadshotLocal(target, hit.HitX, hit.HitY, hit.HitZ);
+            bool  headshot = target != null
+                && CheckHeadshotLocal(target, hit.HitX, hit.HitY, hit.HitZ);
             bool  crit     = data.IsCrit;
             float normDist = config.MaxRange > 0f
                 ? Mathf.Clamp01(hit.TravelDist / config.MaxRange) : 0f;
@@ -396,31 +447,32 @@ namespace MidManStudio.Projectiles.Managers
 
             var payload = new LocalHitPayload
             {
-                ProjId      = hit.ProjId,
-                ConfigId    = data.ConfigId,
-                Is3D        = true,
-                Target      = target,
-                RawTargetId = hit.TargetId,
-                Damage      = damage,
-                IsHeadshot  = headshot,
-                IsCrit      = crit,
-                HitPosition = new Vector3(hit.HitX, hit.HitY, hit.HitZ),
+                ProjId       = hit.ProjId,
+                ConfigId     = data.ConfigId,
+                Is3D         = true,
+                Target       = target,
+                RawTargetId  = hit.TargetId,
+                Damage       = damage,
+                IsHeadshot   = headshot,
+                IsCrit       = crit,
+                HitPosition  = new Vector3(hit.HitX, hit.HitY, hit.HitZ),
                 OwnerLocalId = data.OwnerLocalId
             };
 
             OnHit?.Invoke(payload);
 
+            RecordHit3D(hit.ProjId, hit.TargetId);
+
             data.CollisionsRemaining--;
             if (data.CollisionsRemaining <= 0)
             {
                 int idx = (int)hit.ProjIndex;
-                if (idx < _count3D) _projs3D[idx].Alive = 0;
+                if (idx >= 0 && idx < _count3D) _projs3D[idx].Alive = 0;
                 _localData.Remove(hit.ProjId);
             }
             else
             {
                 _localData[hit.ProjId] = data;
-                _pierceImmunity3D.Add(pierceKey);
             }
         }
 
@@ -441,6 +493,7 @@ namespace MidManStudio.Projectiles.Managers
                 {
                     uint id = _projs2D[read].ProjId;
                     _localData.Remove(id);
+                    ClearHitRecord2D(id);         // return hit-set to pool
                     _trailPool?.NotifyDead(id);
                     OnProjectileDied?.Invoke(id);
                     continue;
@@ -460,6 +513,7 @@ namespace MidManStudio.Projectiles.Managers
                 {
                     uint id = _projs3D[read].ProjId;
                     _localData.Remove(id);
+                    ClearHitRecord3D(id);         // return hit-set to pool
                     _trailPool?.NotifyDead(id);
                     OnProjectileDied?.Invoke(id);
                     continue;
@@ -483,7 +537,8 @@ namespace MidManStudio.Projectiles.Managers
         {
             if (_count2D >= _maxProjectiles2D)
             {
-                MID_Logger.LogWarning(_logLevel, "2D buffer full.", nameof(LocalProjectileManager));
+                MID_Logger.LogWarning(_logLevel,
+                    "2D buffer full.", nameof(LocalProjectileManager));
                 return;
             }
 
@@ -523,7 +578,8 @@ namespace MidManStudio.Projectiles.Managers
         {
             if (_count3D >= _maxProjectiles3D)
             {
-                MID_Logger.LogWarning(_logLevel, "3D buffer full.", nameof(LocalProjectileManager));
+                MID_Logger.LogWarning(_logLevel,
+                    "3D buffer full.", nameof(LocalProjectileManager));
                 return;
             }
 
@@ -616,7 +672,8 @@ namespace MidManStudio.Projectiles.Managers
         private void DeactivateInBuffer2D(uint localId)
         {
             for (int i = 0; i < _targetCount2D; i++)
-                if (_targets2D[i].TargetId == localId) { _targets2D[i].Active = 0; return; }
+                if (_targets2D[i].TargetId == localId)
+                { _targets2D[i].Active = 0; return; }
         }
 
         #endregion
@@ -643,7 +700,8 @@ namespace MidManStudio.Projectiles.Managers
             }
             if (_targetCount2D >= _maxTargets)
             {
-                MID_Logger.LogWarning(_logLevel, "2D target buffer full.", nameof(LocalProjectileManager));
+                MID_Logger.LogWarning(_logLevel,
+                    "2D target buffer full.", nameof(LocalProjectileManager));
                 return;
             }
             _targets2D[_targetCount2D++] = target;
@@ -682,7 +740,8 @@ namespace MidManStudio.Projectiles.Managers
             }
             if (_targetCount3D >= _maxTargets)
             {
-                MID_Logger.LogWarning(_logLevel, "3D target buffer full.", nameof(LocalProjectileManager));
+                MID_Logger.LogWarning(_logLevel,
+                    "3D target buffer full.", nameof(LocalProjectileManager));
                 return;
             }
             _targets3D[_targetCount3D++] = target;
@@ -704,7 +763,8 @@ namespace MidManStudio.Projectiles.Managers
         public void DeactivateTarget2D(uint targetId)
         {
             for (int i = 0; i < _targetCount2D; i++)
-                if (_targets2D[i].TargetId == targetId) { _targets2D[i].Active = 0; break; }
+                if (_targets2D[i].TargetId == targetId)
+                { _targets2D[i].Active = 0; break; }
             if (_targets.TryGetValue(targetId, out var t))
             {
                 t.Active = false;
@@ -715,7 +775,8 @@ namespace MidManStudio.Projectiles.Managers
         public void DeactivateTarget3D(uint targetId)
         {
             for (int i = 0; i < _targetCount3D; i++)
-                if (_targets3D[i].TargetId == targetId) { _targets3D[i].Active = 0; break; }
+                if (_targets3D[i].TargetId == targetId)
+                { _targets3D[i].Active = 0; break; }
             if (_targets.TryGetValue(targetId, out var t))
             {
                 t.Active = false;
