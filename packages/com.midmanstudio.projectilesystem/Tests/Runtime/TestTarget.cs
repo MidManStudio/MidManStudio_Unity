@@ -1,10 +1,20 @@
 // TestTarget.cs
-// Networked destructible 3D target — sphere mesh, no SpriteRenderer.
+// Networked destructible target — works for both 2D and 3D raycast/collision modes.
+//
+// COLLIDER SETUP (both can coexist on the same GameObject):
+//   SphereCollider   — hit by Physics.Raycast (Raycast3D mode) and
+//                      PhysicsProjectile3D collision
+//   CircleCollider2D — hit by Physics2D.Raycast (Raycast2D mode) and
+//                      PhysicsProjectile2D collision
+//   Both live on the same prefab. Unity 2D and 3D physics are fully separate
+//   and do not interfere with each other.
+//
+// EnsureColliders() in Awake adds CircleCollider2D automatically if not present,
+// matching the SphereCollider radius so both colliders cover the same area.
 //
 // UPDATED (GlobalFXManager API):
-//   TriggerImpact calls now use the no-EffectType overload
-//   TriggerImpact(Vector3, Vector3, int, float) that was added for backward
-//   compatibility. No logic changes otherwise.
+//   TriggerImpact calls use the no-EffectType overload
+//   TriggerImpact(Vector3, Vector3, int, float) for backward compatibility.
 
 using System;
 using System.Collections;
@@ -16,34 +26,37 @@ using MidManStudio.Core.FX;
 
 namespace TestGame
 {
+    [RequireComponent(typeof(SphereCollider))]
     public class TestTarget : NetworkBehaviour
     {
         #region Inspector
 
         [Header("Health")]
-        [SerializeField] private float _maxHealth    = 100f;
-        [SerializeField] private float _respawnDelay  = 3f;
-        [SerializeField] private bool  _respawns      = true;
+        [SerializeField] private float _maxHealth   = 100f;
+        [SerializeField] private float _respawnDelay = 3f;
+        [SerializeField] private bool  _respawns     = true;
 
-        [Header("Visuals — 3D mesh (no SpriteRenderer)")]
-        [Tooltip("MeshRenderer on the body sphere. Colour lerps green→red by health.")]
+        [Header("Visuals — 3D mesh")]
         [SerializeField] private MeshRenderer _bodyRenderer;
         [SerializeField] private TMP_Text     _healthText;
         [SerializeField] private UnityEngine.UI.Image _healthBarFill;
 
-        [Header("Death FX (GlobalFXManager)")]
-        [SerializeField] private int   _deathParticleCount   = 20;
-        [SerializeField] private float _deathParticleVolume  = 1f;
-        [Header("Hit FX")]
-        [SerializeField] private int   _hitParticleCount     = 6;
+        [Header("Death FX")]
+        [SerializeField] private int   _deathParticleCount  = 20;
+        [SerializeField] private float _deathParticleVolume = 1f;
 
-        [Header("Audio (NativeAudioBridge clip indices)")]
+        [Header("Hit FX")]
+        [SerializeField] private int   _hitParticleCount = 6;
+
+        [Header("Audio")]
         [SerializeField] private int   _damageSoundClipIndex = 1;
         [SerializeField, Range(0f,1f)] private float _damageSoundVolume = 0.5f;
         [SerializeField] private int   _deathSoundClipIndex  = 2;
         [SerializeField, Range(0f,1f)] private float _deathSoundVolume  = 1.0f;
 
         [Header("Collision")]
+        [Tooltip("Radius used for both SphereCollider (3D) and auto-added CircleCollider2D.\n" +
+                 "Both colliders are kept in sync so Raycast2D and Raycast3D both hit.")]
         [SerializeField] private float _collisionRadius = 0.6f;
 
         [Header("Debug")]
@@ -74,11 +87,60 @@ namespace TestGame
         private Material   _bodyMaterial;
         private Coroutine  _flashCoroutine;
 
+        private float _offlineHp;
+        private bool  _offlineDead;
+
         #endregion
 
         #region Events
 
         public event Action<TestTarget> OnDestroyedServer;
+
+        #endregion
+
+        #region Unity Lifecycle
+
+        private void Awake()
+        {
+            EnsureColliders();
+        }
+
+        /// <summary>
+        /// Ensures both a SphereCollider (3D) and a CircleCollider2D (2D) are present
+        /// on this GameObject so it can be hit by both Raycast3D and Raycast2D modes,
+        /// and by both PhysicsProjectile3D and PhysicsProjectile2D.
+        ///
+        /// SphereCollider is guaranteed by [RequireComponent].
+        /// CircleCollider2D is added here automatically if missing, with radius
+        /// matching _collisionRadius.
+        /// </summary>
+        private void EnsureColliders()
+        {
+            // Sync 3D sphere collider radius
+            var sc = GetComponent<SphereCollider>();
+            if (sc != null) sc.radius = _collisionRadius;
+
+            // Auto-add 2D circle collider if not present
+            var cc = GetComponent<CircleCollider2D>();
+            if (cc == null)
+            {
+                cc = gameObject.AddComponent<CircleCollider2D>();
+                if (_enableLogs)
+                    Debug.Log(
+                        $"[TestTarget] Added CircleCollider2D to '{name}' " +
+                        "so Raycast2D mode can hit this target.", this);
+            }
+            cc.radius = _collisionRadius;
+        }
+
+        private void OnValidate()
+        {
+            // Keep collider radii in sync when _collisionRadius changes in inspector
+            var sc = GetComponent<SphereCollider>();
+            if (sc != null) sc.radius = _collisionRadius;
+            var cc = GetComponent<CircleCollider2D>();
+            if (cc != null) cc.radius = _collisionRadius;
+        }
 
         #endregion
 
@@ -93,7 +155,7 @@ namespace TestGame
 
             if (_bodyRenderer != null)
             {
-                _bodyMaterial = new Material(_bodyRenderer.sharedMaterial);
+                _bodyMaterial          = new Material(_bodyRenderer.sharedMaterial);
                 _bodyRenderer.material = _bodyMaterial;
             }
 
@@ -110,7 +172,6 @@ namespace TestGame
         {
             _currentHealth.OnValueChanged -= OnHealthChanged;
             _isDead.OnValueChanged        -= OnDeadChanged;
-
             if (_bodyMaterial != null) Destroy(_bodyMaterial);
             base.OnNetworkDespawn();
         }
@@ -125,7 +186,7 @@ namespace TestGame
 
             if (_bodyRenderer != null)
             {
-                _bodyMaterial = new Material(_bodyRenderer.sharedMaterial);
+                _bodyMaterial          = new Material(_bodyRenderer.sharedMaterial);
                 _bodyRenderer.material = _bodyMaterial;
             }
 
@@ -147,12 +208,11 @@ namespace TestGame
             bool canAct = !IsSpawned || IsServer;
             if (!canAct) return;
 
+            if (IsSpawned && _isDead.Value) return;
+            if (!IsSpawned && _offlineDead)  return;
+
             float currentHp = IsSpawned ? _currentHealth.Value : _offlineHp;
-
-            if (_isDead.Value && IsSpawned) return;
-            if (_offlineDead && !IsSpawned) return;
-
-            float newHp = Mathf.Max(0f, currentHp - amount);
+            float newHp     = Mathf.Max(0f, currentHp - amount);
 
             if (IsSpawned)
                 _currentHealth.Value = newHp;
@@ -164,20 +224,18 @@ namespace TestGame
             }
 
             if (_enableLogs)
-                Debug.Log($"[TestTarget] id={RegistrationId} hp={newHp:F1} dmg={amount:F1}");
+                Debug.Log(
+                    $"[TestTarget] id={RegistrationId} hp={newHp:F1} dmg={amount:F1}");
 
-            if (newHp <= 0f)
-                OnDeath();
+            if (newHp <= 0f) OnDeath();
         }
 
-        public void Kill() => TakeDamage((_offlineHp > 0 ? _offlineHp : _maxHealth) + 1f);
+        public void Kill() =>
+            TakeDamage((_offlineHp > 0 ? _offlineHp : _maxHealth) + 1f);
 
         #endregion
 
         #region Death + Respawn
-
-        private float _offlineHp;
-        private bool  _offlineDead;
 
         private void OnDeath()
         {
@@ -272,10 +330,8 @@ namespace TestGame
 
         private void PlayHitFX(Vector3 pos)
         {
-            // Uses no-EffectType overload — defaults to EffectType.Generic
             GlobalFXManager.Instance?.TriggerImpact(
                 pos, Vector3.up, _hitParticleCount, _damageSoundVolume);
-
             if (GlobalFXManager.Instance == null)
                 MID_NativeAudioBridge.Instance?.PlayClip(
                     _damageSoundClipIndex, _damageSoundVolume);
@@ -283,10 +339,8 @@ namespace TestGame
 
         private void PlayDeathFX(Vector3 pos)
         {
-            // Uses no-EffectType overload — defaults to EffectType.Generic
             GlobalFXManager.Instance?.TriggerImpact(
                 pos, Vector3.up, _deathParticleCount, _deathSoundVolume);
-
             if (GlobalFXManager.Instance == null)
                 MID_NativeAudioBridge.Instance?.PlayClip(
                     _deathSoundClipIndex, _deathSoundVolume);
@@ -298,21 +352,17 @@ namespace TestGame
 
         private void RefreshVisuals(float hp)
         {
-            float fraction = _maxHealth > 0f ? Mathf.Clamp01(hp / _maxHealth) : 0f;
+            float fraction = _maxHealth > 0f
+                ? Mathf.Clamp01(hp / _maxHealth) : 0f;
 
-            if (_healthText != null)
-                _healthText.text = $"{Mathf.CeilToInt(hp)}";
-
-            if (_healthBarFill != null)
-                _healthBarFill.fillAmount = fraction;
+            if (_healthText     != null) _healthText.text       = $"{Mathf.CeilToInt(hp)}";
+            if (_healthBarFill  != null) _healthBarFill.fillAmount = fraction;
 
             if (_bodyMaterial != null)
-            {
                 _bodyMaterial.color = Color.Lerp(
                     new Color(0.9f, 0.2f, 0.1f),
                     new Color(0.2f, 0.9f, 0.3f),
                     fraction);
-            }
         }
 
         private void TriggerHitFlash()
@@ -336,11 +386,13 @@ namespace TestGame
 #if UNITY_EDITOR
         private void OnDrawGizmosSelected()
         {
+            // 3D sphere
             Gizmos.color = new Color(1f, 0.5f, 0f, 0.4f);
-            float r = _collisionRadius;
-            var sc = GetComponent<SphereCollider>();
-            if (sc != null) r = sc.radius * Mathf.Max(transform.lossyScale.x, 0.01f);
-            Gizmos.DrawWireSphere(transform.position, r);
+            Gizmos.DrawWireSphere(transform.position, _collisionRadius);
+            // 2D circle (drawn as a flat disc at target position)
+            Gizmos.color = new Color(0.2f, 0.8f, 1f, 0.3f);
+            Gizmos.DrawWireSphere(
+                transform.position, _collisionRadius * 0.98f); // slightly smaller so both visible
         }
 #endif
         #endregion
