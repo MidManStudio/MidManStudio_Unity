@@ -1,12 +1,17 @@
 // ProjectileRenderer2D.cs
-// FIXES:
-//   1. UseSprite = false no longer skips rendering. Projectiles without a sprite
-//      render using their CustomShape (or default quad) tinted white.
-//   2. CustomShape is respected even when UseSprite = false.
-//   3. Combined-mesh path now does two passes — one for sprite configs (atlas
-//      texture) and one for shape-only configs (white texture) — so they can
-//      never corrupt each other's texture binding.
-//   4. Instanced path: Texture2D.whiteTexture used as fallback when no sprite.
+// FIXES (combined-mesh path — primary path on hardware without GPU instancing):
+//   + Two-pass render now uses TWO separate Mesh objects (_spriteMesh, _shapeMesh)
+//     instead of sharing one. Previously Pass 2 called mesh.Clear() after Pass 1
+//     already submitted Graphics.DrawMesh() — Unity holds a reference not a copy
+//     so Pass 1 rendered an empty mesh. Now each pass owns its mesh entirely.
+//   + RenderCombinedGroup signature takes the mesh as a parameter.
+//   + OnDestroy destroys both meshes.
+//   + Awake logs which path is active so hardware issues are immediately visible.
+//
+// NOTE: Instanced path (DrawMeshInstanced) is unchanged — it uses per-configId
+// groups with MaterialPropertyBlock and never touches the combined meshes.
+// On hardware without GPU instancing (_forceDrawMesh=true or
+// SystemInfo.supportsInstancing=false) the combined path is the ONLY path.
 
 using System.Collections.Generic;
 using MidManStudio.Projectiles.Config;
@@ -24,7 +29,8 @@ namespace MidManStudio.Projectiles.Visuals
         [SerializeField] private Material _atlasMaterial;
 
         [Tooltip("Force combined-mesh fallback path even on instancing-capable hardware.\n" +
-                 "Enable only for debugging — instanced path is 4-10× faster.")]
+                 "Enable when GPU instancing is not supported on target hardware.\n" +
+                 "The combined path is ~4-10x slower than instanced but works everywhere.")]
         [SerializeField] private bool _forceDrawMesh;
 
         // ── Instanced path ─────────────────────────────────────────────────
@@ -35,12 +41,21 @@ namespace MidManStudio.Projectiles.Visuals
         private MaterialPropertyBlock _mpb;
 
         // ── Combined mesh path ─────────────────────────────────────────────
+        // TWO separate meshes — one per pass — so DrawMesh(pass1) is never
+        // clobbered by pass2.Clear() before the GPU processes it.
         private const int MAX_QUADS = 2048;
-        private Mesh      _combinedMesh;
+
+        private Mesh      _spriteMesh;   // Pass 1: configs with sprites (atlas texture)
+        private Mesh      _shapeMesh;    // Pass 2: configs without sprites (white texture)
+
+        // Shared CPU-side arrays — written by each pass into its own mesh
+        // These are re-used across passes (pass 2 overwrites after pass 1 uploads)
+        // which is safe because SetVertices/SetTriangles copies into the mesh.
         private Vector3[] _verts;
         private Vector2[] _uvs;
         private Color32[] _cols;
         private int[]     _tris;
+
         private MaterialPropertyBlock _combinedMpb;
 
         // ── Per-configId index grouping (instanced path) ───────────────────
@@ -65,18 +80,19 @@ namespace MidManStudio.Projectiles.Visuals
             }
             else
             {
-                _combinedMesh = new Mesh { name = "ProjectileCombined2D" };
-                _combinedMesh.MarkDynamic();
+                // Two separate meshes — critical so pass 2 doesn't clobber pass 1
+                _spriteMesh = new Mesh { name = "ProjectileSprite2D" };
+                _spriteMesh.MarkDynamic();
+                _shapeMesh  = new Mesh { name = "ProjectileShape2D" };
+                _shapeMesh.MarkDynamic();
+
                 _verts = new Vector3[MAX_QUADS * 4];
                 _uvs   = new Vector2[MAX_QUADS * 4];
                 _cols  = new Color32[MAX_QUADS * 4];
                 _tris  = new int[MAX_QUADS * 6];
             }
 
-            // Identity MPB for combined path
             _combinedMpb = new MaterialPropertyBlock();
-            _combinedMpb.SetVector("_UVRect", new Vector4(0f, 0f, 1f, 1f));
-            _combinedMpb.SetVector("_Color",  new Vector4(1f, 1f, 1f, 1f));
 
             Debug.Log(
                 $"[ProjectileRenderer2D] Path={_path}" +
@@ -86,8 +102,9 @@ namespace MidManStudio.Projectiles.Visuals
 
         private void OnDestroy()
         {
-            if (_combinedMesh != null) Destroy(_combinedMesh);
-            if (_defaultQuad  != null) Destroy(_defaultQuad);
+            if (_spriteMesh  != null) Destroy(_spriteMesh);
+            if (_shapeMesh   != null) Destroy(_shapeMesh);
+            if (_defaultQuad != null) Destroy(_defaultQuad);
         }
 
         // ── Public API ────────────────────────────────────────────────────────
@@ -96,8 +113,7 @@ namespace MidManStudio.Projectiles.Visuals
         {
             if (_atlasMaterial == null)
             {
-                Debug.LogWarning(
-                    "[ProjectileRenderer2D] _atlasMaterial is not assigned.", this);
+                Debug.LogWarning("[ProjectileRenderer2D] _atlasMaterial is not assigned.", this);
                 return;
             }
             if (count == 0) return;
@@ -109,26 +125,18 @@ namespace MidManStudio.Projectiles.Visuals
         }
 
         // ── Instanced path ────────────────────────────────────────────────────
-        //
-        // Groups alive projectiles by configId.  Each config may or may not use
-        // a sprite.  Sprite configs use the atlas texture + computed UV rect.
-        // Non-sprite configs (UseSprite = false, or no sprite assigned) use
-        // Texture2D.whiteTexture and full UV (0,0,1,1) — the shape mesh
-        // (CustomShape or default quad) renders as a solid white shape, tinted
-        // by the per-instance _Color (lifetime fade).
 
         private void RenderInstanced(NativeProjectile[] projs, int count)
         {
             var reg = ProjectileRegistry.Instance;
 
-            // Phase 1: collect alive indices per configId
             _configGroups.Clear();
             for (int i = 0; i < count; i++)
             {
                 ref var p = ref projs[i];
                 if (p.Alive == 0) continue;
                 var cfg = reg.Get(p.ConfigId);
-                if (cfg == null) continue;   // FIX: removed !cfg.UseSprite skip
+                if (cfg == null) continue;
 
                 if (!_configGroups.TryGetValue(p.ConfigId, out var lst))
                 {
@@ -138,7 +146,6 @@ namespace MidManStudio.Projectiles.Visuals
                 lst.Add(i);
             }
 
-            // Phase 2: draw each configId group
             foreach (var kv in _configGroups)
             {
                 var cfg = reg.Get(kv.Key);
@@ -146,9 +153,6 @@ namespace MidManStudio.Projectiles.Visuals
 
                 Mesh mesh = GetMeshForConfig(cfg);
 
-                // FIX: choose texture and UV rect based on whether a sprite is used.
-                // Non-sprite configs get Texture2D.whiteTexture + full UV so the
-                // mesh shape is visible as a solid white (or lifetime-faded) shape.
                 Texture2D tex;
                 Vector4   uvRect;
 
@@ -192,7 +196,7 @@ namespace MidManStudio.Projectiles.Visuals
                     {
                         _mpb.SetVectorArray("_UVRect", _uvRects);
                         _mpb.SetVectorArray("_Color",  _colors);
-                        _mpb.SetTexture("_MainTex", tex);   // always set — never null
+                        _mpb.SetTexture("_MainTex", tex);
 
                         Graphics.DrawMeshInstanced(
                             mesh, 0, _atlasMaterial, _matrices, n, _mpb,
@@ -207,19 +211,20 @@ namespace MidManStudio.Projectiles.Visuals
         }
 
         // ── Combined mesh path ────────────────────────────────────────────────
-        //
-        // Two-pass approach so sprite and non-sprite projectiles never share the
-        // same draw call with conflicting textures:
-        //   Pass 1 — sprite configs  → atlas material + sprite texture
-        //   Pass 2 — no-sprite configs → atlas material + Texture2D.whiteTexture
+        // Two separate passes, each writing into its OWN Mesh object.
+        // Pass 1 (sprite)  → _spriteMesh
+        // Pass 2 (shape)   → _shapeMesh
+        // DrawMesh is called immediately after each mesh is built so the GPU
+        // command is queued before the next pass clears its own separate mesh.
 
         private void RenderCombined(NativeProjectile[] projs, int count)
         {
-            RenderCombinedGroup(projs, count, spritePass: true);
-            RenderCombinedGroup(projs, count, spritePass: false);
+            RenderCombinedGroup(projs, count, spritePass: true,  mesh: _spriteMesh);
+            RenderCombinedGroup(projs, count, spritePass: false, mesh: _shapeMesh);
         }
 
-        private void RenderCombinedGroup(NativeProjectile[] projs, int count, bool spritePass)
+        private void RenderCombinedGroup(
+            NativeProjectile[] projs, int count, bool spritePass, Mesh mesh)
         {
             var       reg      = ProjectileRegistry.Instance;
             int       qi       = 0;
@@ -233,12 +238,10 @@ namespace MidManStudio.Projectiles.Visuals
                 var cfg = reg.Get(p.ConfigId);
                 if (cfg == null) continue;
 
-                // Route to correct pass
                 bool hasSprite = cfg.UseSprite && cfg.ProjectileSprite?.texture != null;
-                if (spritePass  && !hasSprite) continue;
+                if ( spritePass && !hasSprite) continue;
                 if (!spritePass &&  hasSprite) continue;
 
-                // Track first texture for sprite pass
                 if (spritePass && firstTex == null)
                     firstTex = cfg.ProjectileSprite.texture;
 
@@ -254,12 +257,12 @@ namespace MidManStudio.Projectiles.Visuals
                     (byte)(tint.x * 255f), (byte)(tint.y * 255f),
                     (byte)(tint.z * 255f), (byte)(tint.w * 255f));
 
-                Mesh srcMesh  = GetMeshForConfig(cfg);
-                var  srcVerts = srcMesh.vertices;
-                var  srcUVs   = srcMesh.uv;
-                var  srcTris  = srcMesh.triangles;
-                int  vc       = srcVerts.Length;
-                int  vBase    = qi * 4;
+                Mesh   srcMesh  = GetMeshForConfig(cfg);
+                var    srcVerts = srcMesh.vertices;
+                var    srcUVs   = srcMesh.uv;
+                var    srcTris  = srcMesh.triangles;
+                int    vc       = srcVerts.Length;
+                int    vBase    = qi * 4;
 
                 float cos = Mathf.Cos(p.AngleDeg * Mathf.Deg2Rad);
                 float sin = Mathf.Sin(p.AngleDeg * Mathf.Deg2Rad);
@@ -277,6 +280,7 @@ namespace MidManStudio.Projectiles.Visuals
                             uvRect.y + srcUVs[v].y * uvRect.w);
                         _cols[vBase + v] = c32;
                     }
+                    // Pad remaining slots to degenerate (invisible)
                     for (int v = vc; v < 4; v++)
                     {
                         _verts[vBase + v] = _verts[vBase];
@@ -291,7 +295,11 @@ namespace MidManStudio.Projectiles.Visuals
                 }
                 else
                 {
-                    // > 4 verts — bounding quad fallback
+                    // > 4 verts (Arrow=7, Needle=5, custom shapes):
+                    // Use bounding quad fallback for combined path.
+                    // Instanced path handles these shapes correctly at full fidelity.
+                    // If you need exact shapes on non-instancing hardware, use
+                    // the instanced path (remove _forceDrawMesh or upgrade GPU).
                     float hx = sx * 0.5f, hy = sy * 0.5f;
                     _verts[vBase+0] = RotateScale(p.X, p.Y, -hx, -hy, cos, sin);
                     _verts[vBase+1] = RotateScale(p.X, p.Y,  hx, -hy, cos, sin);
@@ -312,18 +320,18 @@ namespace MidManStudio.Projectiles.Visuals
 
             if (qi == 0) return;
 
-            _combinedMesh.Clear();
-            _combinedMesh.SetVertices(_verts, 0, qi * 4);
-            _combinedMesh.SetUVs(0, _uvs,    0, qi * 4);
-            _combinedMesh.SetColors(_cols,    0, qi * 4);
-            _combinedMesh.SetTriangles(_tris, 0, qi * 6, 0);
-            _combinedMesh.bounds = new Bounds(Vector3.zero, Vector3.one * 10000f);
+            // Upload into THIS pass's dedicated mesh — never touches the other pass's mesh
+            mesh.Clear();
+            mesh.SetVertices(_verts, 0, qi * 4);
+            mesh.SetUVs(0, _uvs,    0, qi * 4);
+            mesh.SetColors(_cols,    0, qi * 4);
+            mesh.SetTriangles(_tris, 0, qi * 6, 0);
+            mesh.bounds = new Bounds(Vector3.zero, Vector3.one * 10000f);
 
-            // Always set a valid texture — never leave it unset
             _combinedMpb.SetTexture("_MainTex", firstTex ?? Texture2D.whiteTexture);
 
             Graphics.DrawMesh(
-                _combinedMesh, Matrix4x4.identity, _atlasMaterial,
+                mesh, Matrix4x4.identity, _atlasMaterial,
                 gameObject.layer, null, 0, _combinedMpb);
         }
 
@@ -344,10 +352,8 @@ namespace MidManStudio.Projectiles.Visuals
             if (_defaultQuad != null) return _defaultQuad;
             _defaultQuad = new Mesh { name = "ProjDefaultQuad" };
             _defaultQuad.vertices  = new[] {
-                new Vector3(-0.5f, -0.5f, 0f),
-                new Vector3( 0.5f, -0.5f, 0f),
-                new Vector3( 0.5f,  0.5f, 0f),
-                new Vector3(-0.5f,  0.5f, 0f),
+                new Vector3(-0.5f, -0.5f, 0f), new Vector3( 0.5f, -0.5f, 0f),
+                new Vector3( 0.5f,  0.5f, 0f), new Vector3(-0.5f,  0.5f, 0f),
             };
             _defaultQuad.uv = new[] {
                 new Vector2(0f, 0f), new Vector2(1f, 0f),
@@ -363,7 +369,7 @@ namespace MidManStudio.Projectiles.Visuals
             var sprite = cfg.ProjectileSprite;
             if (sprite == null) return new Vector4(0f, 0f, 1f, 1f);
             var tex = sprite.texture;
-            if (tex == null) return new Vector4(0f, 0f, 1f, 1f);
+            if (tex == null)   return new Vector4(0f, 0f, 1f, 1f);
             return new Vector4(
                 sprite.rect.x      / tex.width,
                 sprite.rect.y      / tex.height,
@@ -372,12 +378,9 @@ namespace MidManStudio.Projectiles.Visuals
         }
 
         private static Vector3 RotateScale(
-            float cx, float cy,
-            float lx, float ly,
-            float cos, float sin)
+            float cx, float cy, float lx, float ly, float cos, float sin)
             => new(cx + cos * lx - sin * ly,
-                   cy + sin * lx + cos * ly,
-                   0f);
+                   cy + sin * lx + cos * ly, 0f);
 
         private static Vector4 ComputeTint(ref NativeProjectile p)
         {
