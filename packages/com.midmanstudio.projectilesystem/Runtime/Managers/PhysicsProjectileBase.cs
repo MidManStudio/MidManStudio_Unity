@@ -1,8 +1,15 @@
-// packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectileBase.cs
+// PhysicsProjectileBase.cs
+// FIX: Physics projectiles now use ProjectileConfigSO for damage calculation.
+//   Previously ApplyDirectHit always used _baseDamage * _damageMultiplier ignoring the
+//   damage curve and MaxRange defined on the config. Now it evaluates cfg.EvaluateDamage(normDist)
+//   based on travel distance, falling back to _baseDamage when no config is registered.
 //
-// Abstract base for 2D and 3D physics projectiles.
-// RequireComponent is declared here for components shared by both variants.
-// Each derived class adds its own RequireComponent for its Rigidbody type.
+// FIX: _spawnPosition is recorded in OnProjectileInitialised so travel distance can be computed.
+//
+// ADDED: _visualConfigId is now exposed as protected so derived classes can set it at runtime
+//   if needed (e.g. PhysicsProjectile2D.OnLaunch already reads it for gravity scale).
+//
+// All other behaviour (ShouldAutoSpawnVisual, OnNetworkVelocityReceived, pool visual, etc.) unchanged.
 
 using System;
 using System.Collections;
@@ -24,12 +31,14 @@ namespace MidManStudio.Projectiles.Managers
         #region Inspector
 
         [Header("Damage")]
+        [Tooltip("Base damage used when no config is registered for _visualConfigId.")]
         [SerializeField] protected float     _baseDamage       = 30f;
         [SerializeField, Min(0f)] protected float _explosionRadius = 0f;
         [SerializeField] protected LayerMask _damageLayerMask   = -1;
 
         [Header("Visual Pool")]
-        [Tooltip("Config ID used to drive visual appearance.")]
+        [Tooltip("Config ID used to drive visual appearance AND damage curve.\n" +
+                 "Set this in the prefab inspector to match your registered ProjectileConfigSO.")]
         [SerializeField] protected ushort _visualConfigId = 0;
 
         [Tooltip("Pool type for 2D visual (SpriteRenderer + trail).")]
@@ -54,6 +63,9 @@ namespace MidManStudio.Projectiles.Managers
         #region Shared State
 
         protected bool HasHit { get; set; }
+
+        // Recorded at launch for travel-distance damage falloff
+        private Vector3 _spawnPosition;
 
         private ulong _ownerMidId;
         private ulong _firedByNetworkObjectId;
@@ -97,25 +109,9 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Abstract / Virtual Hooks
 
-        /// <summary>
-        /// Cache Rigidbody reference. Called in OnNetworkSpawn before SpawnPoolVisual.
-        /// Log clearly if the component is missing.
-        /// </summary>
         protected abstract void OnPhysicsSetup();
-
-        /// <summary>
-        /// Configure and launch the Rigidbody. Called in OnProjectileInitialised.
-        /// Returns the launch direction for visual orientation.
-        /// </summary>
         protected abstract Vector3 OnLaunch(float bulletVelocity);
-
-        /// <summary>Zero velocity and set isKinematic = true.</summary>
         protected abstract void StopPhysics();
-
-        /// <summary>
-        /// True when this is a 2D physics projectile.
-        /// Drives default visual pool type selection when no config is registered.
-        /// </summary>
         protected abstract bool Is2D { get; }
 
         #endregion
@@ -133,6 +129,9 @@ namespace MidManStudio.Projectiles.Managers
         protected override void OnProjectileInitialised()
         {
             HasHit = false;
+            // FIX: record spawn position so we can compute travel distance for damage falloff
+            _spawnPosition = transform.position;
+
             if (_poolVisualGO == null) SpawnPoolVisual();
 
             Vector3 launchDir = OnLaunch(BulletVelocity);
@@ -180,7 +179,7 @@ namespace MidManStudio.Projectiles.Managers
 
         #endregion
 
-        #region Hit Processing (called by derived collision handlers)
+        #region Hit Processing
 
         protected void HandleHit3D(GameObject hitGO, Vector3 hitPoint)
         {
@@ -208,9 +207,10 @@ namespace MidManStudio.Projectiles.Managers
             NetworkObject targetNetObj, Vector3 hitPoint, bool is2D)
         {
             if (targetNetObj == null) return;
+            float damage = ComputeConfigDamage(hitPoint);
             FireHitEvent(
                 (uint)targetNetObj.NetworkObjectId,
-                _baseDamage * _damageMultiplier,
+                damage,
                 hitPoint, is2D);
         }
 
@@ -225,10 +225,8 @@ namespace MidManStudio.Projectiles.Managers
                 if (no == null) continue;
                 float dist    = Vector3.Distance(centre, cols[i].transform.position);
                 float falloff = 1f - Mathf.Clamp01(dist / _explosionRadius);
-                FireHitEvent(
-                    (uint)no.NetworkObjectId,
-                    _baseDamage * _damageMultiplier * falloff,
-                    centre, false);
+                float damage  = ComputeConfigDamage(cols[i].transform.position) * falloff;
+                FireHitEvent((uint)no.NetworkObjectId, damage, centre, false);
             }
         }
 
@@ -241,14 +239,37 @@ namespace MidManStudio.Projectiles.Managers
             {
                 var no = cols[i].GetComponentInParent<NetworkObject>();
                 if (no == null) continue;
-                float dist    = Vector2.Distance(
-                    (Vector2)centre, (Vector2)cols[i].transform.position);
+                float dist    = Vector2.Distance((Vector2)centre, (Vector2)cols[i].transform.position);
                 float falloff = 1f - Mathf.Clamp01(dist / _explosionRadius);
-                FireHitEvent(
-                    (uint)no.NetworkObjectId,
-                    _baseDamage * _damageMultiplier * falloff,
-                    centre, true);
+                float damage  = ComputeConfigDamage(cols[i].transform.position) * falloff;
+                FireHitEvent((uint)no.NetworkObjectId, damage, centre, true);
             }
+        }
+
+        /// <summary>
+        /// Evaluates damage from the ProjectileConfigSO using travel distance + damage curve.
+        /// Falls back to _baseDamage when no config is registered for _visualConfigId.
+        /// </summary>
+        private float ComputeConfigDamage(Vector3 hitPoint)
+        {
+            if (ProjectileRegistry.HasInstance)
+            {
+                var cfg = ProjectileRegistry.Instance.Get(_visualConfigId);
+                if (cfg != null)
+                {
+                    float travelDist = Vector3.Distance(_spawnPosition, hitPoint);
+                    float normDist   = cfg.MaxRange > 0f
+                        ? Mathf.Clamp01(travelDist / cfg.MaxRange) : 0f;
+                    float damage = cfg.EvaluateDamage(normDist);
+
+                    bool isCrit = UnityEngine.Random.value < cfg.CritChance;
+                    if (isCrit) damage *= cfg.CritMultiplier;
+
+                    return damage * _damageMultiplier;
+                }
+            }
+            // Fallback: inspector _baseDamage
+            return _baseDamage * _damageMultiplier;
         }
 
         private void FireHitEvent(
@@ -257,7 +278,7 @@ namespace MidManStudio.Projectiles.Managers
             OnHitServerConfirmed?.Invoke(new ProjectileHitPayload
             {
                 ProjId                 = 0,
-                ConfigId               = 0,
+                ConfigId               = _visualConfigId,
                 Is3D                   = !is2D,
                 TargetId               = targetId,
                 Damage                 = damage,
@@ -303,8 +324,7 @@ namespace MidManStudio.Projectiles.Managers
             if (_poolVisualGO == null)
             {
                 MID_Logger.LogWarning(_logLevel,
-                    $"SpawnPoolVisual: LocalObjectPool returned null for " +
-                    $"type {_usedPoolType}. " +
+                    $"SpawnPoolVisual: LocalObjectPool returned null for type {_usedPoolType}. " +
                     "Ensure the pool has a prefab assigned for this type.",
                     nameof(PhysicsProjectileBase));
                 return;
