@@ -73,6 +73,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/PoolSystems/PackagePoolProviderBootstrapper.cs">
       <Link>Editor/PoolSystems/PackagePoolProviderBootstrapper.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/MID_ScriptExecutionOrderWindow.cs">
+      <Link>Editor/Helpers/MID_ScriptExecutionOrderWindow.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Libraries/LibraryTypeGenerator.cs">
       <Link>Editor/Libraries/LibraryTypeGenerator.cs</Link>
     </Compile>

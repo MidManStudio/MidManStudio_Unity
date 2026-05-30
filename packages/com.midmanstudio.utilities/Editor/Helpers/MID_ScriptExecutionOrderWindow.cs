@@ -561,7 +561,7 @@ namespace MidManStudio.Core.EditorTools
                 }
                 else
                 {
-                    var oc = GUI.color;
+                     oc = GUI.color;
                     GUI.color = new Color(0.30f, 0.82f, 0.30f, 0.85f);
                     EditorGUILayout.LabelField("✓ Saved", EditorStyles.miniBoldLabel);
                     GUI.color = oc;
@@ -591,7 +591,7 @@ namespace MidManStudio.Core.EditorTools
                 if (type == null || type.IsAbstract) continue;
                 if (!typeof(MonoBehaviour).IsAssignableFrom(type)) continue;
 
-                int    ord = PlayerSettings.GetScriptExecutionOrder(script);
+                int    ord = MonoImporter.GetExecutionOrder(script);
                 string ns  = type.Namespace ?? "";
                 string asm = type.Assembly?.GetName().Name ?? "";
 
@@ -706,14 +706,14 @@ namespace MidManStudio.Core.EditorTools
             // Write managed scripts
             foreach (var e in _managed)
             {
-                PlayerSettings.SetScriptExecutionOrder(e.Script, e.EditOrder);
+                MonoImporter.SetExecutionOrder(e.Script, e.EditOrder);
                 e.SavedOrder = e.EditOrder;
             }
 
             // Zero out scripts that were removed from the managed list this session
             foreach (var e in _unmanaged.Where(e => e.SavedOrder != 0))
             {
-                PlayerSettings.SetScriptExecutionOrder(e.Script, 0);
+                MonoImporter.SetExecutionOrder(e.Script, 0);
                 e.SavedOrder = 0;
             }
 
