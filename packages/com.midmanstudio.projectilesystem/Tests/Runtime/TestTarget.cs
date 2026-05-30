@@ -1,20 +1,8 @@
 // TestTarget.cs
-// Networked destructible target — works for both 2D and 3D raycast/collision modes.
-//
-// COLLIDER SETUP (both can coexist on the same GameObject):
-//   SphereCollider   — hit by Physics.Raycast (Raycast3D mode) and
-//                      PhysicsProjectile3D collision
-//   CircleCollider2D — hit by Physics2D.Raycast (Raycast2D mode) and
-//                      PhysicsProjectile2D collision
-//   Both live on the same prefab. Unity 2D and 3D physics are fully separate
-//   and do not interfere with each other.
-//
-// EnsureColliders() in Awake adds CircleCollider2D automatically if not present,
-// matching the SphereCollider radius so both colliders cover the same area.
-//
-// UPDATED (GlobalFXManager API):
-//   TriggerImpact calls use the no-EffectType overload
-//   TriggerImpact(Vector3, Vector3, int, float) for backward compatibility.
+// FIX: EnsureColliders() moved from Awake() to Start().
+// During NGO's CreateLocalNetworkObject → Instantiate(prefab), Awake() fires
+// inside the instantiation pipeline where AddComponent<CircleCollider2D>() can
+// return null. Start() is called after instantiation completes — safe for AddComponent.
 
 using System;
 using System.Collections;
@@ -100,37 +88,12 @@ namespace TestGame
 
         #region Unity Lifecycle
 
+        // FIX: Awake no longer calls EnsureColliders — moved to Start().
+        // During NGO's CreateLocalNetworkObject pipeline, Awake fires inside
+        // Instantiate(prefab) where AddComponent can return null. Start() is safe.
         private void Awake()
         {
-            EnsureColliders();
-        }
-
-        /// <summary>
-        /// Ensures both a SphereCollider (3D) and a CircleCollider2D (2D) are present
-        /// on this GameObject so it can be hit by both Raycast3D and Raycast2D modes,
-        /// and by both PhysicsProjectile3D and PhysicsProjectile2D.
-        ///
-        /// SphereCollider is guaranteed by [RequireComponent].
-        /// CircleCollider2D is added here automatically if missing, with radius
-        /// matching _collisionRadius.
-        /// </summary>
-        private void EnsureColliders()
-        {
-            // Sync 3D sphere collider radius
-            var sc = GetComponent<SphereCollider>();
-            if (sc != null) sc.radius = _collisionRadius;
-
-            // Auto-add 2D circle collider if not present
-            var cc = GetComponent<CircleCollider2D>();
-            if (cc == null)
-            {
-                cc = gameObject.AddComponent<CircleCollider2D>();
-                if (_enableLogs)
-                    Debug.Log(
-                        $"[TestTarget] Added CircleCollider2D to '{name}' " +
-                        "so Raycast2D mode can hit this target.", this);
-            }
-            cc.radius = _collisionRadius;
+            // Intentionally empty — collider setup happens in Start().
         }
 
         private void OnValidate()
@@ -176,11 +139,17 @@ namespace TestGame
             base.OnNetworkDespawn();
         }
 
-        // For offline (no NetworkObject) use
+        // FIX: EnsureColliders() is called at the TOP of Start() before any
+        // IsSpawned check so it runs in BOTH networked and offline paths.
+        // Start() is guaranteed to run after NGO's instantiation is complete,
+        // so AddComponent<CircleCollider2D>() is safe here.
         private void Start()
         {
+            EnsureColliders(); // Always run first — safe here, not in Awake
+
             if (IsSpawned) return;
 
+            // Offline (no NetworkObject) initialisation
             _spawnPosition = transform.position;
             _spawnRotation = transform.rotation;
 
@@ -355,7 +324,7 @@ namespace TestGame
             float fraction = _maxHealth > 0f
                 ? Mathf.Clamp01(hp / _maxHealth) : 0f;
 
-            if (_healthText     != null) _healthText.text       = $"{Mathf.CeilToInt(hp)}";
+            if (_healthText     != null) _healthText.text          = $"{Mathf.CeilToInt(hp)}";
             if (_healthBarFill  != null) _healthBarFill.fillAmount = fraction;
 
             if (_bodyMaterial != null)
@@ -382,17 +351,47 @@ namespace TestGame
 
         #endregion
 
+        #region Collider Setup
+
+        /// <summary>
+        /// Ensures both SphereCollider (3D) and CircleCollider2D (2D) are present.
+        /// Called from Start() — NOT Awake() — because AddComponent during NGO's
+        /// CreateLocalNetworkObject instantiation (Awake) can return null.
+        /// </summary>
+        private void EnsureColliders()
+        {
+            var sc = GetComponent<SphereCollider>();
+            if (sc != null) sc.radius = _collisionRadius;
+
+            var cc = GetComponent<CircleCollider2D>();
+            if (cc == null)
+            {
+                cc = gameObject.AddComponent<CircleCollider2D>();
+                if (_enableLogs)
+                    Debug.Log(
+                        $"[TestTarget] Added CircleCollider2D to '{name}' " +
+                        "so Raycast2D mode can hit this target.", this);
+            }
+
+            // Null guard — defensive in case AddComponent fails in unusual contexts
+            if (cc != null)
+                cc.radius = _collisionRadius;
+            else
+                Debug.LogWarning(
+                    $"[TestTarget] Could not obtain CircleCollider2D on '{name}'. " +
+                    "Raycast2D hits will not register.", this);
+        }
+
+        #endregion
+
         #region Gizmo
 #if UNITY_EDITOR
         private void OnDrawGizmosSelected()
         {
-            // 3D sphere
             Gizmos.color = new Color(1f, 0.5f, 0f, 0.4f);
             Gizmos.DrawWireSphere(transform.position, _collisionRadius);
-            // 2D circle (drawn as a flat disc at target position)
             Gizmos.color = new Color(0.2f, 0.8f, 1f, 0.3f);
-            Gizmos.DrawWireSphere(
-                transform.position, _collisionRadius * 0.98f); // slightly smaller so both visible
+            Gizmos.DrawWireSphere(transform.position, _collisionRadius * 0.98f);
         }
 #endif
         #endregion
