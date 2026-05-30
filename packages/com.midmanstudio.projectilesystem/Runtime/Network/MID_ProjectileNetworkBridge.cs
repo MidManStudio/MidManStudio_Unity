@@ -1,19 +1,14 @@
 // packages/com.midmanstudio.projectilesystem/Runtime/Network/MID_ProjectileNetworkBridge.cs
 //
-// FIX (pattern projectiles vibrating in host mode):
-//   SpawnConfirmedClientRpc now returns early when IsServer (i.e. host or
-//   dedicated server). On a host, ProjectileRenderer2D already renders
-//   projectiles directly from the server's Rust buffer every LateUpdate.
-//   Previously, ClientPredictionManager also spawned separate pool-visual
-//   objects for the host's own projectiles, producing two sets of visuals at
-//   slightly different positions every frame — the source of the vibration.
-//   Pure clients (IsServer == false) still use prediction visuals as before.
-//   SendSnapshotClientRpc / HitConfirmedClientRpc are unchanged — the
-//   prediction dict is empty for host so they are harmless no-ops.
+// CHANGES:
+//   + RaycastFireServerRpc: added `bool clientIs3D` parameter.
+//     Without this the server reconstructed RaycastFireResult with Is3D=false
+//     regardless of how the weapon fired, so 3D raycast shots always spawned
+//     the 2D pool visual on all clients.
+//   + RaycastFireResult.Is3D = clientIs3D when building the server-side result.
 //
-// Previous fixes retained:
-//   + ProjectileFireRequest carries per-projectile directions for patterns.
-//   + All host-mode fixes retained.
+// FIX (pattern projectiles vibrating in host mode) retained:
+//   SpawnConfirmedClientRpc returns early when IsServer.
 
 using System;
 using System.Runtime.InteropServices;
@@ -303,6 +298,13 @@ namespace MidManStudio.Projectiles.Network
 
         #region Client → Server: Raycast
 
+        /// <summary>
+        /// FIX: added clientIs3D parameter.
+        /// Previously the server reconstructed RaycastFireResult with Is3D=false always,
+        /// so 3D raycast shots spawned the 2D pool visual on all clients.
+        /// Now Is3D flows from the firing client through to SpawnVisualClientRpc,
+        /// which selects _visualPoolType3D vs _visualPoolType2D correctly.
+        /// </summary>
         [ServerRpc(RequireOwnership = false)]
         public void RaycastFireServerRpc(
             ProjectileFireRequest request,
@@ -310,6 +312,7 @@ namespace MidManStudio.Projectiles.Network
             bool    clientDidHit,
             bool    clientIsHeadshot,
             ulong   clientHitTargetId,
+            bool    clientIs3D,               // NEW — was missing
             ServerRpcParams rpcParams = default)
         {
             if (!IsServer || RaycastHandler == null) return;
@@ -321,7 +324,8 @@ namespace MidManStudio.Projectiles.Network
                 HitPoint           = clientHitPoint,
                 DidHit             = clientDidHit,
                 HitTargetNetworkId = clientHitTargetId,
-                IsHeadshot         = clientIsHeadshot
+                IsHeadshot         = clientIsHeadshot,
+                Is3D               = clientIs3D          // NEW — set from RPC param
             };
 
             var context = new WeaponFireContext
@@ -343,17 +347,15 @@ namespace MidManStudio.Projectiles.Network
         #region Server → Clients
 
         /// <summary>
-        /// FIX: Returns early for IsServer (host AND dedicated server).
-        /// On a host, ProjectileRenderer2D renders directly from the Rust buffer,
-        /// so spawning ClientPredictionManager pool-visuals would create a second
-        /// set of visuals at slightly different positions — causing the visible
-        /// vibration with pattern shots. Pure clients (IsServer==false) still
-        /// receive prediction visuals as before since they have no local Rust buffer.
+        /// Returns early when IsServer (host or dedicated).
+        /// On a host, ProjectileRenderer2D renders directly from the Rust buffer
+        /// every LateUpdate — spawning ClientPredictionManager pool visuals would
+        /// create a second set at slightly different positions (vibration bug).
+        /// Pure clients still receive prediction visuals as before.
         /// </summary>
         [ClientRpc]
         public void SpawnConfirmedClientRpc(SpawnConfirmation confirmation)
         {
-            // Server (host or dedicated): renderer handles visuals — skip prediction.
             if (IsServer) return;
 
             MID_Logger.LogDebug(_logLevel,
