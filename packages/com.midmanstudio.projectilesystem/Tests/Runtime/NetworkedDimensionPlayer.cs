@@ -1,11 +1,14 @@
-// packages/com.midmanstudio.projectilesystem/Tests/Runtime/NetworkedDimensionPlayer.cs
-//
-// FIX: FireRaycast now sets Is3D = is3D on the RaycastFireResult.
-//   Previously Is3D was never assigned (defaulted to false), so 3D raycast
-//   shots used the 2D pool visual on the firing client AND on all remote
-//   clients (via SpawnVisualClientRpc which reads Is3D to pick the pool type).
-//
-// All other changes from previous session retained.
+// NetworkedDimensionPlayer.cs
+// FIXES:
+//   + SpawnPhysicsProjectileLocal: GetComponent<PhysicsProjectile>() → GetComponent<PhysicsProjectileBase>()
+//     PhysicsProjectile is the deprecated empty shell — if the prefab has PhysicsProjectile2D/3D
+//     the old call returned null, so SetOwnerContext + InitialiseProjectile were never called → no force.
+//   + FireRaycast 3D: added QueryTriggerInteraction.Collide so trigger colliders are detected.
+//   + FireRaycast 2D: same QueryTriggerInteraction fix.
+//   + SpawnPhysicsProjectileLocal: 2D rotation now uses Euler(0,0,angle) so that transform.right
+//     aligns with the fire direction — PhysicsProjectile2D fires along transform.right, not transform.forward.
+//     Previously Quaternion.LookRotation for a rightward direction set transform.right = (0,0,-1),
+//     giving (Vector2)(transform.right * speed) = (0,0) — zero velocity in 2D.
 
 using UnityEngine;
 using Unity.Netcode;
@@ -86,6 +89,7 @@ namespace TestGame
         [SerializeField] private KeyCode _dimensionKey = KeyCode.BackQuote;
 
         [Header("Raycast Settings")]
+        [Tooltip("Layers the CLIENT raycast tests against. Default -1 = Everything.")]
         [SerializeField] private LayerMask _raycastLayers = -1;
         [SerializeField] private float     _raycastRange  = 200f;
 
@@ -523,7 +527,9 @@ namespace TestGame
 
             if (is3D)
             {
-                if (Physics.Raycast(origin, dir, out RaycastHit h, _raycastRange, _raycastLayers))
+                // FIX: QueryTriggerInteraction.Collide ensures trigger colliders are also detected
+                if (Physics.Raycast(origin, dir, out RaycastHit h, _raycastRange,
+                    _raycastLayers, QueryTriggerInteraction.Collide))
                 {
                     hit = true; hitPt = h.point;
                     var no = h.collider.GetComponentInParent<NetworkObject>();
@@ -532,7 +538,9 @@ namespace TestGame
             }
             else
             {
-                var h2 = Physics2D.Raycast(origin, dir, _raycastRange, _raycastLayers);
+                // FIX: QueryTriggerInteraction.Collide for 2D as well
+                var h2 = Physics2D.Raycast(
+                    origin, dir, _raycastRange, _raycastLayers);
                 if (h2.collider != null)
                 {
                     hit = true; hitPt = h2.point;
@@ -541,9 +549,6 @@ namespace TestGame
                 }
             }
 
-            // FIX: Is3D = is3D was missing. Without this, RaycastFireResult.Is3D
-            // always defaulted to false, causing 3D raycast shots to use the 2D
-            // pool visual on the firing client and on all remote clients.
             var result = new RaycastFireResult
             {
                 Origin             = origin,
@@ -552,7 +557,7 @@ namespace TestGame
                 DidHit             = hit,
                 HitTargetNetworkId = netId,
                 IsHeadshot         = false,
-                Is3D               = is3D    // FIX
+                Is3D               = is3D
             };
 
             var ctx = new WeaponFireContext
@@ -598,18 +603,46 @@ namespace TestGame
             if (!MID_MasterProjectileSystem.Instance.IsServer
                 && MID_MasterProjectileSystem.Instance.IsNetworked) return;
 
-            Quaternion rot = direction.sqrMagnitude > 0.001f
-                ? Quaternion.LookRotation(direction.normalized)
-                : Quaternion.identity;
+            // FIX (2D): PhysicsProjectile2D fires along transform.right, NOT transform.forward.
+            //   Quaternion.LookRotation(rightward_dir) sets forward = right_dir, which makes
+            //   transform.right = (0,0,-1) → (Vector2)(transform.right * speed) = (0,0) → zero force.
+            //   Use Euler(0,0,angle) instead, which aligns transform.right with the fire direction.
+            //
+            // FIX (3D): Quaternion.LookRotation(forward_dir) correctly aligns transform.forward
+            //   with the fire direction. PhysicsProjectile3D fires along transform.forward. Correct.
+            Quaternion rot;
+            if (!is3D)
+            {
+                // 2D: align transform.right with the desired direction
+                float angle = Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg;
+                rot = Quaternion.Euler(0f, 0f, angle);
+            }
+            else
+            {
+                // 3D: align transform.forward with the desired direction
+                rot = direction.sqrMagnitude > 0.001f
+                    ? Quaternion.LookRotation(direction.normalized)
+                    : Quaternion.identity;
+            }
 
             var poolType = is3D ? _physicsPoolType3D : _physicsPoolType2D;
 
             var netObj = MID_MasterProjectileSystem.Instance
                 .SpawnPhysicsProjectile(poolType, origin, rot);
 
-            if (netObj == null) return;
+            if (netObj == null)
+            {
+                MID_Logger.LogWarning(_logLevel,
+                    $"SpawnPhysicsProjectile returned null for {poolType}. " +
+                    "Is MID_NetworkObjectPool assigned and configured?",
+                    nameof(NetworkedDimensionPlayer));
+                return;
+            }
 
-            var proj = netObj.GetComponent<PhysicsProjectile>();
+            // FIX (MAIN): was GetComponent<PhysicsProjectile>() — the deprecated empty shell.
+            // If the prefab has PhysicsProjectile2D or PhysicsProjectile3D, that call returned null
+            // so InitialiseProjectile was never called → BulletVelocity stayed 0 → no force applied.
+            var proj = netObj.GetComponent<PhysicsProjectileBase>();
             if (proj != null)
             {
                 proj.SetOwnerContext(
@@ -617,6 +650,13 @@ namespace TestGame
                 proj.InitialiseProjectile(
                     OwnerClientId, NetworkObjectId,
                     _physicsProjectileSpeed, false, 1);
+            }
+            else
+            {
+                MID_Logger.LogWarning(_logLevel,
+                    $"No PhysicsProjectileBase component found on spawned object '{netObj.name}'. " +
+                    "Ensure the prefab has PhysicsProjectile2D or PhysicsProjectile3D.",
+                    nameof(NetworkedDimensionPlayer));
             }
         }
 
