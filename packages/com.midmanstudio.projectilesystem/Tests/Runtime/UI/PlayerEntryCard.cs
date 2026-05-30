@@ -1,7 +1,7 @@
-// packages/com.midmanstudio.projectilesystem/Tests/Runtime/UI/PlayerEntryCard.cs
-// Self-contained player entry card shown inside a lobby room.
-// One instance per connected player.
-// ProjectileTestLobbyUI spawns these from _playerEntryPrefab and calls Populate().
+// PlayerEntryCard.cs
+// FIX: Replaced \u2713 (✓) and \u2026 (…) with ASCII-safe alternatives.
+// LiberationSans SDF (TMP default font) does not include these glyphs, causing
+// the "character not found" warning and the □ fallback character to render instead.
 
 using UnityEngine;
 using UnityEngine.UI;
@@ -16,18 +16,16 @@ namespace TestGame
     /// Prefab layout (minimum required children):
     ///   TMP_Text   "_nameText"       — player display name
     ///   TMP_Text   "_roleText"       — "HOST" or "Player"
-    ///   TMP_Text   "_readyText"      — "✓ Ready" or "…"
-    ///   TMP_Text   "_pingText"       — "LAN" (or ms if available)
+    ///   TMP_Text   "_readyText"      — "READY" or "WAITING"
+    ///   TMP_Text   "_pingText"       — "LAN"
     ///   Image      "_readyIndicator" — green/grey dot
     ///   Image      "_hostCrown"      — visible when player is host
     ///   Image      "_botIcon"        — visible when player is a bot
     ///   Image      "_cardBackground" — tinted by ready state
-    ///
-    /// All fields are optional — missing ones are silently skipped.
     /// </summary>
     public class PlayerEntryCard : MonoBehaviour
     {
-        // ── Inspector wiring ──────────────────────────────────────────────────
+        #region Inspector
 
         [Header("Text")]
         [SerializeField] private TMP_Text _nameText;
@@ -50,59 +48,50 @@ namespace TestGame
         [SerializeField] private Color _indicatorReady    = new Color(0.25f, 1.00f, 0.40f, 1f);
         [SerializeField] private Color _indicatorNotReady = new Color(0.40f, 0.40f, 0.40f, 1f);
 
-        // ── Runtime data ──────────────────────────────────────────────────────
+        #endregion
+
+        #region Runtime
 
         private LocalLobbyPlayer _player;
 
-        // ─────────────────────────────────────────────────────────────────────
-        //  Public API
-        // ─────────────────────────────────────────────────────────────────────
+        #endregion
 
-        /// <summary>
-        /// Initial population. Called by ProjectileTestLobbyUI after Instantiate().
-        /// </summary>
+        #region Public API
+
+        /// <summary>Initial population. Called by ProjectileTestLobbyUI after Instantiate().</summary>
         public void Populate(LocalLobbyPlayer player)
         {
             _player = player;
             Refresh(player);
         }
 
-        /// <summary>
-        /// Update ready state, name, role without recreating the card.
-        /// Called by ProjectileTestLobbyUI when it receives OnPlayerReadyChanged.
-        /// </summary>
+        /// <summary>Update card without recreating it. Called on OnPlayerReadyChanged.</summary>
         public void Refresh(LocalLobbyPlayer player)
         {
             _player = player;
 
-            // ── Name ──────────────────────────────────────────────────────────
             string displayName = string.IsNullOrEmpty(player.PlayerName)
                 ? $"Player {player.ClientId}" : player.PlayerName;
             SetText(_nameText, displayName);
 
-            // ── Role ──────────────────────────────────────────────────────────
             SetText(_roleText, player.IsHost ? "HOST" : "Player");
 
-            // ── Ready ─────────────────────────────────────────────────────────
-            SetText(_readyText, player.IsReady ? "✓ Ready" : "…");
+            // FIX: was "✓ Ready" / "…" — \u2713 and \u2026 not in LiberationSans SDF.
+            // Replaced with ASCII-safe strings to eliminate TMP glyph-fallback warnings.
+            SetText(_readyText, player.IsReady ? "READY" : "WAITING");
 
-            // ── Ping ──────────────────────────────────────────────────────────
             SetText(_pingText, "LAN");
 
-            // ── Ready indicator dot ───────────────────────────────────────────
             if (_readyIndicator != null)
                 _readyIndicator.color = player.IsReady
                     ? _indicatorReady : _indicatorNotReady;
 
-            // ── Host crown ────────────────────────────────────────────────────
             if (_hostCrown != null)
                 _hostCrown.SetActive(player.IsHost);
 
-            // ── Bot icon ──────────────────────────────────────────────────────
             if (_botIcon != null)
                 _botIcon.SetActive(player.IsBot);
 
-            // ── Card background tint ──────────────────────────────────────────
             if (_cardBackground != null)
             {
                 _cardBackground.color = player.IsHost
@@ -111,15 +100,9 @@ namespace TestGame
             }
         }
 
-        // ─────────────────────────────────────────────────────────────────────
-        //  Accessors
-        // ─────────────────────────────────────────────────────────────────────
-
         public ulong ClientId => _player.ClientId;
 
-        // ─────────────────────────────────────────────────────────────────────
-        //  Helpers
-        // ─────────────────────────────────────────────────────────────────────
+        #endregion
 
         private static void SetText(TMP_Text t, string value)
         {
