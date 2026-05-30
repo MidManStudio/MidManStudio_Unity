@@ -1,15 +1,11 @@
 // packages/com.midmanstudio.projectilesystem/Tests/Runtime/NetworkedDimensionPlayer.cs
 //
-// CHANGES:
-//   + PlayerShootMode expanded: Physics2D, Physics3D, Raycast2D, Raycast3D
-//     (removed ambiguous Physics and Raycast single modes)
-//   + HandleFire dispatch updated to match new enum values
-//   + FireRaycast() now takes explicit bool is3D parameter → uses Physics.Raycast
-//     for Raycast3D and Physics2D.Raycast for Raycast2D — no more config.Is3D
-//     ambiguity in the player script
-//   + FirePhysics() now passes is3D to SpawnPhysicsProjectileLocal
-//   + BuildSpawnPoints respects is3D from mode, not just dimension
-//   + UpdateModeText updated for new enum values
+// FIX: FireRaycast now sets Is3D = is3D on the RaycastFireResult.
+//   Previously Is3D was never assigned (defaulted to false), so 3D raycast
+//   shots used the 2D pool visual on the firing client AND on all remote
+//   clients (via SpawnVisualClientRpc which reads Is3D to pick the pool type).
+//
+// All other changes from previous session retained.
 
 using UnityEngine;
 using Unity.Netcode;
@@ -94,12 +90,10 @@ namespace TestGame
         [SerializeField] private float     _raycastRange  = 200f;
 
         [Header("Physics Projectile Settings")]
-        [Tooltip("Pool type for 2D physics projectile NetworkObjects.")]
         [SerializeField] private PoolableNetworkObjectType _physicsPoolType2D
-            = PoolableNetworkObjectType.BaseProjectileBlueprint_2D;
-        [Tooltip("Pool type for 3D physics projectile NetworkObjects.")]
+            = PoolableNetworkObjectType.BaseProjectileBlueprint;
         [SerializeField] private PoolableNetworkObjectType _physicsPoolType3D
-            = PoolableNetworkObjectType.BaseProjectileBlueprint_3D;
+            = PoolableNetworkObjectType.BaseProjectileBlueprint;
         [SerializeField] private float _physicsProjectileSpeed  = 20f;
         [SerializeField] private float _physicsDamageMultiplier = 1f;
 
@@ -138,7 +132,6 @@ namespace TestGame
         private float     _yaw;
         private float     _pitch;
 
-        // Dash state
         private float   _nextDashTime;
         private bool    _isDashing;
         private float   _dashEndTime;
@@ -227,7 +220,6 @@ namespace TestGame
                 && !DimensionManager.Instance.IsTransitioning)
                 DimensionManager.Instance.SwitchDimension();
 
-            // Mode hotkeys
             if (Input.GetKeyDown(KeyCode.Alpha1)) ChangeMode(PlayerShootMode.LocalOnly);
             if (Input.GetKeyDown(KeyCode.Alpha2)) ChangeMode(PlayerShootMode.RustSim2D);
             if (Input.GetKeyDown(KeyCode.Alpha3)) ChangeMode(PlayerShootMode.RustSim3D);
@@ -321,15 +313,12 @@ namespace TestGame
 
         #region Convention Helpers
 
-        /// <summary>True when the current mode or dimension uses 3D fire conventions
-        /// (mouse look, LookRotation, headPivot forward as fire dir).</summary>
         private bool Use3DConvention()
             => _currentDimension == Dimension.ThreeD
             || _shootMode == PlayerShootMode.RustSim3D
             || _shootMode == PlayerShootMode.Raycast3D
             || _shootMode == PlayerShootMode.Physics3D;
 
-        /// <summary>Config ID to use based on whether we are in a 3D mode.</summary>
         private ushort ResolveConfigId()
         {
             bool prefer3D = _shootMode == PlayerShootMode.RustSim3D
@@ -552,6 +541,9 @@ namespace TestGame
                 }
             }
 
+            // FIX: Is3D = is3D was missing. Without this, RaycastFireResult.Is3D
+            // always defaulted to false, causing 3D raycast shots to use the 2D
+            // pool visual on the firing client and on all remote clients.
             var result = new RaycastFireResult
             {
                 Origin             = origin,
@@ -559,7 +551,8 @@ namespace TestGame
                 HitPoint           = hitPt,
                 DidHit             = hit,
                 HitTargetNetworkId = netId,
-                IsHeadshot         = false
+                IsHeadshot         = false,
+                Is3D               = is3D    // FIX
             };
 
             var ctx = new WeaponFireContext

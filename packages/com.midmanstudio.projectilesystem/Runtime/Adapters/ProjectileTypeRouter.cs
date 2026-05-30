@@ -1,21 +1,7 @@
 // ProjectileTypeRouter.cs
-// Pure static class — no MonoBehaviour, no state.
-// Single responsibility: given a weapon context + projectile config,
-// return SimulationMode.
-//
-// EXTENSIBILITY:
-//   Game-specific routing logic (rocket = PhysicsObject, etc.) belongs in
-//   the derived ProjectileConfigSO subclass, NOT here.
-//   Override ProjectileConfigSO.RequiresPhysicsObject() and IsRaycastEligible()
-//   in your game assembly.
-//
-// Decision priority (highest to lowest):
-//   1. Config.HasSimModeOverride     — explicit per-config override wins always
-//   2. !context.IsNetworked          — offline forces LocalOnly
-//   3. Config.RequiresPhysicsObject()— derived class returns true for rockets etc.
-//   4. context.IsRaycastWeapon && Config.IsRaycastEligible() → Raycast
-//   5. Config.Is3D                   → RustSim3D
-//   6. Default                       → RustSim2D
+// CHANGE: ComputeMode now returns SimulationMode.RustSim for all non-physics,
+// non-raycast paths. config.Is3D is the sole determinant of 2D vs 3D buffer.
+// ExplainRoute updated to reflect the merged value.
 
 using MidManStudio.Projectiles.Core;
 using MidManStudio.Projectiles.Config;
@@ -124,22 +110,15 @@ namespace MidManStudio.Projectiles.Adapters
             ProjectileConfigSO config, WeaponFireContext context)
         {
             // Physics-dependent types use Unity Rigidbody — not the Rust sim buffer.
-            // Game layer overrides ProjectileConfigSO.RequiresPhysicsObject() to return
-            // true for rockets, grenades, bouncy rounds, etc.
             if (config.RequiresPhysicsObject())
                 return SimulationMode.PhysicsObject;
 
-            // Raycast: the weapon script owns Physics2D.Raycast in its fire method.
-            // Game layer overrides ProjectileConfigSO.IsRaycastEligible() for custom rules.
+            // Raycast: the weapon script owns Physics2D/3D.Raycast in its fire method.
             if (context.IsRaycastWeapon && config.IsRaycastEligible())
                 return SimulationMode.Raycast;
 
-            // 3D sim path
-            if (config.Is3D)
-                return SimulationMode.RustSim3D;
-
-            // Default: 2D Rust simulation
-            return SimulationMode.RustSim2D;
+            // Default Rust simulation — config.Is3D selects 2D or 3D buffer.
+            return SimulationMode.RustSim;
         }
 
         // ── Convenience delegates (for editor tooling and debug panels) ────────
@@ -175,13 +154,11 @@ namespace MidManStudio.Projectiles.Adapters
                        "Override in your derived ProjectileConfigSO to control this.";
 
             if (context.IsRaycastWeapon && config.IsRaycastEligible())
-                return "Raycast — weapon owns the Physics2D.Raycast call. " +
+                return "Raycast — weapon owns the Physics2D/3D.Raycast call. " +
                        "System handles visual and RPC only.";
 
-            if (config.Is3D)
-                return "RustSim3D — Is3D flag set on config.";
-
-            return "RustSim2D — default.";
+            return $"RustSim — Is3D={config.Is3D} selects the " +
+                   (config.Is3D ? "3D" : "2D") + " Rust simulation buffer.";
         }
     }
 }

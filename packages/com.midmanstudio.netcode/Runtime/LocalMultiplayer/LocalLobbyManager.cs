@@ -9,9 +9,17 @@
 //             packets don't loop back on the OS.
 //   v3 → v4: ServerListenAddress set to "0.0.0.0" in StartHosting() so the NGO
 //             server socket binds to ALL interfaces, not just the loopback address
-//             that sits in the Inspector by default. Without this, any join attempt
-//             to the host's WiFi IP (even from the same machine) times out because
-//             the socket is only listening on 127.0.0.1.
+//             that sits in the Inspector by default.
+//   v4 → v5: THREE BUGS FIXED:
+//             (a) _netPlayers moved to field initializer — NGO requires NetworkList to
+//                 be initialised before Awake for reliable variable registration.
+//             (b) Removed _netPlayers?.Clear() from LeaveCoroutine and the client
+//                 path of HandleClientDisconnected. Clients have no write permission
+//                 on the NetworkList; calling Clear() there threw InvalidOperationException
+//                 and left the manager in a broken state on reconnect.
+//             (c) OnNetworkSpawn now calls SyncPlayersFromNetList() for clients so the
+//                 initial snapshot (players already in the list when the client joins)
+//                 is reflected in the UI immediately, not just on future list changes.
 
 using System;
 using System.Collections;
@@ -119,7 +127,11 @@ namespace MidManStudio.Netcode.LocalMultiplayer
         private LocalLobbyData                      _currentLobby;
         private readonly List<LocalLobbyPlayer>     _players    = new();
         private readonly Dictionary<string, LocalLobbyData> _discovered = new();
-        private NetworkList<NetworkLobbyPlayerData> _netPlayers;
+
+        // FIX (v5-a): Initialise as a field so NGO registers it before Awake runs.
+        // NetworkList must never be new'd inside Awake or later.
+        private readonly NetworkList<NetworkLobbyPlayerData> _netPlayers
+            = new NetworkList<NetworkLobbyPlayerData>();
 
         private string _playerName   = "Player";
         private string _playerIconId = "default";
@@ -145,8 +157,8 @@ namespace MidManStudio.Netcode.LocalMultiplayer
         private void Awake()
         {
             if (_instance != null && _instance != this) { Destroy(gameObject); return; }
-            _instance   = this;
-            _netPlayers = new NetworkList<NetworkLobbyPlayerData>();
+            _instance = this;
+            // NOTE: _netPlayers is initialised as a field — do NOT re-assign it here.
             LoadPlayerIdentity();
             StartCoroutine(InitAsync());
         }
@@ -222,6 +234,13 @@ namespace MidManStudio.Netcode.LocalMultiplayer
         {
             base.OnNetworkSpawn();
             _netPlayers.OnListChanged += OnNetPlayersChanged;
+
+            // FIX (v5-c): Clients need to read the list's CURRENT state immediately on
+            // spawn.  OnListChanged only fires for changes that happen AFTER subscription,
+            // so any players already in the list (e.g. the host) would never appear on a
+            // joining client without this initial sync call.
+            if (!IsServer)
+                SyncPlayersFromNetList();
         }
 
         public override void OnNetworkDespawn()
@@ -325,9 +344,12 @@ namespace MidManStudio.Netcode.LocalMultiplayer
             }
             else if (_networkManager.IsClient && !_networkManager.IsConnectedClient)
             {
+                // FIX (v5-b): Do NOT touch _netPlayers here.  By the time this branch
+                // executes the NetworkObject has already been despawned, so the NetworkList
+                // is no longer in a writable state — calling Clear() throws
+                // InvalidOperationException and corrupts the manager for any reconnect attempt.
                 _currentLobby = null;
                 _players.Clear();
-                _netPlayers?.Clear();
                 OnLobbyDisbanded?.Invoke();
             }
         }
@@ -372,16 +394,10 @@ namespace MidManStudio.Netcode.LocalMultiplayer
             {
                 if (!ValidateNetworkManager()) throw new Exception("NetworkManager invalid.");
 
-                // Set the address the client will connect to (the host's LAN IP).
                 _transport.ConnectionData.Address = _currentLobby.HostAddress;
                 _transport.ConnectionData.Port    = (ushort)_activeConfig.ServerPort;
 
-                // FIX: bind the server socket to ALL interfaces (0.0.0.0), not just
-                // loopback (127.0.0.1).  The Inspector default is 127.0.0.1, which
-                // means the server only accepts loopback connections.  Any client that
-                // connects via the LAN/WiFi IP — including a second process on the
-                // same machine — times out because packets arriving on the WiFi
-                // interface are silently dropped.
+                // Bind the server socket to ALL interfaces so LAN/WiFi clients can connect.
                 _transport.ConnectionData.ServerListenAddress = "0.0.0.0";
 
                 _isHosting = true;
@@ -420,7 +436,10 @@ namespace MidManStudio.Netcode.LocalMultiplayer
         {
             _currentLobby = null;
             _players.Clear();
-            _netPlayers?.Clear();
+
+            // Only the server may write to the NetworkList, and only while spawned.
+            if (IsSpawned && IsServer)
+                _netPlayers.Clear();
 
             if (_networkManager != null && (_networkManager.IsHost || _networkManager.IsServer))
             {
@@ -492,7 +511,11 @@ namespace MidManStudio.Netcode.LocalMultiplayer
         {
             _currentLobby = null;
             _players.Clear();
-            _netPlayers?.Clear();
+
+            // FIX (v5-b): Do NOT clear _netPlayers here.
+            // Clients have no write permission on the NetworkList — calling Clear() from
+            // a client throws InvalidOperationException. The server removes the player
+            // automatically via HandleClientDisconnected when the transport closes.
 
             if (_networkManager != null && _networkManager.IsConnectedClient)
             {
@@ -817,9 +840,6 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                         await _udpServer.SendAsync(data, data.Length,
                             new IPEndPoint(addr, broadcastPort));
 
-                    // Also send to loopback so a client on the same machine can receive
-                    // responses to its DISCOVER_LOBBY requests without relying on OS
-                    // broadcast loopback (which is unreliable on some platforms).
                     try
                     {
                         await _udpServer.SendAsync(data, data.Length,
@@ -940,9 +960,6 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                         await _udpClient.SendAsync(data, data.Length,
                             new IPEndPoint(addr, broadcastPort));
 
-                    // Send directly to loopback so the host on the same machine receives
-                    // the request on its bound socket and responds to our source port.
-                    // This is the reliable same-machine discovery path.
                     try
                     {
                         await _udpClient.SendAsync(data, data.Length,
@@ -1108,7 +1125,24 @@ namespace MidManStudio.Netcode.LocalMultiplayer
 
         private IEnumerator SendNameDelayed()
         {
-            yield return new WaitForSeconds(0.2f);
+            // Wait until the LocalLobbyManager NetworkObject is spawned on this client
+            // before sending the ServerRpc (requires IsSpawned).
+            float waited = 0f;
+            while (!IsSpawned && waited < 5f)
+            {
+                yield return new WaitForSeconds(0.1f);
+                waited += 0.1f;
+            }
+
+            if (!IsSpawned)
+            {
+                MID_Logger.LogWarning(_logLevel,
+                    "SendNameDelayed: LocalLobbyManager still not spawned after 5s. " +
+                    "Ensure a NetworkObject component is attached.",
+                    nameof(LocalLobbyManager));
+                yield break;
+            }
+
             SendPlayerNameServerRpc(_networkManager.LocalClientId, _playerName, _playerIconId);
         }
 
@@ -1154,7 +1188,6 @@ namespace MidManStudio.Netcode.LocalMultiplayer
             {
                 var interfaces = NetworkInterface.GetAllNetworkInterfaces();
 
-                // Priority 1: WiFi/Ethernet — non-hotspot
                 foreach (var ni in interfaces)
                 {
                     if (ni.OperationalStatus != OperationalStatus.Up) continue;
@@ -1171,7 +1204,6 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                     }
                 }
 
-                // Priority 2: Hotspot IPs
                 foreach (var ni in interfaces)
                 {
                     foreach (var addr in ni.GetIPProperties().UnicastAddresses)
@@ -1184,7 +1216,6 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                     }
                 }
 
-                // Priority 3: Any non-loopback
                 foreach (var ni in interfaces)
                 {
                     foreach (var addr in ni.GetIPProperties().UnicastAddresses)

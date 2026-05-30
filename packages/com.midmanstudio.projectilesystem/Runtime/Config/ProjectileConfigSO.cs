@@ -1,5 +1,9 @@
 // ProjectileConfigSO.cs — CORE PACKAGE VERSION
 //
+// CHANGE: _preferredSimMode default and HasSimModeOverride updated for
+//   the merged SimulationMode.RustSim (previously RustSim2D).
+//   All other behaviour is unchanged.
+//
 // FIX (scale):
 //   GetRustSpawnParams now uses _fullSizeX as the base ScaleStart when
 //   UseScaleGrowth is FALSE.
@@ -8,11 +12,7 @@
 //   OnValidate now calls RegisterMovementParams() during play mode.
 //
 // ADDED: _hitLayers (LayerMask) — controls which Unity layers this projectile's
-//   Rust collision hits are allowed to register against. Defaults to Everything
-//   (~0 / -1). Set to a specific layer mask in the inspector to prevent
-//   projectiles from colliding with the firing player, allies, etc.
-//   The filtering happens in ServerProjectileAuthority.Collision2D/3D and
-//   LocalProjectileManager.ProcessHit2D/3D after Rust returns hits.
+//   Rust collision hits are allowed to register against.
 
 using UnityEngine;
 using System;
@@ -36,9 +36,17 @@ namespace MidManStudio.Projectiles.Config
         [SerializeField] private bool _is3D = false;
         public bool Is3D => _is3D;
 
-        [SerializeField] private SimulationMode _preferredSimMode = SimulationMode.RustSim2D;
+        [Tooltip("Optional override for this config's simulation mode.\n" +
+                 "RustSim (default) lets Is3D select the correct buffer automatically.\n" +
+                 "Only change this if you need Raycast, PhysicsObject, or LocalOnly.")]
+        [SerializeField] private SimulationMode _preferredSimMode = SimulationMode.RustSim;
         public SimulationMode PreferredSimMode => _preferredSimMode;
-        public bool HasSimModeOverride => _preferredSimMode != SimulationMode.RustSim2D;
+
+        /// <summary>
+        /// True when a non-default SimulationMode has been set on this config.
+        /// RustSim is the default — the router handles 2D vs 3D via Is3D.
+        /// </summary>
+        public bool HasSimModeOverride => _preferredSimMode != SimulationMode.RustSim;
 
         // ── Routing hooks ─────────────────────────────────────────────────────
         public virtual bool RequiresPhysicsObject() => false;
