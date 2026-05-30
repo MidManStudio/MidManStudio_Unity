@@ -1,22 +1,13 @@
-// packages/com.midmanstudio.projectilesystem/Runtime/Managers/RaycastProjectileHandler.cs
+// RaycastProjectileHandler.cs
+// FIX: ValidateHitServer 3D path now passes QueryTriggerInteraction.Collide to Physics.Raycast.
+//   Without this, trigger-mode colliders on targets are not detected depending on project physics
+//   settings (Physics.queriesHitTriggers), causing server-side validation to silently fail even
+//   when the client correctly detected a hit.
 //
-// FIXES:
-//   + SpawnVisualLocal now logs a clear warning when LocalObjectPool returns null
-//     instead of silently doing nothing. This diagnoses missing pool entries fast.
-//   + Impact FX and sound are skipped when the shot did NOT confirm a hit.
-//     Previously HitConfirmedClientRpc always called PlayImpact even on miss,
-//     playing particles at 200-unit empty space.
-//   + OfflineHandleFire only spawns a visual when result.DidHit = true.
-//     A miss visual still travels to the miss point but no impact FX plays.
-//   + SpawnVisualClientRpc passes confirmedHit bool through to the client so
-//     ActiveVisual knows whether to play impact FX on arrival.
-//   + ActiveVisual stores PlayImpactOnArrival flag.
-//   + ValidateHitServer: 3D path uses Physics.Raycast, 2D uses Physics2D.Raycast
-//     (was already correct from previous session — retained as-is).
-//   + ServerHandleFire takes explicit bool is3D parameter so the caller controls
-//     which physics system to use, independent of config.Is3D.
-//     This matches the new Raycast2D / Raycast3D PlayerShootMode split.
-//   + All previous fixes retained.
+// The _serverRaycastLayers LayerMask IS and was already being applied — added a more prominent
+// tooltip to make it clear this must include the layer(s) your targets are on.
+//
+// All other fixes from previous session retained.
 
 using System;
 using System.Collections.Generic;
@@ -44,7 +35,6 @@ namespace MidManStudio.Projectiles.Managers
         /// <summary>
         /// True when the caller used Physics.Raycast (3D colliders).
         /// False when the caller used Physics2D.Raycast (2D colliders).
-        /// Set by the weapon script — matches PlayerShootMode.Raycast2D/3D.
         /// </summary>
         public bool    Is3D;
     }
@@ -63,9 +53,12 @@ namespace MidManStudio.Projectiles.Managers
         [Header("Server Validation")]
         [Tooltip("Max world-unit discrepancy between client and server hit positions.")]
         [SerializeField] private float _hitValidationTolerance = 2f;
-        [Tooltip("Layers the SERVER raycast can hit. Default -1 = Everything.\n" +
-                 "Must include the layer(s) your targets are on.\n" +
-                 "Used for both 2D and 3D server validation passes.")]
+
+        [Tooltip("Layers the SERVER raycast tests against for hit validation.\n" +
+                 "Default -1 = Everything.\n" +
+                 "IMPORTANT: This must include whatever layer(s) your targets are on.\n" +
+                 "If validation always fails, check that targets are on an included layer.\n" +
+                 "Used for BOTH 3D (Physics.Raycast) and 2D (Physics2D.Raycast) server passes.")]
         [SerializeField] private LayerMask _serverRaycastLayers = -1;
 
         [Header("Debug")]
@@ -90,7 +83,6 @@ namespace MidManStudio.Projectiles.Managers
             public float             Speed;
             public ushort            ConfigId;
             public PoolableObjectType PoolType;
-            /// <summary>True when a confirmed hit occurred — play impact on arrival.</summary>
             public bool              PlayImpactOnArrival;
         }
 
@@ -101,13 +93,6 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Server — Handle Fire
 
-        /// <summary>
-        /// Server-side fire handler. Called directly on server/host,
-        /// or via RaycastFireServerRpc for clients.
-        /// </summary>
-        /// <param name="clientResult">Client-reported fire result.</param>
-        /// <param name="context">Weapon context (owner, damage multiplier, etc.).</param>
-        /// <param name="configId">Registered projectile config ID.</param>
         public void ServerHandleFire(
             RaycastFireResult clientResult,
             WeaponFireContext  context,
@@ -131,8 +116,6 @@ namespace MidManStudio.Projectiles.Managers
 
             if (clientResult.DidHit)
             {
-                // Use the Is3D flag from the fire result — set by the weapon script
-                // to match whichever physics system it used (Raycast2D vs Raycast3D).
                 serverConfirmed = ValidateHitServer(
                     clientResult,
                     clientResult.Is3D,
@@ -176,12 +159,12 @@ namespace MidManStudio.Projectiles.Managers
             else if (clientResult.DidHit)
             {
                 MID_Logger.LogDebug(_logLevel,
-                    "ServerHandleFire: client reported hit but server could not validate.",
+                    "ServerHandleFire: client reported hit but server could not validate. " +
+                    $"is3D={clientResult.Is3D} serverLayers={_serverRaycastLayers.value} " +
+                    $"tolerance={_hitValidationTolerance}",
                     nameof(RaycastProjectileHandler));
             }
 
-            // Spawn visual on all clients.
-            // Pass confirmedHit so clients only play impact FX on actual hits.
             SpawnVisualClientRpc(
                 clientResult.Origin,
                 serverConfirmed ? serverHitPoint : clientResult.HitPoint,
@@ -196,8 +179,11 @@ namespace MidManStudio.Projectiles.Managers
         #region Server Validation
 
         /// <summary>
-        /// Validates the client-reported hit on the server using the matching
-        /// physics system (3D or 2D).
+        /// Validates the client-reported hit using the matching physics system.
+        /// FIX: 3D path now uses QueryTriggerInteraction.Collide so trigger-mode colliders
+        ///   are detected regardless of project-level Physics.queriesHitTriggers setting.
+        /// The _serverRaycastLayers mask IS applied — if validation always fails, verify
+        ///   that your targets are on a layer included in _serverRaycastLayers.
         /// </summary>
         private bool ValidateHitServer(
             RaycastFireResult clientResult,
@@ -212,13 +198,14 @@ namespace MidManStudio.Projectiles.Managers
 
             if (is3D)
             {
-                // 3D validation — targets need SphereCollider / CapsuleCollider etc.
+                // FIX: added QueryTriggerInteraction.Collide — trigger colliders now detected.
                 if (!Physics.Raycast(
                     clientResult.Origin,
                     clientResult.Direction,
                     out RaycastHit hit3D,
                     1000f,
-                    _serverRaycastLayers))
+                    _serverRaycastLayers,
+                    QueryTriggerInteraction.Collide))
                     return false;
 
                 serverHitPoint = hit3D.point;
@@ -234,7 +221,8 @@ namespace MidManStudio.Projectiles.Managers
             }
             else
             {
-                // 2D validation — targets need CircleCollider2D / PolygonCollider2D etc.
+                // 2D validation — Physics2D doesn't have a QueryTriggerInteraction overload,
+                // but respects Physics2D.queriesHitTriggers project setting.
                 RaycastHit2D serverHit = Physics2D.Raycast(
                     clientResult.Origin,
                     clientResult.Direction,
@@ -301,7 +289,6 @@ namespace MidManStudio.Projectiles.Managers
             Vector3    dir      = (hitPoint - origin).normalized;
             Quaternion rot      = ClientPredictionManager.GetDirectionRotation(dir);
 
-            // Use is3D from the fire result to pick the correct pool type
             PoolableObjectType poolType = is3D ? _visualPoolType3D : _visualPoolType2D;
 
             var obj = LocalObjectPool.Instance.GetObject(poolType, origin, rot);
@@ -357,7 +344,6 @@ namespace MidManStudio.Projectiles.Managers
 
                 if (Vector3.Distance(v.Obj.transform.position, v.HitPoint) < 0.05f)
                 {
-                    // Only play impact FX when this was a confirmed hit
                     if (v.PlayImpactOnArrival)
                         PlayImpactEffect(v);
 
@@ -386,10 +372,6 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Offline Support
 
-        /// <summary>
-        /// Called by MID_MasterProjectileSystem when not in a networked session.
-        /// Handles client-side visual and fires the local hit event.
-        /// </summary>
         public void OfflineHandleFire(
             RaycastFireResult result,
             ushort            configId,
@@ -428,7 +410,6 @@ namespace MidManStudio.Projectiles.Managers
                 LocalProjectileManager.Instance.FireHitEvent(payload);
             }
 
-            // Always spawn the travelling visual — but only play impact on actual hits
             SpawnVisualLocal(
                 result.Origin,
                 result.HitPoint,
