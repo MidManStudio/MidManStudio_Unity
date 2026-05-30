@@ -1,25 +1,12 @@
-// packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectile3D.cs
-//
-// Concrete 3D physics projectile.
-//
-// PREFAB REQUIREMENTS (enforced by RequireComponent):
-//   - Rigidbody
-//   - SphereCollider  (or CapsuleCollider / BoxCollider)
-//   - NetworkObject
-//   - NetworkTransform (inherited via NetworkProjectileBase -> NetworkTransform)
-//
-// POOL SETUP:
-//   Add a NetworkObjectPool entry: BaseProjectileBlueprint_3D -> this prefab.
-//   In NetworkedDimensionPlayer: _physicsPoolType3D = BaseProjectileBlueprint_3D.
-//
-// RIGIDBODY SETTINGS (recommended):
-//   Use Gravity: false (unless _useGravity = true)
-//   Collision Detection: Continuous
-//   Interpolate: Interpolate
-//   Constraints: Freeze Rotation X Y Z (so the shell doesn't tumble)
+// PhysicsProjectile3D.cs
+// FIX: OnLaunch now consults ProjectileRegistry for gravity scale — mirrors PhysicsProjectile2D.
+//   Previously _useGravity was a hardcoded inspector field with no config hookup.
+//   If the config's GravityScale > 0, useGravity is forced true regardless of the inspector toggle.
+//   The inspector toggle still controls the fallback when no config is found.
 
 using UnityEngine;
 using MidManStudio.Core.Logging;
+using MidManStudio.Projectiles.Config;
 
 namespace MidManStudio.Projectiles.Managers
 {
@@ -32,6 +19,7 @@ namespace MidManStudio.Projectiles.Managers
         [Header("3D Physics Settings")]
         [SerializeField] private float _drag        = 0f;
         [SerializeField] private float _angularDrag  = 0.05f;
+        [Tooltip("Inspector fallback. Overridden by config.GravityScale > 0 when a config is registered.")]
         [SerializeField] private bool  _useGravity   = false;
 
         #endregion
@@ -59,11 +47,33 @@ namespace MidManStudio.Projectiles.Managers
         {
             if (_rb == null) return transform.forward;
 
-            _rb.useGravity  = _useGravity;
+            // FIX: consult the registered config for gravity scale — same pattern as PhysicsProjectile2D.
+            // If config.GravityScale > 0, enable gravity regardless of inspector toggle.
+            bool useGravity = _useGravity;
+            if (ProjectileRegistry.HasInstance)
+            {
+                var cfg = ProjectileRegistry.Instance.Get(_visualConfigId);
+                if (cfg != null)
+                {
+                    if (cfg.GravityScale > 0f)
+                        useGravity = true;
+                    else if (cfg.GravityScale == 0f && !_useGravity)
+                        useGravity = false;
+                }
+            }
+
+            _rb.useGravity  = useGravity;
             _rb.drag        = _drag;
             _rb.angularDrag = _angularDrag;
             _rb.isKinematic = false;
+            // Fires along transform.forward — SpawnPhysicsProjectileLocal sets rotation via
+            // Quaternion.LookRotation(direction) so transform.forward == fire direction.
             _rb.velocity    = transform.forward * bulletVelocity;
+
+            MID_Logger.LogDebug(_logLevel,
+                $"PhysicsProjectile3D launched: speed={bulletVelocity:F1} " +
+                $"dir={transform.forward} gravity={useGravity}",
+                nameof(PhysicsProjectile3D));
 
             return transform.forward;
         }
