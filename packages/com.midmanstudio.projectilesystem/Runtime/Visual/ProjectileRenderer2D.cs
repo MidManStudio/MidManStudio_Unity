@@ -1,17 +1,17 @@
 // ProjectileRenderer2D.cs
-// FIXES (combined-mesh path — primary path on hardware without GPU instancing):
-//   + Two-pass render now uses TWO separate Mesh objects (_spriteMesh, _shapeMesh)
-//     instead of sharing one. Previously Pass 2 called mesh.Clear() after Pass 1
-//     already submitted Graphics.DrawMesh() — Unity holds a reference not a copy
-//     so Pass 1 rendered an empty mesh. Now each pass owns its mesh entirely.
-//   + RenderCombinedGroup signature takes the mesh as a parameter.
-//   + OnDestroy destroys both meshes.
-//   + Awake logs which path is active so hardware issues are immediately visible.
+// FIX (combined-mesh path — shapes with more than 4 vertices):
+//   Previous code used fixed qi*4 / qi*6 offsets for vBase and tBase,
+//   so Arrow (7 verts, 15 tri indices) and Needle (5 verts, 9 tri indices)
+//   were silently demoted to a bounding-quad fallback and never rendered
+//   with their actual geometry.
 //
-// NOTE: Instanced path (DrawMeshInstanced) is unchanged — it uses per-configId
-// groups with MaterialPropertyBlock and never touches the combined meshes.
-// On hardware without GPU instancing (_forceDrawMesh=true or
-// SystemInfo.supportsInstancing=false) the combined path is the ONLY path.
+//   Fix: track vBase and tBase dynamically as we accumulate each shape's
+//   actual vertex and triangle counts. Array sizes bumped to
+//   MAX_QUADS * MAX_SHAPE_VERTS (7) and MAX_QUADS * MAX_SHAPE_TRIS (15)
+//   to accommodate the largest built-in shape (Arrow = 7 verts, 5 tris).
+//   The bounding-quad fallback is removed — all shapes render correctly.
+//
+// Instanced path is unchanged.
 
 using System.Collections.Generic;
 using MidManStudio.Projectiles.Config;
@@ -28,9 +28,7 @@ namespace MidManStudio.Projectiles.Visuals
         [Header("Rendering")]
         [SerializeField] private Material _atlasMaterial;
 
-        [Tooltip("Force combined-mesh fallback path even on instancing-capable hardware.\n" +
-                 "Enable when GPU instancing is not supported on target hardware.\n" +
-                 "The combined path is ~4-10x slower than instanced but works everywhere.")]
+        [Tooltip("Force combined-mesh fallback path even on instancing-capable hardware.")]
         [SerializeField] private bool _forceDrawMesh;
 
         // ── Instanced path ─────────────────────────────────────────────────
@@ -41,16 +39,18 @@ namespace MidManStudio.Projectiles.Visuals
         private MaterialPropertyBlock _mpb;
 
         // ── Combined mesh path ─────────────────────────────────────────────
-        // TWO separate meshes — one per pass — so DrawMesh(pass1) is never
+        // Arrow has 7 verts and 5 tris (15 indices) — the largest built-in shape.
+        // Custom shapes may be larger; if so increase these constants.
+        private const int MAX_QUADS       = 2048;
+        private const int MAX_SHAPE_VERTS = 7;   // Arrow = 7 verts
+        private const int MAX_SHAPE_TRIS  = 15;  // Arrow = 5 triangles * 3 = 15 indices
+
+        // Two separate meshes — one per pass — so DrawMesh(pass1) is never
         // clobbered by pass2.Clear() before the GPU processes it.
-        private const int MAX_QUADS = 2048;
+        private Mesh _spriteMesh;
+        private Mesh _shapeMesh;
 
-        private Mesh      _spriteMesh;   // Pass 1: configs with sprites (atlas texture)
-        private Mesh      _shapeMesh;    // Pass 2: configs without sprites (white texture)
-
-        // Shared CPU-side arrays — written by each pass into its own mesh
-        // These are re-used across passes (pass 2 overwrites after pass 1 uploads)
-        // which is safe because SetVertices/SetTriangles copies into the mesh.
+        // CPU-side arrays sized for the worst-case shape per slot.
         private Vector3[] _verts;
         private Vector2[] _uvs;
         private Color32[] _cols;
@@ -80,16 +80,17 @@ namespace MidManStudio.Projectiles.Visuals
             }
             else
             {
-                // Two separate meshes — critical so pass 2 doesn't clobber pass 1
+                // Two dedicated meshes so the two passes never share state
                 _spriteMesh = new Mesh { name = "ProjectileSprite2D" };
                 _spriteMesh.MarkDynamic();
                 _shapeMesh  = new Mesh { name = "ProjectileShape2D" };
                 _shapeMesh.MarkDynamic();
 
-                _verts = new Vector3[MAX_QUADS * 4];
-                _uvs   = new Vector2[MAX_QUADS * 4];
-                _cols  = new Color32[MAX_QUADS * 4];
-                _tris  = new int[MAX_QUADS * 6];
+                // Worst-case capacity: every slot uses the largest shape (Arrow)
+                _verts = new Vector3[MAX_QUADS * MAX_SHAPE_VERTS];
+                _uvs   = new Vector2[MAX_QUADS * MAX_SHAPE_VERTS];
+                _cols  = new Color32[MAX_QUADS * MAX_SHAPE_VERTS];
+                _tris  = new int   [MAX_QUADS * MAX_SHAPE_TRIS];
             }
 
             _combinedMpb = new MaterialPropertyBlock();
@@ -211,11 +212,9 @@ namespace MidManStudio.Projectiles.Visuals
         }
 
         // ── Combined mesh path ────────────────────────────────────────────────
-        // Two separate passes, each writing into its OWN Mesh object.
+        // Two separate passes, each into its own Mesh object.
         // Pass 1 (sprite)  → _spriteMesh
         // Pass 2 (shape)   → _shapeMesh
-        // DrawMesh is called immediately after each mesh is built so the GPU
-        // command is queued before the next pass clears its own separate mesh.
 
         private void RenderCombined(NativeProjectile[] projs, int count)
         {
@@ -223,11 +222,17 @@ namespace MidManStudio.Projectiles.Visuals
             RenderCombinedGroup(projs, count, spritePass: false, mesh: _shapeMesh);
         }
 
+        // FIX: vBase and tBase are now tracked dynamically using each shape's
+        // actual vertex and triangle counts. This lets Arrow (7 verts, 15 tri
+        // indices), Needle (5 verts, 9 tri indices), and any custom shape
+        // render with their correct geometry instead of a bounding-quad fallback.
         private void RenderCombinedGroup(
             NativeProjectile[] projs, int count, bool spritePass, Mesh mesh)
         {
             var       reg      = ProjectileRegistry.Instance;
-            int       qi       = 0;
+            int       qi       = 0;     // projectile slot count (for MAX_QUADS guard)
+            int       vBase    = 0;     // next free vertex index in _verts/_uvs/_cols
+            int       tBase    = 0;     // next free index slot in _tris
             Texture2D firstTex = spritePass ? null : Texture2D.whiteTexture;
 
             for (int i = 0; i < count && qi < MAX_QUADS; i++)
@@ -245,6 +250,17 @@ namespace MidManStudio.Projectiles.Visuals
                 if (spritePass && firstTex == null)
                     firstTex = cfg.ProjectileSprite.texture;
 
+                Mesh   srcMesh = GetMeshForConfig(cfg);
+                var    srcV    = srcMesh.vertices;
+                var    srcUV   = srcMesh.uv;
+                var    srcT    = srcMesh.triangles;
+                int    vc      = srcV.Length;
+                int    tc      = srcT.Length;
+
+                // Guard: skip this projectile if it would overflow the arrays
+                if (vBase + vc > _verts.Length) break;
+                if (tBase + tc > _tris.Length)  break;
+
                 float aspectY = cfg.FullSizeX > 0.001f ? cfg.FullSizeY / cfg.FullSizeX : 1f;
                 float sx      = p.ScaleX;
                 float sy      = p.ScaleX * aspectY;
@@ -257,75 +273,40 @@ namespace MidManStudio.Projectiles.Visuals
                     (byte)(tint.x * 255f), (byte)(tint.y * 255f),
                     (byte)(tint.z * 255f), (byte)(tint.w * 255f));
 
-                Mesh   srcMesh  = GetMeshForConfig(cfg);
-                var    srcVerts = srcMesh.vertices;
-                var    srcUVs   = srcMesh.uv;
-                var    srcTris  = srcMesh.triangles;
-                int    vc       = srcVerts.Length;
-                int    vBase    = qi * 4;
-
                 float cos = Mathf.Cos(p.AngleDeg * Mathf.Deg2Rad);
                 float sin = Mathf.Sin(p.AngleDeg * Mathf.Deg2Rad);
 
-                if (vc <= 4)
+                // Write all vertices for this shape
+                for (int v = 0; v < vc; v++)
                 {
-                    for (int v = 0; v < vc; v++)
-                    {
-                        _verts[vBase + v] = RotateScale(
-                            p.X, p.Y,
-                            srcVerts[v].x * sx, srcVerts[v].y * sy,
-                            cos, sin);
-                        _uvs[vBase + v] = new Vector2(
-                            uvRect.x + srcUVs[v].x * uvRect.z,
-                            uvRect.y + srcUVs[v].y * uvRect.w);
-                        _cols[vBase + v] = c32;
-                    }
-                    // Pad remaining slots to degenerate (invisible)
-                    for (int v = vc; v < 4; v++)
-                    {
-                        _verts[vBase + v] = _verts[vBase];
-                        _uvs[vBase + v]   = _uvs[vBase];
-                        _cols[vBase + v]  = new Color32(0, 0, 0, 0);
-                    }
-                    int tBase = qi * 6;
-                    for (int t = 0; t < Mathf.Min(srcTris.Length, 6); t++)
-                        _tris[tBase + t] = vBase + srcTris[t];
-                    for (int t = Mathf.Min(srcTris.Length, 6); t < 6; t++)
-                        _tris[tBase + t] = vBase;
-                }
-                else
-                {
-                    // > 4 verts (Arrow=7, Needle=5, custom shapes):
-                    // Use bounding quad fallback for combined path.
-                    // Instanced path handles these shapes correctly at full fidelity.
-                    // If you need exact shapes on non-instancing hardware, use
-                    // the instanced path (remove _forceDrawMesh or upgrade GPU).
-                    float hx = sx * 0.5f, hy = sy * 0.5f;
-                    _verts[vBase+0] = RotateScale(p.X, p.Y, -hx, -hy, cos, sin);
-                    _verts[vBase+1] = RotateScale(p.X, p.Y,  hx, -hy, cos, sin);
-                    _verts[vBase+2] = RotateScale(p.X, p.Y,  hx,  hy, cos, sin);
-                    _verts[vBase+3] = RotateScale(p.X, p.Y, -hx,  hy, cos, sin);
-                    _uvs[vBase+0] = new Vector2(uvRect.x,            uvRect.y);
-                    _uvs[vBase+1] = new Vector2(uvRect.x + uvRect.z, uvRect.y);
-                    _uvs[vBase+2] = new Vector2(uvRect.x + uvRect.z, uvRect.y + uvRect.w);
-                    _uvs[vBase+3] = new Vector2(uvRect.x,            uvRect.y + uvRect.w);
-                    _cols[vBase+0] = _cols[vBase+1] = _cols[vBase+2] = _cols[vBase+3] = c32;
-                    int tBase = qi * 6;
-                    _tris[tBase+0]=vBase;   _tris[tBase+1]=vBase+1; _tris[tBase+2]=vBase+2;
-                    _tris[tBase+3]=vBase;   _tris[tBase+4]=vBase+2; _tris[tBase+5]=vBase+3;
+                    _verts[vBase + v] = RotateScale(
+                        p.X, p.Y,
+                        srcV[v].x * sx, srcV[v].y * sy,
+                        cos, sin);
+                    _uvs[vBase + v] = new Vector2(
+                        uvRect.x + srcUV[v].x * uvRect.z,
+                        uvRect.y + srcUV[v].y * uvRect.w);
+                    _cols[vBase + v] = c32;
                 }
 
+                // Write triangle indices, offset by vBase so they point into
+                // the correct section of the vertex arrays
+                for (int t = 0; t < tc; t++)
+                    _tris[tBase + t] = vBase + srcT[t];
+
+                vBase += vc;
+                tBase += tc;
                 qi++;
             }
 
             if (qi == 0) return;
 
-            // Upload into THIS pass's dedicated mesh — never touches the other pass's mesh
+            // Upload into THIS pass's dedicated mesh — never touches the other pass
             mesh.Clear();
-            mesh.SetVertices(_verts, 0, qi * 4);
-            mesh.SetUVs(0, _uvs,    0, qi * 4);
-            mesh.SetColors(_cols,    0, qi * 4);
-            mesh.SetTriangles(_tris, 0, qi * 6, 0);
+            mesh.SetVertices(_verts, 0, vBase);
+            mesh.SetUVs(0, _uvs,    0, vBase);
+            mesh.SetColors(_cols,    0, vBase);
+            mesh.SetTriangles(_tris, 0, tBase, 0);
             mesh.bounds = new Bounds(Vector3.zero, Vector3.one * 10000f);
 
             _combinedMpb.SetTexture("_MainTex", firstTex ?? Texture2D.whiteTexture);
