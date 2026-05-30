@@ -135,9 +135,14 @@ namespace MidManStudio.Projectiles.EditorUtils
             so.priority = 10;
             so.entries.Add(new PoolEntryDefinition
             {
-                entryName = "BaseProjectileBlueprint",
-                comment = "Base Network Projectile Blueprint for Managed Projectiles",
+                entryName = "BaseProjectileBlueprint_2D",
+                comment = "2D Base Network Projectile Blueprint for Managed Projectiles",
                 explicitOffset = 0
+            }); so.entries.Add(new PoolEntryDefinition
+            {
+                entryName = "BaseProjectileBlueprint_3D",
+                comment = "3D Base Network Projectile Blueprint for Managed Projectiles",
+                explicitOffset = 1
             });
             AssetDatabase.CreateAsset(so, path);
             return true;

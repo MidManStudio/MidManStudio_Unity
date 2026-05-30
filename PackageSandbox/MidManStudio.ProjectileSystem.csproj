@@ -79,6 +79,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/LocalProjectileManager.cs">
       <Link>Runtime/Managers/LocalProjectileManager.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectileBase.cs">
+      <Link>Runtime/Managers/PhysicsProjectileBase.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Visual/ProjectileVisual3D.cs">
       <Link>Runtime/Visual/ProjectileVisual3D.cs</Link>
     </Compile>
@@ -103,11 +106,17 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Network/ClientPredictionManager.cs">
       <Link>Runtime/Network/ClientPredictionManager.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectile2D.cs">
+      <Link>Runtime/Managers/PhysicsProjectile2D.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Data/MID_AllProjectileNames.cs">
       <Link>Runtime/Data/MID_AllProjectileNames.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Network/ClientProjectileVisualManager.cs">
       <Link>Runtime/Network/ClientProjectileVisualManager.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectile3D.cs">
+      <Link>Runtime/Managers/PhysicsProjectile3D.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Config/ProjectileRegistry.cs">
       <Link>Runtime/Config/ProjectileRegistry.cs</Link>

@@ -96,10 +96,10 @@ namespace TestGame
         [Header("Physics Projectile Settings")]
         [Tooltip("Pool type for 2D physics projectile NetworkObjects.")]
         [SerializeField] private PoolableNetworkObjectType _physicsPoolType2D
-            = PoolableNetworkObjectType.BaseProjectileBlueprint;
+            = PoolableNetworkObjectType.BaseProjectileBlueprint_2D;
         [Tooltip("Pool type for 3D physics projectile NetworkObjects.")]
         [SerializeField] private PoolableNetworkObjectType _physicsPoolType3D
-            = PoolableNetworkObjectType.BaseProjectileBlueprint;
+            = PoolableNetworkObjectType.BaseProjectileBlueprint_3D;
         [SerializeField] private float _physicsProjectileSpeed  = 20f;
         [SerializeField] private float _physicsDamageMultiplier = 1f;
 

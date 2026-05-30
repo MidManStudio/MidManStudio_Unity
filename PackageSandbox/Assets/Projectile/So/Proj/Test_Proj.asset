@@ -25,7 +25,7 @@ MonoBehaviour:
   _maxCollisions: 1
   _hitLayers:
     serializedVersion: 2
-    m_Bits: 64
+    m_Bits: 320
   _fullSizeX: 0.2
   _fullSizeY: 0.2
   _useScaleGrowth: 0
@@ -58,9 +58,9 @@ MonoBehaviour:
   _headshotMultiplier: 2
   _critChance: 0
   _critMultiplier: 1.5
-  _sprite: {fileID: 21300000, guid: 417153cd28a504a6a946d9a0f5487204, type: 3}
+  _sprite: {fileID: 21300000, guid: a7b853de1bfff451e93ac9e509c082dd, type: 3}
   _useSprite: 1
-  _customShape: {fileID: 11400000, guid: 7c99cd4d02d7d4ff998cdebcbe3f8592, type: 2}
+  _customShape: {fileID: 0}
   _hasTrail: 1
   _trailMaterial: {fileID: 2100000, guid: e3c04243093d246ad84824d194445a0d, type: 2}
   _useGradientOverride: 1

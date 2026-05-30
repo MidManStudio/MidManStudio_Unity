@@ -40,7 +40,7 @@ namespace MidManStudio.Projectiles.Network
 
         [Header("Network Object Pool")]
         [SerializeField] private PoolableNetworkObjectType _networkPoolType
-            = PoolableNetworkObjectType.BaseProjectileBlueprint;
+            = PoolableNetworkObjectType.BaseProjectileBlueprint_2D;
 
         // ─────────────────────────────────────────────────────────────────────
         //  NetworkVariables

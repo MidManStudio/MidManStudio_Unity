@@ -61,8 +61,13 @@
     "networkEntries": [
         {
             "packageId": "com.midmanstudio.projectilesystem",
-            "name": "BaseProjectileBlueprint",
+            "name": "BaseProjectileBlueprint_2D",
             "value": 100
+        },
+        {
+            "packageId": "com.midmanstudio.projectilesystem",
+            "name": "BaseProjectileBlueprint_3D",
+            "value": 101
         }
     ]
 }

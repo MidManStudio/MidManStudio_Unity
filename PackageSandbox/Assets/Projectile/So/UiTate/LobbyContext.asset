@@ -15,14 +15,14 @@ MonoBehaviour:
   contextName: ProjLobby
   packageId: com.test.proj
   states:
-  - enumName: Browse
+  - enumName: Main
     comment: 
-  - enumName: NetworkCheck
+  - enumName: Searching
     comment: 
   - enumName: InLobby
     comment: 
   - enumName: Loading
     comment: 
-  - enumName: Game
+  - enumName: NetworkCheck
     comment: 
   _logLevel: 2

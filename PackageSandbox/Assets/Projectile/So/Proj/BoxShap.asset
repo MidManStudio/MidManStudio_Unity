@@ -12,16 +12,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b248fdc90d62a4b80bf4bd3d61a610f7, type: 3}
   m_Name: BoxShap
   m_EditorClassIdentifier: 
-  Shape: 4
+  Shape: 0
   AspectRatio: 2
   Vertices:
-  - {x: 0, y: 1}
-  - {x: -1, y: 0}
-  - {x: -0, y: -1.1}
   - {x: 1, y: 0}
-  Triangles: 000000000100000002000000000000000200000003000000
-  UVs:
   - {x: 0.5, y: 1}
-  - {x: 0, y: 0.52380955}
-  - {x: 0.5, y: 0}
-  - {x: 1, y: 0.52380955}
+  - {x: -1, y: 1}
+  - {x: -1, y: -1}
+  - {x: 0.5, y: -1}
+  Triangles: 000000000100000002000000000000000200000003000000000000000300000004000000
+  UVs:
+  - {x: 1, y: 0.5}
+  - {x: 0.75, y: 1}
+  - {x: 0, y: 1}
+  - {x: 0, y: 0}
+  - {x: 0.75, y: 0}
