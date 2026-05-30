@@ -1,10 +1,14 @@
 // packages/com.midmanstudio.projectilesystem/Runtime/Managers/MID_MasterProjectileSystem.cs
 //
-// ADDED: GetRaycastHandler() — exposes _raycastHandler so external systems
-//   (TestSceneBootstrapper) can subscribe to OnServerHitConfirmed for damage
-//   routing without the event being lost.
+// CHANGES:
+//   + SimulationMode.RustSim2D / RustSim3D merged into RustSim.
+//     config.Is3D selects the correct Rust buffer automatically.
+//   + RegisterRaycastFire: passes result.Is3D to RaycastFireServerRpc so the
+//     server reconstructs RaycastFireResult with the correct is3D flag and
+//     picks the matching pool visual (2D vs 3D) on all clients.
 //
-// All previous fixes retained.
+// GetRaycastHandler() retained — exposes _raycastHandler so external systems
+// can subscribe to OnServerHitConfirmed for damage routing.
 
 using System;
 using UnityEngine;
@@ -162,20 +166,24 @@ namespace MidManStudio.Projectiles.Managers
 
             var routing = ProjectileTypeRouter.Route(cfg, context);
 
+            // CHANGE: RustSim2D + RustSim3D merged into RustSim.
+            // config.Is3D picks the correct Rust buffer on the server side.
             switch (routing.Mode)
             {
                 case SimulationMode.LocalOnly:
                     FireLocal(configId, spawnPoints, count, context, cfg);
                     break;
-                case SimulationMode.RustSim2D:
-                case SimulationMode.RustSim3D:
+
+                case SimulationMode.RustSim:
                     FireNetworkedSim(configId, spawnPoints, count, context, cfg);
                     break;
+
                 case SimulationMode.Raycast:
                     MID_Logger.LogWarning(_logLevel,
                         "Fire() with Raycast mode — use RegisterRaycastFire() instead.",
                         nameof(MID_MasterProjectileSystem));
                     break;
+
                 case SimulationMode.PhysicsObject:
                     MID_Logger.LogWarning(_logLevel,
                         "PhysicsObject mode — call SpawnPhysicsProjectile() from weapon script.",
@@ -285,6 +293,9 @@ namespace MidManStudio.Projectiles.Managers
             }
             else
             {
+                // FIX: pass result.Is3D so the server reconstructs RaycastFireResult
+                // with the correct is3D flag, which flows through to SpawnVisualClientRpc
+                // and selects the correct pool visual type (2D vs 3D) on all clients.
                 _networkBridge?.RaycastFireServerRpc(
                     new ProjectileFireRequest
                     {
@@ -299,8 +310,10 @@ namespace MidManStudio.Projectiles.Managers
                         ClientFireTick         = _networkBridge.GetServerTick()
                     },
                     result.HitPoint, result.DidHit,
-                    result.IsHeadshot, result.HitTargetNetworkId);
+                    result.IsHeadshot, result.HitTargetNetworkId,
+                    result.Is3D);    // NEW — was missing, so Is3D was always false on server
 
+                // Local travelling visual for the firing client
                 _raycastHandler?.OfflineHandleFire(
                     result, configId, (uint)context.OwnerMidId, 1f);
             }
