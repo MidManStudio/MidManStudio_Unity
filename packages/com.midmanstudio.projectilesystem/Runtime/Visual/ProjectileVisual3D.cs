@@ -1,15 +1,10 @@
-// ProjectileVisual3D.cs — 3D pool visual
-// ADDED: Awake() explicitly disables any SpriteRenderer found on same GameObject.
-// Users who duplicate a 2D prefab to make the 3D one otherwise see sprite on top of mesh.
+// ProjectileVisual3D.cs
+// FIX: Awake() now auto-finds _trailRenderer via GetComponentInChildren if not
+//   assigned in the inspector. Previously the trail was silently null when the
+//   user didn't wire it up, so ApplyTrail() returned early on every Init.
+//   _meshFilter and _meshRenderer already had auto-find — trail now matches.
 //
-// PREFAB SETUP (what the prefab needs — nothing else):
-//   • MeshFilter      — holds the bullet/capsule mesh
-//   • MeshRenderer    — holds the bullet material
-//   • ProjectileVisual3D — this script
-//   • LocalPoolReturn — pool return (add manually or via LocalObjectPool auto-setup)
-//   • Optional: TrailRenderer for bullet trail
-//
-// NO SpriteRenderer, NO Sprite, NO 2D anything.
+// All other behaviour unchanged.
 
 using UnityEngine;
 using MidManStudio.Projectiles.Config;
@@ -25,7 +20,7 @@ namespace MidManStudio.Projectiles.Visuals
         [SerializeField] private MeshFilter   _meshFilter;
         [SerializeField] private MeshRenderer _meshRenderer;
 
-        [Header("Trail (optional)")]
+        [Header("Trail (auto-found in children if null)")]
         [SerializeField] private TrailRenderer _trailRenderer;
 
         [Header("Scale")]
@@ -54,12 +49,13 @@ namespace MidManStudio.Projectiles.Visuals
         {
             base.Awake();
 
-            if (_meshFilter   == null) _meshFilter   = GetComponent<MeshFilter>();
-            if (_meshRenderer == null) _meshRenderer = GetComponent<MeshRenderer>();
+            // Auto-find all three renderer references if not assigned in inspector.
+            // _trailRenderer had no fallback before — silently null → no trail.
+            if (_meshFilter    == null) _meshFilter    = GetComponent<MeshFilter>();
+            if (_meshRenderer  == null) _meshRenderer  = GetComponent<MeshRenderer>();
+            if (_trailRenderer == null) _trailRenderer = GetComponentInChildren<TrailRenderer>(true);
 
-            // FIX: kill any stray SpriteRenderer from duplicated 2D prefabs.
-            // A SpriteRenderer will override the MeshRenderer in the hierarchy and
-            // make the bullet look like a shaking 2D sprite in 3D space.
+            // Kill any stray SpriteRenderer from duplicated 2D prefabs.
             var sr = GetComponent<SpriteRenderer>();
             if (sr != null)
             {
@@ -74,8 +70,6 @@ namespace MidManStudio.Projectiles.Visuals
         private void OnDestroy()
         {
             if (_instancedMaterial != null) Destroy(_instancedMaterial);
-            if (_defaultCapsuleMesh != null && Application.isEditor)
-                { /* leave for editor reloads */ }
         }
 
         #endregion
@@ -85,8 +79,6 @@ namespace MidManStudio.Projectiles.Visuals
         protected override void ApplyRotation(Vector3 dir)
         {
             if (dir.sqrMagnitude < 0.001f) return;
-
-            // Align mesh +Z (forward) with travel direction — correct for capsule/bullet meshes
             Vector3 up = Mathf.Abs(Vector3.Dot(dir.normalized, Vector3.up)) > 0.99f
                 ? Vector3.forward : Vector3.up;
             transform.rotation = Quaternion.LookRotation(dir.normalized, up);
@@ -136,10 +128,7 @@ namespace MidManStudio.Projectiles.Visuals
 
         #region Sub-class Hooks
 
-        /// <summary>Override to add custom 3D setup (particles, sounds, etc.).</summary>
         protected virtual void OnInitialise3D(ProjectileConfigSO cfg) { }
-
-        /// <summary>Override to stop/reset FX before returning to pool.</summary>
         protected virtual void OnCleanup3D() { }
 
         #endregion
@@ -188,7 +177,6 @@ namespace MidManStudio.Projectiles.Visuals
             float length = cfg != null ? cfg.FullSizeX * _scaleMultiplier : _scaleMultiplier;
             float width  = cfg != null && cfg.FullSizeX > 0.001f
                 ? (cfg.FullSizeY / cfg.FullSizeX) * length : length * 0.2f;
-            // X = length (travel axis), Y = Z = width (perpendicular)
             transform.localScale = new Vector3(width, width, length);
         }
 
@@ -241,52 +229,42 @@ namespace MidManStudio.Projectiles.Visuals
 
         #region Default Capsule Mesh
 
-        /// <summary>
-        /// Elongated capsule oriented along +Z (forward = travel direction).
-        /// 0.15 radius, 1.0 half-length — looks like a bullet tracer when scaled.
-        /// </summary>
         private static Mesh GetDefaultCapsule()
         {
             if (_defaultCapsuleMesh != null && _defaultCapsuleMesh.vertexCount > 0)
                 return _defaultCapsuleMesh;
 
-            // Simple elongated hexagonal prism (6 sides, ~capsule shaped)
-            int   sides    = 6;
-            float radius   = 0.08f;
-            float halfLen  = 0.5f;  // along Z
+            int   sides   = 6;
+            float radius  = 0.08f;
+            float halfLen = 0.5f;
 
             var verts = new System.Collections.Generic.List<Vector3>();
             var uvs   = new System.Collections.Generic.List<Vector2>();
             var tris  = new System.Collections.Generic.List<int>();
 
-            // Ring of vertices at +Z (tip) and -Z (tail)
             for (int i = 0; i < sides; i++)
             {
-                float a   = i / (float)sides * Mathf.PI * 2f;
-                float x   = Mathf.Cos(a) * radius;
-                float y   = Mathf.Sin(a) * radius;
+                float a = i / (float)sides * Mathf.PI * 2f;
+                float x = Mathf.Cos(a) * radius;
+                float y = Mathf.Sin(a) * radius;
                 verts.Add(new Vector3(x, y,  halfLen)); uvs.Add(new Vector2(i/(float)sides, 1f));
                 verts.Add(new Vector3(x, y, -halfLen)); uvs.Add(new Vector2(i/(float)sides, 0f));
             }
-            // Tip center (+Z) and tail center (-Z)
             int tipIdx  = verts.Count; verts.Add(new Vector3(0, 0,  halfLen)); uvs.Add(new Vector2(0.5f, 1f));
             int tailIdx = verts.Count; verts.Add(new Vector3(0, 0, -halfLen)); uvs.Add(new Vector2(0.5f, 0f));
 
-            // Side quads
             for (int i = 0; i < sides; i++)
             {
                 int next  = (i + 1) % sides;
                 int a0 = i * 2, a1 = i * 2 + 1;
                 int b0 = next * 2, b1 = next * 2 + 1;
-                tris.AddRange(new[]{ a0, b0, a1,  b0, b1, a1 });
+                tris.AddRange(new[]{ a0, b0, a1, b0, b1, a1 });
             }
-            // Tip cap
             for (int i = 0; i < sides; i++)
             {
                 int next = (i + 1) % sides;
                 tris.AddRange(new[]{ tipIdx, i * 2, next * 2 });
             }
-            // Tail cap
             for (int i = 0; i < sides; i++)
             {
                 int next = (i + 1) % sides;
