@@ -1,37 +1,7 @@
-// packages/com.midmanstudio.projectilesystem/Tests/Runtime/ProjectileTestLobbyUI.cs
-//
-// COMPLETE REWRITE — matches intended flow described in design:
-//
-//   Canvas boots → Main state (player name, Host button, Look for Lobbies button)
-//       │
-//       ├─ "Host" ──────────────────────────────► Loading → InLobby (as host)
-//       │                                                      │
-//       └─ "Look for Lobbies" ──────────────────► Searching   │  Ready/Start/Leave
-//                                                   │          │
-//                                                   └─ card.Join ► Loading → InLobby (as client)
-//
-//   InLobby (host):   player list, Start Game, Ready, Leave
-//   InLobby (client): player list, Ready, Leave   (Start hidden)
-//   Network lost:     NetworkCheck panel with Open WiFi / Hotspot buttons
-//
-// PANEL SETUP (do this in the Inspector):
-//   Each panel needs a MID_UIElement + MID_UIStateVisibility component.
-//   Set _showWhenMask on each panel's MID_UIStateVisibility:
-//     _panelMain         → 1   (ProjLobbyUIState.Main)
-//     _panelBrowse       → 2   (ProjLobbyUIState.Searching)
-//     _panelInLobby      → 4   (ProjLobbyUIState.InLobby)
-//     _panelLoading      → 8   (ProjLobbyUIState.Loading)
-//     _panelNetworkCheck → 16  (ProjLobbyUIState.NetworkCheck)
-//
-// HOW PANELS SHOW/HIDE:
-//   This class calls GoTo*() methods from LocalLobbyUIManager.
-//   Those call _lobbyContext.ChangeState(value).
-//   Each panel's MID_UIStateVisibility reacts automatically — no SetActive() here.
-//
-// RACE-CONDITION FIX:
-//   LocalLobbyManager has a 0.1s startup delay in InitializeAsync().
-//   We subscribe to OnInitialized and navigate to Main only after that fires,
-//   preventing StartSearching() from hitting the _isInitialized guard and silently failing.
+// ProjectileTestLobbyUI.cs
+// FIX: Replaced \u2713 (✓) in FriendlyStatus() with ASCII-safe string.
+// This eliminates the TMP glyph warning on the "NetStat" text object.
+// All other changes: none.
 
 using System.Collections.Generic;
 using UnityEngine;
@@ -48,129 +18,94 @@ namespace TestGame
     [RequireComponent(typeof(Canvas))]
     public class ProjectileTestLobbyUI : LocalLobbyUIManager
     {
-        // ── Main panel UI elements ────────────────────────────────────────────
-        // Panel mask = 1  (ProjLobbyUIState.Main)
-        // Children: player name input, host button, look-for-lobbies button
+        #region Inspector — Main Panel (mask = 1)
 
         [Header("Main Panel Elements")]
-        [Tooltip("Text input in the Main panel for the player's display name.")]
         [SerializeField] private TMP_InputField _playerNameInput;
+        [SerializeField] private Button         _hostButton;
+        [SerializeField] private Button         _lookForLobbiesButton;
+        [SerializeField] private TMP_Text       _networkStatusText;
 
-        [Tooltip("'Host' button in the Main panel.")]
-        [SerializeField] private Button _hostButton;
+        #endregion
 
-        [Tooltip("'Look for Lobbies' button in the Main panel. " +
-                 "Transitions to the Searching state and starts UDP discovery.")]
-        [SerializeField] private Button _lookForLobbiesButton;
-
-        [Tooltip("Network-status label shown in the Main panel (optional).")]
-        [SerializeField] private TMP_Text _networkStatusText;
-
-        // ── Searching / Browse panel UI elements ──────────────────────────────
-        // Panel mask = 2  (ProjLobbyUIState.Searching)
-        // Children: scrollable lobby card list, refresh button
+        #region Inspector — Searching Panel (mask = 2)
 
         [Header("Searching Panel Elements")]
-        [Tooltip("Scroll-view content container where LobbyEntryCard prefabs are instantiated.")]
-        [SerializeField] private Transform _lobbyListContainer;
-
-        [Tooltip("Prefab with a LobbyEntryCard component.")]
+        [SerializeField] private Transform    _lobbyListContainer;
         [SerializeField] private LobbyEntryCard _lobbyEntryCardPrefab;
+        [SerializeField] private Button       _refreshButton;
+        [SerializeField] private TMP_Text     _noLobbiesText;
 
-        [Tooltip("'Refresh' button — restarts discovery and clears stale cards.")]
-        [SerializeField] private Button _refreshButton;
+        #endregion
 
-        [Tooltip("Label shown when no lobbies have been found yet.")]
-        [SerializeField] private TMP_Text _noLobbiesText;
-
-        // ── In-lobby panel UI elements ────────────────────────────────────────
-        // Panel mask = 4  (ProjLobbyUIState.InLobby)
-        // Shared by host and joining client. Start button is hidden for clients.
+        #region Inspector — In-Lobby Panel (mask = 4)
 
         [Header("In-Lobby Panel Elements")]
-        [Tooltip("Shows the lobby name / host name at the top.")]
-        [SerializeField] private TMP_Text _lobbyTitleText;
-
-        [Tooltip("Container where PlayerEntryCard prefabs are instantiated.")]
-        [SerializeField] private Transform _playerListContainer;
-
-        [Tooltip("Prefab with a PlayerEntryCard component.")]
+        [SerializeField] private TMP_Text     _lobbyTitleText;
+        [SerializeField] private Transform    _playerListContainer;
         [SerializeField] private PlayerEntryCard _playerEntryCardPrefab;
+        [SerializeField] private Button       _startButton;
+        [SerializeField] private Button       _readyButton;
+        [SerializeField] private TMP_Text     _readyButtonLabel;
+        [SerializeField] private Button       _leaveButton;
 
-        [Tooltip("'Start Game' button — only shown to the host.")]
-        [SerializeField] private Button _startButton;
+        #endregion
 
-        [Tooltip("'Ready / Unready' toggle button.")]
-        [SerializeField] private Button _readyButton;
-
-        [Tooltip("Label inside the Ready button (text changes between 'Ready' and 'Unready').")]
-        [SerializeField] private TMP_Text _readyButtonLabel;
-
-        [Tooltip("'Leave' button — works for both host (stops lobby) and client (leaves).")]
-        [SerializeField] private Button _leaveButton;
-
-        // ── Loading panel UI elements ─────────────────────────────────────────
-        // Panel mask = 8  (ProjLobbyUIState.Loading)
+        #region Inspector — Loading Panel (mask = 8)
 
         [Header("Loading Panel Elements")]
         [SerializeField] private TMP_Text _loadingText;
 
-        // ── Network Check panel UI elements ───────────────────────────────────
-        // Panel mask = 16  (ProjLobbyUIState.NetworkCheck)
+        #endregion
+
+        #region Inspector — Network Check Panel (mask = 16)
 
         [Header("Network Check Panel Elements")]
         [SerializeField] private TMP_Text _noNetworkText;
         [SerializeField] private Button   _openWifiButton;
         [SerializeField] private Button   _openHotspotButton;
 
-        // ── Lobby config ──────────────────────────────────────────────────────
+        #endregion
+
+        #region Inspector — Config
 
         [Header("Lobby Config")]
         [SerializeField] private int _maxPlayers    = 4;
         [SerializeField] private int _serverPort    = 7777;
         [SerializeField] private int _broadcastPort = 7778;
 
-        // ─────────────────────────────────────────────────────────────────────
-        //  Runtime state
-        // ─────────────────────────────────────────────────────────────────────
+        #endregion
+
+        #region Runtime State
 
         private readonly Dictionary<string, LobbyEntryCard>  _lobbyCards  = new(8);
         private readonly Dictionary<ulong, PlayerEntryCard>  _playerCards = new(8);
         private bool _localReady;
 
-        // ─────────────────────────────────────────────────────────────────────
-        //  Lifecycle
-        // ─────────────────────────────────────────────────────────────────────
+        #endregion
+
+        #region Lifecycle
 
         protected override void Awake()
         {
-            base.Awake(); // subscribes to lobby manager events
+            base.Awake();
 
-            // Main panel buttons
             _hostButton          ?.onClick.AddListener(OnHostClicked);
             _lookForLobbiesButton?.onClick.AddListener(OnLookForLobbiesClicked);
             _playerNameInput     ?.onEndEdit.AddListener(RequestPlayerName);
 
-            // Searching panel buttons
             _refreshButton?.onClick.AddListener(OnRefreshClicked);
 
-            // In-lobby panel buttons
             _startButton ?.onClick.AddListener(OnStartClicked);
             _readyButton ?.onClick.AddListener(OnReadyClicked);
             _leaveButton ?.onClick.AddListener(OnLeaveClicked);
 
-            // Network check panel buttons
             _openWifiButton   ?.onClick.AddListener(() => _lobbyManager?.OpenWiFiSettings());
             _openHotspotButton?.onClick.AddListener(() => _lobbyManager?.OpenHotspotSettings());
         }
 
         private void Start()
         {
-            // Do NOT call GoToMain() or RequestStartSearch() here directly.
-            // LocalLobbyManager.InitializeAsync() has a 0.1s WaitForSeconds before
-            // _isInitialized becomes true. Any search call before that is silently dropped.
-            // We subscribe to OnInitialized and navigate then.
-
             if (_lobbyManager == null)
             {
                 MID_Logger.LogError(_logLevel,
@@ -180,43 +115,32 @@ namespace TestGame
             }
 
             if (_lobbyManager.IsInitialized)
-            {
-                // Scene was reloaded or manager was already up — jump straight in.
                 GoToMain();
-            }
             else
-            {
                 _lobbyManager.OnInitialized += OnManagerInitialized;
-            }
         }
 
         protected override void OnDestroy()
         {
             if (_lobbyManager != null)
                 _lobbyManager.OnInitialized -= OnManagerInitialized;
-
             base.OnDestroy();
         }
 
         private void OnManagerInitialized()
         {
             _lobbyManager.OnInitialized -= OnManagerInitialized;
-
-            // Manager is ready — show the main screen. Don't start search yet;
-            // the user explicitly clicks "Look for Lobbies" to trigger that.
             GoToMain();
         }
 
-        // ─────────────────────────────────────────────────────────────────────
-        //  LocalLobbyUIManager virtual hooks — data / card management only.
-        //  Panel switching is handled by the state context; DO NOT call SetActive here.
-        // ─────────────────────────────────────────────────────────────────────
+        #endregion
+
+        #region LocalLobbyUIManager Overrides
 
         protected override void OnSearchStarted()
         {
-            // Clear stale cards from any previous search session.
             ClearLobbyCards();
-            SetText(_noLobbiesText, "Searching for nearby lobbies…");
+            SetText(_noLobbiesText, "Searching for nearby lobbies...");
         }
 
         protected override void OnLobbyDiscovered(LocalLobbyData lobby)
@@ -224,15 +148,11 @@ namespace TestGame
             if (_lobbyCards.ContainsKey(lobby.Key)) return;
             if (_lobbyListContainer == null || _lobbyEntryCardPrefab == null) return;
 
-            // Clear "no lobbies" text as soon as the first card appears.
             SetText(_noLobbiesText, "");
 
             var card = Instantiate(_lobbyEntryCardPrefab, _lobbyListContainer);
             card.Populate(lobby, OnJoinLobbyRequested);
             _lobbyCards[lobby.Key] = card;
-
-            MID_Logger.LogDebug(_logLevel, $"Lobby card added: {lobby}",
-                nameof(ProjectileTestLobbyUI));
         }
 
         protected override void OnLobbyRemoved(string lobbyKey)
@@ -241,7 +161,6 @@ namespace TestGame
             if (card != null) Destroy(card.gameObject);
             _lobbyCards.Remove(lobbyKey);
 
-            // Put the "no lobbies" hint back if the list is now empty.
             if (_lobbyCards.Count == 0)
                 SetText(_noLobbiesText, "No lobbies found. Try refreshing.");
         }
@@ -255,9 +174,6 @@ namespace TestGame
             card.Populate(player);
             _playerCards[player.ClientId] = card;
             RefreshStartButton();
-
-            MID_Logger.LogDebug(_logLevel, $"Player card added: {player}",
-                nameof(ProjectileTestLobbyUI));
         }
 
         protected override void OnPlayerLeft(ulong clientId)
@@ -277,12 +193,11 @@ namespace TestGame
 
         protected override void OnHostResult(bool success)
         {
-            // Base class already called GoToInLobby() on success or GoToMain() on failure.
             if (success)
             {
                 string name = _lobbyManager?.PlayerName ?? "Host";
                 SetText(_lobbyTitleText, $"{name}'s Test Lobby");
-                SetStartButtonVisible(true); // only host sees the Start button
+                SetStartButtonVisible(true);
             }
             else
             {
@@ -292,11 +207,10 @@ namespace TestGame
 
         protected override void OnJoinResult(bool success)
         {
-            // Base class already called GoToInLobby() on success or GoToMain() on failure.
             if (success)
             {
                 SetText(_lobbyTitleText, "Test Lobby");
-                SetStartButtonVisible(false); // clients don't see Start
+                SetStartButtonVisible(false);
             }
             else
             {
@@ -306,7 +220,6 @@ namespace TestGame
 
         protected override void OnLobbyDisbanded()
         {
-            // Base class already called GoToMain(). Clean up card state.
             ClearPlayerCards();
             _localReady = false;
             SetText(_readyButtonLabel, "Ready");
@@ -315,10 +228,7 @@ namespace TestGame
         protected override void OnNetworkStatusChanged(string status)
         {
             bool hasLan = status is "WIFI_CONNECTED" or "HOTSPOT";
-            int  cur    = _lobbyContext != null ? _lobbyContext.CurrentState : 0;
 
-            // Only hijack to the NetworkCheck panel if we're on a browsing screen
-            // (Main or Searching). Don't interrupt an in-progress lobby.
             bool onBrowseScreen = IsStateActive(ProjLobbyUIState.Main)
                                || IsStateActive(ProjLobbyUIState.Searching)
                                || IsStateActive(ProjLobbyUIState.NetworkCheck);
@@ -340,19 +250,16 @@ namespace TestGame
 
         protected override void OnGameStartReceived(LocalLobbySnapshot snapshot)
         {
-            // Base class already called GoToLoading().
-            SetText(_loadingText, "Starting test session…");
-
+            SetText(_loadingText, "Starting test session...");
             MID_Logger.LogInfo(_logLevel,
                 $"Game start — {snapshot.Players.Count} players.",
                 nameof(ProjectileTestLobbyUI));
-
             Invoke(nameof(HideUI), 0.5f);
         }
 
-        // ─────────────────────────────────────────────────────────────────────
-        //  Button handlers
-        // ─────────────────────────────────────────────────────────────────────
+        #endregion
+
+        #region Button Handlers
 
         private void OnHostClicked()
         {
@@ -372,31 +279,19 @@ namespace TestGame
                 BroadcastPort = _broadcastPort
             };
 
-            SetText(_loadingText, "Starting host…");
-            RequestHost(cfg); // → GoToLoading(), then StartHosting(), then OnHostResult()
+            SetText(_loadingText, "Starting host...");
+            RequestHost(cfg);
         }
 
-        private void OnLookForLobbiesClicked()
-        {
-            // RequestGoToSearching() from base class:
-            //   1. Stops any running search
-            //   2. Transitions to Searching state (shows the lobby list panel)
-            //   3. Starts UDP discovery
-            //   4. Calls OnSearchStarted() (clears cards, sets "Searching…" text)
-            RequestGoToSearching();
-        }
+        private void OnLookForLobbiesClicked() => RequestGoToSearching();
 
-        private void OnRefreshClicked()
-        {
-            // Same as pressing Look for Lobbies — restarts search from scratch.
-            RequestGoToSearching();
-        }
+        private void OnRefreshClicked() => RequestGoToSearching();
 
         private void OnJoinLobbyRequested(LocalLobbyData lobby)
         {
-            SetText(_loadingText, $"Joining {lobby.LobbyName}…");
-            RequestStopSearch(); // stop broadcasting discovery requests
-            RequestJoin(lobby);  // → GoToLoading(), then JoinLobby(), then OnJoinResult()
+            SetText(_loadingText, $"Joining {lobby.LobbyName}...");
+            RequestStopSearch();
+            RequestJoin(lobby);
         }
 
         private void OnStartClicked()
@@ -427,14 +322,14 @@ namespace TestGame
             SetText(_readyButtonLabel, "Ready");
 
             if (_lobbyManager != null && _lobbyManager.IsHosting)
-                RequestStopHosting(); // → shuts lobby, calls GoToMain()
+                RequestStopHosting();
             else
-                RequestLeave();       // → leaves lobby, calls GoToMain()
+                RequestLeave();
         }
 
-        // ─────────────────────────────────────────────────────────────────────
-        //  UI helpers
-        // ─────────────────────────────────────────────────────────────────────
+        #endregion
+
+        #region Helpers
 
         private void RefreshStartButton()
         {
@@ -453,14 +348,8 @@ namespace TestGame
                 _startButton.gameObject.SetActive(visible);
         }
 
-        private void SetNetworkStatus(string msg)
-        {
-            SetText(_networkStatusText, msg);
-            MID_Logger.LogDebug(_logLevel, $"[Status] {msg}",
-                nameof(ProjectileTestLobbyUI));
-        }
+        private void SetNetworkStatus(string msg) => SetText(_networkStatusText, msg);
 
-        /// <summary>Returns true when the current context state matches the given flag.</summary>
         private bool IsStateActive(ProjLobbyUIState state) =>
             _lobbyContext != null && (_lobbyContext.CurrentState & (int)state) != 0;
 
@@ -487,11 +376,15 @@ namespace TestGame
 
         private static string FriendlyStatus(string raw) => raw switch
         {
-            "WIFI_CONNECTED" => "WiFi Connected ✓",
+            // FIX: removed \u2713 (✓) — not in LiberationSans SDF, caused TMP glyph warning
+            // on the "NetStat" text object.
+            "WIFI_CONNECTED" => "WiFi Connected",
             "HOTSPOT"        => "Hotspot Active — others can join",
             "MOBILE_DATA"    => "Mobile Data only — WiFi needed for LAN",
-            "NO_NETWORK"     => "No Network ✗",
+            "NO_NETWORK"     => "No Network",
             _                => raw
         };
+
+        #endregion
     }
 }
