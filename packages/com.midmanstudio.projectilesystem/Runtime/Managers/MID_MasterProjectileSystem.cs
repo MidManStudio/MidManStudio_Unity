@@ -1,14 +1,6 @@
-// packages/com.midmanstudio.projectilesystem/Runtime/Managers/MID_MasterProjectileSystem.cs
-//
-// CHANGES:
-//   + SimulationMode.RustSim2D / RustSim3D merged into RustSim.
-//     config.Is3D selects the correct Rust buffer automatically.
-//   + RegisterRaycastFire: passes result.Is3D to RaycastFireServerRpc so the
-//     server reconstructs RaycastFireResult with the correct is3D flag and
-//     picks the matching pool visual (2D vs 3D) on all clients.
-//
-// GetRaycastHandler() retained — exposes _raycastHandler so external systems
-// can subscribe to OnServerHitConfirmed for damage routing.
+// MID_MasterProjectileSystem.cs
+// CHANGE: Added GetPredictionManager() so NetworkedDimensionPlayer can call
+//         SpawnImmediatePrediction() directly from the fire path.
 
 using System;
 using UnityEngine;
@@ -76,10 +68,16 @@ namespace MidManStudio.Projectiles.Managers
             && NetworkManager.Singleton.IsServer
             && NetworkManager.Singleton.IsClient;
 
-        public ServerProjectileAuthority      GetAuthority()      => _authority;
-        public MID_ProjectileNetworkBridge    GetBridge()         => _networkBridge;
-        /// <summary>Exposes the raycast handler so external systems can subscribe to OnServerHitConfirmed.</summary>
-        public RaycastProjectileHandler       GetRaycastHandler() => _raycastHandler;
+        public ServerProjectileAuthority      GetAuthority()         => _authority;
+        public MID_ProjectileNetworkBridge    GetBridge()            => _networkBridge;
+        public RaycastProjectileHandler       GetRaycastHandler()    => _raycastHandler;
+
+        /// <summary>
+        /// Exposes the prediction manager so firing clients can call
+        /// SpawnImmediatePrediction() before the server-RPC round-trip completes.
+        /// </summary>
+        public ClientPredictionManager        GetPredictionManager() => _predictionManager;
+
         public int GetBridgeTick() => _networkBridge?.GetServerTick() ?? 0;
 
         #endregion
@@ -166,8 +164,6 @@ namespace MidManStudio.Projectiles.Managers
 
             var routing = ProjectileTypeRouter.Route(cfg, context);
 
-            // CHANGE: RustSim2D + RustSim3D merged into RustSim.
-            // config.Is3D picks the correct Rust buffer on the server side.
             switch (routing.Mode)
             {
                 case SimulationMode.LocalOnly:
@@ -293,9 +289,6 @@ namespace MidManStudio.Projectiles.Managers
             }
             else
             {
-                // FIX: pass result.Is3D so the server reconstructs RaycastFireResult
-                // with the correct is3D flag, which flows through to SpawnVisualClientRpc
-                // and selects the correct pool visual type (2D vs 3D) on all clients.
                 _networkBridge?.RaycastFireServerRpc(
                     new ProjectileFireRequest
                     {
@@ -311,7 +304,7 @@ namespace MidManStudio.Projectiles.Managers
                     },
                     result.HitPoint, result.DidHit,
                     result.IsHeadshot, result.HitTargetNetworkId,
-                    result.Is3D);    // NEW — was missing, so Is3D was always false on server
+                    result.Is3D);
 
                 // Local travelling visual for the firing client
                 _raycastHandler?.OfflineHandleFire(
@@ -357,7 +350,7 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Public API — State
 
-        public int SaveState2D(byte[] buf)    => _authority?.SaveState2D(buf) ?? 0;
+        public int SaveState2D(byte[] buf)         => _authority?.SaveState2D(buf) ?? 0;
         public int RestoreState2D(byte[] buf, int n) => _authority?.RestoreState2D(buf, n) ?? 0;
 
         #endregion
