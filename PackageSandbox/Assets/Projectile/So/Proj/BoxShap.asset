@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b248fdc90d62a4b80bf4bd3d61a610f7, type: 3}
   m_Name: BoxShap
   m_EditorClassIdentifier: 
-  Shape: 0
+  Shape: 4
   AspectRatio: 2
   Vertices:
   - {x: 1, y: 0}

@@ -120,7 +120,7 @@ MonoBehaviour:
   _logLevel: 0
   _meshFilter: {fileID: 3027121082797755088}
   _meshRenderer: {fileID: 8345006710408403906}
-  _trailRenderer: {fileID: 0}
+  _trailRenderer: {fileID: 8032413099760147388}
   _scaleMultiplier: 1
   _fallbackMaterial: {fileID: 2100000, guid: 8e2bd416c1769401bac71c1f8d976a94, type: 2}
 --- !u!96 &8032413099760147388

@@ -121,9 +121,6 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Config/ProjectileRegistry.cs">
       <Link>Runtime/Config/ProjectileRegistry.cs</Link>
     </Compile>
-    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectile.cs">
-      <Link>Runtime/Managers/PhysicsProjectile.cs</Link>
-    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Visual/ProjectileImpactHandler.cs">
       <Link>Runtime/Visual/ProjectileImpactHandler.cs</Link>
     </Compile>
