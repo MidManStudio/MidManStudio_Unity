@@ -1,18 +1,23 @@
 // NetworkedDimensionPlayer.cs
-// CHANGES:
-//   + MOVEMENT FIX: disable server-auth NetworkTransform for all machines; owner
-//     writes position/yaw via NetworkVariable (Owner-write), non-owners read & interpolate.
-//   + RB SETUP FIX: ApplyRigidbodyConstraints called in OnNetworkSpawn when IsOwner is
-//     actually set (was called in Awake when IsOwner is always false — constraints never applied).
-//   + IMMEDIATE PREDICTION: when the owning client fires (non-host), immediately call
-//     ClientPredictionManager.SpawnImmediatePrediction BEFORE the ServerRpc, so the visual
-//     appears in the same frame as the input. Reconciled when SpawnConfirmedClientRpc arrives.
-//   + _netShootMode NetworkVariable (Owner write) so all clients see current shoot mode.
-//   + _modeCycleButton wired for UI cycling.
+// CHANGES vs previous version:
+//   - REMOVED all NetworkTransform manipulation (_nt field, .enabled = false, etc.).
+//     The NT (or ClientNetworkTransform) on the prefab handles position sync automatically.
+//     Touching it caused duplicate server ticks.
+//   - REMOVED _syncPosition / _syncYaw NetworkVariables and the non-owner Update
+//     interpolation block — redundant now that NT is left alone.
+//   - FIX (movement): ApplyRigidbodyConstraints + _rb.isKinematic setup moved into
+//     OnNetworkSpawn so it runs AFTER IsOwner is set. In Awake() IsOwner is always false
+//     so constraints were never applied on the client's own player.
+//   - FIX (physics sync): FirePhysics now spawns an immediate local prediction visual
+//     (same pattern as FireSim) before sending the ServerRpc. The server spawns the
+//     authoritative NetworkObject AND fires BroadcastPhysicsVisualClientRpc so other
+//     clients receive a guaranteed prediction visual through the same pool system used
+//     by Rust sim — independent of whether the physics NetworkObject pool is wired up.
 
 using UnityEngine;
 using Unity.Netcode;
 using TMPro;
+using System.Collections.Generic;
 using MidManStudio.Core.Audio;
 using MidManStudio.Core.FX;
 using MidManStudio.Core.Logging;
@@ -57,10 +62,6 @@ namespace TestGame
         [SerializeField] private float _moveSpeed3D = 5f;
         [SerializeField] private float _jumpForce   = 7f;
 
-        [Header("Position Sync (non-owner interpolation)")]
-        [Tooltip("How fast non-owners lerp toward the synced position. Higher = snappier, lower = smoother.")]
-        [SerializeField] private float _positionSyncSpeed = 20f;
-
         [Header("Dash")]
         [SerializeField] private KeyCode _dashKey        = KeyCode.LeftShift;
         [SerializeField] private float   _dashSpeed      = 16f;
@@ -86,7 +87,7 @@ namespace TestGame
         [SerializeField] private ProjectilePatternSO _shotPattern;
 
         [Header("Shoot Mode")]
-        [Tooltip("Starting shoot mode. Runtime value is synced via _netShootMode NetworkVariable.")]
+        [Tooltip("Starting shoot mode. Runtime value synced via _netShootMode NetworkVariable.")]
         [SerializeField] private PlayerShootMode _defaultShootMode = PlayerShootMode.LocalOnly;
         [SerializeField] private TMP_Text        _modeText;
         [Tooltip("Optional UI Button to cycle through all shoot modes.")]
@@ -126,7 +127,7 @@ namespace TestGame
 
         #region Networked State
 
-        // Head pitch — synced for remote player head animation.
+        // Head pitch synced for remote player head pivot animation.
         private readonly NetworkVariable<float> _netPitch = new NetworkVariable<float>(
             0f,
             NetworkVariableReadPermission.Everyone,
@@ -135,20 +136,6 @@ namespace TestGame
         // Shoot mode visible to all clients for debug display.
         private readonly NetworkVariable<int> _netShootMode = new NetworkVariable<int>(
             (int)PlayerShootMode.LocalOnly,
-            NetworkVariableReadPermission.Everyone,
-            NetworkVariableWritePermission.Owner);
-
-        // ── Position sync (replaces NetworkTransform for the player) ──────────
-        // Owner writes; all other machines read and interpolate.
-        // NetworkTransform is disabled in OnNetworkSpawn so these are the sole
-        // source of position truth for remote observers.
-        private readonly NetworkVariable<Vector3> _syncPosition = new NetworkVariable<Vector3>(
-            Vector3.zero,
-            NetworkVariableReadPermission.Everyone,
-            NetworkVariableWritePermission.Owner);
-
-        private readonly NetworkVariable<float> _syncYaw = new NetworkVariable<float>(
-            0f,
             NetworkVariableReadPermission.Everyone,
             NetworkVariableWritePermission.Owner);
 
@@ -170,10 +157,6 @@ namespace TestGame
 
         private PlayerShootMode _shootMode;
 
-        // NetworkTransform on the prefab — disabled at spawn so our NetworkVariables
-        // are the only thing moving non-owner copies of this player.
-        private NetworkTransform _nt;
-
         #endregion
 
         #region Unity Lifecycle
@@ -182,8 +165,8 @@ namespace TestGame
         {
             _rb        = GetComponent<Rigidbody>();
             _shootMode = _defaultShootMode;
-            // NOTE: ApplyRigidbodyConstraints checks IsOwner, which is always false here.
-            //       Constraints are applied in OnNetworkSpawn once IsOwner is set.
+            // NOTE: Do NOT call ApplyRigidbodyConstraints here — IsOwner is always false
+            //       in Awake. We call it in OnNetworkSpawn once IsOwner is correctly set.
             EnsureHeadPivot();
             EnsureShotPoints();
         }
@@ -196,12 +179,8 @@ namespace TestGame
         {
             base.OnNetworkSpawn();
 
-            // ── Disable NetworkTransform for ALL machines ─────────────────────
-            // We own position sync via _syncPosition / _syncYaw NetworkVariables.
-            // Keeping NT enabled would fight the owner's local physics and the
-            // variable-based interpolation on non-owners.
-            _nt = GetComponent<NetworkTransform>();
-            if (_nt != null) _nt.enabled = false;
+            // The NetworkTransform (or ClientNetworkTransform) on the prefab handles
+            // position sync automatically. We do NOT touch it here.
 
             _netShootMode.OnValueChanged += OnShootModeChanged;
 
@@ -213,14 +192,17 @@ namespace TestGame
                 if (_modeCycleButton != null)
                     _modeCycleButton.onClick.AddListener(CycleModeNext);
 
-                // ── CRITICAL FIX: apply RB constraints now that IsOwner is true ─
+                // ── MOVEMENT FIX ─────────────────────────────────────────────
+                // ApplyRigidbodyConstraints checks IsOwner and returns early if false.
+                // In Awake() IsOwner is always false, so constraints were never applied.
+                // Now that IsOwner is properly set we apply them here.
                 Dimension startDim = DimensionManager.HasInstance
                     ? DimensionManager.Instance.Current
                     : Dimension.TwoD;
                 _currentDimension = startDim;
 
-                if (_rb != null) _rb.isKinematic = false; // Owner drives physics
-                ApplyRigidbodyConstraints(startDim);       // Now IsOwner == true
+                if (_rb != null) _rb.isKinematic = false; // owner drives physics
+                ApplyRigidbodyConstraints(startDim);
 
                 // Subscribe to dimension changes
                 if (DimensionManager.HasInstance)
@@ -234,17 +216,13 @@ namespace TestGame
                 if (MID_MasterProjectileSystem.HasInstance)
                     MID_MasterProjectileSystem.Instance.SetLocalPlayerMidId(OwnerClientId);
 
-                // Snap initial sync variables
-                _syncPosition.Value = transform.position;
-                _syncYaw.Value      = transform.eulerAngles.y;
-                _yaw                = transform.eulerAngles.y;
-
+                _yaw = transform.eulerAngles.y;
                 ApplyCursorState(startDim);
                 UpdateModeText();
             }
             else
             {
-                // Non-owner: kinematic RB, position driven by _syncPosition in Update.
+                // Non-owner: kinematic so our local physics doesn't fight NT.
                 _shootMode = (PlayerShootMode)_netShootMode.Value;
                 UpdateModeText();
 
@@ -275,9 +253,6 @@ namespace TestGame
                 Cursor.visible   = true;
             }
 
-            // Restore NT so the object is clean when returned to a pool (if pooled).
-            if (_nt != null) _nt.enabled = true;
-
             base.OnNetworkDespawn();
         }
 
@@ -287,28 +262,16 @@ namespace TestGame
 
         private void Update()
         {
-            // ── Non-owner: interpolate toward synced position/rotation ─────────
             if (!IsOwner)
             {
+                // Apply synced head pitch for remote player head pivot.
                 if (_headPivot != null)
                     _headPivot.localRotation = Quaternion.Euler(_netPitch.Value, 0f, 0f);
-
-                if (IsSpawned)
-                {
-                    transform.position = Vector3.Lerp(
-                        transform.position,
-                        _syncPosition.Value,
-                        Time.deltaTime * _positionSyncSpeed);
-
-                    transform.rotation = Quaternion.Slerp(
-                        transform.rotation,
-                        Quaternion.Euler(0f, _syncYaw.Value, 0f),
-                        Time.deltaTime * _positionSyncSpeed);
-                }
+                // Position is handled by NetworkTransform automatically — nothing else needed.
                 return;
             }
 
-            // ── Owner: handle input ───────────────────────────────────────────
+            // ── Owner input ───────────────────────────────────────────────────
             if (Input.GetKeyDown(_dimensionKey)
                 && DimensionManager.HasInstance
                 && !DimensionManager.Instance.IsTransitioning)
@@ -340,14 +303,8 @@ namespace TestGame
             if (Use3DConvention())
                 _rb.MoveRotation(Quaternion.Euler(0f, _yaw, 0f));
 
-            // ── Write position/yaw so other machines can follow ───────────────
-            // NetworkVariable only sends a network update when the value actually
-            // changes, so this is effectively zero-cost when the player is still.
-            if (IsSpawned)
-            {
-                _syncPosition.Value = _rb.position;
-                if (Use3DConvention()) _syncYaw.Value = _yaw;
-            }
+            // NetworkTransform reads the transform/rigidbody and propagates to
+            // other machines automatically — no manual position sync needed here.
         }
 
         #endregion
@@ -549,7 +506,7 @@ namespace TestGame
 
         #endregion
 
-        #region Sim Fire
+        #region Sim Fire (Rust / LocalOnly)
 
         private void FireSim()
         {
@@ -567,7 +524,6 @@ namespace TestGame
             Transform sp   = ResolveShotPoint();
             Vector3 origin = sp != null ? sp.position : transform.position;
             Vector3 dir    = ResolveFireDir();
-
             int n = _shotPattern != null
                 ? _shotPattern.ProjectileCount
                 : Mathf.Max(_pelletsPerShot, 1);
@@ -580,7 +536,6 @@ namespace TestGame
 
             if (!networked)
             {
-                // ── Offline / LocalOnly ───────────────────────────────────────
                 if (LocalProjectileManager.HasInstance)
                 {
                     bool use3D = Use3DConvention() || cfg.Is3D;
@@ -594,7 +549,7 @@ namespace TestGame
                 return;
             }
 
-            // ── Networked path ────────────────────────────────────────────────
+            // Build extras array for multi-pellet shots
             int extraCount = Mathf.Min(pts.Length - 1, 63);
             Vector3[] extraDirs = null;
             if (extraCount > 0)
@@ -622,10 +577,8 @@ namespace TestGame
                 ExtraDirections        = extraDirs
             };
 
-            // ── IMMEDIATE CLIENT-SIDE PREDICTION ─────────────────────────────
-            // Pure clients (not the host) spawn a local prediction visual right now,
-            // before the server has even received the RPC.  When SpawnConfirmedClientRpc
-            // arrives the ClientPredictionManager links the temp visual to the real projId.
+            // Immediate local prediction: spawn visual this frame, before server confirms.
+            // Pure clients only — the host renders directly from the Rust buffer.
             if (!IsServer)
             {
                 var predMgr = MID_MasterProjectileSystem.Instance.GetPredictionManager();
@@ -633,7 +586,7 @@ namespace TestGame
                 {
                     var tempConf = new SpawnConfirmation
                     {
-                        BaseProjId          = 0,           // replaced on confirmation
+                        BaseProjId          = 0,
                         ProjectileCount     = (byte)Mathf.Min(pts.Length, 255),
                         ConfigId            = cfgId,
                         ServerSpawnTick     = MID_MasterProjectileSystem.Instance.GetBridgeTick(),
@@ -731,15 +684,108 @@ namespace TestGame
             Vector3 origin = sp != null ? sp.position : transform.position;
             Vector3 dir    = ResolveFireDir();
 
+            // Immediate local prediction visual for the firing client.
+            // Same pattern as FireSim — visual appears this frame without waiting for RTT.
+            // The host skips this since it renders its own physics directly.
+            if (!IsServer)
+            {
+                var predMgr = MID_MasterProjectileSystem.Instance.GetPredictionManager();
+                if (predMgr != null)
+                {
+                    ushort cfgId = ResolveConfigId();
+                    var tempConf = new SpawnConfirmation
+                    {
+                        BaseProjId          = 0,
+                        ProjectileCount     = 1,
+                        ConfigId            = cfgId,
+                        ServerSpawnTick     = MID_MasterProjectileSystem.Instance.GetBridgeTick(),
+                        Origin              = origin,
+                        Direction           = dir,
+                        Speed               = _physicsProjectileSpeed,
+                        OwnerMidId          = OwnerClientId,
+                        ExtraDirectionCount = 0,
+                        ExtraDirections     = null
+                    };
+                    predMgr.SpawnImmediatePrediction(tempConf);
+                }
+            }
+
             if (MID_MasterProjectileSystem.Instance.IsNetworked && IsSpawned)
                 FirePhysicsServerRpc(origin, dir, is3D);
             else
                 SpawnPhysicsProjectileLocal(origin, dir, is3D);
         }
 
-        [ServerRpc]
+        /// <summary>
+        /// Server-side handler for physics projectile fire.
+        /// Spawns the authoritative NetworkObject (propagates to all clients via NGO)
+        /// AND fires BroadcastPhysicsVisualClientRpc so other clients get a guaranteed
+        /// prediction visual through the same pool system used by Rust sim — robust even
+        /// if the physics NetworkObject pool isn't perfectly wired up.
+        /// </summary>
+        [ServerRpc(RequireOwnership = false)]
         private void FirePhysicsServerRpc(Vector3 origin, Vector3 direction, bool is3D)
-            => SpawnPhysicsProjectileLocal(origin, direction, is3D);
+        {
+            // Spawn authoritative physics NetworkObject (appears on all clients via NGO).
+            SpawnPhysicsProjectileLocal(origin, direction, is3D);
+
+            // Broadcast a visual notification to all OTHER clients.
+            // The firing client already has an immediate prediction visual.
+            // The host (if not the firing client) doesn't need this either since it
+            // sees the physics object directly, but including it is harmless.
+            ushort cfgId = is3D ? _configId3D : _configId2D;
+
+            // Build the target list: all clients except the one that fired.
+            var others = new List<ulong>(NetworkManager.Singleton.ConnectedClientsIds.Count);
+            foreach (ulong id in NetworkManager.Singleton.ConnectedClientsIds)
+            {
+                if (id != OwnerClientId)
+                    others.Add(id);
+            }
+
+            if (others.Count > 0)
+            {
+                BroadcastPhysicsVisualClientRpc(
+                    origin, direction, _physicsProjectileSpeed, cfgId, OwnerClientId,
+                    new ClientRpcParams
+                    {
+                        Send = new ClientRpcSendParams { TargetClientIds = others }
+                    });
+            }
+        }
+
+        /// <summary>
+        /// Runs on all clients EXCEPT the firing client (filtered via ClientRpcParams).
+        /// Spawns a prediction visual through ClientPredictionManager — the exact same
+        /// path used by Rust sim / Raycast so other clients see physics projectiles
+        /// with the same reliability and visual quality.
+        /// </summary>
+        [ClientRpc]
+        private void BroadcastPhysicsVisualClientRpc(
+            Vector3 origin, Vector3 direction, float speed, ushort configId, ulong ownerMidId,
+            ClientRpcParams rpcParams = default)
+        {
+            var predMgr = MID_MasterProjectileSystem.Instance?.GetPredictionManager();
+            if (predMgr == null) return;
+
+            var conf = new SpawnConfirmation
+            {
+                BaseProjId          = 0,
+                ProjectileCount     = 1,
+                ConfigId            = configId,
+                ServerSpawnTick     = 0,
+                Origin              = origin,
+                Direction           = direction.normalized,
+                Speed               = speed,
+                OwnerMidId          = ownerMidId, // non-local → goes through fresh visual path
+                ExtraDirectionCount = 0,
+                ExtraDirections     = null
+            };
+
+            // ownerMidId != _localPlayerMidId on receiving clients, so OnSpawnConfirmed
+            // takes the "spawn fresh visual" branch — no pending temp to link.
+            predMgr.OnSpawnConfirmed(conf);
+        }
 
         private void SpawnPhysicsProjectileLocal(Vector3 origin, Vector3 direction, bool is3D)
         {
@@ -774,8 +820,11 @@ namespace TestGame
             var proj = netObj.GetComponent<PhysicsProjectileBase>();
             if (proj != null)
             {
-                proj.SetOwnerContext(OwnerClientId, NetworkObjectId, false, 1, _physicsDamageMultiplier);
-                proj.InitialiseProjectile(OwnerClientId, NetworkObjectId, _physicsProjectileSpeed, false, 1);
+                proj.SetOwnerContext(
+                    OwnerClientId, NetworkObjectId, false, 1, _physicsDamageMultiplier);
+                proj.InitialiseProjectile(
+                    OwnerClientId, NetworkObjectId,
+                    _physicsProjectileSpeed, false, 1);
             }
             else
             {
