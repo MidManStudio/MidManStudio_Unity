@@ -1,14 +1,14 @@
 // NetworkedDimensionPlayer.cs
 // CHANGES:
-//   + _netShootMode NetworkVariable (Everyone read, Owner write) — shoot mode is
-//     now visible to all clients so the mode display works on remote players.
-//   + _defaultShootMode replaces the old serialized _shootMode inspector field so
-//     the runtime _shootMode can be a plain private field driven by the NetworkVariable.
-//   + _modeCycleButton (Button) — assign a UI button in the inspector to cycle
-//     through all 7 shoot modes. Works alongside the existing Alpha1–Alpha7 shortcuts.
-//   + CycleModeNext() — increments mode and wraps around.
-//   + OnShootModeChanged() — syncs non-owner players' local _shootMode from the NetworkVariable.
-//   + ChangeMode() now writes to _netShootMode so all clients see the change.
+//   + MOVEMENT FIX: disable server-auth NetworkTransform for all machines; owner
+//     writes position/yaw via NetworkVariable (Owner-write), non-owners read & interpolate.
+//   + RB SETUP FIX: ApplyRigidbodyConstraints called in OnNetworkSpawn when IsOwner is
+//     actually set (was called in Awake when IsOwner is always false — constraints never applied).
+//   + IMMEDIATE PREDICTION: when the owning client fires (non-host), immediately call
+//     ClientPredictionManager.SpawnImmediatePrediction BEFORE the ServerRpc, so the visual
+//     appears in the same frame as the input. Reconciled when SpawnConfirmedClientRpc arrives.
+//   + _netShootMode NetworkVariable (Owner write) so all clients see current shoot mode.
+//   + _modeCycleButton wired for UI cycling.
 
 using UnityEngine;
 using Unity.Netcode;
@@ -57,6 +57,10 @@ namespace TestGame
         [SerializeField] private float _moveSpeed3D = 5f;
         [SerializeField] private float _jumpForce   = 7f;
 
+        [Header("Position Sync (non-owner interpolation)")]
+        [Tooltip("How fast non-owners lerp toward the synced position. Higher = snappier, lower = smoother.")]
+        [SerializeField] private float _positionSyncSpeed = 20f;
+
         [Header("Dash")]
         [SerializeField] private KeyCode _dashKey        = KeyCode.LeftShift;
         [SerializeField] private float   _dashSpeed      = 16f;
@@ -82,11 +86,10 @@ namespace TestGame
         [SerializeField] private ProjectilePatternSO _shotPattern;
 
         [Header("Shoot Mode")]
-        [Tooltip("Starting shoot mode. After spawn this is synced via _netShootMode NetworkVariable.")]
+        [Tooltip("Starting shoot mode. Runtime value is synced via _netShootMode NetworkVariable.")]
         [SerializeField] private PlayerShootMode _defaultShootMode = PlayerShootMode.LocalOnly;
         [SerializeField] private TMP_Text        _modeText;
-        [Tooltip("Optional UI Button to cycle through all shoot modes. " +
-                 "Alpha1-Alpha7 keyboard shortcuts always work too.")]
+        [Tooltip("Optional UI Button to cycle through all shoot modes.")]
         [SerializeField] private UnityEngine.UI.Button _modeCycleButton;
 
         [Header("Dimension Toggle Key")]
@@ -123,15 +126,29 @@ namespace TestGame
 
         #region Networked State
 
+        // Head pitch — synced for remote player head animation.
         private readonly NetworkVariable<float> _netPitch = new NetworkVariable<float>(
             0f,
             NetworkVariableReadPermission.Everyone,
             NetworkVariableWritePermission.Owner);
 
-        // NEW: shoot mode is now a NetworkVariable so all clients can see each
-        // player's current mode (useful for debugging in the test scene).
+        // Shoot mode visible to all clients for debug display.
         private readonly NetworkVariable<int> _netShootMode = new NetworkVariable<int>(
             (int)PlayerShootMode.LocalOnly,
+            NetworkVariableReadPermission.Everyone,
+            NetworkVariableWritePermission.Owner);
+
+        // ── Position sync (replaces NetworkTransform for the player) ──────────
+        // Owner writes; all other machines read and interpolate.
+        // NetworkTransform is disabled in OnNetworkSpawn so these are the sole
+        // source of position truth for remote observers.
+        private readonly NetworkVariable<Vector3> _syncPosition = new NetworkVariable<Vector3>(
+            Vector3.zero,
+            NetworkVariableReadPermission.Everyone,
+            NetworkVariableWritePermission.Owner);
+
+        private readonly NetworkVariable<float> _syncYaw = new NetworkVariable<float>(
+            0f,
             NetworkVariableReadPermission.Everyone,
             NetworkVariableWritePermission.Owner);
 
@@ -151,9 +168,11 @@ namespace TestGame
         private float   _dashEndTime;
         private Vector3 _dashDir;
 
-        // Runtime shoot mode — initialized from _defaultShootMode and kept in sync
-        // with _netShootMode NetworkVariable.
         private PlayerShootMode _shootMode;
+
+        // NetworkTransform on the prefab — disabled at spawn so our NetworkVariables
+        // are the only thing moving non-owner copies of this player.
+        private NetworkTransform _nt;
 
         #endregion
 
@@ -161,9 +180,10 @@ namespace TestGame
 
         private void Awake()
         {
-            _rb = GetComponent<Rigidbody>();
-            _shootMode = _defaultShootMode; // local initializer before network sync
-            ApplyRigidbodyConstraints(Dimension.TwoD);
+            _rb        = GetComponent<Rigidbody>();
+            _shootMode = _defaultShootMode;
+            // NOTE: ApplyRigidbodyConstraints checks IsOwner, which is always false here.
+            //       Constraints are applied in OnNetworkSpawn once IsOwner is set.
             EnsureHeadPivot();
             EnsureShotPoints();
         }
@@ -176,40 +196,55 @@ namespace TestGame
         {
             base.OnNetworkSpawn();
 
-            // Subscribe to NetworkVariable callbacks — all clients (for display)
+            // ── Disable NetworkTransform for ALL machines ─────────────────────
+            // We own position sync via _syncPosition / _syncYaw NetworkVariables.
+            // Keeping NT enabled would fight the owner's local physics and the
+            // variable-based interpolation on non-owners.
+            _nt = GetComponent<NetworkTransform>();
+            if (_nt != null) _nt.enabled = false;
+
             _netShootMode.OnValueChanged += OnShootModeChanged;
 
             if (IsOwner)
             {
-                // Push our local default into the NetworkVariable so other clients see it
                 _netShootMode.Value = (int)_defaultShootMode;
-                _shootMode = _defaultShootMode;
+                _shootMode          = _defaultShootMode;
 
-                // Wire the cycle button — only functional for the owner
                 if (_modeCycleButton != null)
                     _modeCycleButton.onClick.AddListener(CycleModeNext);
 
-                if (DimensionCameraController.Instance != null)
-                    DimensionCameraController.Instance.RegisterPlayerCams(transform, _headPivot);
+                // ── CRITICAL FIX: apply RB constraints now that IsOwner is true ─
+                Dimension startDim = DimensionManager.HasInstance
+                    ? DimensionManager.Instance.Current
+                    : Dimension.TwoD;
+                _currentDimension = startDim;
 
+                if (_rb != null) _rb.isKinematic = false; // Owner drives physics
+                ApplyRigidbodyConstraints(startDim);       // Now IsOwner == true
+
+                // Subscribe to dimension changes
                 if (DimensionManager.HasInstance)
                     DimensionManager.Instance.OnDimensionChanged += HandleDimensionChanged;
 
+                // Register cameras
+                if (DimensionCameraController.Instance != null)
+                    DimensionCameraController.Instance.RegisterPlayerCams(transform, _headPivot);
+
+                // Tell the prediction manager which player is local
                 if (MID_MasterProjectileSystem.HasInstance)
                     MID_MasterProjectileSystem.Instance.SetLocalPlayerMidId(OwnerClientId);
 
-                Dimension current = DimensionManager.HasInstance
-                    ? DimensionManager.Instance.Current : Dimension.TwoD;
-                if (current != Dimension.TwoD)
-                    HandleDimensionChanged(current);
+                // Snap initial sync variables
+                _syncPosition.Value = transform.position;
+                _syncYaw.Value      = transform.eulerAngles.y;
+                _yaw                = transform.eulerAngles.y;
 
-                _yaw = transform.eulerAngles.y;
-                ApplyCursorState(_currentDimension);
+                ApplyCursorState(startDim);
                 UpdateModeText();
             }
             else
             {
-                // Non-owner: initialize local cache from current NetworkVariable value
+                // Non-owner: kinematic RB, position driven by _syncPosition in Update.
                 _shootMode = (PlayerShootMode)_netShootMode.Value;
                 UpdateModeText();
 
@@ -232,12 +267,17 @@ namespace TestGame
                 if (_modeCycleButton != null)
                     _modeCycleButton.onClick.RemoveListener(CycleModeNext);
 
-                DimensionCameraController.Instance?.UnregisterPlayerCams();
                 if (DimensionManager.HasInstance)
                     DimensionManager.Instance.OnDimensionChanged -= HandleDimensionChanged;
+
+                DimensionCameraController.Instance?.UnregisterPlayerCams();
                 Cursor.lockState = CursorLockMode.None;
                 Cursor.visible   = true;
             }
+
+            // Restore NT so the object is clean when returned to a pool (if pooled).
+            if (_nt != null) _nt.enabled = true;
+
             base.OnNetworkDespawn();
         }
 
@@ -247,13 +287,28 @@ namespace TestGame
 
         private void Update()
         {
+            // ── Non-owner: interpolate toward synced position/rotation ─────────
             if (!IsOwner)
             {
                 if (_headPivot != null)
                     _headPivot.localRotation = Quaternion.Euler(_netPitch.Value, 0f, 0f);
+
+                if (IsSpawned)
+                {
+                    transform.position = Vector3.Lerp(
+                        transform.position,
+                        _syncPosition.Value,
+                        Time.deltaTime * _positionSyncSpeed);
+
+                    transform.rotation = Quaternion.Slerp(
+                        transform.rotation,
+                        Quaternion.Euler(0f, _syncYaw.Value, 0f),
+                        Time.deltaTime * _positionSyncSpeed);
+                }
                 return;
             }
 
+            // ── Owner: handle input ───────────────────────────────────────────
             if (Input.GetKeyDown(_dimensionKey)
                 && DimensionManager.HasInstance
                 && !DimensionManager.Instance.IsTransitioning)
@@ -279,20 +334,26 @@ namespace TestGame
         private void FixedUpdate()
         {
             if (!IsOwner) return;
+
             HandleMovement();
 
             if (Use3DConvention())
                 _rb.MoveRotation(Quaternion.Euler(0f, _yaw, 0f));
+
+            // ── Write position/yaw so other machines can follow ───────────────
+            // NetworkVariable only sends a network update when the value actually
+            // changes, so this is effectively zero-cost when the player is still.
+            if (IsSpawned)
+            {
+                _syncPosition.Value = _rb.position;
+                if (Use3DConvention()) _syncYaw.Value = _yaw;
+            }
         }
 
         #endregion
 
         #region Shoot Mode
 
-        /// <summary>
-        /// Cycles to the next shoot mode in enum order and wraps around.
-        /// Called by _modeCycleButton onClick. Also callable from code.
-        /// </summary>
         private void CycleModeNext()
         {
             if (!IsOwner) return;
@@ -303,11 +364,7 @@ namespace TestGame
         private void ChangeMode(PlayerShootMode m)
         {
             _shootMode = m;
-
-            // Sync to all clients via NetworkVariable (owner write)
-            if (IsSpawned && IsOwner)
-                _netShootMode.Value = (int)m;
-
+            if (IsSpawned && IsOwner) _netShootMode.Value = (int)m;
             UpdateModeText();
 
             if (Use3DConvention())
@@ -322,10 +379,6 @@ namespace TestGame
             }
         }
 
-        /// <summary>
-        /// NetworkVariable callback — fires on ALL clients when the owner changes mode.
-        /// Non-owners update their local _shootMode cache and mode display text.
-        /// </summary>
         private void OnShootModeChanged(int _, int newVal)
         {
             if (!IsOwner)
@@ -391,7 +444,7 @@ namespace TestGame
             if (_headPivot != null)
             {
                 _headPivot.localRotation = Quaternion.Euler(_pitch, 0f, 0f);
-                _netPitch.Value = _pitch;
+                _netPitch.Value          = _pitch;
             }
         }
 
@@ -435,7 +488,7 @@ namespace TestGame
 
             if (Use3DConvention())
             {
-                Vector3 inputDir = (transform.right * h + transform.forward * v);
+                Vector3 inputDir = transform.right * h + transform.forward * v;
                 _dashDir = inputDir.sqrMagnitude > 0.01f
                     ? inputDir.normalized
                     : (_headPivot != null ? _headPivot.forward : transform.forward);
@@ -527,6 +580,7 @@ namespace TestGame
 
             if (!networked)
             {
+                // ── Offline / LocalOnly ───────────────────────────────────────
                 if (LocalProjectileManager.HasInstance)
                 {
                     bool use3D = Use3DConvention() || cfg.Is3D;
@@ -540,7 +594,8 @@ namespace TestGame
                 return;
             }
 
-            int     extraCount = Mathf.Min(pts.Length - 1, 63);
+            // ── Networked path ────────────────────────────────────────────────
+            int extraCount = Mathf.Min(pts.Length - 1, 63);
             Vector3[] extraDirs = null;
             if (extraCount > 0)
             {
@@ -566,6 +621,32 @@ namespace TestGame
                 ExtraDirectionCount    = (byte)extraCount,
                 ExtraDirections        = extraDirs
             };
+
+            // ── IMMEDIATE CLIENT-SIDE PREDICTION ─────────────────────────────
+            // Pure clients (not the host) spawn a local prediction visual right now,
+            // before the server has even received the RPC.  When SpawnConfirmedClientRpc
+            // arrives the ClientPredictionManager links the temp visual to the real projId.
+            if (!IsServer)
+            {
+                var predMgr = MID_MasterProjectileSystem.Instance.GetPredictionManager();
+                if (predMgr != null)
+                {
+                    var tempConf = new SpawnConfirmation
+                    {
+                        BaseProjId          = 0,           // replaced on confirmation
+                        ProjectileCount     = (byte)Mathf.Min(pts.Length, 255),
+                        ConfigId            = cfgId,
+                        ServerSpawnTick     = MID_MasterProjectileSystem.Instance.GetBridgeTick(),
+                        Origin              = origin,
+                        Direction           = pts[0].Direction,
+                        Speed               = pts[0].Speed,
+                        OwnerMidId          = OwnerClientId,
+                        ExtraDirectionCount = (byte)extraCount,
+                        ExtraDirections     = extraDirs
+                    };
+                    predMgr.SpawnImmediatePrediction(tempConf);
+                }
+            }
 
             MID_MasterProjectileSystem.Instance.GetBridge()?.FireServerRpc(request);
         }
@@ -679,8 +760,7 @@ namespace TestGame
             }
 
             var poolType = is3D ? _physicsPoolType3D : _physicsPoolType2D;
-
-            var netObj = MID_MasterProjectileSystem.Instance
+            var netObj   = MID_MasterProjectileSystem.Instance
                 .SpawnPhysicsProjectile(poolType, origin, rot);
 
             if (netObj == null)
@@ -694,16 +774,13 @@ namespace TestGame
             var proj = netObj.GetComponent<PhysicsProjectileBase>();
             if (proj != null)
             {
-                proj.SetOwnerContext(
-                    OwnerClientId, NetworkObjectId, false, 1, _physicsDamageMultiplier);
-                proj.InitialiseProjectile(
-                    OwnerClientId, NetworkObjectId,
-                    _physicsProjectileSpeed, false, 1);
+                proj.SetOwnerContext(OwnerClientId, NetworkObjectId, false, 1, _physicsDamageMultiplier);
+                proj.InitialiseProjectile(OwnerClientId, NetworkObjectId, _physicsProjectileSpeed, false, 1);
             }
             else
             {
                 MID_Logger.LogWarning(_logLevel,
-                    $"No PhysicsProjectileBase found on spawned object '{netObj.name}'.",
+                    $"No PhysicsProjectileBase on '{netObj.name}'.",
                     nameof(NetworkedDimensionPlayer));
             }
         }
@@ -723,7 +800,6 @@ namespace TestGame
         {
             bool use3D = Use3DConvention() || cfg.Is3D;
             var  pts   = new SpawnPoint[n];
-
             for (int i = 0; i < n; i++)
             {
                 float frac = n == 1 ? 0f : (i / (float)(n - 1) - 0.5f);
@@ -748,7 +824,6 @@ namespace TestGame
             var  pts       = new SpawnPoint[angleDirs.Length];
 
             Vector3 localRight, localUp;
-
             if (use3D)
             {
                 Vector3 fwd = baseDir.sqrMagnitude > 0.001f
@@ -768,7 +843,6 @@ namespace TestGame
             {
                 var     angles = angleDirs[i];
                 Vector3 sDir;
-
                 if (use3D)
                 {
                     Quaternion yawRot   = Quaternion.AngleAxis( angles.x, localUp);
@@ -819,7 +893,7 @@ namespace TestGame
                 _rb.constraints = RigidbodyConstraints.FreezeRotationX
                                 | RigidbodyConstraints.FreezeRotationY
                                 | RigidbodyConstraints.FreezeRotationZ;
-                _rb.useGravity  = true;
+                _rb.useGravity = true;
                 var p = transform.position;
                 transform.position = new Vector3(p.x, p.y, 0f);
                 _rb.velocity = new Vector3(_rb.velocity.x, 0f, _rb.velocity.z);
