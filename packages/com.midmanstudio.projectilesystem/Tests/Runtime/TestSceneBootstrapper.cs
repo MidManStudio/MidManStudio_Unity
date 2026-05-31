@@ -1,14 +1,9 @@
-// packages/com.midmanstudio.projectilesystem/Tests/Runtime/TestSceneBootstrapper.cs
-//
-// CHANGES:
-//   + Both CollisionTarget and CollisionTarget3D registered for every target.
-//     TestTarget prefab has BOTH CircleCollider2D (for Raycast2D / PhysicsProjectile2D
-//     collision) and SphereCollider (for Raycast3D / PhysicsProjectile3D collision).
-//     Unity allows both on the same GameObject — they live in separate physics worlds.
-//   + BobTargets updates both 2D and 3D collision registrations every frame.
-//   + SubscribeHitEvents subscribes to PhysicsProjectile hit events via the
-//     NetworkObjectPool spawned objects (done via a scene-level event bus approach).
-//   + All previous fixes retained (raycast handler subscription, offline snap, etc.)
+// TestSceneBootstrapper.cs
+// CHANGES: Fully split 3D and 2D target prefabs/scripts.
+// _targetPrefab3D → spawns TestTarget (3D, SphereCollider) → RegisterTarget3D
+// _targetPrefab2D → spawns TestTarget2D (2D, CircleCollider2D) → RegisterTarget2D
+// Registration IDs: 3D targets use 100+ , 2D targets use 200+
+// Both sets sit at the same XY positions; 2D targets are flat at Z=0.
 
 using System.Collections;
 using System.Collections.Generic;
@@ -42,16 +37,25 @@ namespace TestGame
         [Header("Configs to Register")]
         [SerializeField] private ProjectileConfigSO[] _configs;
 
-        [Header("Test Targets")]
-        [Tooltip("Prefab requires: TestTarget, MeshRenderer, SphereCollider (3D), " +
-                 "CircleCollider2D (2D). Both colliders coexist — separate physics worlds.\n" +
-                 "NetworkObject is optional (offline mode works without it).")]
-        [SerializeField] private GameObject _targetPrefab;
-        [SerializeField] private int   _targetCount           = 8;
-        [SerializeField] private float _targetSpawnRadius     = 8f;
-        [SerializeField] private float _targetCollisionRadius = 0.6f;
-        [SerializeField] private float _targetBobAmplitude    = 0.4f;
-        [SerializeField] private float _targetBobSpeed        = 1.2f;
+        [Header("3D Target (SphereCollider — for Raycast3D / RustSim3D / Physics3D)")]
+        [Tooltip("Prefab must have: TestTarget, MeshRenderer, SphereCollider, NetworkObject.\n" +
+                 "NO CircleCollider2D. NO Rigidbody2D.")]
+        [SerializeField] private GameObject _targetPrefab3D;
+        [SerializeField] private int   _targetCount3D          = 8;
+        [SerializeField] private float _targetSpawnRadius3D    = 8f;
+        [SerializeField] private float _targetCollisionRadius3D = 0.6f;
+
+        [Header("2D Target (CircleCollider2D — for Raycast2D / RustSim2D / Physics2D)")]
+        [Tooltip("Prefab must have: TestTarget2D, SpriteRenderer, CircleCollider2D, NetworkObject.\n" +
+                 "NO SphereCollider. NO Rigidbody. Place at Z=0.")]
+        [SerializeField] private GameObject _targetPrefab2D;
+        [SerializeField] private int   _targetCount2D          = 8;
+        [SerializeField] private float _targetSpawnRadius2D    = 8f;
+        [SerializeField] private float _targetCollisionRadius2D = 0.6f;
+
+        [Header("Bob Animation")]
+        [SerializeField] private float _targetBobAmplitude = 0.4f;
+        [SerializeField] private float _targetBobSpeed     = 1.2f;
 
         [Header("Offline / Auto Spawn")]
         [SerializeField] private bool _autoSpawnOffline = true;
@@ -75,10 +79,17 @@ namespace TestGame
 
         #region State
 
-        private readonly Dictionary<uint, TestTarget> _targetMap = new(16);
-        private readonly List<TestTarget>             _targets   = new(16);
-        private bool _sessionStarted;
+        // 3D targets — registration IDs start at 100
+        private readonly List<TestTarget>          _targets3D   = new(16);
+        private readonly Dictionary<uint, TestTarget> _map3D    = new(16);
+        private const uint BASE_ID_3D = 100;
 
+        // 2D targets — registration IDs start at 200
+        private readonly List<TestTarget2D>          _targets2D  = new(16);
+        private readonly Dictionary<uint, TestTarget2D> _map2D   = new(16);
+        private const uint BASE_ID_2D = 200;
+
+        private bool _sessionStarted;
         private RaycastProjectileHandler _cachedRaycastHandler;
 
         #endregion
@@ -129,7 +140,6 @@ namespace TestGame
         {
             if (_lobbyManager != null)
                 _lobbyManager.OnGameStartReceived -= HandleGameStart;
-
             UnsubscribeHitEvents();
         }
 
@@ -139,9 +149,6 @@ namespace TestGame
 
         private void HandleGameStart(LocalLobbySnapshot snapshot)
         {
-            MID_Logger.LogInfo(_logLevel,
-                $"Lobby game start — {snapshot.Players.Count} players.",
-                nameof(TestSceneBootstrapper));
             SetLobbyUIActive(false);
             StartCoroutine(NetworkedSessionCoroutine(snapshot));
         }
@@ -151,11 +158,9 @@ namespace TestGame
             if (_sessionStarted) return;
             _sessionStarted = true;
 
-            MID_Logger.LogInfo(_logLevel, "Starting offline test session.",
-                nameof(TestSceneBootstrapper));
             SetLobbyUIActive(false);
-
-            SpawnTestTargets(networked: false);
+            SpawnTestTargets3D(networked: false);
+            SpawnTestTargets2D(networked: false);
             SubscribeHitEvents();
             StartCoroutine(BobTargets());
 
@@ -175,7 +180,8 @@ namespace TestGame
 
             if (isServer)
             {
-                SpawnTestTargets(networked: true);
+                SpawnTestTargets3D(networked: true);
+                SpawnTestTargets2D(networked: true);
                 SubscribeHitEvents();
                 StartCoroutine(BobTargets());
 
@@ -185,8 +191,7 @@ namespace TestGame
                     {
                         var p = snapshot.Players[i];
                         if (p.IsBot) continue;
-                        var go = Instantiate(
-                            _playerPrefab, GetSpawnPoint(i), Quaternion.identity);
+                        var go = Instantiate(_playerPrefab, GetSpawnPoint(i), Quaternion.identity);
                         go.GetComponent<NetworkObject>()?.SpawnAsPlayerObject(p.ClientId);
                     }
                 }
@@ -195,105 +200,146 @@ namespace TestGame
 
         #endregion
 
-        #region Target Spawning
+        #region Target Spawning — 3D
 
-        private void SpawnTestTargets(bool networked)
+        private void SpawnTestTargets3D(bool networked)
         {
-            if (_targetPrefab == null)
+            if (_targetPrefab3D == null)
             {
                 MID_Logger.LogWarning(_logLevel,
-                    "Target prefab not assigned!", nameof(TestSceneBootstrapper));
+                    "No _targetPrefab3D assigned — skipping 3D target spawn.",
+                    nameof(TestSceneBootstrapper));
                 return;
             }
 
-            for (int i = 0; i < _targetCount; i++)
+            for (int i = 0; i < _targetCount3D; i++)
             {
-                float angle = i / (float)_targetCount * 360f * Mathf.Deg2Rad;
-                var   pos   = new Vector3(
-                    Mathf.Cos(angle) * _targetSpawnRadius, 0f,
-                    Mathf.Sin(angle) * _targetSpawnRadius);
+                float   angle = i / (float)_targetCount3D * 360f * Mathf.Deg2Rad;
+                Vector3 pos   = new Vector3(
+                    Mathf.Cos(angle) * _targetSpawnRadius3D,
+                    0f,
+                    Mathf.Sin(angle) * _targetSpawnRadius3D);
 
-                var go = Instantiate(_targetPrefab, pos, Quaternion.identity);
-
-                if (networked)
-                    go.GetComponent<NetworkObject>()?.Spawn();
+                var go = Instantiate(_targetPrefab3D, pos, Quaternion.identity);
+                if (networked) go.GetComponent<NetworkObject>()?.Spawn();
 
                 var target = go.GetComponent<TestTarget>();
                 if (target == null)
                 {
-                    Debug.LogError(
-                        "[Bootstrapper] Target prefab is missing TestTarget component!");
+                    Debug.LogError("[Bootstrapper] _targetPrefab3D is missing TestTarget component!");
+                    Destroy(go);
                     continue;
                 }
 
-                uint regId = (uint)(100 + i);
-                target.RegistrationId = regId;
-                _targets.Add(target);
-                _targetMap[regId] = target;
-                target.OnDestroyedServer += OnTargetDestroyed;
+                uint regId = BASE_ID_3D + (uint)i;
+                target.RegistrationId    = regId;
+                target.OnDestroyedServer += OnTarget3DDestroyed;
+                _targets3D.Add(target);
+                _map3D[regId] = target;
 
-                // Get actual collider radii if available
-                float radius2D = _targetCollisionRadius;
-                float radius3D = _targetCollisionRadius;
+                // Read radius from the SphereCollider on the prefab instance
+                float radius = _targetCollisionRadius3D;
+                var sc = go.GetComponent<SphereCollider>();
+                if (sc != null)
+                    radius = sc.radius * Mathf.Max(go.transform.lossyScale.x, 0.01f);
 
-                var cc2D = go.GetComponent<CircleCollider2D>();
-                if (cc2D != null)
-                    radius2D = cc2D.radius
-                        * Mathf.Max(go.transform.lossyScale.x, 0.01f);
-
-                var sc3D = go.GetComponent<SphereCollider>();
-                if (sc3D != null)
-                    radius3D = sc3D.radius
-                        * Mathf.Max(go.transform.lossyScale.x, 0.01f);
-
-                int targetLayer = go.layer;
-
-                // Register for BOTH 2D and 3D collision so all shoot modes work
-                RegisterTargetBoth(pos, regId, radius2D, radius3D, targetLayer);
+                _projectileSystem?.RegisterTarget3D(new CollisionTarget3D
+                {
+                    X        = pos.x,
+                    Y        = pos.y,
+                    Z        = pos.z,
+                    Radius   = radius,
+                    TargetId = regId,
+                    Active   = 1
+                }, go.layer);
 
                 MID_Logger.LogDebug(_logLevel,
-                    $"Spawned target id={regId} pos={pos} " +
-                    $"r2D={radius2D:F2} r3D={radius3D:F2} layer={targetLayer}",
+                    $"Spawned 3D target id={regId} pos={pos} radius={radius:F2}",
                     nameof(TestSceneBootstrapper));
             }
 
             MID_Logger.LogInfo(_logLevel,
-                $"Spawned {_targets.Count} test targets (networked={networked}).",
+                $"Spawned {_targets3D.Count} 3D targets (networked={networked}).",
                 nameof(TestSceneBootstrapper));
         }
 
-        private void RegisterTargetBoth(
-            Vector3 pos, uint regId,
-            float radius2D, float radius3D, int unityLayer)
+        #endregion
+
+        #region Target Spawning — 2D
+
+        private void SpawnTestTargets2D(bool networked)
         {
-            if (_projectileSystem == null) return;
-
-            // 2D registration — hit by Raycast2D, RustSim2D, PhysicsProjectile2D
-            _projectileSystem.RegisterTarget2D(new CollisionTarget
+            if (_targetPrefab2D == null)
             {
-                X        = pos.x,
-                Y        = pos.y,
-                Radius   = radius2D,
-                TargetId = regId,
-                Active   = 1
-            }, unityLayer);
+                MID_Logger.LogWarning(_logLevel,
+                    "No _targetPrefab2D assigned — skipping 2D target spawn.",
+                    nameof(TestSceneBootstrapper));
+                return;
+            }
 
-            // 3D registration — hit by Raycast3D, RustSim3D, PhysicsProjectile3D
-            _projectileSystem.RegisterTarget3D(new CollisionTarget3D
+            for (int i = 0; i < _targetCount2D; i++)
             {
-                X        = pos.x,
-                Y        = pos.y,
-                Z        = pos.z,
-                Radius   = radius3D,
-                TargetId = regId,
-                Active   = 1
-            }, unityLayer);
+                float   angle = i / (float)_targetCount2D * 360f * Mathf.Deg2Rad;
+                // 2D targets sit on the XY plane at Z=0
+                Vector3 pos   = new Vector3(
+                    Mathf.Cos(angle) * _targetSpawnRadius2D,
+                    Mathf.Sin(angle) * _targetSpawnRadius2D,
+                    0f);
+
+                var go = Instantiate(_targetPrefab2D, pos, Quaternion.identity);
+                if (networked) go.GetComponent<NetworkObject>()?.Spawn();
+
+                var target = go.GetComponent<TestTarget2D>();
+                if (target == null)
+                {
+                    Debug.LogError("[Bootstrapper] _targetPrefab2D is missing TestTarget2D component!");
+                    Destroy(go);
+                    continue;
+                }
+
+                uint regId = BASE_ID_2D + (uint)i;
+                target.RegistrationId    = regId;
+                target.OnDestroyedServer += OnTarget2DDestroyed;
+                _targets2D.Add(target);
+                _map2D[regId] = target;
+
+                // Read radius from the CircleCollider2D on the prefab instance
+                float radius = _targetCollisionRadius2D;
+                var cc = go.GetComponent<CircleCollider2D>();
+                if (cc != null)
+                    radius = cc.radius * Mathf.Max(go.transform.lossyScale.x, 0.01f);
+
+                _projectileSystem?.RegisterTarget2D(new CollisionTarget
+                {
+                    X        = pos.x,
+                    Y        = pos.y,
+                    Radius   = radius,
+                    TargetId = regId,
+                    Active   = 1
+                }, go.layer);
+
+                MID_Logger.LogDebug(_logLevel,
+                    $"Spawned 2D target id={regId} pos={pos} radius={radius:F2}",
+                    nameof(TestSceneBootstrapper));
+            }
+
+            MID_Logger.LogInfo(_logLevel,
+                $"Spawned {_targets2D.Count} 2D targets (networked={networked}).",
+                nameof(TestSceneBootstrapper));
         }
 
-        private void OnTargetDestroyed(TestTarget target)
+        #endregion
+
+        #region Target Destroyed Callbacks
+
+        private void OnTarget3DDestroyed(TestTarget target)
+        {
+            _projectileSystem?.DeactivateTarget3D(target.RegistrationId);
+        }
+
+        private void OnTarget2DDestroyed(TestTarget2D target)
         {
             _projectileSystem?.DeactivateTarget2D(target.RegistrationId);
-            _projectileSystem?.DeactivateTarget3D(target.RegistrationId);
         }
 
         #endregion
@@ -302,15 +348,12 @@ namespace TestGame
 
         private void SubscribeHitEvents()
         {
-            // Rust sim hits — server authority adapter
             if (_projectileSystem?.GetAuthority()?.Adapter != null)
                 _projectileSystem.GetAuthority().Adapter.OnProjectileHit += OnProjectileHit;
 
-            // Offline / LocalOnly hits
             if (LocalProjectileManager.HasInstance)
                 LocalProjectileManager.Instance.OnHit += OnLocalHit;
 
-            // Raycast confirmed hits
             _cachedRaycastHandler = _projectileSystem?.GetRaycastHandler();
             if (_cachedRaycastHandler != null)
                 _cachedRaycastHandler.OnServerHitConfirmed += OnRaycastHitServer;
@@ -340,35 +383,95 @@ namespace TestGame
         private void OnRaycastHitServer(ProjectileHitPayload payload)
             => ApplyHit(payload.TargetId, payload.Damage, payload.HitPosition);
 
+        #endregion
+
+        #region Hit Resolution
+
+        /// <summary>
+        /// Resolves a hit to a target. TargetId is either:
+        ///   • Our RegistrationId (100+ for 3D, 200+ for 2D) — from Rust sim hits
+        ///   • A NetworkObjectId — from Raycast confirmed hits
+        /// </summary>
         private void ApplyHit(uint targetId, float damage, Vector3 hitPos)
         {
-            TestTarget hitTarget = null;
-
-            if (_targetMap.TryGetValue(targetId, out var mappedTarget))
+            // Fast path: direct 3D registration ID lookup (Rust 3D sim)
+            if (_map3D.TryGetValue(targetId, out var t3) && t3 != null)
             {
-                hitTarget = mappedTarget;
+                t3.TakeDamage(damage);
+                PlayImpactFX(hitPos);
+                return;
             }
-            else if (targetId == 0 && damage > 0f)
+
+            // Fast path: direct 2D registration ID lookup (Rust 2D sim)
+            if (_map2D.TryGetValue(targetId, out var t2) && t2 != null)
             {
-                // Offline raycast — no NetworkObject ID. Snap to nearest active target.
-                const float snapRadius = 2f;
-                float bestDist = snapRadius;
-                foreach (var t in _targets)
+                t2.TakeDamage(damage);
+                PlayImpactFX(hitPos);
+                return;
+            }
+
+            // Slow path: targetId is a NetworkObjectId (from Raycast hit validation).
+            // Iterate both maps to find the matching NetworkObject.
+            foreach (var kv in _map3D)
+            {
+                if (kv.Value == null) continue;
+                var no = kv.Value.GetComponent<NetworkObject>();
+                if (no != null && (uint)no.NetworkObjectId == targetId)
                 {
-                    if (t == null || !t.gameObject.activeSelf) continue;
-                    float d = Vector3.Distance(hitPos, t.transform.position);
-                    if (d < bestDist) { bestDist = d; hitTarget = t; }
+                    kv.Value.TakeDamage(damage);
+                    PlayImpactFX(hitPos);
+                    return;
+                }
+            }
+            foreach (var kv in _map2D)
+            {
+                if (kv.Value == null) continue;
+                var no = kv.Value.GetComponent<NetworkObject>();
+                if (no != null && (uint)no.NetworkObjectId == targetId)
+                {
+                    kv.Value.TakeDamage(damage);
+                    PlayImpactFX(hitPos);
+                    return;
                 }
             }
 
-            hitTarget?.TakeDamage(damage);
+            // Offline snap-to-nearest fallback (targetId == 0 in offline raycast)
+            if (damage > 0f)
+                SnapToNearest(hitPos, damage);
+        }
 
-            GlobalFXManager.Instance?.TriggerImpact(
-                hitPos, Vector3.up, 6, _hitSoundVolume);
+        private void SnapToNearest(Vector3 hitPos, float damage)
+        {
+            const float snapRadius = 2f;
 
+            // Check 3D targets
+            TestTarget  best3D   = null;
+            float       dist3D   = snapRadius;
+            foreach (var t in _targets3D)
+            {
+                if (t == null || !t.gameObject.activeSelf) continue;
+                float d = Vector3.Distance(hitPos, t.transform.position);
+                if (d < dist3D) { dist3D = d; best3D = t; }
+            }
+            if (best3D != null) { best3D.TakeDamage(damage); PlayImpactFX(hitPos); return; }
+
+            // Check 2D targets
+            TestTarget2D best2D  = null;
+            float        dist2D  = snapRadius;
+            foreach (var t in _targets2D)
+            {
+                if (t == null || !t.gameObject.activeSelf) continue;
+                float d = Vector3.Distance(hitPos, t.transform.position);
+                if (d < dist2D) { dist2D = d; best2D = t; }
+            }
+            if (best2D != null) { best2D.TakeDamage(damage); PlayImpactFX(hitPos); }
+        }
+
+        private void PlayImpactFX(Vector3 hitPos)
+        {
+            GlobalFXManager.Instance?.TriggerImpact(hitPos, Vector3.up, 6, _hitSoundVolume);
             if (GlobalFXManager.Instance == null)
-                MID_NativeAudioBridge.Instance?.PlayClip(
-                    _hitSoundClipIndex, _hitSoundVolume);
+                MID_NativeAudioBridge.Instance?.PlayClip(_hitSoundClipIndex, _hitSoundVolume);
         }
 
         #endregion
@@ -381,53 +484,61 @@ namespace TestGame
             {
                 float t = Time.time * _targetBobSpeed;
 
-                for (int i = 0; i < _targets.Count; i++)
+                // Bob 3D targets — update in XYZ space
+                for (int i = 0; i < _targets3D.Count; i++)
                 {
-                    var tgt = _targets[i];
+                    var tgt = _targets3D[i];
                     if (tgt == null || !tgt.gameObject.activeSelf) continue;
 
-                    float phase = i / (float)Mathf.Max(_targets.Count, 1) * Mathf.PI * 2f;
+                    float phase = i / (float)Mathf.Max(_targets3D.Count, 1) * Mathf.PI * 2f;
                     float newY  = Mathf.Sin(t + phase) * _targetBobAmplitude;
                     var   pos   = tgt.transform.position;
                     tgt.transform.position = new Vector3(pos.x, newY, pos.z);
 
                     if (_projectileSystem == null) continue;
 
-                    uint  regId    = tgt.RegistrationId;
-                    byte  active   = (byte)(tgt.gameObject.activeSelf ? 1 : 0);
-                    int   layer    = tgt.gameObject.layer;
+                    float r = _targetCollisionRadius3D;
+                    var sc  = tgt.GetComponent<SphereCollider>();
+                    if (sc != null)
+                        r = sc.radius * Mathf.Max(tgt.transform.lossyScale.x, 0.01f);
 
-                    float r2D = _targetCollisionRadius;
-                    float r3D = _targetCollisionRadius;
-
-                    var cc2D = tgt.GetComponent<CircleCollider2D>();
-                    if (cc2D != null)
-                        r2D = cc2D.radius * Mathf.Max(tgt.transform.lossyScale.x, 0.01f);
-
-                    var sc3D = tgt.GetComponent<SphereCollider>();
-                    if (sc3D != null)
-                        r3D = sc3D.radius * Mathf.Max(tgt.transform.lossyScale.x, 0.01f);
-
-                    // Update 2D registration (x,y plane — matches 2D physics)
-                    _projectileSystem.RegisterTarget2D(new CollisionTarget
-                    {
-                        X        = pos.x,
-                        Y        = newY,          // bobbing Y
-                        Radius   = r2D,
-                        TargetId = regId,
-                        Active   = active
-                    }, layer);
-
-                    // Update 3D registration (x,y,z — matches 3D physics)
                     _projectileSystem.RegisterTarget3D(new CollisionTarget3D
                     {
                         X        = pos.x,
                         Y        = newY,
                         Z        = pos.z,
-                        Radius   = r3D,
-                        TargetId = regId,
-                        Active   = active
-                    }, layer);
+                        Radius   = r,
+                        TargetId = tgt.RegistrationId,
+                        Active   = (byte)(tgt.gameObject.activeSelf ? 1 : 0)
+                    }, tgt.gameObject.layer);
+                }
+
+                // Bob 2D targets — update in XY space (Z stays 0)
+                for (int i = 0; i < _targets2D.Count; i++)
+                {
+                    var tgt = _targets2D[i];
+                    if (tgt == null || !tgt.gameObject.activeSelf) continue;
+
+                    float phase = i / (float)Mathf.Max(_targets2D.Count, 1) * Mathf.PI * 2f;
+                    float newY  = Mathf.Sin(t + phase) * _targetBobAmplitude;
+                    var   pos   = tgt.transform.position;
+                    tgt.transform.position = new Vector3(pos.x, newY, 0f);
+
+                    if (_projectileSystem == null) continue;
+
+                    float r = _targetCollisionRadius2D;
+                    var cc  = tgt.GetComponent<CircleCollider2D>();
+                    if (cc != null)
+                        r = cc.radius * Mathf.Max(tgt.transform.lossyScale.x, 0.01f);
+
+                    _projectileSystem.RegisterTarget2D(new CollisionTarget
+                    {
+                        X        = pos.x,
+                        Y        = newY,
+                        Radius   = r,
+                        TargetId = tgt.RegistrationId,
+                        Active   = (byte)(tgt.gameObject.activeSelf ? 1 : 0)
+                    }, tgt.gameObject.layer);
                 }
 
                 yield return null;
@@ -448,7 +559,7 @@ namespace TestGame
         {
             if (_playerSpawnPoints != null && _playerSpawnPoints.Length > 0)
                 return _playerSpawnPoints[index % _playerSpawnPoints.Length].position;
-            float a = index / (float)Mathf.Max(_targetCount, 1) * Mathf.PI * 2f;
+            float a = index / (float)Mathf.Max(_targetCount3D, 1) * Mathf.PI * 2f;
             return new Vector3(Mathf.Cos(a) * 3f, 0.5f, Mathf.Sin(a) * 3f);
         }
 
