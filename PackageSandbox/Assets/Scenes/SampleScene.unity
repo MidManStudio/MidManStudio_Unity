@@ -536,6 +536,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 134216154}
+  - component: {fileID: 134216155}
   m_Layer: 5
   m_Name: LobbyList
   m_TagString: Untagged
@@ -562,6 +563,32 @@ RectTransform:
   m_AnchoredPosition: {x: 0, y: -9.99951}
   m_SizeDelta: {x: 0, y: 276}
   m_Pivot: {x: 0.5, y: 0.5}
+--- !u!114 &134216155
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 134216153}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 59f8146938fff824cb5fd77236b75775, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_Padding:
+    m_Left: 0
+    m_Right: 0
+    m_Top: 0
+    m_Bottom: 0
+  m_ChildAlignment: 4
+  m_Spacing: 0
+  m_ChildForceExpandWidth: 1
+  m_ChildForceExpandHeight: 1
+  m_ChildControlWidth: 0
+  m_ChildControlHeight: 0
+  m_ChildScaleWidth: 0
+  m_ChildScaleHeight: 0
+  m_ReverseArrangement: 0
 --- !u!1 &226776468
 GameObject:
   m_ObjectHideFlags: 0
@@ -1423,7 +1450,7 @@ MonoBehaviour:
   m_ProtocolType: 0
   m_UseWebSockets: 0
   m_UseEncryption: 0
-  m_MaxPacketQueueSize: 128
+  m_MaxPacketQueueSize: 256
   m_MaxPayloadSize: 6144
   m_HeartbeatTimeoutMS: 500
   m_ConnectTimeoutMS: 1000
@@ -9214,11 +9241,16 @@ MonoBehaviour:
   _networkManager: {fileID: 378658491}
   _configs:
   - {fileID: 11400000, guid: 8e58172a408094bb8aef35fad0f936b2, type: 2}
-  _targetPrefab: {fileID: 8467964027819435547, guid: 68f4eae0878db41a79f190baad63c6d5,
+  _targetPrefab3D: {fileID: 8467964027819435547, guid: 68f4eae0878db41a79f190baad63c6d5,
     type: 3}
-  _targetCount: 8
-  _targetSpawnRadius: 8
-  _targetCollisionRadius: 0.6
+  _targetCount3D: 8
+  _targetSpawnRadius3D: 8
+  _targetCollisionRadius3D: 0.6
+  _targetPrefab2D: {fileID: 6117913973170840958, guid: e15edb882e1854bfe8a7bc4f36126120,
+    type: 3}
+  _targetCount2D: 8
+  _targetSpawnRadius2D: 8
+  _targetCollisionRadius2D: 0.6
   _targetBobAmplitude: 0.4
   _targetBobSpeed: 1.2
   _autoSpawnOffline: 1
@@ -15763,6 +15795,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1882384093}
+  - component: {fileID: 1882384094}
   m_Layer: 5
   m_Name: PlayerList
   m_TagString: Untagged
@@ -15789,6 +15822,32 @@ RectTransform:
   m_AnchoredPosition: {x: 0, y: 4.2999}
   m_SizeDelta: {x: 0, y: 247.4003}
   m_Pivot: {x: 0.5, y: 0.5}
+--- !u!114 &1882384094
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1882384092}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 59f8146938fff824cb5fd77236b75775, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_Padding:
+    m_Left: 0
+    m_Right: 0
+    m_Top: 0
+    m_Bottom: 0
+  m_ChildAlignment: 4
+  m_Spacing: 0
+  m_ChildForceExpandWidth: 1
+  m_ChildForceExpandHeight: 1
+  m_ChildControlWidth: 0
+  m_ChildControlHeight: 0
+  m_ChildScaleWidth: 0
+  m_ChildScaleHeight: 0
+  m_ReverseArrangement: 0
 --- !u!1 &1931811571
 GameObject:
   m_ObjectHideFlags: 0

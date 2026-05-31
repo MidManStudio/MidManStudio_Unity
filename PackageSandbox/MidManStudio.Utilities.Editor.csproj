@@ -76,6 +76,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/MID_ScriptExecutionOrderWindow.cs">
       <Link>Editor/Helpers/MID_ScriptExecutionOrderWindow.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/MidEditorUIElements.cs">
+      <Link>Editor/Helpers/MidEditorUIElements.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Libraries/LibraryTypeGenerator.cs">
       <Link>Editor/Libraries/LibraryTypeGenerator.cs</Link>
     </Compile>
@@ -111,6 +114,12 @@
     </Compile>
   </ItemGroup>
   <ItemGroup>
+    <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/MID_ScriptExecutionOrderWindow.uss">
+      <Link>Editor/Helpers/MID_ScriptExecutionOrderWindow.uss</Link>
+    </None>
+    <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/MID_ScriptExecutionOrderWindow.uxml">
+      <Link>Editor/Helpers/MID_ScriptExecutionOrderWindow.uxml</Link>
+    </None>
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/MidManStudio.Utilities.Editor.asmdef">
       <Link>Editor/MidManStudio.Utilities.Editor.asmdef</Link>
     </None>

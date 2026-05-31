@@ -64,6 +64,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/UI/LobbyEntryCard.cs">
       <Link>Tests/Runtime/UI/LobbyEntryCard.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/TestTarget2D.cs">
+      <Link>Tests/Runtime/TestTarget2D.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/DimensionCameraController.cs">
       <Link>Tests/Runtime/DimensionCameraController.cs</Link>
     </Compile>
