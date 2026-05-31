@@ -1,17 +1,7 @@
 // ProjectileRenderer2D.cs
-// FIX (combined-mesh path — shapes with more than 4 vertices):
-//   Previous code used fixed qi*4 / qi*6 offsets for vBase and tBase,
-//   so Arrow (7 verts, 15 tri indices) and Needle (5 verts, 9 tri indices)
-//   were silently demoted to a bounding-quad fallback and never rendered
-//   with their actual geometry.
-//
-//   Fix: track vBase and tBase dynamically as we accumulate each shape's
-//   actual vertex and triangle counts. Array sizes bumped to
-//   MAX_QUADS * MAX_SHAPE_VERTS (7) and MAX_QUADS * MAX_SHAPE_TRIS (15)
-//   to accommodate the largest built-in shape (Arrow = 7 verts, 5 tris).
-//   The bounding-quad fallback is removed — all shapes render correctly.
-//
-// Instanced path is unchanged.
+// CHANGE from response 3: MAX_SHAPE_VERTS 7→12, MAX_SHAPE_TRIS 15→30
+// to accommodate Cross (12 verts, 30 tri-indices) and LetterI (12 verts).
+// All other logic is identical to response 3.
 
 using System.Collections.Generic;
 using MidManStudio.Projectiles.Config;
@@ -39,18 +29,20 @@ namespace MidManStudio.Projectiles.Visuals
         private MaterialPropertyBlock _mpb;
 
         // ── Combined mesh path ─────────────────────────────────────────────
-        // Arrow has 7 verts and 5 tris (15 indices) — the largest built-in shape.
-        // Custom shapes may be larger; if so increase these constants.
-        private const int MAX_QUADS       = 2048;
-        private const int MAX_SHAPE_VERTS = 7;   // Arrow = 7 verts
-        private const int MAX_SHAPE_TRIS  = 15;  // Arrow = 5 triangles * 3 = 15 indices
+        private const int MAX_QUADS = 2048;
+
+        // UPDATED: was 7 / 15. Cross = 12 verts, 10 tris × 3 = 30 indices.
+        // Custom shapes can exceed these — the overflow guard in RenderCombinedGroup
+        // will skip any projectile whose shape would overflow the arrays.
+        private const int MAX_SHAPE_VERTS = 12;
+        private const int MAX_SHAPE_TRIS  = 30;
 
         // Two separate meshes — one per pass — so DrawMesh(pass1) is never
         // clobbered by pass2.Clear() before the GPU processes it.
         private Mesh _spriteMesh;
         private Mesh _shapeMesh;
 
-        // CPU-side arrays sized for the worst-case shape per slot.
+        // CPU-side arrays sized for worst-case shape per slot.
         private Vector3[] _verts;
         private Vector2[] _uvs;
         private Color32[] _cols;
@@ -80,13 +72,11 @@ namespace MidManStudio.Projectiles.Visuals
             }
             else
             {
-                // Two dedicated meshes so the two passes never share state
                 _spriteMesh = new Mesh { name = "ProjectileSprite2D" };
                 _spriteMesh.MarkDynamic();
                 _shapeMesh  = new Mesh { name = "ProjectileShape2D" };
                 _shapeMesh.MarkDynamic();
 
-                // Worst-case capacity: every slot uses the largest shape (Arrow)
                 _verts = new Vector3[MAX_QUADS * MAX_SHAPE_VERTS];
                 _uvs   = new Vector2[MAX_QUADS * MAX_SHAPE_VERTS];
                 _cols  = new Color32[MAX_QUADS * MAX_SHAPE_VERTS];
@@ -98,7 +88,8 @@ namespace MidManStudio.Projectiles.Visuals
             Debug.Log(
                 $"[ProjectileRenderer2D] Path={_path}" +
                 $" | HW Instancing:{SystemInfo.supportsInstancing}" +
-                $" | ForceDrawMesh:{_forceDrawMesh}");
+                $" | ForceDrawMesh:{_forceDrawMesh}" +
+                $" | MaxShapeVerts:{MAX_SHAPE_VERTS} MaxShapeTris:{MAX_SHAPE_TRIS}");
         }
 
         private void OnDestroy()
@@ -212,9 +203,6 @@ namespace MidManStudio.Projectiles.Visuals
         }
 
         // ── Combined mesh path ────────────────────────────────────────────────
-        // Two separate passes, each into its own Mesh object.
-        // Pass 1 (sprite)  → _spriteMesh
-        // Pass 2 (shape)   → _shapeMesh
 
         private void RenderCombined(NativeProjectile[] projs, int count)
         {
@@ -222,17 +210,19 @@ namespace MidManStudio.Projectiles.Visuals
             RenderCombinedGroup(projs, count, spritePass: false, mesh: _shapeMesh);
         }
 
-        // FIX: vBase and tBase are now tracked dynamically using each shape's
-        // actual vertex and triangle counts. This lets Arrow (7 verts, 15 tri
-        // indices), Needle (5 verts, 9 tri indices), and any custom shape
-        // render with their correct geometry instead of a bounding-quad fallback.
+        // FIX (response 3): vBase and tBase are tracked dynamically using each
+        // shape's actual vertex / triangle-index count, so Arrow (7 verts),
+        // Needle (5 verts), Cross (12 verts), LetterI (12 verts), and any Custom
+        // shape all render correctly. The previous code used fixed qi*4 / qi*6
+        // which assumed 4 verts per shape and silently corrupted geometry for
+        // any shape with more verts.
         private void RenderCombinedGroup(
             NativeProjectile[] projs, int count, bool spritePass, Mesh mesh)
         {
             var       reg      = ProjectileRegistry.Instance;
-            int       qi       = 0;     // projectile slot count (for MAX_QUADS guard)
-            int       vBase    = 0;     // next free vertex index in _verts/_uvs/_cols
-            int       tBase    = 0;     // next free index slot in _tris
+            int       qi       = 0;      // slot count (for MAX_QUADS guard)
+            int       vBase    = 0;      // next free vertex index
+            int       tBase    = 0;      // next free triangle-index slot
             Texture2D firstTex = spritePass ? null : Texture2D.whiteTexture;
 
             for (int i = 0; i < count && qi < MAX_QUADS; i++)
@@ -257,7 +247,7 @@ namespace MidManStudio.Projectiles.Visuals
                 int    vc      = srcV.Length;
                 int    tc      = srcT.Length;
 
-                // Guard: skip this projectile if it would overflow the arrays
+                // Skip if this shape would overflow either array
                 if (vBase + vc > _verts.Length) break;
                 if (tBase + tc > _tris.Length)  break;
 
@@ -276,7 +266,7 @@ namespace MidManStudio.Projectiles.Visuals
                 float cos = Mathf.Cos(p.AngleDeg * Mathf.Deg2Rad);
                 float sin = Mathf.Sin(p.AngleDeg * Mathf.Deg2Rad);
 
-                // Write all vertices for this shape
+                // Write all vertices for this shape into the dynamic arrays
                 for (int v = 0; v < vc; v++)
                 {
                     _verts[vBase + v] = RotateScale(
@@ -289,7 +279,7 @@ namespace MidManStudio.Projectiles.Visuals
                     _cols[vBase + v] = c32;
                 }
 
-                // Write triangle indices, offset by vBase so they point into
+                // Write triangle indices, offset by vBase so they reference
                 // the correct section of the vertex arrays
                 for (int t = 0; t < tc; t++)
                     _tris[tBase + t] = vBase + srcT[t];
@@ -299,75 +289,71 @@ namespace MidManStudio.Projectiles.Visuals
                 qi++;
             }
 
-            if (qi == 0) return;
+            if (qi== 0) return;mesh.Clear();
+        mesh.SetVertices(_verts, 0, vBase);
+        mesh.SetUVs(0, _uvs,    0, vBase);
+        mesh.SetColors(_cols,    0, vBase);
+        mesh.SetTriangles(_tris, 0, tBase, 0);
+        mesh.bounds = new Bounds(Vector3.zero, Vector3.one * 10000f);
 
-            // Upload into THIS pass's dedicated mesh — never touches the other pass
-            mesh.Clear();
-            mesh.SetVertices(_verts, 0, vBase);
-            mesh.SetUVs(0, _uvs,    0, vBase);
-            mesh.SetColors(_cols,    0, vBase);
-            mesh.SetTriangles(_tris, 0, tBase, 0);
-            mesh.bounds = new Bounds(Vector3.zero, Vector3.one * 10000f);
+        _combinedMpb.SetTexture("_MainTex", firstTex ?? Texture2D.whiteTexture);
 
-            _combinedMpb.SetTexture("_MainTex", firstTex ?? Texture2D.whiteTexture);
-
-            Graphics.DrawMesh(
-                mesh, Matrix4x4.identity, _atlasMaterial,
-                gameObject.layer, null, 0, _combinedMpb);
-        }
-
-        // ── Helpers ───────────────────────────────────────────────────────────
-
-        private Mesh GetMeshForConfig(ProjectileConfigSO cfg)
-        {
-            if (cfg.CustomShape != null)
-            {
-                var m = cfg.CustomShape.GetMesh();
-                if (m != null && m.vertexCount > 0) return m;
-            }
-            return GetDefaultQuad();
-        }
-
-        private Mesh GetDefaultQuad()
-        {
-            if (_defaultQuad != null) return _defaultQuad;
-            _defaultQuad = new Mesh { name = "ProjDefaultQuad" };
-            _defaultQuad.vertices  = new[] {
-                new Vector3(-0.5f, -0.5f, 0f), new Vector3( 0.5f, -0.5f, 0f),
-                new Vector3( 0.5f,  0.5f, 0f), new Vector3(-0.5f,  0.5f, 0f),
-            };
-            _defaultQuad.uv = new[] {
-                new Vector2(0f, 0f), new Vector2(1f, 0f),
-                new Vector2(1f, 1f), new Vector2(0f, 1f),
-            };
-            _defaultQuad.triangles = new[] { 0, 1, 2, 0, 2, 3 };
-            _defaultQuad.RecalculateBounds();
-            return _defaultQuad;
-        }
-
-        private static Vector4 ComputeSpriteUVRect(ProjectileConfigSO cfg)
-        {
-            var sprite = cfg.ProjectileSprite;
-            if (sprite == null) return new Vector4(0f, 0f, 1f, 1f);
-            var tex = sprite.texture;
-            if (tex == null)   return new Vector4(0f, 0f, 1f, 1f);
-            return new Vector4(
-                sprite.rect.x      / tex.width,
-                sprite.rect.y      / tex.height,
-                sprite.rect.width  / tex.width,
-                sprite.rect.height / tex.height);
-        }
-
-        private static Vector3 RotateScale(
-            float cx, float cy, float lx, float ly, float cos, float sin)
-            => new(cx + cos * lx - sin * ly,
-                   cy + sin * lx + cos * ly, 0f);
-
-        private static Vector4 ComputeTint(ref NativeProjectile p)
-        {
-            float f = p.Lifetime / Mathf.Max(p.MaxLifetime, 0.0001f);
-            float a = f < 0.15f ? f / 0.15f : 1f;
-            return new Vector4(1f, 1f, 1f, a);
-        }
+        Graphics.DrawMesh(
+            mesh, Matrix4x4.identity, _atlasMaterial,
+            gameObject.layer, null, 0, _combinedMpb);
     }
-}
+
+    // ── Helpers ───────────────────────────────────────────────────────────
+
+    private Mesh GetMeshForConfig(ProjectileConfigSO cfg)
+    {
+        if (cfg.CustomShape != null)
+        {
+            var m = cfg.CustomShape.GetMesh();
+            if (m != null && m.vertexCount > 0) return m;
+        }
+        return GetDefaultQuad();
+    }
+
+    private Mesh GetDefaultQuad()
+    {
+        if (_defaultQuad != null) return _defaultQuad;
+        _defaultQuad = new Mesh { name = "ProjDefaultQuad" };
+        _defaultQuad.vertices  = new[] {
+            new Vector3(-0.5f, -0.5f, 0f), new Vector3( 0.5f, -0.5f, 0f),
+            new Vector3( 0.5f,  0.5f, 0f), new Vector3(-0.5f,  0.5f, 0f),
+        };
+        _defaultQuad.uv = new[] {
+            new Vector2(0f, 0f), new Vector2(1f, 0f),
+            new Vector2(1f, 1f), new Vector2(0f, 1f),
+        };
+        _defaultQuad.triangles = new[] { 0, 1, 2, 0, 2, 3 };
+        _defaultQuad.RecalculateBounds();
+        return _defaultQuad;
+    }
+
+    private static Vector4 ComputeSpriteUVRect(ProjectileConfigSO cfg)
+    {
+        var sprite = cfg.ProjectileSprite;
+        if (sprite == null) return new Vector4(0f, 0f, 1f, 1f);
+        var tex = sprite.texture;
+        if (tex == null)   return new Vector4(0f, 0f, 1f, 1f);
+        return new Vector4(
+            sprite.rect.x      / tex.width,
+            sprite.rect.y      / tex.height,
+            sprite.rect.width  / tex.width,
+            sprite.rect.height / tex.height);
+    }
+
+    private static Vector3 RotateScale(
+        float cx, float cy, float lx, float ly, float cos, float sin)
+        => new(cx + cos * lx - sin * ly,
+               cy + sin * lx + cos * ly, 0f);
+
+    private static Vector4 ComputeTint(ref NativeProjectile p)
+    {
+        float f = p.Lifetime / Mathf.Max(p.MaxLifetime, 0.0001f);
+        float a = f < 0.15f ? f / 0.15f : 1f;
+        return new Vector4(1f, 1f, 1f, a);
+    }
+}}

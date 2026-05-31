@@ -1,0 +1,146 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements"
+         xmlns:uie="UnityEditor.UIElements"
+         editor-extension-mode="True">
+
+    <ui:VisualElement class="mid-root">
+
+        <!-- ── Header (GradientBannerElement injected from C# as absolute child) -->
+        <ui:VisualElement name="header" class="mid-header">
+            <ui:VisualElement class="mid-header__text">
+                <ui:Label class="mid-header__title" text="Script Execution Order" />
+                <ui:Label class="mid-header__sub"
+                    text="Manage MonoBehaviour update ordering  ·  drag rows or use ↑ ↓  ·  apply when ready" />
+            </ui:VisualElement>
+            <ui:Button name="refresh-btn" class="mid-header__refresh" text="⟳"
+                tooltip="Re-scan all MonoBehaviours in the project" />
+        </ui:VisualElement>
+
+        <!-- ── Unsaved-changes banner (toggled by C#) -->
+        <ui:VisualElement name="dirty-banner" class="mid-dirty-banner">
+            <ui:Label class="mid-dirty-banner__dot" text="●" />
+            <ui:Label name="dirty-lbl" class="mid-dirty-banner__lbl"
+                text="Unsaved changes — click Apply to write to PlayerSettings" />
+        </ui:VisualElement>
+
+        <!-- ── Toolbar -->
+        <ui:VisualElement class="mid-toolbar">
+
+            <ui:VisualElement class="mid-toolbar__section">
+                <ui:Label class="mid-toolbar__label" text="SEARCH" />
+                <uie:ToolbarSearchField name="search-field" class="mid-toolbar__search"
+                    tooltip="Filter by script name, namespace, or assembly (real-time, case-insensitive)" />
+                <ui:Button name="search-help" class="mid-help-btn" text="?"
+                    tooltip="Show search tips" />
+            </ui:VisualElement>
+
+            <ui:VisualElement class="mid-toolbar__divider" />
+
+            <ui:VisualElement class="mid-toolbar__section">
+                <ui:Label class="mid-toolbar__label" text="NAMESPACE" />
+                <ui:DropdownField name="ns-filter" class="mid-toolbar__dropdown"
+                    tooltip="Narrow the list to one namespace" />
+            </ui:VisualElement>
+
+            <ui:VisualElement class="mid-toolbar__divider" />
+
+            <ui:Button name="group-ns-btn" class="mid-toggle-btn" text="Group NS"
+                tooltip="Group the managed list by namespace (disables drag-reorder)" />
+
+        </ui:VisualElement>
+
+        <!-- ── Active filter indicator (hidden when no filter) -->
+        <ui:VisualElement name="filter-bar" class="mid-filter-bar">
+            <ui:Label name="filter-lbl" class="mid-filter-bar__lbl" />
+            <ui:Button name="clear-filter-btn" class="mid-filter-bar__clear"
+                text="✕  Clear all filters" />
+        </ui:VisualElement>
+
+        <!-- ── Execution order pip visualiser -->
+        <ui:VisualElement name="bar-section" class="mid-bar-section">
+            <ui:VisualElement class="mid-bar-section__row">
+                <ui:Label class="mid-bar-section__lbl" text="EXECUTION ORDER OVERVIEW" />
+                <ui:Button name="bar-help" class="mid-help-btn" text="?"
+                    tooltip="Show legend for the order bar" />
+            </ui:VisualElement>
+            <!-- OrderBarElement (custom VisualElement) inserted here at runtime -->
+            <ui:VisualElement name="order-bar" class="mid-bar" />
+        </ui:VisualElement>
+
+        <!-- ── Column headers -->
+        <ui:VisualElement class="mid-col-hdrs">
+            <ui:Label class="mid-col-hdr c-handle"  text="≡"         />
+            <ui:Label class="mid-col-hdr c-order"   text="ORDER"     />
+            <ui:Label class="mid-col-hdr c-script"  text="SCRIPT"    />
+            <ui:Label class="mid-col-hdr c-ns"      text="NAMESPACE" />
+            <ui:Label class="mid-col-hdr c-asm"     text="ASSEMBLY"  />
+            <ui:Label class="mid-col-hdr c-actions" text="ACTIONS"   />
+        </ui:VisualElement>
+
+        <!-- ── Empty state shown when managed list is empty -->
+        <ui:VisualElement name="managed-empty" class="mid-empty">
+            <ui:Label class="mid-empty__icon" text="⚙" />
+            <ui:Label class="mid-empty__text"
+                text="No scripts have an explicit execution order.&#10;Open the browser below and click  +  to add scripts." />
+        </ui:VisualElement>
+
+        <!-- ── Managed list — ListView owns its own scrolling (no outer ScrollView) -->
+        <ui:ListView name="managed-list" class="mid-list"
+                     reorderable="true"
+                     selection-type="None"
+                     show-border="false"
+                     show-alternating-row-backgrounds="None"
+                     virtualization-method="DynamicHeight" />
+
+        <!-- ── Browser toggle button -->
+        <ui:Button name="browser-btn" class="mid-browser-btn">
+            <ui:Label name="browser-btn-lbl" text="▼  Browse &amp; Add Scripts" />
+        </ui:Button>
+
+        <!-- ── Script browser (hidden by default, toggled from C#) -->
+        <ui:VisualElement name="browser-container" class="mid-browser-container">
+
+            <ui:VisualElement class="mid-col-hdrs">
+                <ui:Label class="mid-col-hdr c-script"  text="SCRIPT"    />
+                <ui:Label class="mid-col-hdr c-ns"      text="NAMESPACE" />
+                <ui:Label class="mid-col-hdr c-asm"     text="ASSEMBLY"  />
+                <ui:Label class="mid-col-hdr"
+                    style="width:50px;" text="ADD" />
+            </ui:VisualElement>
+
+            <ui:VisualElement name="browser-empty" class="mid-empty">
+                <ui:Label class="mid-empty__text"
+                    text="All MonoBehaviours are already managed, or nothing matches the current filter." />
+            </ui:VisualElement>
+
+            <ui:ListView name="browser-list"
+                         selection-type="None"
+                         show-border="false"
+                         show-alternating-row-backgrounds="None"
+                         virtualization-method="DynamicHeight"
+                         style="flex-grow:1; max-height:160px;" />
+        </ui:VisualElement>
+
+        <!-- ── Footer -->
+        <ui:VisualElement class="mid-footer">
+            <ui:Label name="stats-lbl" class="mid-footer__stats"
+                text="Managed: 0  ·  Unmanaged: 0" />
+            <ui:Label class="mid-footer__step-l" text="Step:" />
+            <ui:IntegerField name="step-field" class="mid-footer__step-f" value="100"
+                tooltip="Spacing between order values used by Auto Number" />
+            <ui:Button name="auto-btn" class="mid-footer__auto" text="Auto Number"
+                tooltip="Assign evenly-spaced values centred on 0 using the Step value above" />
+            <ui:Button name="apply-btn"   class="mid-footer__apply"   text="✓  Apply"
+                tooltip="Write all pending order changes to PlayerSettings" />
+            <ui:Button name="discard-btn" class="mid-footer__discard" text="✕  Discard"
+                tooltip="Discard all pending changes and reload from PlayerSettings" />
+            <ui:Label  name="saved-lbl"   class="mid-footer__saved"   text="✓ Saved" />
+        </ui:VisualElement>
+
+        <!-- ── Floating info popup (positioned absolutely from C# when ? clicked) -->
+        <ui:VisualElement name="info-popup" class="mid-info-popup">
+            <ui:Label name="info-popup-title" class="mid-info-popup__title" text="Info" />
+            <ui:Label name="info-popup-body"  class="mid-info-popup__body"  text=""    />
+        </ui:VisualElement>
+
+    </ui:VisualElement>
+</ui:UXML>

@@ -1,14 +1,14 @@
 // NetworkedDimensionPlayer.cs
-// FIXES:
-//   + SpawnPhysicsProjectileLocal: GetComponent<PhysicsProjectile>() → GetComponent<PhysicsProjectileBase>()
-//     PhysicsProjectile is the deprecated empty shell — if the prefab has PhysicsProjectile2D/3D
-//     the old call returned null, so SetOwnerContext + InitialiseProjectile were never called → no force.
-//   + FireRaycast 3D: added QueryTriggerInteraction.Collide so trigger colliders are detected.
-//   + FireRaycast 2D: same QueryTriggerInteraction fix.
-//   + SpawnPhysicsProjectileLocal: 2D rotation now uses Euler(0,0,angle) so that transform.right
-//     aligns with the fire direction — PhysicsProjectile2D fires along transform.right, not transform.forward.
-//     Previously Quaternion.LookRotation for a rightward direction set transform.right = (0,0,-1),
-//     giving (Vector2)(transform.right * speed) = (0,0) — zero velocity in 2D.
+// CHANGES:
+//   + _netShootMode NetworkVariable (Everyone read, Owner write) — shoot mode is
+//     now visible to all clients so the mode display works on remote players.
+//   + _defaultShootMode replaces the old serialized _shootMode inspector field so
+//     the runtime _shootMode can be a plain private field driven by the NetworkVariable.
+//   + _modeCycleButton (Button) — assign a UI button in the inspector to cycle
+//     through all 7 shoot modes. Works alongside the existing Alpha1–Alpha7 shortcuts.
+//   + CycleModeNext() — increments mode and wraps around.
+//   + OnShootModeChanged() — syncs non-owner players' local _shootMode from the NetworkVariable.
+//   + ChangeMode() now writes to _netShootMode so all clients see the change.
 
 using UnityEngine;
 using Unity.Netcode;
@@ -82,14 +82,17 @@ namespace TestGame
         [SerializeField] private ProjectilePatternSO _shotPattern;
 
         [Header("Shoot Mode")]
-        [SerializeField] private PlayerShootMode _shootMode = PlayerShootMode.LocalOnly;
+        [Tooltip("Starting shoot mode. After spawn this is synced via _netShootMode NetworkVariable.")]
+        [SerializeField] private PlayerShootMode _defaultShootMode = PlayerShootMode.LocalOnly;
         [SerializeField] private TMP_Text        _modeText;
+        [Tooltip("Optional UI Button to cycle through all shoot modes. " +
+                 "Alpha1-Alpha7 keyboard shortcuts always work too.")]
+        [SerializeField] private UnityEngine.UI.Button _modeCycleButton;
 
         [Header("Dimension Toggle Key")]
         [SerializeField] private KeyCode _dimensionKey = KeyCode.BackQuote;
 
         [Header("Raycast Settings")]
-        [Tooltip("Layers the CLIENT raycast tests against. Default -1 = Everything.")]
         [SerializeField] private LayerMask _raycastLayers = -1;
         [SerializeField] private float     _raycastRange  = 200f;
 
@@ -101,7 +104,7 @@ namespace TestGame
         [SerializeField] private float _physicsProjectileSpeed  = 20f;
         [SerializeField] private float _physicsDamageMultiplier = 1f;
 
-        [Header("Audio — NativeAudioBridge clip index")]
+        [Header("Audio")]
         [SerializeField] private int   _fireSoundClipIndex   = 0;
         [SerializeField, Range(0f,1f)] private float _fireSoundVolume = 0.7f;
         [SerializeField] private AudioSource _fallbackAudioSource;
@@ -125,6 +128,13 @@ namespace TestGame
             NetworkVariableReadPermission.Everyone,
             NetworkVariableWritePermission.Owner);
 
+        // NEW: shoot mode is now a NetworkVariable so all clients can see each
+        // player's current mode (useful for debugging in the test scene).
+        private readonly NetworkVariable<int> _netShootMode = new NetworkVariable<int>(
+            (int)PlayerShootMode.LocalOnly,
+            NetworkVariableReadPermission.Everyone,
+            NetworkVariableWritePermission.Owner);
+
         #endregion
 
         #region Local State
@@ -141,6 +151,10 @@ namespace TestGame
         private float   _dashEndTime;
         private Vector3 _dashDir;
 
+        // Runtime shoot mode — initialized from _defaultShootMode and kept in sync
+        // with _netShootMode NetworkVariable.
+        private PlayerShootMode _shootMode;
+
         #endregion
 
         #region Unity Lifecycle
@@ -148,6 +162,7 @@ namespace TestGame
         private void Awake()
         {
             _rb = GetComponent<Rigidbody>();
+            _shootMode = _defaultShootMode; // local initializer before network sync
             ApplyRigidbodyConstraints(Dimension.TwoD);
             EnsureHeadPivot();
             EnsureShotPoints();
@@ -161,8 +176,19 @@ namespace TestGame
         {
             base.OnNetworkSpawn();
 
+            // Subscribe to NetworkVariable callbacks — all clients (for display)
+            _netShootMode.OnValueChanged += OnShootModeChanged;
+
             if (IsOwner)
             {
+                // Push our local default into the NetworkVariable so other clients see it
+                _netShootMode.Value = (int)_defaultShootMode;
+                _shootMode = _defaultShootMode;
+
+                // Wire the cycle button — only functional for the owner
+                if (_modeCycleButton != null)
+                    _modeCycleButton.onClick.AddListener(CycleModeNext);
+
                 if (DimensionCameraController.Instance != null)
                     DimensionCameraController.Instance.RegisterPlayerCams(transform, _headPivot);
 
@@ -183,6 +209,10 @@ namespace TestGame
             }
             else
             {
+                // Non-owner: initialize local cache from current NetworkVariable value
+                _shootMode = (PlayerShootMode)_netShootMode.Value;
+                UpdateModeText();
+
                 if (_rb != null)
                 {
                     _rb.isKinematic   = true;
@@ -195,8 +225,13 @@ namespace TestGame
 
         public override void OnNetworkDespawn()
         {
+            _netShootMode.OnValueChanged -= OnShootModeChanged;
+
             if (IsOwner)
             {
+                if (_modeCycleButton != null)
+                    _modeCycleButton.onClick.RemoveListener(CycleModeNext);
+
                 DimensionCameraController.Instance?.UnregisterPlayerCams();
                 if (DimensionManager.HasInstance)
                     DimensionManager.Instance.OnDimensionChanged -= HandleDimensionChanged;
@@ -252,39 +287,29 @@ namespace TestGame
 
         #endregion
 
-        #region Dash
-
-        private void StartDash()
-        {
-            float h = Input.GetAxisRaw("Horizontal");
-            float v = Input.GetAxisRaw("Vertical");
-
-            if (Use3DConvention())
-            {
-                Vector3 inputDir = (transform.right * h + transform.forward * v);
-                _dashDir = inputDir.sqrMagnitude > 0.01f
-                    ? inputDir.normalized
-                    : (_headPivot != null ? _headPivot.forward : transform.forward);
-            }
-            else
-            {
-                Vector3 inputDir = new Vector3(h, v, 0f);
-                _dashDir = inputDir.sqrMagnitude > 0.01f ? inputDir.normalized : transform.right;
-            }
-
-            _isDashing    = true;
-            _dashEndTime  = Time.time + _dashDuration;
-            _nextDashTime = Time.time + _dashCooldown;
-        }
-
-        #endregion
-
         #region Shoot Mode
+
+        /// <summary>
+        /// Cycles to the next shoot mode in enum order and wraps around.
+        /// Called by _modeCycleButton onClick. Also callable from code.
+        /// </summary>
+        private void CycleModeNext()
+        {
+            if (!IsOwner) return;
+            int count = System.Enum.GetValues(typeof(PlayerShootMode)).Length;
+            ChangeMode((PlayerShootMode)(((int)_shootMode + 1) % count));
+        }
 
         private void ChangeMode(PlayerShootMode m)
         {
             _shootMode = m;
+
+            // Sync to all clients via NetworkVariable (owner write)
+            if (IsSpawned && IsOwner)
+                _netShootMode.Value = (int)m;
+
             UpdateModeText();
+
             if (Use3DConvention())
             {
                 Cursor.lockState = CursorLockMode.Locked;
@@ -294,6 +319,19 @@ namespace TestGame
             {
                 Cursor.lockState = CursorLockMode.None;
                 Cursor.visible   = true;
+            }
+        }
+
+        /// <summary>
+        /// NetworkVariable callback — fires on ALL clients when the owner changes mode.
+        /// Non-owners update their local _shootMode cache and mode display text.
+        /// </summary>
+        private void OnShootModeChanged(int _, int newVal)
+        {
+            if (!IsOwner)
+            {
+                _shootMode = (PlayerShootMode)newVal;
+                UpdateModeText();
             }
         }
 
@@ -384,6 +422,33 @@ namespace TestGame
                 if (_grounded && Input.GetButton("Jump"))
                     _rb.AddForce(Vector3.up * _jumpForce, ForceMode.Impulse);
             }
+        }
+
+        #endregion
+
+        #region Dash
+
+        private void StartDash()
+        {
+            float h = Input.GetAxisRaw("Horizontal");
+            float v = Input.GetAxisRaw("Vertical");
+
+            if (Use3DConvention())
+            {
+                Vector3 inputDir = (transform.right * h + transform.forward * v);
+                _dashDir = inputDir.sqrMagnitude > 0.01f
+                    ? inputDir.normalized
+                    : (_headPivot != null ? _headPivot.forward : transform.forward);
+            }
+            else
+            {
+                Vector3 inputDir = new Vector3(h, v, 0f);
+                _dashDir = inputDir.sqrMagnitude > 0.01f ? inputDir.normalized : transform.right;
+            }
+
+            _isDashing    = true;
+            _dashEndTime  = Time.time + _dashDuration;
+            _nextDashTime = Time.time + _dashCooldown;
         }
 
         #endregion
@@ -527,7 +592,6 @@ namespace TestGame
 
             if (is3D)
             {
-                // FIX: QueryTriggerInteraction.Collide ensures trigger colliders are also detected
                 if (Physics.Raycast(origin, dir, out RaycastHit h, _raycastRange,
                     _raycastLayers, QueryTriggerInteraction.Collide))
                 {
@@ -538,9 +602,7 @@ namespace TestGame
             }
             else
             {
-                // FIX: QueryTriggerInteraction.Collide for 2D as well
-                var h2 = Physics2D.Raycast(
-                    origin, dir, _raycastRange, _raycastLayers);
+                var h2 = Physics2D.Raycast(origin, dir, _raycastRange, _raycastLayers);
                 if (h2.collider != null)
                 {
                     hit = true; hitPt = h2.point;
@@ -603,23 +665,14 @@ namespace TestGame
             if (!MID_MasterProjectileSystem.Instance.IsServer
                 && MID_MasterProjectileSystem.Instance.IsNetworked) return;
 
-            // FIX (2D): PhysicsProjectile2D fires along transform.right, NOT transform.forward.
-            //   Quaternion.LookRotation(rightward_dir) sets forward = right_dir, which makes
-            //   transform.right = (0,0,-1) → (Vector2)(transform.right * speed) = (0,0) → zero force.
-            //   Use Euler(0,0,angle) instead, which aligns transform.right with the fire direction.
-            //
-            // FIX (3D): Quaternion.LookRotation(forward_dir) correctly aligns transform.forward
-            //   with the fire direction. PhysicsProjectile3D fires along transform.forward. Correct.
             Quaternion rot;
             if (!is3D)
             {
-                // 2D: align transform.right with the desired direction
                 float angle = Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg;
                 rot = Quaternion.Euler(0f, 0f, angle);
             }
             else
             {
-                // 3D: align transform.forward with the desired direction
                 rot = direction.sqrMagnitude > 0.001f
                     ? Quaternion.LookRotation(direction.normalized)
                     : Quaternion.identity;
@@ -633,15 +686,11 @@ namespace TestGame
             if (netObj == null)
             {
                 MID_Logger.LogWarning(_logLevel,
-                    $"SpawnPhysicsProjectile returned null for {poolType}. " +
-                    "Is MID_NetworkObjectPool assigned and configured?",
+                    $"SpawnPhysicsProjectile returned null for {poolType}.",
                     nameof(NetworkedDimensionPlayer));
                 return;
             }
 
-            // FIX (MAIN): was GetComponent<PhysicsProjectile>() — the deprecated empty shell.
-            // If the prefab has PhysicsProjectile2D or PhysicsProjectile3D, that call returned null
-            // so InitialiseProjectile was never called → BulletVelocity stayed 0 → no force applied.
             var proj = netObj.GetComponent<PhysicsProjectileBase>();
             if (proj != null)
             {
@@ -654,8 +703,7 @@ namespace TestGame
             else
             {
                 MID_Logger.LogWarning(_logLevel,
-                    $"No PhysicsProjectileBase component found on spawned object '{netObj.name}'. " +
-                    "Ensure the prefab has PhysicsProjectile2D or PhysicsProjectile3D.",
+                    $"No PhysicsProjectileBase found on spawned object '{netObj.name}'.",
                     nameof(NetworkedDimensionPlayer));
             }
         }

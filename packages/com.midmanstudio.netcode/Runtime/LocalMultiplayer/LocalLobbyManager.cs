@@ -1,25 +1,13 @@
-// packages/com.midmanstudio.netcode/Runtime/LocalMultiplayer/LocalLobbyManager.cs
-// Generic LAN / WiFi offline lobby manager for Unity Netcode for GameObjects.
-//
-// FIX LOG (cumulative):
-//   v1 → v2: IsInitialized property + OnInitialized event so UI does not call
-//             StartSearching() before the 0.1 s init delay completes.
-//   v2 → v3: BroadcastLoop and SendDiscoveryRequests also send to 127.0.0.1 so
-//             same-machine host and client can discover each other when broadcast
-//             packets don't loop back on the OS.
-//   v3 → v4: ServerListenAddress set to "0.0.0.0" in StartHosting() so the NGO
-//             server socket binds to ALL interfaces, not just the loopback address
-//             that sits in the Inspector by default.
-//   v4 → v5: THREE BUGS FIXED:
-//             (a) _netPlayers moved to field initializer — NGO requires NetworkList to
-//                 be initialised before Awake for reliable variable registration.
-//             (b) Removed _netPlayers?.Clear() from LeaveCoroutine and the client
-//                 path of HandleClientDisconnected. Clients have no write permission
-//                 on the NetworkList; calling Clear() there threw InvalidOperationException
-//                 and left the manager in a broken state on reconnect.
-//             (c) OnNetworkSpawn now calls SyncPlayersFromNetList() for clients so the
-//                 initial snapshot (players already in the list when the client joins)
-//                 is reflected in the UI immediately, not just on future list changes.
+// LocalLobbyManager.cs
+// FIX 1: _discoveryInterval default changed 1f -> 2f to reduce UDP packet rate.
+//         Same-machine testing with 1s interval floods the Unity Transport receive
+//         queue (128 packets default), causing "Receive queue is full" warnings.
+//         Increase UnityTransport.MaxPacketQueueSize to 256+ in the Inspector too.
+// FIX 2: OnDestroy now guards StartCoroutine(SafeShutdown()) with
+//         gameObject.activeInHierarchy. When the GameObject is inactive (e.g. parent
+//         Canvas disabled during scene teardown), StartCoroutine throws
+//         "Coroutine couldn't be started because the game object is inactive".
+//         When inactive, we fall back to a synchronous Shutdown() call.
 
 using System;
 using System.Collections;
@@ -37,8 +25,6 @@ using MidManStudio.Core.Logging;
 
 namespace MidManStudio.Netcode.LocalMultiplayer
 {
-    // ── Config passed to StartHosting ─────────────────────────────────────────
-
     [Serializable]
     public class LocalLobbyConfig
     {
@@ -51,8 +37,6 @@ namespace MidManStudio.Netcode.LocalMultiplayer
         public int    BroadcastPort = 7778;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-
     public class LocalLobbyManager : NetworkBehaviour
     {
         #region Inspector
@@ -62,7 +46,10 @@ namespace MidManStudio.Netcode.LocalMultiplayer
         [SerializeField] private UnityTransport  _transport;
 
         [Header("Discovery")]
-        [SerializeField] private float _discoveryInterval = 1f;
+        // FIX: was 1f — reduced to 2f to ease Unity Transport receive queue pressure.
+        // At 1s with loopback + broadcast both firing, same-machine tests easily fill
+        // the 128-packet queue. Also increase MaxPacketQueueSize on UnityTransport inspector.
+        [SerializeField] private float _discoveryInterval = 2f;
         [SerializeField] private float _lobbyTimeout      = 5f;
 
         [Header("Bots")]
@@ -88,12 +75,7 @@ namespace MidManStudio.Netcode.LocalMultiplayer
         public Action                    OnLobbyDisbanded;
         public Action<string>            OnNetworkStatusChanged;
         public Action<LocalLobbySnapshot> OnGameStartReceived;
-
-        /// <summary>
-        /// Fires once when the 0.1 s startup delay completes and the manager is ready.
-        /// UI should wait for this before calling StartSearching() or StartHosting().
-        /// </summary>
-        public Action OnInitialized;
+        public Action                    OnInitialized;
 
         #endregion
 
@@ -128,8 +110,6 @@ namespace MidManStudio.Netcode.LocalMultiplayer
         private readonly List<LocalLobbyPlayer>     _players    = new();
         private readonly Dictionary<string, LocalLobbyData> _discovered = new();
 
-        // FIX (v5-a): Initialise as a field so NGO registers it before Awake runs.
-        // NetworkList must never be new'd inside Awake or later.
         private readonly NetworkList<NetworkLobbyPlayerData> _netPlayers
             = new NetworkList<NetworkLobbyPlayerData>();
 
@@ -146,7 +126,6 @@ namespace MidManStudio.Netcode.LocalMultiplayer
         public bool   IsSearching   => _isSearching;
         public bool   IsInLobby     => _networkManager != null &&
                                        (_networkManager.IsConnectedClient || _networkManager.IsHost);
-        /// <summary>True after the 0.1 s startup delay completes.</summary>
         public bool   IsInitialized => _isInitialized;
         public string PlayerName    => _playerName;
 
@@ -158,7 +137,6 @@ namespace MidManStudio.Netcode.LocalMultiplayer
         {
             if (_instance != null && _instance != this) { Destroy(gameObject); return; }
             _instance = this;
-            // NOTE: _netPlayers is initialised as a field — do NOT re-assign it here.
             LoadPlayerIdentity();
             StartCoroutine(InitAsync());
         }
@@ -207,7 +185,23 @@ namespace MidManStudio.Netcode.LocalMultiplayer
             _players.Clear();
             _discovered.Clear();
 
-            StartCoroutine(SafeShutdown());
+            // FIX: StartCoroutine throws "Coroutine couldn't be started because the
+            // game object is inactive" when OnDestroy is called while the GameObject
+            // is inactive (e.g. parent Canvas disabled during scene teardown).
+            // Guard with activeInHierarchy; fall back to synchronous shutdown.
+            if (gameObject.activeInHierarchy)
+            {
+                StartCoroutine(SafeShutdown());
+            }
+            else if (_networkManager != null && _networkManager.IsListening)
+            {
+                // Synchronous fallback — no coroutine available
+                MID_Logger.LogInfo(_logLevel,
+                    "OnDestroy: GameObject inactive, shutting down NetworkManager synchronously.",
+                    nameof(LocalLobbyManager));
+                _networkManager.Shutdown();
+            }
+
             base.OnDestroy();
         }
 
@@ -235,10 +229,6 @@ namespace MidManStudio.Netcode.LocalMultiplayer
             base.OnNetworkSpawn();
             _netPlayers.OnListChanged += OnNetPlayersChanged;
 
-            // FIX (v5-c): Clients need to read the list's CURRENT state immediately on
-            // spawn.  OnListChanged only fires for changes that happen AFTER subscription,
-            // so any players already in the list (e.g. the host) would never appear on a
-            // joining client without this initial sync call.
             if (!IsServer)
                 SyncPlayersFromNetList();
         }
@@ -344,10 +334,6 @@ namespace MidManStudio.Netcode.LocalMultiplayer
             }
             else if (_networkManager.IsClient && !_networkManager.IsConnectedClient)
             {
-                // FIX (v5-b): Do NOT touch _netPlayers here.  By the time this branch
-                // executes the NetworkObject has already been despawned, so the NetworkList
-                // is no longer in a writable state — calling Clear() throws
-                // InvalidOperationException and corrupts the manager for any reconnect attempt.
                 _currentLobby = null;
                 _players.Clear();
                 OnLobbyDisbanded?.Invoke();
@@ -396,8 +382,6 @@ namespace MidManStudio.Netcode.LocalMultiplayer
 
                 _transport.ConnectionData.Address = _currentLobby.HostAddress;
                 _transport.ConnectionData.Port    = (ushort)_activeConfig.ServerPort;
-
-                // Bind the server socket to ALL interfaces so LAN/WiFi clients can connect.
                 _transport.ConnectionData.ServerListenAddress = "0.0.0.0";
 
                 _isHosting = true;
@@ -410,8 +394,7 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                 OnHostResult?.Invoke(true);
                 MID_Logger.LogInfo(_logLevel,
                     $"Hosting '{_currentLobby.LobbyName}' on " +
-                    $"{_currentLobby.HostAddress}:{_currentLobby.Port} " +
-                    $"(ServerListenAddress=0.0.0.0)",
+                    $"{_currentLobby.HostAddress}:{_currentLobby.Port}",
                     nameof(LocalLobbyManager));
             }
             catch (Exception e)
@@ -437,7 +420,6 @@ namespace MidManStudio.Netcode.LocalMultiplayer
             _currentLobby = null;
             _players.Clear();
 
-            // Only the server may write to the NetworkList, and only while spawned.
             if (IsSpawned && IsServer)
                 _netPlayers.Clear();
 
@@ -474,10 +456,6 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                 _players.Clear();
                 _currentLobby = lobby;
 
-                MID_Logger.LogInfo(_logLevel,
-                    $"Joining {lobby.HostAddress}:{lobby.Port}",
-                    nameof(LocalLobbyManager));
-
                 if (!_networkManager.StartClient())
                     throw new Exception("StartClient() returned false.");
 
@@ -491,7 +469,7 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                     }
                 }
 
-                throw new Exception("Connection timeout — server may not be reachable.");
+                throw new Exception("Connection timeout.");
             }
             catch (Exception e)
             {
@@ -511,11 +489,6 @@ namespace MidManStudio.Netcode.LocalMultiplayer
         {
             _currentLobby = null;
             _players.Clear();
-
-            // FIX (v5-b): Do NOT clear _netPlayers here.
-            // Clients have no write permission on the NetworkList — calling Clear() from
-            // a client throws InvalidOperationException. The server removes the player
-            // automatically via HandleClientDisconnected when the transport closes.
 
             if (_networkManager != null && _networkManager.IsConnectedClient)
             {
@@ -605,23 +578,12 @@ namespace MidManStudio.Netcode.LocalMultiplayer
 
         public void RequestGameStart()
         {
-            if (!IsHost)
-            {
-                MID_Logger.LogError(_logLevel, "Only host can start the game.", nameof(LocalLobbyManager));
-                return;
-            }
-            if (!AreAllPlayersReady())
-            {
-                MID_Logger.LogError(_logLevel, "Not all players are ready.", nameof(LocalLobbyManager));
-                return;
-            }
+            if (!IsHost) { MID_Logger.LogError(_logLevel, "Only host can start.", nameof(LocalLobbyManager)); return; }
+            if (!AreAllPlayersReady()) { MID_Logger.LogError(_logLevel, "Not all players ready.", nameof(LocalLobbyManager)); return; }
 
             _teamProvider?.OnPrepareGameStart(_players);
             string serializedTeams = _teamProvider?.SerializeState() ?? "";
             GameStartClientRpc(serializedTeams);
-
-            MID_Logger.LogInfo(_logLevel, "Game start triggered.",
-                nameof(LocalLobbyManager));
         }
 
         public bool TryChangeTeam(ulong clientId, int targetTeamId)
@@ -787,13 +749,11 @@ namespace MidManStudio.Netcode.LocalMultiplayer
 
             var snapshot = new LocalLobbySnapshot(_currentLobby, _players);
             OnGameStartReceived?.Invoke(snapshot);
-
-            MID_Logger.LogInfo(_logLevel, "Game start received.", nameof(LocalLobbyManager));
         }
 
         #endregion
 
-        #region UDP Discovery — Server Side
+        #region UDP Discovery — Server
 
         private void StartDiscoveryServer(int broadcastPort)
         {
@@ -804,12 +764,7 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                 _udpServer.Client.SetSocketOption(
                     SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
                 _udpServer.Client.Bind(new IPEndPoint(IPAddress.Any, broadcastPort));
-
                 ListenAndBroadcast(broadcastPort);
-
-                MID_Logger.LogInfo(_logLevel,
-                    $"Discovery server started on port {broadcastPort}.",
-                    nameof(LocalLobbyManager));
             }
             catch (Exception e)
             {
@@ -840,11 +795,8 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                         await _udpServer.SendAsync(data, data.Length,
                             new IPEndPoint(addr, broadcastPort));
 
-                    try
-                    {
-                        await _udpServer.SendAsync(data, data.Length,
-                            new IPEndPoint(IPAddress.Loopback, broadcastPort));
-                    }
+                    try { await _udpServer.SendAsync(data, data.Length,
+                            new IPEndPoint(IPAddress.Loopback, broadcastPort)); }
                     catch { /* loopback optional */ }
 
                     await Task.Delay((int)(_discoveryInterval * 1000));
@@ -893,7 +845,7 @@ namespace MidManStudio.Netcode.LocalMultiplayer
 
         #endregion
 
-        #region UDP Discovery — Client Side
+        #region UDP Discovery — Client
 
         private void StartDiscoveryClient(int broadcastPort)
         {
@@ -938,7 +890,7 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                         _discovered[key] = lobby;
                         if (isNew) OnLobbyDiscovered?.Invoke(lobby);
                     }
-                    catch { /* malformed packet — ignore */ }
+                    catch { /* malformed packet */ }
                 }
                 catch (Exception e)
                 {
@@ -960,11 +912,8 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                         await _udpClient.SendAsync(data, data.Length,
                             new IPEndPoint(addr, broadcastPort));
 
-                    try
-                    {
-                        await _udpClient.SendAsync(data, data.Length,
-                            new IPEndPoint(IPAddress.Loopback, broadcastPort));
-                    }
+                    try { await _udpClient.SendAsync(data, data.Length,
+                            new IPEndPoint(IPAddress.Loopback, broadcastPort)); }
                     catch { /* loopback optional */ }
 
                     await Task.Delay((int)(_discoveryInterval * 1000));
@@ -1125,8 +1074,6 @@ namespace MidManStudio.Netcode.LocalMultiplayer
 
         private IEnumerator SendNameDelayed()
         {
-            // Wait until the LocalLobbyManager NetworkObject is spawned on this client
-            // before sending the ServerRpc (requires IsSpawned).
             float waited = 0f;
             while (!IsSpawned && waited < 5f)
             {
@@ -1137,8 +1084,7 @@ namespace MidManStudio.Netcode.LocalMultiplayer
             if (!IsSpawned)
             {
                 MID_Logger.LogWarning(_logLevel,
-                    "SendNameDelayed: LocalLobbyManager still not spawned after 5s. " +
-                    "Ensure a NetworkObject component is attached.",
+                    "SendNameDelayed: LocalLobbyManager still not spawned after 5s.",
                     nameof(LocalLobbyManager));
                 yield break;
             }
@@ -1150,8 +1096,7 @@ namespace MidManStudio.Netcode.LocalMultiplayer
         {
             if (_networkManager == null)
             {
-                MID_Logger.LogError(_logLevel, "NetworkManager is null.",
-                    nameof(LocalLobbyManager));
+                MID_Logger.LogError(_logLevel, "NetworkManager is null.", nameof(LocalLobbyManager));
                 return false;
             }
             if (_networkManager.NetworkConfig == null)
@@ -1205,7 +1150,6 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                 }
 
                 foreach (var ni in interfaces)
-                {
                     foreach (var addr in ni.GetIPProperties().UnicastAddresses)
                     {
                         if (addr.Address.AddressFamily != AddressFamily.InterNetwork) continue;
@@ -1214,17 +1158,12 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                             ip.StartsWith("172.20.10."))
                             return ip;
                     }
-                }
 
                 foreach (var ni in interfaces)
-                {
                     foreach (var addr in ni.GetIPProperties().UnicastAddresses)
-                    {
                         if (addr.Address.AddressFamily == AddressFamily.InterNetwork &&
                             !IPAddress.IsLoopback(addr.Address))
                             return addr.Address.ToString();
-                    }
-                }
             }
             catch (Exception e)
             {

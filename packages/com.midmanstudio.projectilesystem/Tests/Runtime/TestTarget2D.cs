@@ -1,6 +1,9 @@
-// TestTarget.cs
-// 3D-ONLY target. SphereCollider only. No CircleCollider2D — ever.
-// Use a separate TestTarget2D prefab + script for 2D shoot modes.
+// TestTarget2D.cs
+// NEW FILE — 2D-ONLY target. CircleCollider2D only. No SphereCollider, no Rigidbody.
+// Create a completely separate prefab from TestTarget3D.
+// Prefab needs: TestTarget2D script, CircleCollider2D, SpriteRenderer (optional),
+//               NetworkObject (for networked sessions).
+// Used by: Raycast2D, RustSim2D, PhysicsProjectile2D shoot modes.
 
 using System;
 using System.Collections;
@@ -12,8 +15,10 @@ using MidManStudio.Core.FX;
 
 namespace TestGame
 {
-    [RequireComponent(typeof(SphereCollider))]
-    public class TestTarget : NetworkBehaviour
+    // 2D ONLY — CircleCollider2D is the ONLY physics component allowed on this prefab.
+    // Do NOT add Rigidbody, SphereCollider, or any 3D physics component.
+    [RequireComponent(typeof(CircleCollider2D))]
+    public class TestTarget2D : NetworkBehaviour
     {
         #region Inspector
 
@@ -23,16 +28,17 @@ namespace TestGame
         [SerializeField] private bool  _respawns      = true;
 
         [Header("Visuals")]
-        [SerializeField] private MeshRenderer _bodyRenderer;
-        [SerializeField] private TMP_Text     _healthText;
+        [Tooltip("Assign a SpriteRenderer on this GameObject for visual health feedback.")]
+        [SerializeField] private SpriteRenderer _spriteRenderer;
+        [SerializeField] private TMP_Text        _healthText;
         [SerializeField] private UnityEngine.UI.Image _healthBarFill;
 
         [Header("Death FX")]
-        [SerializeField] private int   _deathParticleCount  = 20;
+        [SerializeField] private int   _deathParticleCount  = 12;
         [SerializeField, Range(0f,1f)] private float _deathParticleVolume = 1f;
 
         [Header("Hit FX")]
-        [SerializeField] private int _hitParticleCount = 6;
+        [SerializeField] private int _hitParticleCount = 4;
 
         [Header("Audio")]
         [SerializeField] private int   _damageSoundClipIndex = 1;
@@ -41,7 +47,7 @@ namespace TestGame
         [SerializeField, Range(0f,1f)] private float _deathSoundVolume  = 1.0f;
 
         [Header("Collision Radius")]
-        [Tooltip("Radius applied to SphereCollider. Must match what you register in TestSceneBootstrapper.")]
+        [Tooltip("Radius applied to CircleCollider2D. Must match what you register in TestSceneBootstrapper.")]
         [SerializeField] private float _collisionRadius = 0.6f;
 
         [Header("Debug")]
@@ -74,23 +80,23 @@ namespace TestGame
 
         #region Events
 
-        public event Action<TestTarget> OnDestroyedServer;
+        public event Action<TestTarget2D> OnDestroyedServer;
 
         #endregion
 
         #region Unity Lifecycle
 
-        // 3D ONLY — just set the SphereCollider radius. No 2D components.
+        // 2D ONLY — just set the CircleCollider2D radius. Nothing 3D.
         private void Awake()
         {
-            var sc = GetComponent<SphereCollider>();
-            if (sc != null) sc.radius = _collisionRadius;
+            var cc = GetComponent<CircleCollider2D>();
+            if (cc != null) cc.radius = _collisionRadius;
         }
 
         private void OnValidate()
         {
-            var sc = GetComponent<SphereCollider>();
-            if (sc != null) sc.radius = _collisionRadius;
+            var cc = GetComponent<CircleCollider2D>();
+            if (cc != null) cc.radius = _collisionRadius;
         }
 
         private void Start()
@@ -99,13 +105,7 @@ namespace TestGame
 
             _spawnPosition = transform.position;
             _spawnRotation = transform.rotation;
-
-            if (_bodyRenderer != null)
-            {
-                _bodyMaterial          = new Material(_bodyRenderer.sharedMaterial);
-                _bodyRenderer.material = _bodyMaterial;
-            }
-
+            SetupMaterial();
             _offlineHp = _maxHealth;
             RefreshVisuals(_maxHealth);
         }
@@ -124,12 +124,7 @@ namespace TestGame
             base.OnNetworkSpawn();
             _spawnPosition = transform.position;
             _spawnRotation = transform.rotation;
-
-            if (_bodyRenderer != null)
-            {
-                _bodyMaterial          = new Material(_bodyRenderer.sharedMaterial);
-                _bodyRenderer.material = _bodyMaterial;
-            }
+            SetupMaterial();
 
             if (IsServer) _currentHealth.Value = _maxHealth;
 
@@ -145,6 +140,15 @@ namespace TestGame
             _isDead.OnValueChanged        -= OnDeadChanged;
             if (_bodyMaterial != null) Destroy(_bodyMaterial);
             base.OnNetworkDespawn();
+        }
+
+        private void SetupMaterial()
+        {
+            if (_spriteRenderer != null && _bodyMaterial == null)
+            {
+                _bodyMaterial          = new Material(_spriteRenderer.sharedMaterial);
+                _spriteRenderer.material = _bodyMaterial;
+            }
         }
 
         #endregion
@@ -171,7 +175,7 @@ namespace TestGame
             }
 
             if (_enableLogs)
-                Debug.Log($"[TestTarget3D] id={RegistrationId} hp={newHp:F1}");
+                Debug.Log($"[TestTarget2D] id={RegistrationId} hp={newHp:F1}");
 
             if (newHp <= 0f) OnDeath();
         }
@@ -199,7 +203,7 @@ namespace TestGame
                 _offlineDead = true;
                 OnDestroyedServer?.Invoke(this);
                 PlayDeathFX(transform.position);
-                if (_bodyRenderer != null) _bodyRenderer.enabled = false;
+                if (_spriteRenderer != null) _spriteRenderer.enabled = false;
                 if (_respawns) StartCoroutine(OfflineRespawnCoroutine());
                 else           Destroy(gameObject, 1.5f);
             }
@@ -221,7 +225,7 @@ namespace TestGame
             transform.SetPositionAndRotation(_spawnPosition, _spawnRotation);
             _offlineHp   = _maxHealth;
             _offlineDead = false;
-            if (_bodyRenderer != null) _bodyRenderer.enabled = true;
+            if (_spriteRenderer != null) _spriteRenderer.enabled = true;
             RefreshVisuals(_maxHealth);
         }
 
@@ -239,14 +243,14 @@ namespace TestGame
         private void DeathClientRpc(Vector3 pos)
         {
             PlayDeathFX(pos);
-            if (_bodyRenderer != null) _bodyRenderer.enabled = false;
+            if (_spriteRenderer != null) _spriteRenderer.enabled = false;
         }
 
         [ClientRpc]
         private void RespawnClientRpc(Vector3 pos, Quaternion rot)
         {
             transform.SetPositionAndRotation(pos, rot);
-            if (_bodyRenderer != null) _bodyRenderer.enabled = true;
+            if (_spriteRenderer != null) _spriteRenderer.enabled = true;
         }
 
         #endregion
@@ -265,7 +269,7 @@ namespace TestGame
 
         private void OnDeadChanged(bool _, bool nowDead)
         {
-            if (_bodyRenderer != null) _bodyRenderer.enabled = !nowDead;
+            if (_spriteRenderer != null) _spriteRenderer.enabled = !nowDead;
         }
 
         #endregion
@@ -274,14 +278,15 @@ namespace TestGame
 
         private void PlayHitFX(Vector3 pos)
         {
-            GlobalFXManager.Instance?.TriggerImpact(pos, Vector3.up, _hitParticleCount, _damageSoundVolume);
+            // Use Vector3.forward as normal for 2D (the XY plane faces forward)
+            GlobalFXManager.Instance?.TriggerImpact(pos, Vector3.forward, _hitParticleCount, _damageSoundVolume);
             if (GlobalFXManager.Instance == null)
                 MID_NativeAudioBridge.Instance?.PlayClip(_damageSoundClipIndex, _damageSoundVolume);
         }
 
         private void PlayDeathFX(Vector3 pos)
         {
-            GlobalFXManager.Instance?.TriggerImpact(pos, Vector3.up, _deathParticleCount, _deathSoundVolume);
+            GlobalFXManager.Instance?.TriggerImpact(pos, Vector3.forward, _deathParticleCount, _deathSoundVolume);
             if (GlobalFXManager.Instance == null)
                 MID_NativeAudioBridge.Instance?.PlayClip(_deathSoundClipIndex, _deathSoundVolume);
         }
@@ -320,7 +325,8 @@ namespace TestGame
 #if UNITY_EDITOR
         private void OnDrawGizmosSelected()
         {
-            Gizmos.color = new Color(1f, 0.5f, 0f, 0.45f);
+            Gizmos.color = new Color(0.2f, 0.8f, 1f, 0.45f);
+            // Draw as a flat disc — this lives in the XY plane
             Gizmos.DrawWireSphere(transform.position, _collisionRadius);
         }
 #endif
