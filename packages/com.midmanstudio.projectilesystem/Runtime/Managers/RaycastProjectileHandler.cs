@@ -1,13 +1,14 @@
 // RaycastProjectileHandler.cs
-// FIX: ValidateHitServer 3D path now passes QueryTriggerInteraction.Collide to Physics.Raycast.
-//   Without this, trigger-mode colliders on targets are not detected depending on project physics
-//   settings (Physics.queriesHitTriggers), causing server-side validation to silently fail even
-//   when the client correctly detected a hit.
+// FIX (double visual on firing client): ServerHandleFire now accepts an optional
+// senderClientId. SpawnVisualClientRpc is sent to ALL clients EXCEPT the sender,
+// because the sender already spawned their own local visual via OfflineHandleFire
+// in MID_MasterProjectileSystem.RegisterRaycastFire. Previously the server sent
+// the visual RPC to everyone, so the firing client ended up with two travelling
+// bullet visuals for every raycast shot.
 //
-// The _serverRaycastLayers LayerMask IS and was already being applied — added a more prominent
-// tooltip to make it clear this must include the layer(s) your targets are on.
-//
-// All other fixes from previous session retained.
+// When the host fires (ServerHandleFire called directly, no sender ID), the default
+// of ulong.MaxValue means no client is excluded and the host receives the RPC
+// normally — giving them exactly one visual.
 
 using System;
 using System.Collections.Generic;
@@ -32,10 +33,6 @@ namespace MidManStudio.Projectiles.Managers
         public bool    DidHit;
         public ulong   HitTargetNetworkId;
         public bool    IsHeadshot;
-        /// <summary>
-        /// True when the caller used Physics.Raycast (3D colliders).
-        /// False when the caller used Physics2D.Raycast (2D colliders).
-        /// </summary>
         public bool    Is3D;
     }
 
@@ -53,12 +50,8 @@ namespace MidManStudio.Projectiles.Managers
         [Header("Server Validation")]
         [Tooltip("Max world-unit discrepancy between client and server hit positions.")]
         [SerializeField] private float _hitValidationTolerance = 2f;
-
         [Tooltip("Layers the SERVER raycast tests against for hit validation.\n" +
-                 "Default -1 = Everything.\n" +
-                 "IMPORTANT: This must include whatever layer(s) your targets are on.\n" +
-                 "If validation always fails, check that targets are on an included layer.\n" +
-                 "Used for BOTH 3D (Physics.Raycast) and 2D (Physics2D.Raycast) server passes.")]
+                 "Default -1 = Everything. Must include the layer(s) your targets are on.")]
         [SerializeField] private LayerMask _serverRaycastLayers = -1;
 
         [Header("Debug")]
@@ -76,14 +69,14 @@ namespace MidManStudio.Projectiles.Managers
 
         private sealed class ActiveVisual
         {
-            public int               VisualId;
-            public GameObject        Obj;
-            public Vector3           Origin;
-            public Vector3           HitPoint;
-            public float             Speed;
-            public ushort            ConfigId;
+            public int                VisualId;
+            public GameObject         Obj;
+            public Vector3            Origin;
+            public Vector3            HitPoint;
+            public float              Speed;
+            public ushort             ConfigId;
             public PoolableObjectType PoolType;
-            public bool              PlayImpactOnArrival;
+            public bool               PlayImpactOnArrival;
         }
 
         private readonly List<ActiveVisual> _activeVisuals = new(64);
@@ -93,10 +86,18 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Server — Handle Fire
 
+        /// <summary>
+        /// Called by the server to process a raycast fire event.
+        /// <paramref name="senderClientId"/>: the NGO client who fired. SpawnVisualClientRpc
+        /// will exclude this client because they already spawned their own local visual via
+        /// OfflineHandleFire. Pass ulong.MaxValue (default) when the server itself fires
+        /// (host fire path) — in that case no client is excluded.
+        /// </summary>
         public void ServerHandleFire(
             RaycastFireResult clientResult,
             WeaponFireContext  context,
-            ushort             configId)
+            ushort             configId,
+            ulong              senderClientId = ulong.MaxValue)
         {
             if (!IsServer) return;
 
@@ -117,11 +118,8 @@ namespace MidManStudio.Projectiles.Managers
             if (clientResult.DidHit)
             {
                 serverConfirmed = ValidateHitServer(
-                    clientResult,
-                    clientResult.Is3D,
-                    out serverHitPoint,
-                    out serverTargetId,
-                    out serverHeadshot);
+                    clientResult, clientResult.Is3D,
+                    out serverHitPoint, out serverTargetId, out serverHeadshot);
             }
 
             if (serverConfirmed && serverTargetId != 0)
@@ -132,8 +130,7 @@ namespace MidManStudio.Projectiles.Managers
                 if (isCrit) damage *= cfg.CritMultiplier;
                 damage *= context.DamageMultiplier;
 
-                var gameData = BuildRaycastGameData(context, configId, cfg);
-                var payload  = new ProjectileHitPayload
+                OnServerHitConfirmed?.Invoke(new ProjectileHitPayload
                 {
                     ProjId                 = 0,
                     ConfigId               = configId,
@@ -147,50 +144,39 @@ namespace MidManStudio.Projectiles.Managers
                     FiredByNetworkObjectId = context.FiredByNetworkObjectId,
                     IsBotOwner             = context.IsBotOwner,
                     WeaponLevel            = context.WeaponLevel,
-                    GameData               = gameData
-                };
-                OnServerHitConfirmed?.Invoke(payload);
-
-                MID_Logger.LogDebug(_logLevel,
-                    $"ServerHandleFire: hit confirmed targetId={serverTargetId} " +
-                    $"damage={damage:F1} is3D={clientResult.Is3D}",
-                    nameof(RaycastProjectileHandler));
+                    GameData               = BuildRaycastGameData(context, configId, cfg)
+                });
             }
-            else if (clientResult.DidHit)
+
+            // Build the recipient list. Exclude the sender (they spawned their own local
+            // visual already). If senderClientId == ulong.MaxValue, send to everyone.
+            var targets = BuildTargetList(senderClientId);
+            if (targets.Count == 0)
             {
-                MID_Logger.LogDebug(_logLevel,
-                    "ServerHandleFire: client reported hit but server could not validate. " +
-                    $"is3D={clientResult.Is3D} serverLayers={_serverRaycastLayers.value} " +
-                    $"tolerance={_hitValidationTolerance}",
-                    nameof(RaycastProjectileHandler));
+                // No one to send to (e.g. only one player in the session).
+                return;
             }
 
             SpawnVisualClientRpc(
                 clientResult.Origin,
                 serverConfirmed ? serverHitPoint : clientResult.HitPoint,
                 configId,
-                confirmedHit: serverConfirmed && serverTargetId != 0,
-                visualId: _nextVisualId++,
-                is3D: clientResult.Is3D);
+                confirmedHit:  serverConfirmed && serverTargetId != 0,
+                visualId:      _nextVisualId++,
+                is3D:          clientResult.Is3D,
+                new ClientRpcParams
+                {
+                    Send = new ClientRpcSendParams { TargetClientIds = targets }
+                });
         }
 
         #endregion
 
         #region Server Validation
 
-        /// <summary>
-        /// Validates the client-reported hit using the matching physics system.
-        /// FIX: 3D path now uses QueryTriggerInteraction.Collide so trigger-mode colliders
-        ///   are detected regardless of project-level Physics.queriesHitTriggers setting.
-        /// The _serverRaycastLayers mask IS applied — if validation always fails, verify
-        ///   that your targets are on a layer included in _serverRaycastLayers.
-        /// </summary>
         private bool ValidateHitServer(
-            RaycastFireResult clientResult,
-            bool              is3D,
-            out Vector3       serverHitPoint,
-            out ulong         serverTargetId,
-            out bool          serverHeadshot)
+            RaycastFireResult clientResult, bool is3D,
+            out Vector3 serverHitPoint, out ulong serverTargetId, out bool serverHeadshot)
         {
             serverHitPoint = clientResult.HitPoint;
             serverTargetId = 0;
@@ -198,47 +184,32 @@ namespace MidManStudio.Projectiles.Managers
 
             if (is3D)
             {
-                // FIX: added QueryTriggerInteraction.Collide — trigger colliders now detected.
-                if (!Physics.Raycast(
-                    clientResult.Origin,
-                    clientResult.Direction,
-                    out RaycastHit hit3D,
-                    1000f,
-                    _serverRaycastLayers,
+                if (!Physics.Raycast(clientResult.Origin, clientResult.Direction,
+                    out RaycastHit hit3D, 1000f, _serverRaycastLayers,
                     QueryTriggerInteraction.Collide))
                     return false;
 
                 serverHitPoint = hit3D.point;
+                if (Vector3.Distance(serverHitPoint, clientResult.HitPoint) > _hitValidationTolerance)
+                    return false;
 
-                float dist = Vector3.Distance(serverHitPoint, clientResult.HitPoint);
-                if (dist > _hitValidationTolerance) return false;
-
-                var netObj3D = hit3D.collider.GetComponentInParent<NetworkObject>();
-                if (netObj3D != null) serverTargetId = netObj3D.NetworkObjectId;
-
+                var no = hit3D.collider.GetComponentInParent<NetworkObject>();
+                if (no != null) serverTargetId = no.NetworkObjectId;
                 serverHeadshot = clientResult.IsHeadshot;
                 return true;
             }
             else
             {
-                // 2D validation — Physics2D doesn't have a QueryTriggerInteraction overload,
-                // but respects Physics2D.queriesHitTriggers project setting.
                 RaycastHit2D serverHit = Physics2D.Raycast(
-                    clientResult.Origin,
-                    clientResult.Direction,
-                    1000f,
-                    _serverRaycastLayers);
-
+                    clientResult.Origin, clientResult.Direction, 1000f, _serverRaycastLayers);
                 if (!serverHit.collider) return false;
 
                 serverHitPoint = serverHit.point;
+                if (Vector3.Distance(serverHitPoint, clientResult.HitPoint) > _hitValidationTolerance)
+                    return false;
 
-                float dist = Vector3.Distance(serverHitPoint, clientResult.HitPoint);
-                if (dist > _hitValidationTolerance) return false;
-
-                var netObj2D = serverHit.collider.GetComponentInParent<NetworkObject>();
-                if (netObj2D != null) serverTargetId = netObj2D.NetworkObjectId;
-
+                var no = serverHit.collider.GetComponentInParent<NetworkObject>();
+                if (no != null) serverTargetId = no.NetworkObjectId;
                 serverHeadshot = clientResult.IsHeadshot;
                 return true;
             }
@@ -250,54 +221,31 @@ namespace MidManStudio.Projectiles.Managers
 
         [ClientRpc]
         private void SpawnVisualClientRpc(
-            Vector3 origin,
-            Vector3 hitPoint,
-            ushort  configId,
-            bool    confirmedHit,
-            int     visualId,
-            bool    is3D)
+            Vector3 origin, Vector3 hitPoint, ushort configId,
+            bool confirmedHit, int visualId, bool is3D,
+            ClientRpcParams rpcParams = default)
         {
             SpawnVisualLocal(origin, hitPoint, configId, visualId, confirmedHit, is3D);
         }
 
         private void SpawnVisualLocal(
-            Vector3 origin,
-            Vector3 hitPoint,
-            ushort  configId,
-            int     visualId,
-            bool    playImpactOnArrival,
-            bool    is3D)
+            Vector3 origin, Vector3 hitPoint, ushort configId,
+            int visualId, bool playImpactOnArrival, bool is3D)
         {
-            if (LocalObjectPool.Instance == null)
-            {
-                MID_Logger.LogWarning(_logLevel,
-                    "SpawnVisualLocal: LocalObjectPool.Instance is null. " +
-                    "No raycast visual will appear.",
-                    nameof(RaycastProjectileHandler));
-                return;
-            }
+            if (LocalObjectPool.Instance == null) return;
 
             var cfg = ProjectileRegistry.Instance.Get(configId);
-            if (cfg == null)
-            {
-                MID_Logger.LogWarning(_logLevel,
-                    $"SpawnVisualLocal: config {configId} not registered.",
-                    nameof(RaycastProjectileHandler));
-                return;
-            }
+            if (cfg == null) return;
 
             Vector3    dir      = (hitPoint - origin).normalized;
             Quaternion rot      = ClientPredictionManager.GetDirectionRotation(dir);
-
             PoolableObjectType poolType = is3D ? _visualPoolType3D : _visualPoolType2D;
 
             var obj = LocalObjectPool.Instance.GetObject(poolType, origin, rot);
             if (obj == null)
             {
                 MID_Logger.LogWarning(_logLevel,
-                    $"SpawnVisualLocal: LocalObjectPool returned null for type {poolType}. " +
-                    $"Ensure the pool has a prefab assigned for {poolType}. " +
-                    "No raycast visual will appear.",
+                    $"SpawnVisualLocal: pool returned null for {poolType}.",
                     nameof(RaycastProjectileHandler));
                 return;
             }
@@ -325,17 +273,14 @@ namespace MidManStudio.Projectiles.Managers
         private void Update()
         {
             if (_activeVisuals.Count == 0) return;
-
-            var toRemove = new List<int>();
+            var toRemove = new List<int>(4);
 
             foreach (var v in _activeVisuals)
             {
                 if (v.Obj == null) { toRemove.Add(v.VisualId); continue; }
 
                 v.Obj.transform.position = Vector3.MoveTowards(
-                    v.Obj.transform.position,
-                    v.HitPoint,
-                    v.Speed * Time.deltaTime);
+                    v.Obj.transform.position, v.HitPoint, v.Speed * Time.deltaTime);
 
                 Vector3 travelDir = v.HitPoint - v.Obj.transform.position;
                 if (travelDir.sqrMagnitude > 0.001f)
@@ -344,9 +289,7 @@ namespace MidManStudio.Projectiles.Managers
 
                 if (Vector3.Distance(v.Obj.transform.position, v.HitPoint) < 0.05f)
                 {
-                    if (v.PlayImpactOnArrival)
-                        PlayImpactEffect(v);
-
+                    if (v.PlayImpactOnArrival) PlayImpactEffect(v);
                     ReturnVisual(v);
                     toRemove.Add(v.VisualId);
                 }
@@ -354,10 +297,6 @@ namespace MidManStudio.Projectiles.Managers
 
             _activeVisuals.RemoveAll(v => toRemove.Contains(v.VisualId));
         }
-
-        #endregion
-
-        #region Visual Cleanup
 
         private void PlayImpactEffect(ActiveVisual v)
             => ProjectileImpactHandler.Instance?.PlayImpact(v.HitPoint, v.ConfigId);
@@ -373,19 +312,11 @@ namespace MidManStudio.Projectiles.Managers
         #region Offline Support
 
         public void OfflineHandleFire(
-            RaycastFireResult result,
-            ushort            configId,
-            uint              ownerLocalId,
-            float             damageMultiplier)
+            RaycastFireResult result, ushort configId,
+            uint ownerLocalId, float damageMultiplier)
         {
             var cfg = ProjectileRegistry.Instance.Get(configId);
-            if (cfg == null)
-            {
-                MID_Logger.LogWarning(_logLevel,
-                    $"OfflineHandleFire: config {configId} not registered.",
-                    nameof(RaycastProjectileHandler));
-                return;
-            }
+            if (cfg == null) return;
 
             if (result.DidHit && LocalProjectileManager.HasInstance)
             {
@@ -395,33 +326,35 @@ namespace MidManStudio.Projectiles.Managers
                 if (isCrit) damage *= cfg.CritMultiplier;
                 damage *= damageMultiplier;
 
-                var payload = new LocalHitPayload
+                LocalProjectileManager.Instance.FireHitEvent(new LocalHitPayload
                 {
-                    ProjId       = 0,
-                    ConfigId     = configId,
-                    Is3D         = result.Is3D,
-                    Damage       = damage,
-                    IsHeadshot   = result.IsHeadshot,
-                    IsCrit       = isCrit,
-                    HitPosition  = result.HitPoint,
-                    OwnerLocalId = ownerLocalId,
-                    RawTargetId  = (uint)result.HitTargetNetworkId
-                };
-                LocalProjectileManager.Instance.FireHitEvent(payload);
+                    ProjId = 0, ConfigId = configId, Is3D = result.Is3D,
+                    Damage = damage, IsHeadshot = result.IsHeadshot, IsCrit = isCrit,
+                    HitPosition = result.HitPoint, OwnerLocalId = ownerLocalId,
+                    RawTargetId = (uint)result.HitTargetNetworkId
+                });
             }
 
-            SpawnVisualLocal(
-                result.Origin,
-                result.HitPoint,
-                configId,
-                _nextVisualId++,
-                playImpactOnArrival: result.DidHit,
-                is3D: result.Is3D);
+            SpawnVisualLocal(result.Origin, result.HitPoint, configId,
+                _nextVisualId++, playImpactOnArrival: result.DidHit, is3D: result.Is3D);
         }
 
         #endregion
 
         #region Helpers
+
+        /// <summary>
+        /// Returns all connected client IDs, optionally excluding one (the sender).
+        /// </summary>
+        private List<ulong> BuildTargetList(ulong excludeId)
+        {
+            var list = new List<ulong>(NetworkManager.Singleton.ConnectedClientsIds.Count);
+            foreach (ulong id in NetworkManager.Singleton.ConnectedClientsIds)
+            {
+                if (id != excludeId) list.Add(id);
+            }
+            return list;
+        }
 
         private static ServerProjectileData BuildRaycastGameData(
             WeaponFireContext context, ushort configId, ProjectileConfigSO cfg)
