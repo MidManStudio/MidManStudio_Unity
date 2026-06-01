@@ -1,0 +1,370 @@
+/* MID_ScriptUtilitiesWindow.uss  —  UI Toolkit styles.
+   Self-contained; duplicates shared palette so no cross-file dependency.
+   Requires Unity 2022.3+ (USS custom properties since 2021.2). */
+
+/* ─── Palette ────────────────────────────────────────────────────────────── */
+:root {
+    --green:    rgba(71,  230, 115, 1.0);
+    --blue:     rgba(100, 165, 255, 1.0);
+    --orange:   rgba(255, 180,  64, 1.0);
+    --red:      rgba(255,  90,  90, 1.0);
+    --yellow:   rgba(255, 200,  60, 1.0);
+
+    --text-hi:  rgba(210, 210, 210, 1.0);
+    --text-mid: rgba(145, 145, 145, 1.0);
+    --text-lo:  rgba( 80,  80,  80, 1.0);
+
+    --bg-0:     rgba( 22,  22,  24, 1.0);
+    --bg-1:     rgba( 32,  32,  34, 1.0);
+    --bg-2:     rgba( 44,  44,  46, 1.0);
+    --bg-3:     rgba( 56,  56,  58, 1.0);
+
+    --border:   rgba( 70,  70,  72, 0.6);
+    --r-s:      4px;
+    --r-m:      6px;
+}
+
+/* ─── Root ───────────────────────────────────────────────────────────────── */
+.mid-root {
+    flex-direction:   column;
+    flex-grow:        1;
+    background-color: var(--bg-0);
+}
+
+/* ─── Header ─────────────────────────────────────────────────────────────── */
+.mid-header {
+    min-height:          56px;
+    flex-direction:      row;
+    align-items:         center;
+    justify-content:     space-between;
+    padding:             0 14px;
+    border-bottom-width: 1px;
+    border-bottom-color: var(--border);
+    overflow:            hidden;
+}
+.mid-header__text  { flex-direction: column; justify-content: center; }
+.mid-header__title { font-size: 13px; -unity-font-style: bold; color: var(--text-hi); }
+.mid-header__sub   { font-size: 10px; color: var(--text-mid); margin-top: 2px; }
+
+.mid-header__refresh {
+    width:             26px;
+    height:            26px;
+    border-radius:     var(--r-s);
+    border-width:      1px;
+    border-color:      var(--border);
+    background-color:  rgba(255,255,255,0.06);
+    color:             var(--text-mid);
+    font-size:         15px;
+    -unity-text-align: middle-center;
+    padding:           0;
+    margin-left:       4px;
+}
+.mid-header__refresh:hover { background-color: rgba(255,255,255,0.13); color: var(--text-hi); }
+
+/* ─── Toolbar ────────────────────────────────────────────────────────────── */
+.mid-toolbar {
+    flex-direction:      row;
+    align-items:         center;
+    flex-wrap:           wrap;
+    padding:             5px 10px;
+    background-color:    var(--bg-1);
+    border-bottom-width: 1px;
+    border-bottom-color: var(--border);
+}
+.mid-toolbar__section { flex-direction: row; align-items: center; margin-right: 8px; margin-top: 2px; margin-bottom: 2px; }
+.mid-toolbar__label   { font-size: 9px; -unity-font-style: bold; color: var(--text-lo); margin-right: 5px; }
+.mid-toolbar__search  { min-width: 170px; height: 22px; }
+.mid-toolbar__divider { width: 1px; height: 16px; background-color: var(--border); margin: 0 6px; }
+
+.mid-toggle-btn {
+    height:            22px;
+    padding:           0 9px;
+    border-radius:     var(--r-s);
+    border-width:      1px;
+    border-color:      var(--border);
+    background-color:  transparent;
+    color:             var(--text-mid);
+    font-size:         10px;
+    -unity-text-align: middle-center;
+    margin-right:      4px;
+}
+.mid-toggle-btn:hover  { background-color: var(--bg-3); color: var(--text-hi); }
+.mid-toggle-btn--on    { background-color: rgba(71,230,115,0.11); border-color: rgba(71,230,115,0.38); color: var(--green); }
+
+.mid-help-btn {
+    width:             18px;
+    height:            18px;
+    border-radius:     9px;
+    border-width:      1px;
+    border-color:      rgba(100,165,255,0.40);
+    background-color:  rgba(100,165,255,0.10);
+    color:             var(--blue);
+    font-size:         9px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    margin-left:       2px;
+    padding:           0;
+}
+.mid-help-btn:hover { background-color: rgba(100,165,255,0.22); }
+
+/* ─── Column headers ─────────────────────────────────────────────────────── */
+.mid-col-hdrs {
+    flex-direction:      row;
+    align-items:         center;
+    padding:             3px 8px;
+    background-color:    rgba(14,14,16,0.6);
+    border-bottom-width: 1px;
+    border-bottom-color: var(--border);
+}
+.mid-col-hdr { font-size: 9px; -unity-font-style: bold; color: var(--text-lo); -unity-text-align: middle-left; }
+
+/* ─── Small generic buttons ──────────────────────────────────────────────── */
+.mid-btn {
+    height:            20px;
+    border-radius:     3px;
+    border-width:      1px;
+    border-color:      var(--border);
+    background-color:  rgba(255,255,255,0.06);
+    color:             var(--text-mid);
+    font-size:         10px;
+    -unity-text-align: middle-center;
+    padding:           0 7px;
+    margin-left:       4px;
+}
+.mid-btn:hover { background-color: rgba(255,255,255,0.12); color: var(--text-hi); }
+
+/* ─── Empty state ────────────────────────────────────────────────────────── */
+.mid-empty       { align-items: center; justify-content: center; padding: 24px; }
+.mid-empty__icon { font-size: 24px; color: var(--text-lo); margin-bottom: 8px; -unity-text-align: middle-center; }
+.mid-empty__text { font-size: 11px; color: var(--text-mid); -unity-text-align: middle-center; white-space: normal; }
+
+/* ─── Info popup ─────────────────────────────────────────────────────────── */
+.mid-info-popup {
+    position:         absolute;
+    background-color: rgb(42,46,54);
+    border-width:     1px;
+    border-color:     rgba(100,165,255,0.45);
+    border-radius:    var(--r-m);
+    padding:          10px 13px;
+    max-width:        310px;
+    min-width:        200px;
+    display:          none;
+}
+.mid-info-popup__title { font-size: 11px; -unity-font-style: bold; color: var(--blue); margin-bottom: 5px; }
+.mid-info-popup__body  { font-size: 10px; color: var(--text-mid); white-space: normal; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SCRIPT UTILITIES — window-specific styles
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─── Tab bar ────────────────────────────────────────────────────────────── */
+.su-tab-bar {
+    flex-direction:      row;
+    background-color:    var(--bg-1);
+    border-bottom-width: 1px;
+    border-bottom-color: var(--border);
+    padding:             0 10px;
+}
+.su-tab {
+    height:            30px;
+    padding:           0 14px;
+    border-width:      0;
+    border-radius:     0;
+    background-color:  transparent;
+    color:             var(--text-mid);
+    font-size:         11px;
+    -unity-text-align: middle-center;
+    border-bottom-width: 2px;
+    border-bottom-color: transparent;
+    margin-right:      2px;
+}
+.su-tab:hover   { color: var(--text-hi); }
+.su-tab--on {
+    color:               var(--text-hi);
+    -unity-font-style:   bold;
+    border-bottom-color: var(--green);
+}
+
+/* ─── Tab content wrapper ────────────────────────────────────────────────── */
+.su-tab-content { flex-direction: column; }
+
+/* ─── Stats bar ──────────────────────────────────────────────────────────── */
+.su-stats-bar {
+    flex-direction:      row;
+    align-items:         center;
+    padding:             3px 14px;
+    background-color:    rgba(14,14,16,0.5);
+    border-bottom-width: 1px;
+    border-bottom-color: var(--border);
+}
+.su-stats-lbl { font-size: 10px; color: var(--text-lo); flex-grow: 1; }
+
+/* ─── Split panels ───────────────────────────────────────────────────────── */
+.su-list-panel {
+    flex-direction: column;
+    background-color: var(--bg-0);
+    border-right-width: 1px;
+    border-right-color: var(--border);
+}
+.su-source-panel {
+    flex-direction:   column;
+    flex-grow:        1;
+    background-color: var(--bg-0);
+}
+
+/* ─── Script list rows ───────────────────────────────────────────────────── */
+.su-folder-row {
+    flex-direction:      row;
+    align-items:         center;
+    padding:             2px 8px;
+    min-height:          20px;
+    background-color:    rgba(14,14,16,0.55);
+    border-bottom-width: 1px;
+    border-bottom-color: var(--border);
+}
+.su-folder-lbl {
+    font-size:          9px;
+    -unity-font-style:  bold;
+    color:              var(--text-lo);
+    overflow:           hidden;
+}
+
+.su-script-row {
+    flex-direction:      row;
+    align-items:         center;
+    padding:             0 8px 0 16px;
+    min-height:          22px;
+    border-bottom-width: 1px;
+    border-bottom-color: rgba(255,255,255,0.03);
+}
+.su-script-row:hover    { background-color: rgba(255,255,255,0.04); }
+.su-script-row--selected {
+    background-color:   rgba(71,230,115,0.09);
+    border-left-width:  2px;
+    border-left-color:  rgba(71,230,115,0.45);
+    padding-left:       14px;
+}
+.su-script-name {
+    font-size:  11px;
+    color:      var(--text-hi);
+    flex-grow:  1;
+    overflow:   hidden;
+}
+.su-script-loc {
+    width:             20px;
+    height:            18px;
+    border-radius:     3px;
+    border-width:      1px;
+    border-color:      rgba(100,165,255,0.28);
+    background-color:  rgba(100,165,255,0.09);
+    color:             var(--blue);
+    font-size:         11px;
+    -unity-text-align: middle-center;
+    padding:           0;
+    opacity:           0;
+}
+.su-script-row:hover .su-script-loc { opacity: 1; }
+
+/* ─── Path bar ───────────────────────────────────────────────────────────── */
+.su-path-bar {
+    flex-direction:      row;
+    align-items:         center;
+    padding:             4px 8px;
+    background-color:    var(--bg-1);
+    border-bottom-width: 1px;
+    border-bottom-color: var(--border);
+    flex-shrink:         0;
+}
+.su-path-lbl {
+    font-size:  10px;
+    color:      var(--text-lo);
+    flex-grow:  1;
+    overflow:   hidden;
+}
+.su-copy-btn { padding: 0 6px; }
+
+/* ─── Source lines ───────────────────────────────────────────────────────── */
+/* Row is built from C# — one horizontal VisualElement per line */
+.su-line-row {
+    flex-direction: row;
+    align-items:    flex-start;
+    padding:        0;
+    min-height:     18px;
+}
+
+.su-line-num {
+    width:             40px;
+    min-width:         40px;
+    font-size:         10px;
+    color:             rgba(55,55,60,1);
+    -unity-text-align: upper-right;
+    padding-right:     6px;
+    flex-shrink:       0;
+    /* monospace set from C# (unityFont) */
+}
+
+/* Base code style — colour overridden by modifier classes below */
+.su-line-code {
+    flex-grow:    1;
+    font-size:    11px;
+    color:        rgba(185,185,190,1);
+    white-space:  nowrap;
+    overflow:     hidden;
+    /* monospace set from C# (unityFont) */
+}
+
+/* Doc line colours */
+.su-line-doc-summary { color: rgba(74,202,110,1.0); }
+.su-line-doc-param   { color: rgba(110,228,154,1.0); -unity-font-style: italic; }
+.su-line-doc-return  { color: rgba(110,228,154,1.0); -unity-font-style: italic; }
+.su-line-doc-remark  { color: rgba(74,202,110,0.85); }
+.su-line-doc-tag     { color: rgba(86,212,120,1.0);  }
+
+/* ─── Window priority list ───────────────────────────────────────────────── */
+
+/* Column widths */
+.wp-c-pri   { width:  60px; }
+.wp-c-class { width: 190px; }
+.wp-c-menu  { flex-grow: 1; min-width: 60px; }
+.wp-c-asm   { width: 150px; }
+.wp-c-src   { width:  36px; }
+
+.wp-row {
+    flex-direction:      row;
+    align-items:         center;
+    padding:             0 8px;
+    min-height:          24px;
+    border-bottom-width: 1px;
+    border-bottom-color: rgba(255,255,255,0.035);
+}
+.wp-row:hover { background-color: rgba(255,255,255,0.03); }
+
+.wp-pri {
+    width:             60px;
+    font-size:         11px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-left;
+    color:             var(--blue);
+}
+.wp-pri--negative { color: var(--orange); }
+.wp-pri--mms      { color: var(--green);  }
+
+.wp-class { width: 190px; font-size: 11px; color: var(--text-hi);  overflow: hidden; padding-right: 6px; }
+.wp-menu  { flex-grow: 1; font-size: 10px; color: var(--text-mid); overflow: hidden; padding-right: 6px; }
+.wp-asm   { width: 150px; font-size: 10px; color: var(--text-lo);  overflow: hidden; padding-right: 4px; }
+.wp-asm--mms { color: rgba(71,230,115,0.80); }
+
+.wp-src-btn {
+    width:             28px;
+    height:            18px;
+    border-radius:     3px;
+    border-width:      1px;
+    border-color:      var(--border);
+    background-color:  rgba(255,255,255,0.05);
+    color:             var(--text-mid);
+    font-size:         9px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    padding:           0;
+}
+.wp-src-btn:hover { background-color: rgba(255,255,255,0.12); color: var(--text-hi); }
