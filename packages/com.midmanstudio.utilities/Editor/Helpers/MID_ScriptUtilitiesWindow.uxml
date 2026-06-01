@@ -1,0 +1,167 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements"
+         xmlns:uie="UnityEditor.UIElements"
+         editor-extension-mode="True">
+
+    <ui:VisualElement class="mid-root">
+
+        <!-- ── Header (GradientBannerElement injected as absolute child from C#) -->
+        <ui:VisualElement name="header" class="mid-header">
+            <ui:VisualElement class="mid-header__text">
+                <ui:Label class="mid-header__title" text="Script Utilities" />
+                <ui:Label class="mid-header__sub"
+                    text="Browse and read project scripts  ·  Visualise editor window menu priorities" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <!-- ── Tab bar -->
+        <ui:VisualElement class="su-tab-bar">
+            <ui:Button name="tab-btn-0" class="su-tab su-tab--on" text="Script Reader" />
+            <ui:Button name="tab-btn-1" class="su-tab"            text="Window Priority Visualizer" />
+        </ui:VisualElement>
+
+        <!-- ════════════════════════════════════════════════════════════════
+             TAB 0 — Script Reader
+             ════════════════════════════════════════════════════════════════ -->
+        <ui:VisualElement name="tab-content-0" class="su-tab-content" style="flex-grow:1;">
+
+            <!-- Toolbar -->
+            <ui:VisualElement class="mid-toolbar">
+                <ui:VisualElement class="mid-toolbar__section">
+                    <uie:ToolbarSearchField name="sr-search" class="mid-toolbar__search"
+                        tooltip="Filter scripts by name or path — real-time, case-insensitive" />
+                    <ui:Button name="sr-search-help" class="mid-help-btn" text="?" />
+                </ui:VisualElement>
+                <ui:VisualElement class="mid-toolbar__divider" />
+                <ui:VisualElement class="mid-toolbar__section">
+                    <ui:Button name="content-search-btn" class="mid-toggle-btn" text="Search content"
+                        tooltip="Also search inside file contents (slower on large projects)" />
+                    <ui:Button name="doc-only-btn" class="mid-toggle-btn" text="Doc only"
+                        tooltip="Show only XML documentation comment lines (/// ...)" />
+                    <ui:Button name="doc-only-help" class="mid-help-btn" text="?" />
+                </ui:VisualElement>
+                <ui:VisualElement class="mid-toolbar__divider" />
+                <ui:Button name="sr-refresh-btn" class="mid-header__refresh" text="⟳"
+                    tooltip="Re-scan all scripts in the project" />
+            </ui:VisualElement>
+
+            <!-- Stats / filter indicator bar -->
+            <ui:VisualElement class="su-stats-bar">
+                <ui:Label name="sr-stats" class="su-stats-lbl" text="0 / 0 scripts" />
+            </ui:VisualElement>
+
+            <!-- Two-pane split: script list (left) + source viewer (right) -->
+            <ui:TwoPaneSplitView name="sr-split"
+                fixed-pane-index="0"
+                fixed-pane-initial-dimension="240"
+                orientation="Horizontal"
+                style="flex-grow:1; min-height:200px;">
+
+                <!-- Left — script list -->
+                <ui:VisualElement name="list-panel" class="su-list-panel">
+                    <ui:ListView name="script-list"
+                        selection-type="Single"
+                        show-border="false"
+                        show-alternating-row-backgrounds="None"
+                        virtualization-method="FixedHeight"
+                        fixed-item-height="22"
+                        style="flex-grow:1;" />
+                </ui:VisualElement>
+
+                <!-- Right — source viewer -->
+                <ui:VisualElement name="source-panel" class="su-source-panel">
+
+                    <!-- Empty state -->
+                    <ui:VisualElement name="source-empty" class="mid-empty" style="flex-grow:1;">
+                        <ui:Label class="mid-empty__icon" text="📄" />
+                        <ui:Label class="mid-empty__text"
+                            text="Select a script on the left to read it." />
+                    </ui:VisualElement>
+
+                    <!-- Path bar (hidden until a script is selected) -->
+                    <ui:VisualElement name="path-bar" class="su-path-bar" style="display:none;">
+                        <ui:Label name="path-lbl" class="su-path-lbl" />
+                        <ui:Button name="open-btn" class="mid-btn" text="Open"
+                            tooltip="Open in external code editor" />
+                        <ui:Button name="ping-btn" class="mid-btn" text="Ping"
+                            tooltip="Highlight in Project window" />
+                        <ui:Button name="copy-btn" class="mid-btn su-copy-btn" text="Copy Path"
+                            tooltip="Copy the full file path to clipboard" />
+                    </ui:VisualElement>
+
+                    <!-- Source lines ListView (hidden until a script is selected) -->
+                    <ui:ListView name="source-list"
+                        selection-type="None"
+                        show-border="false"
+                        show-alternating-row-backgrounds="None"
+                        virtualization-method="FixedHeight"
+                        fixed-item-height="18"
+                        style="flex-grow:1; display:none;" />
+
+                </ui:VisualElement>
+            </ui:TwoPaneSplitView>
+
+        </ui:VisualElement>
+
+        <!-- ════════════════════════════════════════════════════════════════
+             TAB 1 — Window Priority Visualizer
+             ════════════════════════════════════════════════════════════════ -->
+        <ui:VisualElement name="tab-content-1" class="su-tab-content" style="flex-grow:1; display:none;">
+
+            <!-- Toolbar -->
+            <ui:VisualElement class="mid-toolbar">
+                <ui:VisualElement class="mid-toolbar__section">
+                    <ui:Label class="mid-toolbar__label" text="FILTER" />
+                    <uie:ToolbarSearchField name="wp-filter" class="mid-toolbar__search"
+                        tooltip="Filter by namespace, class name, or menu path" />
+                </ui:VisualElement>
+                <ui:VisualElement class="mid-toolbar__divider" />
+                <ui:VisualElement class="mid-toolbar__section">
+                    <ui:Button name="sort-pri-btn" class="mid-toggle-btn mid-toggle-btn--on"
+                        text="Sort by priority"
+                        tooltip="Sort by MenuItem priority value (lower = earlier in menu)" />
+                </ui:VisualElement>
+                <ui:VisualElement class="mid-toolbar__divider" />
+                <ui:Button name="wp-scan-btn" class="mid-header__refresh" text="⟳"
+                    tooltip="Re-scan all editor window types in loaded assemblies" />
+                <ui:Button name="wp-help" class="mid-help-btn" text="?" />
+            </ui:VisualElement>
+
+            <!-- Stats bar -->
+            <ui:VisualElement class="su-stats-bar">
+                <ui:Label name="wp-stats" class="su-stats-lbl" text="0 windows" />
+            </ui:VisualElement>
+
+            <!-- Column headers -->
+            <ui:VisualElement class="mid-col-hdrs">
+                <ui:Label class="mid-col-hdr wp-c-pri"   text="PRIORITY"      />
+                <ui:Label class="mid-col-hdr wp-c-class" text="WINDOW CLASS"  />
+                <ui:Label class="mid-col-hdr wp-c-menu"  text="MENU PATH"     />
+                <ui:Label class="mid-col-hdr wp-c-asm"   text="ASSEMBLY"      />
+                <ui:Label class="mid-col-hdr wp-c-src"   text="SRC"           />
+            </ui:VisualElement>
+
+            <!-- Window list -->
+            <ui:ListView name="window-list"
+                selection-type="None"
+                show-border="false"
+                show-alternating-row-backgrounds="None"
+                virtualization-method="FixedHeight"
+                fixed-item-height="24"
+                style="flex-grow:1;" />
+
+            <!-- Empty state -->
+            <ui:VisualElement name="wp-empty" class="mid-empty" style="display:none; flex-grow:1;">
+                <ui:Label class="mid-empty__text"
+                    text="No editor windows found matching the current filter.&#10;Try clearing the filter or clicking ⟳ Scan." />
+            </ui:VisualElement>
+
+        </ui:VisualElement>
+
+        <!-- Floating info popup -->
+        <ui:VisualElement name="info-popup" class="mid-info-popup">
+            <ui:Label name="info-popup-title" class="mid-info-popup__title" text="Info" />
+            <ui:Label name="info-popup-body"  class="mid-info-popup__body"  text=""    />
+        </ui:VisualElement>
+
+    </ui:VisualElement>
+</ui:UXML>
