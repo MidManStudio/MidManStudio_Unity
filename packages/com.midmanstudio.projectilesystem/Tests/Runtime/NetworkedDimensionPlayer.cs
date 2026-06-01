@@ -1,23 +1,22 @@
 // NetworkedDimensionPlayer.cs
-// CHANGES vs previous version:
-//   - REMOVED all NetworkTransform manipulation (_nt field, .enabled = false, etc.).
-//     The NT (or ClientNetworkTransform) on the prefab handles position sync automatically.
-//     Touching it caused duplicate server ticks.
-//   - REMOVED _syncPosition / _syncYaw NetworkVariables and the non-owner Update
-//     interpolation block — redundant now that NT is left alone.
-//   - FIX (movement): ApplyRigidbodyConstraints + _rb.isKinematic setup moved into
-//     OnNetworkSpawn so it runs AFTER IsOwner is set. In Awake() IsOwner is always false
-//     so constraints were never applied on the client's own player.
-//   - FIX (physics sync): FirePhysics now spawns an immediate local prediction visual
-//     (same pattern as FireSim) before sending the ServerRpc. The server spawns the
-//     authoritative NetworkObject AND fires BroadcastPhysicsVisualClientRpc so other
-//     clients receive a guaranteed prediction visual through the same pool system used
-//     by Rust sim — independent of whether the physics NetworkObject pool is wired up.
+// CHANGES vs previous:
+//   - Removed _nt field / NT manipulation entirely (was present in response 2, was correctly
+//     removed in response 3 — keeping it removed).
+//   - FIX (physics double visual): removed SpawnImmediatePrediction from FirePhysics.
+//     The physics NetworkObject spawns on the firing client via NGO and runs SpawnPoolVisual
+//     — that is the one and only visual. No prediction needed for physics.
+//   - REMOVED BroadcastPhysicsVisualClientRpc (was doubling for other clients).
+//   - FIX (movement): 2D now uses kinematic Rigidbody + MovePosition.
+//     ApplyRigidbodyConstraints sets isKinematic per-dimension so this is consistent.
+//     MovePosition works with any NT mode (server-auth OR ClientNetworkTransform).
+//   - NOTE on remaining "can't move at all": if the client still cannot move,
+//     verify that SpawnAsPlayerObject(p.ClientId) in TestSceneBootstrapper uses the
+//     actual NGO LocalClientId, NOT a lobby-assigned ID. IsOwner = false if those
+//     IDs diverge, and FixedUpdate returns early without any movement.
 
 using UnityEngine;
 using Unity.Netcode;
 using TMPro;
-using System.Collections.Generic;
 using MidManStudio.Core.Audio;
 using MidManStudio.Core.FX;
 using MidManStudio.Core.Logging;
@@ -27,7 +26,7 @@ using MidManStudio.Projectiles.Adapters;
 using MidManStudio.Projectiles.Config;
 using MidManStudio.Core.Pools;
 using MidManStudio.Projectiles.Network;
-using Unity.Netcode.Components;
+
 namespace TestGame
 {
     public enum PlayerShootMode
@@ -87,10 +86,8 @@ namespace TestGame
         [SerializeField] private ProjectilePatternSO _shotPattern;
 
         [Header("Shoot Mode")]
-        [Tooltip("Starting shoot mode. Runtime value synced via _netShootMode NetworkVariable.")]
         [SerializeField] private PlayerShootMode _defaultShootMode = PlayerShootMode.LocalOnly;
         [SerializeField] private TMP_Text        _modeText;
-        [Tooltip("Optional UI Button to cycle through all shoot modes.")]
         [SerializeField] private UnityEngine.UI.Button _modeCycleButton;
 
         [Header("Dimension Toggle Key")]
@@ -127,13 +124,9 @@ namespace TestGame
 
         #region Networked State
 
-        // Head pitch synced for remote player head pivot animation.
         private readonly NetworkVariable<float> _netPitch = new NetworkVariable<float>(
-            0f,
-            NetworkVariableReadPermission.Everyone,
-            NetworkVariableWritePermission.Owner);
+            0f, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
 
-        // Shoot mode visible to all clients for debug display.
         private readonly NetworkVariable<int> _netShootMode = new NetworkVariable<int>(
             (int)PlayerShootMode.LocalOnly,
             NetworkVariableReadPermission.Everyone,
@@ -165,8 +158,8 @@ namespace TestGame
         {
             _rb        = GetComponent<Rigidbody>();
             _shootMode = _defaultShootMode;
-            // NOTE: Do NOT call ApplyRigidbodyConstraints here — IsOwner is always false
-            //       in Awake. We call it in OnNetworkSpawn once IsOwner is correctly set.
+            // NOTE: ApplyRigidbodyConstraints is NOT called here because IsOwner is always
+            // false in Awake. It is called in OnNetworkSpawn once IsOwner is set correctly.
             EnsureHeadPivot();
             EnsureShotPoints();
         }
@@ -179,8 +172,8 @@ namespace TestGame
         {
             base.OnNetworkSpawn();
 
-            // The NetworkTransform (or ClientNetworkTransform) on the prefab handles
-            // position sync automatically. We do NOT touch it here.
+            // The NetworkTransform (or ClientNetworkTransform) component on the prefab
+            // handles position sync automatically — it is not touched here.
 
             _netShootMode.OnValueChanged += OnShootModeChanged;
 
@@ -192,27 +185,22 @@ namespace TestGame
                 if (_modeCycleButton != null)
                     _modeCycleButton.onClick.AddListener(CycleModeNext);
 
-                // ── MOVEMENT FIX ─────────────────────────────────────────────
-                // ApplyRigidbodyConstraints checks IsOwner and returns early if false.
-                // In Awake() IsOwner is always false, so constraints were never applied.
-                // Now that IsOwner is properly set we apply them here.
                 Dimension startDim = DimensionManager.HasInstance
                     ? DimensionManager.Instance.Current
                     : Dimension.TwoD;
                 _currentDimension = startDim;
 
-                if (_rb != null) _rb.isKinematic = false; // owner drives physics
+                // MOVEMENT FIX: constraints must be applied after IsOwner is set.
+                // In Awake IsOwner is always false, so this was never running on the client.
+                // ApplyRigidbodyConstraints also sets isKinematic per-dimension (see below).
                 ApplyRigidbodyConstraints(startDim);
 
-                // Subscribe to dimension changes
                 if (DimensionManager.HasInstance)
                     DimensionManager.Instance.OnDimensionChanged += HandleDimensionChanged;
 
-                // Register cameras
                 if (DimensionCameraController.Instance != null)
                     DimensionCameraController.Instance.RegisterPlayerCams(transform, _headPivot);
 
-                // Tell the prediction manager which player is local
                 if (MID_MasterProjectileSystem.HasInstance)
                     MID_MasterProjectileSystem.Instance.SetLocalPlayerMidId(OwnerClientId);
 
@@ -222,7 +210,6 @@ namespace TestGame
             }
             else
             {
-                // Non-owner: kinematic so our local physics doesn't fight NT.
                 _shootMode = (PlayerShootMode)_netShootMode.Value;
                 UpdateModeText();
 
@@ -252,7 +239,6 @@ namespace TestGame
                 Cursor.lockState = CursorLockMode.None;
                 Cursor.visible   = true;
             }
-
             base.OnNetworkDespawn();
         }
 
@@ -264,14 +250,12 @@ namespace TestGame
         {
             if (!IsOwner)
             {
-                // Apply synced head pitch for remote player head pivot.
                 if (_headPivot != null)
                     _headPivot.localRotation = Quaternion.Euler(_netPitch.Value, 0f, 0f);
-                // Position is handled by NetworkTransform automatically — nothing else needed.
+                // NT handles position for non-owners automatically.
                 return;
             }
 
-            // ── Owner input ───────────────────────────────────────────────────
             if (Input.GetKeyDown(_dimensionKey)
                 && DimensionManager.HasInstance
                 && !DimensionManager.Instance.IsTransitioning)
@@ -297,14 +281,9 @@ namespace TestGame
         private void FixedUpdate()
         {
             if (!IsOwner) return;
-
             HandleMovement();
-
             if (Use3DConvention())
                 _rb.MoveRotation(Quaternion.Euler(0f, _yaw, 0f));
-
-            // NetworkTransform reads the transform/rigidbody and propagates to
-            // other machines automatically — no manual position sync needed here.
         }
 
         #endregion
@@ -323,26 +302,15 @@ namespace TestGame
             _shootMode = m;
             if (IsSpawned && IsOwner) _netShootMode.Value = (int)m;
             UpdateModeText();
-
             if (Use3DConvention())
-            {
-                Cursor.lockState = CursorLockMode.Locked;
-                Cursor.visible   = false;
-            }
+            { Cursor.lockState = CursorLockMode.Locked; Cursor.visible = false; }
             else if (_currentDimension == Dimension.TwoD)
-            {
-                Cursor.lockState = CursorLockMode.None;
-                Cursor.visible   = true;
-            }
+            { Cursor.lockState = CursorLockMode.None;   Cursor.visible = true; }
         }
 
         private void OnShootModeChanged(int _, int newVal)
         {
-            if (!IsOwner)
-            {
-                _shootMode = (PlayerShootMode)newVal;
-                UpdateModeText();
-            }
+            if (!IsOwner) { _shootMode = (PlayerShootMode)newVal; UpdateModeText(); }
         }
 
         private void UpdateModeText()
@@ -380,13 +348,9 @@ namespace TestGame
             return prefer3D ? _configId3D : _configId2D;
         }
 
-        private Vector3 ResolveFireDir()
-            => Use3DConvention() && _headPivot != null
-                ? _headPivot.forward
-                : transform.right;
-
-        private Transform ResolveShotPoint()
-            => Use3DConvention() ? _shotPoint3D : _shotPoint2D;
+        private Vector3    ResolveFireDir()  => Use3DConvention() && _headPivot != null
+            ? _headPivot.forward : transform.right;
+        private Transform  ResolveShotPoint() => Use3DConvention() ? _shotPoint3D : _shotPoint2D;
 
         #endregion
 
@@ -397,7 +361,6 @@ namespace TestGame
             _yaw   += Input.GetAxisRaw("Mouse X") * _mouseSensitivity;
             _pitch -= Input.GetAxisRaw("Mouse Y") * _mouseSensitivity;
             _pitch  = Mathf.Clamp(_pitch, _pitchMin, _pitchMax);
-
             if (_headPivot != null)
             {
                 _headPivot.localRotation = Quaternion.Euler(_pitch, 0f, 0f);
@@ -417,15 +380,24 @@ namespace TestGame
             if (_isDashing)
             {
                 if (Time.time >= _dashEndTime) _isDashing = false;
-                else { _rb.velocity = _dashDir * _dashSpeed; return; }
+                else { if (!_rb.isKinematic) _rb.velocity = _dashDir * _dashSpeed;
+                       else _rb.MovePosition(_rb.position + _dashDir * _dashSpeed * Time.fixedDeltaTime);
+                       return; }
             }
 
             if (!Use3DConvention())
             {
-                _rb.velocity = new Vector3(h * _moveSpeed2D, v * _moveSpeed2D, 0f);
+                // 2D: kinematic Rigidbody + MovePosition.
+                // MovePosition is compatible with server-auth NetworkTransform AND
+                // ClientNetworkTransform — it updates transform.position, which any
+                // NT variant reads and propagates to other machines.
+                Vector3 delta = new Vector3(h * _moveSpeed2D, v * _moveSpeed2D, 0f)
+                                * Time.fixedDeltaTime;
+                _rb.MovePosition(_rb.position + delta);
             }
             else
             {
+                // 3D: non-kinematic, velocity + gravity (jumping needs physics).
                 Vector3 dir = (transform.right * h + transform.forward * v).normalized;
                 _rb.velocity = new Vector3(
                     dir.x * _moveSpeed3D, _rb.velocity.y, dir.z * _moveSpeed3D);
@@ -442,20 +414,17 @@ namespace TestGame
         {
             float h = Input.GetAxisRaw("Horizontal");
             float v = Input.GetAxisRaw("Vertical");
-
             if (Use3DConvention())
             {
-                Vector3 inputDir = transform.right * h + transform.forward * v;
-                _dashDir = inputDir.sqrMagnitude > 0.01f
-                    ? inputDir.normalized
+                Vector3 d = transform.right * h + transform.forward * v;
+                _dashDir = d.sqrMagnitude > 0.01f ? d.normalized
                     : (_headPivot != null ? _headPivot.forward : transform.forward);
             }
             else
             {
-                Vector3 inputDir = new Vector3(h, v, 0f);
-                _dashDir = inputDir.sqrMagnitude > 0.01f ? inputDir.normalized : transform.right;
+                Vector3 d = new Vector3(h, v, 0f);
+                _dashDir = d.sqrMagnitude > 0.01f ? d.normalized : transform.right;
             }
-
             _isDashing    = true;
             _dashEndTime  = Time.time + _dashDuration;
             _nextDashTime = Time.time + _dashCooldown;
@@ -470,18 +439,16 @@ namespace TestGame
             if (!Input.GetKey(_fireKey))   return;
             if (Time.time < _nextFireTime) return;
             if (!ProjectileRegistry.HasInstance) return;
-
             _nextFireTime = Time.time + 1f / Mathf.Max(_fireRate, 0.01f);
 
             switch (_shootMode)
             {
-                case PlayerShootMode.Raycast2D: FireRaycast(is3D: false); break;
-                case PlayerShootMode.Raycast3D: FireRaycast(is3D: true);  break;
-                case PlayerShootMode.Physics2D: FirePhysics(is3D: false); break;
-                case PlayerShootMode.Physics3D: FirePhysics(is3D: true);  break;
-                default:                        FireSim();                break;
+                case PlayerShootMode.Raycast2D: FireRaycast(false); break;
+                case PlayerShootMode.Raycast3D: FireRaycast(true);  break;
+                case PlayerShootMode.Physics2D: FirePhysics(false); break;
+                case PlayerShootMode.Physics3D: FirePhysics(true);  break;
+                default:                        FireSim();          break;
             }
-
             PlayFireFX();
         }
 
@@ -490,7 +457,6 @@ namespace TestGame
             Transform sp   = ResolveShotPoint();
             Vector3 origin = sp != null ? sp.position : transform.position;
             Vector3 dir    = ResolveFireDir();
-
             if (MID_NativeAudioBridge.HasInstance)
                 MID_NativeAudioBridge.Instance.PlayClip(_fireSoundClipIndex, _fireSoundVolume);
             else if (_fallbackAudioSource != null && _fallbackFireClip != null)
@@ -499,7 +465,6 @@ namespace TestGame
                     -_fallbackPitchVariance, _fallbackPitchVariance);
                 _fallbackAudioSource.PlayOneShot(_fallbackFireClip, _fallbackVolume);
             }
-
             GlobalFXManager.Instance?.TriggerMuzzleFlash(
                 origin, dir, _muzzleFlashParticleCount, _muzzleFlashVolume);
         }
@@ -511,7 +476,6 @@ namespace TestGame
         private void FireSim()
         {
             if (!MID_MasterProjectileSystem.HasInstance) return;
-
             ushort cfgId = ResolveConfigId();
             var    cfg   = ProjectileRegistry.Instance.Get(cfgId);
             if (cfg == null)
@@ -525,21 +489,17 @@ namespace TestGame
             Vector3 origin = sp != null ? sp.position : transform.position;
             Vector3 dir    = ResolveFireDir();
             int n = _shotPattern != null
-                ? _shotPattern.ProjectileCount
-                : Mathf.Max(_pelletsPerShot, 1);
-
+                ? _shotPattern.ProjectileCount : Mathf.Max(_pelletsPerShot, 1);
             SpawnPoint[] pts = BuildSpawnPoints(origin, dir, n, cfg);
 
             bool networked = _shootMode != PlayerShootMode.LocalOnly
-                          && MID_MasterProjectileSystem.Instance.IsNetworked
-                          && IsSpawned;
+                          && MID_MasterProjectileSystem.Instance.IsNetworked && IsSpawned;
 
             if (!networked)
             {
                 if (LocalProjectileManager.HasInstance)
                 {
-                    bool use3D = Use3DConvention() || cfg.Is3D;
-                    if (use3D)
+                    if (Use3DConvention() || cfg.Is3D)
                         LocalProjectileManager.Instance.Spawn3D(
                             pts, pts.Length, cfgId, (uint)OwnerClientId, 1f);
                     else
@@ -549,14 +509,12 @@ namespace TestGame
                 return;
             }
 
-            // Build extras array for multi-pellet shots
             int extraCount = Mathf.Min(pts.Length - 1, 63);
             Vector3[] extraDirs = null;
             if (extraCount > 0)
             {
                 extraDirs = new Vector3[extraCount];
-                for (int i = 0; i < extraCount; i++)
-                    extraDirs[i] = pts[i + 1].Direction;
+                for (int i = 0; i < extraCount; i++) extraDirs[i] = pts[i + 1].Direction;
             }
 
             var request = new ProjectileFireRequest
@@ -577,8 +535,8 @@ namespace TestGame
                 ExtraDirections        = extraDirs
             };
 
-            // Immediate local prediction: spawn visual this frame, before server confirms.
-            // Pure clients only — the host renders directly from the Rust buffer.
+            // Immediate local prediction for pure clients — visual appears this frame.
+            // Host renders from the Rust buffer directly, skip prediction there.
             if (!IsServer)
             {
                 var predMgr = MID_MasterProjectileSystem.Instance.GetPredictionManager();
@@ -611,7 +569,6 @@ namespace TestGame
         private void FireRaycast(bool is3D)
         {
             if (!MID_MasterProjectileSystem.HasInstance) return;
-
             ushort cfgId = ResolveConfigId();
             var    cfg   = ProjectileRegistry.Instance.Get(cfgId);
             if (cfg == null) return;
@@ -619,10 +576,9 @@ namespace TestGame
             Transform sp   = ResolveShotPoint();
             Vector3 origin = sp != null ? sp.position : transform.position;
             Vector3 dir    = ResolveFireDir();
-
-            bool    hit   = false;
-            Vector3 hitPt = origin + dir * _raycastRange;
-            ulong   netId = 0;
+            bool    hit    = false;
+            Vector3 hitPt  = origin + dir * _raycastRange;
+            ulong   netId  = 0;
 
             if (is3D)
             {
@@ -647,28 +603,17 @@ namespace TestGame
 
             var result = new RaycastFireResult
             {
-                Origin             = origin,
-                Direction          = dir,
-                HitPoint           = hitPt,
-                DidHit             = hit,
-                HitTargetNetworkId = netId,
-                IsHeadshot         = false,
-                Is3D               = is3D
+                Origin = origin, Direction = dir, HitPoint = hitPt,
+                DidHit = hit, HitTargetNetworkId = netId, IsHeadshot = false, Is3D = is3D
             };
-
             var ctx = new WeaponFireContext
             {
-                FireRate               = _fireRate,
-                ProjectileCount        = 1,
-                IsNetworked            = MID_MasterProjectileSystem.Instance.IsNetworked && IsSpawned,
-                IsRaycastWeapon        = true,
-                OwnerMidId             = OwnerClientId,
-                FiredByNetworkObjectId = NetworkObjectId,
-                IsBotOwner             = false,
-                WeaponLevel            = 1,
-                DamageMultiplier       = 1f
+                FireRate = _fireRate, ProjectileCount = 1,
+                IsNetworked = MID_MasterProjectileSystem.Instance.IsNetworked && IsSpawned,
+                IsRaycastWeapon = true,
+                OwnerMidId = OwnerClientId, FiredByNetworkObjectId = NetworkObjectId,
+                IsBotOwner = false, WeaponLevel = 1, DamageMultiplier = 1f
             };
-
             MID_MasterProjectileSystem.Instance.RegisterRaycastFire(result, cfgId, ctx);
         }
 
@@ -679,36 +624,15 @@ namespace TestGame
         private void FirePhysics(bool is3D)
         {
             if (!MID_MasterProjectileSystem.HasInstance) return;
-
             Transform sp   = ResolveShotPoint();
             Vector3 origin = sp != null ? sp.position : transform.position;
             Vector3 dir    = ResolveFireDir();
 
-            // Immediate local prediction visual for the firing client.
-            // Same pattern as FireSim — visual appears this frame without waiting for RTT.
-            // The host skips this since it renders its own physics directly.
-            if (!IsServer)
-            {
-                var predMgr = MID_MasterProjectileSystem.Instance.GetPredictionManager();
-                if (predMgr != null)
-                {
-                    ushort cfgId = ResolveConfigId();
-                    var tempConf = new SpawnConfirmation
-                    {
-                        BaseProjId          = 0,
-                        ProjectileCount     = 1,
-                        ConfigId            = cfgId,
-                        ServerSpawnTick     = MID_MasterProjectileSystem.Instance.GetBridgeTick(),
-                        Origin              = origin,
-                        Direction           = dir,
-                        Speed               = _physicsProjectileSpeed,
-                        OwnerMidId          = OwnerClientId,
-                        ExtraDirectionCount = 0,
-                        ExtraDirections     = null
-                    };
-                    predMgr.SpawnImmediatePrediction(tempConf);
-                }
-            }
+            // NO SpawnImmediatePrediction here.
+            // The physics NetworkObject spawns via NGO on all clients and manages its own
+            // pool visual through PhysicsProjectileBase.SpawnPoolVisual — that is the
+            // single source of truth for the visual. Adding a prediction visual on top
+            // caused a double bullet on the firing client.
 
             if (MID_MasterProjectileSystem.Instance.IsNetworked && IsSpawned)
                 FirePhysicsServerRpc(origin, dir, is3D);
@@ -716,94 +640,21 @@ namespace TestGame
                 SpawnPhysicsProjectileLocal(origin, dir, is3D);
         }
 
-        /// <summary>
-        /// Server-side handler for physics projectile fire.
-        /// Spawns the authoritative NetworkObject (propagates to all clients via NGO)
-        /// AND fires BroadcastPhysicsVisualClientRpc so other clients get a guaranteed
-        /// prediction visual through the same pool system used by Rust sim — robust even
-        /// if the physics NetworkObject pool isn't perfectly wired up.
-        /// </summary>
         [ServerRpc(RequireOwnership = false)]
         private void FirePhysicsServerRpc(Vector3 origin, Vector3 direction, bool is3D)
-        {
-            // Spawn authoritative physics NetworkObject (appears on all clients via NGO).
-            SpawnPhysicsProjectileLocal(origin, direction, is3D);
-
-            // Broadcast a visual notification to all OTHER clients.
-            // The firing client already has an immediate prediction visual.
-            // The host (if not the firing client) doesn't need this either since it
-            // sees the physics object directly, but including it is harmless.
-            ushort cfgId = is3D ? _configId3D : _configId2D;
-
-            // Build the target list: all clients except the one that fired.
-            var others = new List<ulong>(NetworkManager.Singleton.ConnectedClientsIds.Count);
-            foreach (ulong id in NetworkManager.Singleton.ConnectedClientsIds)
-            {
-                if (id != OwnerClientId)
-                    others.Add(id);
-            }
-
-            if (others.Count > 0)
-            {
-                BroadcastPhysicsVisualClientRpc(
-                    origin, direction, _physicsProjectileSpeed, cfgId, OwnerClientId,
-                    new ClientRpcParams
-                    {
-                        Send = new ClientRpcSendParams { TargetClientIds = others }
-                    });
-            }
-        }
-
-        /// <summary>
-        /// Runs on all clients EXCEPT the firing client (filtered via ClientRpcParams).
-        /// Spawns a prediction visual through ClientPredictionManager — the exact same
-        /// path used by Rust sim / Raycast so other clients see physics projectiles
-        /// with the same reliability and visual quality.
-        /// </summary>
-        [ClientRpc]
-        private void BroadcastPhysicsVisualClientRpc(
-            Vector3 origin, Vector3 direction, float speed, ushort configId, ulong ownerMidId,
-            ClientRpcParams rpcParams = default)
-        {
-            var predMgr = MID_MasterProjectileSystem.Instance?.GetPredictionManager();
-            if (predMgr == null) return;
-
-            var conf = new SpawnConfirmation
-            {
-                BaseProjId          = 0,
-                ProjectileCount     = 1,
-                ConfigId            = configId,
-                ServerSpawnTick     = 0,
-                Origin              = origin,
-                Direction           = direction.normalized,
-                Speed               = speed,
-                OwnerMidId          = ownerMidId, // non-local → goes through fresh visual path
-                ExtraDirectionCount = 0,
-                ExtraDirections     = null
-            };
-
-            // ownerMidId != _localPlayerMidId on receiving clients, so OnSpawnConfirmed
-            // takes the "spawn fresh visual" branch — no pending temp to link.
-            predMgr.OnSpawnConfirmed(conf);
-        }
+            => SpawnPhysicsProjectileLocal(origin, direction, is3D);
 
         private void SpawnPhysicsProjectileLocal(Vector3 origin, Vector3 direction, bool is3D)
         {
             if (!MID_MasterProjectileSystem.Instance.IsServer
                 && MID_MasterProjectileSystem.Instance.IsNetworked) return;
 
-            Quaternion rot;
-            if (!is3D)
-            {
-                float angle = Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg;
-                rot = Quaternion.Euler(0f, 0f, angle);
-            }
-            else
-            {
-                rot = direction.sqrMagnitude > 0.001f
+            Quaternion rot = is3D
+                ? (direction.sqrMagnitude > 0.001f
                     ? Quaternion.LookRotation(direction.normalized)
-                    : Quaternion.identity;
-            }
+                    : Quaternion.identity)
+                : Quaternion.Euler(0f, 0f,
+                    Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg);
 
             var poolType = is3D ? _physicsPoolType3D : _physicsPoolType2D;
             var netObj   = MID_MasterProjectileSystem.Instance
@@ -823,8 +674,7 @@ namespace TestGame
                 proj.SetOwnerContext(
                     OwnerClientId, NetworkObjectId, false, 1, _physicsDamageMultiplier);
                 proj.InitialiseProjectile(
-                    OwnerClientId, NetworkObjectId,
-                    _physicsProjectileSpeed, false, 1);
+                    OwnerClientId, NetworkObjectId, _physicsProjectileSpeed, false, 1);
             }
             else
             {
@@ -857,9 +707,7 @@ namespace TestGame
                     : Quaternion.Euler(0f, 0f, frac * _spreadDeg) * dir;
                 pts[i] = new SpawnPoint
                 {
-                    Origin    = origin,
-                    Direction = sDir.normalized,
-                    Speed     = cfg.ResolveSpeed()
+                    Origin = origin, Direction = sDir.normalized, Speed = cfg.ResolveSpeed()
                 };
             }
             return pts;
@@ -871,12 +719,10 @@ namespace TestGame
             bool use3D     = Use3DConvention() || cfg.Is3D;
             var  angleDirs = _shotPattern.SampleDirections();
             var  pts       = new SpawnPoint[angleDirs.Length];
-
             Vector3 localRight, localUp;
             if (use3D)
             {
-                Vector3 fwd = baseDir.sqrMagnitude > 0.001f
-                    ? baseDir.normalized : Vector3.forward;
+                Vector3 fwd = baseDir.sqrMagnitude > 0.001f ? baseDir.normalized : Vector3.forward;
                 Vector3 worldUp = Mathf.Abs(Vector3.Dot(fwd, Vector3.up)) > 0.98f
                     ? Vector3.forward : Vector3.up;
                 localRight = Vector3.Cross(worldUp, fwd).normalized;
@@ -887,30 +733,19 @@ namespace TestGame
                 localRight = Vector3.Cross(baseDir, Vector3.forward).normalized;
                 localUp    = Vector3.forward;
             }
-
             for (int i = 0; i < angleDirs.Length; i++)
             {
-                var     angles = angleDirs[i];
-                Vector3 sDir;
-                if (use3D)
-                {
-                    Quaternion yawRot   = Quaternion.AngleAxis( angles.x, localUp);
-                    Quaternion pitchRot = Quaternion.AngleAxis(-angles.y, localRight);
-                    sDir = pitchRot * yawRot * baseDir;
-                    if (sDir.sqrMagnitude < 0.001f) sDir = baseDir;
-                }
-                else
-                {
-                    sDir = Quaternion.Euler(0f, 0f, angles.x) * baseDir;
-                    if (sDir.sqrMagnitude < 0.001f) sDir = baseDir;
-                }
-
+                var     a = angleDirs[i];
+                Vector3 sDir = use3D
+                    ? Quaternion.AngleAxis(-a.y, localRight) *
+                      Quaternion.AngleAxis(a.x, localUp) * baseDir
+                    : Quaternion.Euler(0f, 0f, a.x) * baseDir;
+                if (sDir.sqrMagnitude < 0.001f) sDir = baseDir;
                 float speedMult = _shotPattern.GetSpeedMultiplier(i, _shotPattern.RngSeed);
                 pts[i] = new SpawnPoint
                 {
-                    Origin    = origin,
-                    Direction = sDir.normalized,
-                    Speed     = cfg.ResolveSpeed() * speedMult
+                    Origin = origin, Direction = sDir.normalized,
+                    Speed  = cfg.ResolveSpeed() * speedMult
                 };
             }
             return pts;
@@ -933,16 +768,21 @@ namespace TestGame
             if (_rb == null || !IsOwner) return;
             if (dim == Dimension.TwoD)
             {
+                // Kinematic in 2D: movement driven by MovePosition (HandleMovement above),
+                // which is compatible with any NetworkTransform variant.
+                _rb.isKinematic = true;
                 _rb.constraints = RigidbodyConstraints.FreezePositionZ
                                 | RigidbodyConstraints.FreezeRotation;
                 _rb.useGravity  = false;
             }
             else
             {
+                // Non-kinematic in 3D: needs gravity and velocity-based movement.
+                _rb.isKinematic = false;
                 _rb.constraints = RigidbodyConstraints.FreezeRotationX
                                 | RigidbodyConstraints.FreezeRotationY
                                 | RigidbodyConstraints.FreezeRotationZ;
-                _rb.useGravity = true;
+                _rb.useGravity  = true;
                 var p = transform.position;
                 transform.position = new Vector3(p.x, p.y, 0f);
                 _rb.velocity = new Vector3(_rb.velocity.x, 0f, _rb.velocity.z);
