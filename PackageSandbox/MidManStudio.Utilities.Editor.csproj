@@ -114,11 +114,17 @@
     </Compile>
   </ItemGroup>
   <ItemGroup>
+    <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/MID_ScriptUtilitiesWindow.uxml">
+      <Link>Editor/Helpers/MID_ScriptUtilitiesWindow.uxml</Link>
+    </None>
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/MID_ScriptExecutionOrderWindow.uss">
       <Link>Editor/Helpers/MID_ScriptExecutionOrderWindow.uss</Link>
     </None>
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/MID_ScriptExecutionOrderWindow.uxml">
       <Link>Editor/Helpers/MID_ScriptExecutionOrderWindow.uxml</Link>
+    </None>
+    <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/MID_ScriptUtilitiesWindow.uss">
+      <Link>Editor/Helpers/MID_ScriptUtilitiesWindow.uss</Link>
     </None>
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/MidManStudio.Utilities.Editor.asmdef">
       <Link>Editor/MidManStudio.Utilities.Editor.asmdef</Link>
