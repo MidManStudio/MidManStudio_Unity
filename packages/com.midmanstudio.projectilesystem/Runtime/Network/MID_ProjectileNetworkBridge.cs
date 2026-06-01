@@ -1,14 +1,9 @@
-// packages/com.midmanstudio.projectilesystem/Runtime/Network/MID_ProjectileNetworkBridge.cs
-//
-// CHANGES:
-//   + RaycastFireServerRpc: added `bool clientIs3D` parameter.
-//     Without this the server reconstructed RaycastFireResult with Is3D=false
-//     regardless of how the weapon fired, so 3D raycast shots always spawned
-//     the 2D pool visual on all clients.
-//   + RaycastFireResult.Is3D = clientIs3D when building the server-side result.
-//
-// FIX (pattern projectiles vibrating in host mode) retained:
-//   SpawnConfirmedClientRpc returns early when IsServer.
+// MID_ProjectileNetworkBridge.cs
+// CHANGE: RaycastFireServerRpc now passes rpcParams.Receive.SenderClientId to
+// RaycastHandler.ServerHandleFire so it can exclude the firing client from
+// SpawnVisualClientRpc. Previously the server sent the visual to ALL clients,
+// causing the firing client to see two bullet visuals (their local one from
+// OfflineHandleFire + the server's).
 
 using System;
 using System.Runtime.InteropServices;
@@ -61,8 +56,7 @@ namespace MidManStudio.Projectiles.Network
             s.SerializeValue(ref ExtraDirectionCount);
 
             if (s.IsReader)
-                ExtraDirections = ExtraDirectionCount > 0
-                    ? new Vector3[ExtraDirectionCount] : null;
+                ExtraDirections = ExtraDirectionCount > 0 ? new Vector3[ExtraDirectionCount] : null;
 
             for (int i = 0; i < ExtraDirectionCount; i++)
             {
@@ -102,8 +96,7 @@ namespace MidManStudio.Projectiles.Network
             s.SerializeValue(ref ExtraDirectionCount);
 
             if (s.IsReader)
-                ExtraDirections = ExtraDirectionCount > 0
-                    ? new Vector3[ExtraDirectionCount] : null;
+                ExtraDirections = ExtraDirectionCount > 0 ? new Vector3[ExtraDirectionCount] : null;
 
             for (int i = 0; i < ExtraDirectionCount; i++)
             {
@@ -117,10 +110,9 @@ namespace MidManStudio.Projectiles.Network
         public Vector3 GetDirection(int i)
         {
             if (i == 0) return Direction;
-            int extraIdx = i - 1;
-            return (ExtraDirections != null && extraIdx < ExtraDirections.Length)
-                ? ExtraDirections[extraIdx]
-                : Direction;
+            int extra = i - 1;
+            return (ExtraDirections != null && extra < ExtraDirections.Length)
+                ? ExtraDirections[extra] : Direction;
         }
     }
 
@@ -192,7 +184,7 @@ namespace MidManStudio.Projectiles.Network
         private void ServerOnProjectileHit(ProjectileHitPayload payload)
         {
             if (!IsServer) return;
-            var confirm = new HitConfirmation
+            HitConfirmedClientRpc(new HitConfirmation
             {
                 ProjId          = payload.ProjId,
                 TargetNetworkId = payload.TargetId,
@@ -201,13 +193,12 @@ namespace MidManStudio.Projectiles.Network
                 IsHeadshot      = payload.IsHeadshot,
                 IsCrit          = payload.IsCrit,
                 ConfigId        = payload.ConfigId
-            };
-            HitConfirmedClientRpc(confirm);
+            });
         }
 
         #endregion
 
-        #region Client → Server: Fire
+        #region Client → Server: Fire (Rust Sim)
 
         [ServerRpc(RequireOwnership = false)]
         public void FireServerRpc(
@@ -226,7 +217,6 @@ namespace MidManStudio.Projectiles.Network
             }
 
             float clampedSpeed = Mathf.Clamp(request.Speed, cfg.MinSpeed, cfg.MaxSpeed);
-
             var context = new WeaponFireContext
             {
                 FireRate               = 0f,
@@ -244,8 +234,7 @@ namespace MidManStudio.Projectiles.Network
             var spawnPts   = BuildServerSpawnPoints(request);
             var rustParams = ProjectileRegistry.Instance.GetRustSpawnParams(
                 request.ConfigId, clampedSpeed);
-
-            uint baseId = Authority.AllocateProjIds(request.ProjectileCount);
+            uint baseId    = Authority.AllocateProjIds(request.ProjectileCount);
 
             var dataTemplate = new ServerProjectileData(
                 ownerMidId:         request.OwnerMidId,
@@ -278,7 +267,7 @@ namespace MidManStudio.Projectiles.Network
 
             if (written <= 0) return;
 
-            var confirm = new SpawnConfirmation
+            SpawnConfirmedClientRpc(new SpawnConfirmation
             {
                 BaseProjId          = baseId,
                 ProjectileCount     = (byte)written,
@@ -290,21 +279,13 @@ namespace MidManStudio.Projectiles.Network
                 OwnerMidId          = request.OwnerMidId,
                 ExtraDirectionCount = request.ExtraDirectionCount,
                 ExtraDirections     = request.ExtraDirections
-            };
-            SpawnConfirmedClientRpc(confirm);
+            });
         }
 
         #endregion
 
         #region Client → Server: Raycast
 
-        /// <summary>
-        /// FIX: added clientIs3D parameter.
-        /// Previously the server reconstructed RaycastFireResult with Is3D=false always,
-        /// so 3D raycast shots spawned the 2D pool visual on all clients.
-        /// Now Is3D flows from the firing client through to SpawnVisualClientRpc,
-        /// which selects _visualPoolType3D vs _visualPoolType2D correctly.
-        /// </summary>
         [ServerRpc(RequireOwnership = false)]
         public void RaycastFireServerRpc(
             ProjectileFireRequest request,
@@ -312,7 +293,7 @@ namespace MidManStudio.Projectiles.Network
             bool    clientDidHit,
             bool    clientIsHeadshot,
             ulong   clientHitTargetId,
-            bool    clientIs3D,               // NEW — was missing
+            bool    clientIs3D,
             ServerRpcParams rpcParams = default)
         {
             if (!IsServer || RaycastHandler == null) return;
@@ -325,7 +306,7 @@ namespace MidManStudio.Projectiles.Network
                 DidHit             = clientDidHit,
                 HitTargetNetworkId = clientHitTargetId,
                 IsHeadshot         = clientIsHeadshot,
-                Is3D               = clientIs3D          // NEW — set from RPC param
+                Is3D               = clientIs3D
             };
 
             var context = new WeaponFireContext
@@ -339,7 +320,11 @@ namespace MidManStudio.Projectiles.Network
                 DamageMultiplier       = request.DamageMultiplier
             };
 
-            RaycastHandler.ServerHandleFire(result, context, request.ConfigId);
+            // Pass the sender's client ID so ServerHandleFire can exclude them from
+            // SpawnVisualClientRpc — the firing client already has their local visual.
+            RaycastHandler.ServerHandleFire(
+                result, context, request.ConfigId,
+                rpcParams.Receive.SenderClientId);
         }
 
         #endregion
@@ -347,11 +332,9 @@ namespace MidManStudio.Projectiles.Network
         #region Server → Clients
 
         /// <summary>
-        /// Returns early when IsServer (host or dedicated).
-        /// On a host, ProjectileRenderer2D renders directly from the Rust buffer
-        /// every LateUpdate — spawning ClientPredictionManager pool visuals would
-        /// create a second set at slightly different positions (vibration bug).
-        /// Pure clients still receive prediction visuals as before.
+        /// Returns early on the host (IsServer) because the host renders projectiles
+        /// directly from the Rust buffer in ServerProjectileAuthority.LateUpdate.
+        /// Pure clients spawn prediction visuals to get immediate visual feedback.
         /// </summary>
         [ClientRpc]
         public void SpawnConfirmedClientRpc(SpawnConfirmation confirmation)
@@ -408,27 +391,21 @@ namespace MidManStudio.Projectiles.Network
         {
             int count = request.ProjectileCount;
             var pts   = new SpawnPoint[count];
-
             for (int i = 0; i < count; i++)
             {
                 Vector3 dir;
                 if (i == 0)
-                {
                     dir = request.Direction.normalized;
-                }
                 else
                 {
-                    int extraIdx = i - 1;
-                    dir = (request.ExtraDirections != null && extraIdx < request.ExtraDirections.Length)
-                        ? request.ExtraDirections[extraIdx].normalized
+                    int extra = i - 1;
+                    dir = (request.ExtraDirections != null && extra < request.ExtraDirections.Length)
+                        ? request.ExtraDirections[extra].normalized
                         : request.Direction.normalized;
                 }
-
                 pts[i] = new SpawnPoint
                 {
-                    Origin    = request.Origin,
-                    Direction = dir,
-                    Speed     = request.Speed
+                    Origin = request.Origin, Direction = dir, Speed = request.Speed
                 };
             }
             return pts;
