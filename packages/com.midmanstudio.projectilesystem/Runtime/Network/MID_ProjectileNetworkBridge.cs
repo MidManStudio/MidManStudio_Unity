@@ -1,9 +1,10 @@
 // MID_ProjectileNetworkBridge.cs
-// CHANGE: RaycastFireServerRpc now passes rpcParams.Receive.SenderClientId to
-// RaycastHandler.ServerHandleFire so it can exclude the firing client from
-// SpawnVisualClientRpc. Previously the server sent the visual to ALL clients,
-// causing the firing client to see two bullet visuals (their local one from
-// OfflineHandleFire + the server's).
+// CHANGE: Added FirePhysicsProjectileServerRpc with RequireOwnership=false.
+// Physics fire previously used a [ServerRpc] on NetworkedDimensionPlayer — if the
+// player NetworkObject ownership is mismatched (lobby ID ≠ NGO client ID), that RPC
+// is silently dropped and the client appears to not fire at all. Routing through the
+// bridge bypasses the player ownership check entirely, exactly like FireServerRpc does
+// for Rust sim projectiles.
 
 using System;
 using System.Runtime.InteropServices;
@@ -20,8 +21,6 @@ using MidManStudio.Projectiles.Managers;
 
 namespace MidManStudio.Projectiles.Network
 {
-    // ── Fire request ──────────────────────────────────────────────────────────
-
     public struct ProjectileFireRequest : INetworkSerializable
     {
         public ushort  ConfigId;
@@ -41,34 +40,21 @@ namespace MidManStudio.Projectiles.Network
 
         public void NetworkSerialize<T>(BufferSerializer<T> s) where T : IReaderWriter
         {
-            s.SerializeValue(ref ConfigId);
-            s.SerializeValue(ref Origin);
-            s.SerializeValue(ref Direction);
-            s.SerializeValue(ref Speed);
-            s.SerializeValue(ref RngSeed);
-            s.SerializeValue(ref ProjectileCount);
-            s.SerializeValue(ref OwnerMidId);
-            s.SerializeValue(ref FiredByNetworkObjectId);
-            s.SerializeValue(ref IsBotOwner);
-            s.SerializeValue(ref WeaponLevel);
-            s.SerializeValue(ref DamageMultiplier);
-            s.SerializeValue(ref ClientFireTick);
+            s.SerializeValue(ref ConfigId); s.SerializeValue(ref Origin); s.SerializeValue(ref Direction);
+            s.SerializeValue(ref Speed); s.SerializeValue(ref RngSeed); s.SerializeValue(ref ProjectileCount);
+            s.SerializeValue(ref OwnerMidId); s.SerializeValue(ref FiredByNetworkObjectId);
+            s.SerializeValue(ref IsBotOwner); s.SerializeValue(ref WeaponLevel);
+            s.SerializeValue(ref DamageMultiplier); s.SerializeValue(ref ClientFireTick);
             s.SerializeValue(ref ExtraDirectionCount);
-
-            if (s.IsReader)
-                ExtraDirections = ExtraDirectionCount > 0 ? new Vector3[ExtraDirectionCount] : null;
-
+            if (s.IsReader) ExtraDirections = ExtraDirectionCount > 0 ? new Vector3[ExtraDirectionCount] : null;
             for (int i = 0; i < ExtraDirectionCount; i++)
             {
-                Vector3 d = (s.IsWriter && ExtraDirections != null && i < ExtraDirections.Length)
-                    ? ExtraDirections[i] : Vector3.zero;
+                Vector3 d = (s.IsWriter && ExtraDirections != null && i < ExtraDirections.Length) ? ExtraDirections[i] : Vector3.zero;
                 s.SerializeValue(ref d);
                 if (s.IsReader && ExtraDirections != null) ExtraDirections[i] = d;
             }
         }
     }
-
-    // ── Spawn confirmation ────────────────────────────────────────────────────
 
     public struct SpawnConfirmation : INetworkSerializable
     {
@@ -85,23 +71,14 @@ namespace MidManStudio.Projectiles.Network
 
         public void NetworkSerialize<T>(BufferSerializer<T> s) where T : IReaderWriter
         {
-            s.SerializeValue(ref BaseProjId);
-            s.SerializeValue(ref ProjectileCount);
-            s.SerializeValue(ref ConfigId);
-            s.SerializeValue(ref ServerSpawnTick);
-            s.SerializeValue(ref Origin);
-            s.SerializeValue(ref Direction);
-            s.SerializeValue(ref Speed);
-            s.SerializeValue(ref OwnerMidId);
-            s.SerializeValue(ref ExtraDirectionCount);
-
-            if (s.IsReader)
-                ExtraDirections = ExtraDirectionCount > 0 ? new Vector3[ExtraDirectionCount] : null;
-
+            s.SerializeValue(ref BaseProjId); s.SerializeValue(ref ProjectileCount);
+            s.SerializeValue(ref ConfigId); s.SerializeValue(ref ServerSpawnTick);
+            s.SerializeValue(ref Origin); s.SerializeValue(ref Direction); s.SerializeValue(ref Speed);
+            s.SerializeValue(ref OwnerMidId); s.SerializeValue(ref ExtraDirectionCount);
+            if (s.IsReader) ExtraDirections = ExtraDirectionCount > 0 ? new Vector3[ExtraDirectionCount] : null;
             for (int i = 0; i < ExtraDirectionCount; i++)
             {
-                Vector3 d = (s.IsWriter && ExtraDirections != null && i < ExtraDirections.Length)
-                    ? ExtraDirections[i] : Vector3.zero;
+                Vector3 d = (s.IsWriter && ExtraDirections != null && i < ExtraDirections.Length) ? ExtraDirections[i] : Vector3.zero;
                 s.SerializeValue(ref d);
                 if (s.IsReader && ExtraDirections != null) ExtraDirections[i] = d;
             }
@@ -111,12 +88,9 @@ namespace MidManStudio.Projectiles.Network
         {
             if (i == 0) return Direction;
             int extra = i - 1;
-            return (ExtraDirections != null && extra < ExtraDirections.Length)
-                ? ExtraDirections[extra] : Direction;
+            return (ExtraDirections != null && extra < ExtraDirections.Length) ? ExtraDirections[extra] : Direction;
         }
     }
-
-    // ── Hit confirmation ──────────────────────────────────────────────────────
 
     public struct HitConfirmation : INetworkSerializable
     {
@@ -130,17 +104,11 @@ namespace MidManStudio.Projectiles.Network
 
         public void NetworkSerialize<T>(BufferSerializer<T> s) where T : IReaderWriter
         {
-            s.SerializeValue(ref ProjId);
-            s.SerializeValue(ref TargetNetworkId);
-            s.SerializeValue(ref Damage);
-            s.SerializeValue(ref HitPosition);
-            s.SerializeValue(ref IsHeadshot);
-            s.SerializeValue(ref IsCrit);
-            s.SerializeValue(ref ConfigId);
+            s.SerializeValue(ref ProjId); s.SerializeValue(ref TargetNetworkId);
+            s.SerializeValue(ref Damage); s.SerializeValue(ref HitPosition);
+            s.SerializeValue(ref IsHeadshot); s.SerializeValue(ref IsCrit); s.SerializeValue(ref ConfigId);
         }
     }
-
-    // ── Bridge ────────────────────────────────────────────────────────────────
 
     public sealed class MID_ProjectileNetworkBridge : NetworkBehaviour
     {
@@ -153,11 +121,7 @@ namespace MidManStudio.Projectiles.Network
 
         #endregion
 
-        #region Events
-
         public event Action<HitConfirmation> OnHitConfirmedLocal;
-
-        #endregion
 
         [SerializeField] private MID_LogLevel _logLevel = MID_LogLevel.Info;
 
@@ -177,91 +141,57 @@ namespace MidManStudio.Projectiles.Network
             base.OnNetworkDespawn();
         }
 
-        #endregion
-
-        #region Server → client hit routing
-
         private void ServerOnProjectileHit(ProjectileHitPayload payload)
         {
             if (!IsServer) return;
             HitConfirmedClientRpc(new HitConfirmation
             {
-                ProjId          = payload.ProjId,
-                TargetNetworkId = payload.TargetId,
-                Damage          = payload.Damage,
-                HitPosition     = payload.HitPosition,
-                IsHeadshot      = payload.IsHeadshot,
-                IsCrit          = payload.IsCrit,
-                ConfigId        = payload.ConfigId
+                ProjId = payload.ProjId, TargetNetworkId = payload.TargetId, Damage = payload.Damage,
+                HitPosition = payload.HitPosition, IsHeadshot = payload.IsHeadshot,
+                IsCrit = payload.IsCrit, ConfigId = payload.ConfigId
             });
         }
 
         #endregion
 
-        #region Client → Server: Fire (Rust Sim)
+        #region Client → Server: Rust Sim
 
         [ServerRpc(RequireOwnership = false)]
-        public void FireServerRpc(
-            ProjectileFireRequest request,
-            ServerRpcParams rpcParams = default)
+        public void FireServerRpc(ProjectileFireRequest request, ServerRpcParams rpcParams = default)
         {
             if (!IsServer) return;
-
             var cfg = ProjectileRegistry.Instance.Get(request.ConfigId);
-            if (cfg == null)
-            {
-                MID_Logger.LogWarning(_logLevel,
-                    $"FireServerRpc: unknown configId {request.ConfigId}",
-                    nameof(MID_ProjectileNetworkBridge));
-                return;
-            }
+            if (cfg == null) { MID_Logger.LogWarning(_logLevel, $"FireServerRpc: unknown configId {request.ConfigId}", nameof(MID_ProjectileNetworkBridge)); return; }
 
             float clampedSpeed = Mathf.Clamp(request.Speed, cfg.MinSpeed, cfg.MaxSpeed);
             var context = new WeaponFireContext
             {
-                FireRate               = 0f,
-                ProjectileCount        = request.ProjectileCount,
-                IsNetworked            = true,
-                IsRaycastWeapon        = false,
-                LatencyCompensation    = ComputeLatencyComp(rpcParams, request.ClientFireTick),
-                OwnerMidId             = request.OwnerMidId,
-                FiredByNetworkObjectId = request.FiredByNetworkObjectId,
-                IsBotOwner             = request.IsBotOwner,
-                WeaponLevel            = request.WeaponLevel,
-                DamageMultiplier       = request.DamageMultiplier
+                ProjectileCount = request.ProjectileCount, IsNetworked = true, IsRaycastWeapon = false,
+                LatencyCompensation = ComputeLatencyComp(rpcParams, request.ClientFireTick),
+                OwnerMidId = request.OwnerMidId, FiredByNetworkObjectId = request.FiredByNetworkObjectId,
+                IsBotOwner = request.IsBotOwner, WeaponLevel = request.WeaponLevel, DamageMultiplier = request.DamageMultiplier
             };
 
             var spawnPts   = BuildServerSpawnPoints(request);
-            var rustParams = ProjectileRegistry.Instance.GetRustSpawnParams(
-                request.ConfigId, clampedSpeed);
+            var rustParams = ProjectileRegistry.Instance.GetRustSpawnParams(request.ConfigId, clampedSpeed);
             uint baseId    = Authority.AllocateProjIds(request.ProjectileCount);
-
-            var dataTemplate = new ServerProjectileData(
-                ownerMidId:         request.OwnerMidId,
-                firedById:          request.FiredByNetworkObjectId,
-                isBot:              request.IsBotOwner,
-                level:              request.WeaponLevel,
-                spawnPos2D:         new Vector2(request.Origin.x, request.Origin.y),
-                damageMultiplierIn: request.DamageMultiplier,
-                config:             cfg);
+            var dataTemplate = new ServerProjectileData(request.OwnerMidId, request.FiredByNetworkObjectId,
+                request.IsBotOwner, request.WeaponLevel,
+                new Vector2(request.Origin.x, request.Origin.y), request.DamageMultiplier, cfg);
 
             int written;
             if (!cfg.Is3D)
             {
-                var (writePtr, remaining) = Authority.Get2DWriteHead();
-                written = BatchSpawnHelper.SpawnBatch2D(
-                    spawnPts, request.ProjectileCount, null, rustParams,
-                    request.ConfigId, 0, baseId, writePtr, remaining,
-                    context.LatencyCompensation);
+                var (ptr, rem) = Authority.Get2DWriteHead();
+                written = BatchSpawnHelper.SpawnBatch2D(spawnPts, request.ProjectileCount, null, rustParams,
+                    request.ConfigId, 0, baseId, ptr, rem, context.LatencyCompensation);
                 Authority.NotifyBatchSpawned2D(written, baseId, dataTemplate);
             }
             else
             {
-                var (writePtr, remaining) = Authority.Get3DWriteHead();
-                written = BatchSpawnHelper.SpawnBatch3D(
-                    spawnPts, request.ProjectileCount, rustParams,
-                    request.ConfigId, 0, baseId, writePtr, remaining,
-                    context.LatencyCompensation);
+                var (ptr, rem) = Authority.Get3DWriteHead();
+                written = BatchSpawnHelper.SpawnBatch3D(spawnPts, request.ProjectileCount, rustParams,
+                    request.ConfigId, 0, baseId, ptr, rem, context.LatencyCompensation);
                 Authority.NotifyBatchSpawned3D(written, baseId, dataTemplate);
             }
 
@@ -269,16 +199,10 @@ namespace MidManStudio.Projectiles.Network
 
             SpawnConfirmedClientRpc(new SpawnConfirmation
             {
-                BaseProjId          = baseId,
-                ProjectileCount     = (byte)written,
-                ConfigId            = request.ConfigId,
-                ServerSpawnTick     = GetServerTick(),
-                Origin              = request.Origin,
-                Direction           = request.Direction,
-                Speed               = clampedSpeed,
-                OwnerMidId          = request.OwnerMidId,
-                ExtraDirectionCount = request.ExtraDirectionCount,
-                ExtraDirections     = request.ExtraDirections
+                BaseProjId = baseId, ProjectileCount = (byte)written, ConfigId = request.ConfigId,
+                ServerSpawnTick = GetServerTick(), Origin = request.Origin, Direction = request.Direction,
+                Speed = clampedSpeed, OwnerMidId = request.OwnerMidId,
+                ExtraDirectionCount = request.ExtraDirectionCount, ExtraDirections = request.ExtraDirections
             });
         }
 
@@ -289,75 +213,92 @@ namespace MidManStudio.Projectiles.Network
         [ServerRpc(RequireOwnership = false)]
         public void RaycastFireServerRpc(
             ProjectileFireRequest request,
-            Vector3 clientHitPoint,
-            bool    clientDidHit,
-            bool    clientIsHeadshot,
-            ulong   clientHitTargetId,
-            bool    clientIs3D,
+            Vector3 clientHitPoint, bool clientDidHit, bool clientIsHeadshot,
+            ulong clientHitTargetId, bool clientIs3D,
             ServerRpcParams rpcParams = default)
         {
             if (!IsServer || RaycastHandler == null) return;
-
-            var result = new RaycastFireResult
+            RaycastHandler.ServerHandleFire(new RaycastFireResult
             {
-                Origin             = request.Origin,
-                Direction          = request.Direction,
-                HitPoint           = clientHitPoint,
-                DidHit             = clientDidHit,
-                HitTargetNetworkId = clientHitTargetId,
-                IsHeadshot         = clientIsHeadshot,
-                Is3D               = clientIs3D
-            };
-
-            var context = new WeaponFireContext
+                Origin = request.Origin, Direction = request.Direction, HitPoint = clientHitPoint,
+                DidHit = clientDidHit, HitTargetNetworkId = clientHitTargetId,
+                IsHeadshot = clientIsHeadshot, Is3D = clientIs3D
+            }, new WeaponFireContext
             {
-                IsRaycastWeapon        = true,
-                IsNetworked            = true,
-                OwnerMidId             = request.OwnerMidId,
-                FiredByNetworkObjectId = request.FiredByNetworkObjectId,
-                IsBotOwner             = request.IsBotOwner,
-                WeaponLevel            = request.WeaponLevel,
-                DamageMultiplier       = request.DamageMultiplier
-            };
+                IsRaycastWeapon = true, IsNetworked = true, OwnerMidId = request.OwnerMidId,
+                FiredByNetworkObjectId = request.FiredByNetworkObjectId, IsBotOwner = request.IsBotOwner,
+                WeaponLevel = request.WeaponLevel, DamageMultiplier = request.DamageMultiplier
+            }, request.ConfigId, rpcParams.Receive.SenderClientId);
+        }
 
-            // Pass the sender's client ID so ServerHandleFire can exclude them from
-            // SpawnVisualClientRpc — the firing client already has their local visual.
-            RaycastHandler.ServerHandleFire(
-                result, context, request.ConfigId,
-                rpcParams.Receive.SenderClientId);
+        #endregion
+
+        #region Client → Server: Physics (NEW)
+
+        /// <summary>
+        /// Spawns a physics NetworkObject projectile on the server. RequireOwnership=false so
+        /// any client can call it regardless of who owns the player NetworkObject — this is
+        /// why physics fire was broken for clients: the old [ServerRpc] on NetworkedDimensionPlayer
+        /// required ownership which could fail if lobby IDs don't match NGO client IDs.
+        /// </summary>
+        [ServerRpc(RequireOwnership = false)]
+        public void FirePhysicsProjectileServerRpc(
+            Vector3 origin, Quaternion rotation,
+            PoolableNetworkObjectType poolType,
+            float speed, float damageMultiplier,
+            ulong ownerMidId, ulong firedByNetObjId,
+            ServerRpcParams rpcParams = default)
+        {
+            if (!IsServer) return;
+            if (!MID_MasterProjectileSystem.HasInstance) return;
+
+            var netObj = MID_MasterProjectileSystem.Instance
+                .SpawnPhysicsProjectile(poolType, origin, rotation);
+
+            if (netObj == null)
+            {
+                MID_Logger.LogWarning(_logLevel,
+                    $"FirePhysicsProjectileServerRpc: pool returned null for {poolType}. " +
+                    "Ensure MID_NetworkObjectPool is assigned and the blueprint prefabs are registered.",
+                    nameof(MID_ProjectileNetworkBridge));
+                return;
+            }
+
+            var proj = netObj.GetComponent<PhysicsProjectileBase>();
+            if (proj != null)
+            {
+                proj.SetOwnerContext(ownerMidId, firedByNetObjId, false, 1, damageMultiplier);
+                proj.InitialiseProjectile(ownerMidId, firedByNetObjId, speed, false, 1);
+            }
+            else
+            {
+                MID_Logger.LogWarning(_logLevel,
+                    $"FirePhysicsProjectileServerRpc: no PhysicsProjectileBase on '{netObj.name}'.",
+                    nameof(MID_ProjectileNetworkBridge));
+            }
         }
 
         #endregion
 
         #region Server → Clients
 
-        /// <summary>
-        /// Returns early on the host (IsServer) because the host renders projectiles
-        /// directly from the Rust buffer in ServerProjectileAuthority.LateUpdate.
-        /// Pure clients spawn prediction visuals to get immediate visual feedback.
-        /// </summary>
         [ClientRpc]
         public void SpawnConfirmedClientRpc(SpawnConfirmation confirmation)
         {
+            // Host renders from Rust buffer directly (ServerProjectileAuthority.LateUpdate).
+            // Pure clients use the prediction manager.
             if (IsServer) return;
-
             MID_Logger.LogDebug(_logLevel,
-                $"SpawnConfirmedClientRpc: baseId={confirmation.BaseProjId} " +
-                $"count={confirmation.ProjectileCount}",
+                $"SpawnConfirmedClientRpc: baseId={confirmation.BaseProjId} count={confirmation.ProjectileCount}",
                 nameof(MID_ProjectileNetworkBridge));
-
             Prediction?.OnSpawnConfirmed(confirmation);
         }
 
         [ClientRpc]
         public void HitConfirmedClientRpc(HitConfirmation confirmation)
         {
-            if (IsClient)
-                Prediction?.OnHitConfirmed(confirmation);
-
-            ImpactHandler?.PlayImpact(
-                confirmation.HitPosition, confirmation.ConfigId, confirmation.IsHeadshot);
-
+            if (IsClient) Prediction?.OnHitConfirmed(confirmation);
+            ImpactHandler?.PlayImpact(confirmation.HitPosition, confirmation.ConfigId, confirmation.IsHeadshot);
             OnHitConfirmedLocal?.Invoke(confirmation);
         }
 
@@ -375,38 +316,25 @@ namespace MidManStudio.Projectiles.Network
         #region Utility
 
         public int GetServerTick()
-            => NetworkManager.Singleton != null
-                ? NetworkManager.Singleton.ServerTime.Tick : 0;
+            => NetworkManager.Singleton != null ? NetworkManager.Singleton.ServerTime.Tick : 0;
 
         private float ComputeLatencyComp(ServerRpcParams rpc, int clientTick)
         {
             if (NetworkManager.Singleton == null) return 0f;
-            int   serverTick   = GetServerTick();
-            int   deltaTicks   = serverTick - clientTick;
+            int deltaTicks = GetServerTick() - clientTick;
             float tickInterval = 1f / NetworkManager.Singleton.NetworkTickSystem.TickRate;
             return Mathf.Clamp(deltaTicks * tickInterval, 0f, 0.5f);
         }
 
-        private static SpawnPoint[] BuildServerSpawnPoints(ProjectileFireRequest request)
+        private static SpawnPoint[] BuildServerSpawnPoints(ProjectileFireRequest req)
         {
-            int count = request.ProjectileCount;
-            var pts   = new SpawnPoint[count];
-            for (int i = 0; i < count; i++)
+            var pts = new SpawnPoint[req.ProjectileCount];
+            for (int i = 0; i < req.ProjectileCount; i++)
             {
-                Vector3 dir;
-                if (i == 0)
-                    dir = request.Direction.normalized;
-                else
-                {
-                    int extra = i - 1;
-                    dir = (request.ExtraDirections != null && extra < request.ExtraDirections.Length)
-                        ? request.ExtraDirections[extra].normalized
-                        : request.Direction.normalized;
-                }
-                pts[i] = new SpawnPoint
-                {
-                    Origin = request.Origin, Direction = dir, Speed = request.Speed
-                };
+                Vector3 dir = i == 0 ? req.Direction.normalized
+                    : (req.ExtraDirections != null && i - 1 < req.ExtraDirections.Length
+                        ? req.ExtraDirections[i - 1].normalized : req.Direction.normalized);
+                pts[i] = new SpawnPoint { Origin = req.Origin, Direction = dir, Speed = req.Speed };
             }
             return pts;
         }

@@ -1,16 +1,21 @@
 // ClientPredictionManager.cs
-// CHANGES:
-//   + SpawnImmediatePrediction(): called by NetworkedDimensionPlayer the frame the client
-//     fires. Spawns a pool visual with a temp ID so the bullet appears immediately.
-//   + OnSpawnConfirmed(): for local-player confirmations with a pending temp prediction,
-//     LinkPredictionId() swaps the temp ID for the server-assigned one so reconciliation
-//     works correctly. For ALL other projectiles (non-local players, or no pending temp),
-//     a fresh prediction visual is spawned — this is the fix for "host fires, clients see
-//     nothing" (previously routed to the empty ClientProjectileVisualManager stub).
-//   + SpawnPredictionVisual(): now accepts an int directionIndex so multi-pellet shots
-//     (shotgun, patterns) each travel in their own direction instead of all using Direction[0].
-//   + _pendingTempIds queue: FIFO matching of immediate predictions to server confirmations.
-//     If a temp visual expires before confirmation arrives, it's cleaned up safely in Update.
+// FIX (Rust sim back-and-forth oscillation): The reconciliation lerp was BACKWARDS.
+//
+// Old (broken) logic in Update:
+//   displayPos = Lerp(predicted, reconcileTarget, 1 - t)
+//   t=0 → jumps TO server position
+//   t=1 → returns BACK to prediction position
+// This caused the exact oscillation described: snap to server, drift back, snap again.
+//
+// Fixed logic:
+//   - PredictedProjectile now stores ReconcileStartPosition (where the visual was
+//     when reconciliation began).
+//   - displayPos = Lerp(startPosition, reconcileTarget, t)  ← correct direction
+//   - When reconciliation finishes, pred.Origin is rebased so the linear prediction
+//     continues forward from the corrected position instead of immediately diverging.
+//
+// All other code (immediate prediction, SpawnImmediatePrediction, LinkPredictionId,
+// multi-direction spawns, non-local player visuals) is unchanged.
 
 using System;
 using System.Collections.Generic;
@@ -25,57 +30,25 @@ using Unity.Netcode;
 
 namespace MidManStudio.Projectiles.Network
 {
-    // ── Circular buffer ───────────────────────────────────────────────────────
-
     internal sealed class CircularBuffer<T>
     {
         private readonly T[] _buffer;
         private int _head;
         private int _count;
-
         public int Capacity => _buffer.Length;
         public int Count    => _count;
-
         public CircularBuffer(int capacity) => _buffer = new T[capacity];
-
-        public void Add(T item)
-        {
-            _buffer[_head] = item;
-            _head = (_head + 1) % _buffer.Length;
-            if (_count < _buffer.Length) _count++;
-        }
-
-        public T Get(int index)
-        {
-            if (index < 0 || index >= _count)
-                throw new IndexOutOfRangeException();
-            int bufIdx = (_head - _count + index + _buffer.Length) % _buffer.Length;
-            return _buffer[bufIdx];
-        }
-
-        public bool TryFindLatest(Predicate<T> match, out T result)
-        {
-            for (int i = _count - 1; i >= 0; i--)
-            {
-                var item = Get(i);
-                if (match(item)) { result = item; return true; }
-            }
-            result = default;
-            return false;
-        }
-
+        public void Add(T item) { _buffer[_head] = item; _head = (_head + 1) % _buffer.Length; if (_count < _buffer.Length) _count++; }
+        public T Get(int index) { if (index < 0 || index >= _count) throw new IndexOutOfRangeException(); return _buffer[(_head - _count + index + _buffer.Length) % _buffer.Length]; }
+        public bool TryFindLatest(Predicate<T> match, out T result) { for (int i = _count - 1; i >= 0; i--) { var item = Get(i); if (match(item)) { result = item; return true; } } result = default; return false; }
         public void Clear() { _head = 0; _count = 0; }
     }
-
-    // ── State payload ─────────────────────────────────────────────────────────
 
     internal struct ProjectileStatePayload
     {
         public int     ServerTick;
         public Vector3 PredictedPosition;
     }
-
-    // ── Per-projectile prediction state ───────────────────────────────────────
 
     internal sealed class PredictedProjectile
     {
@@ -96,8 +69,10 @@ namespace MidManStudio.Projectiles.Network
 
         public CircularBuffer<ProjectileStatePayload> History;
 
+        // ── Reconciliation ────────────────────────────────────────────────────
         public bool    IsReconciling;
-        public Vector3 ReconcileTarget;
+        public Vector3 ReconcileStartPosition; // where the visual was when reconcile began
+        public Vector3 ReconcileTarget;         // server-reported position to correct toward
         public float   ReconcileStartTime;
         public float   ReconcileDuration;
 
@@ -106,28 +81,24 @@ namespace MidManStudio.Projectiles.Network
         public Vector3 ConfirmedHitPosition;
     }
 
-    // ── Manager ───────────────────────────────────────────────────────────────
-
     public sealed class ClientPredictionManager : MonoBehaviour
     {
         #region Configuration
 
         [Header("Reconciliation")]
-        [SerializeField] private float _reconcileThreshold = 0.5f;
+        [Tooltip("Error in world units below which reconciliation is skipped (small jitter ignored).")]
+        [SerializeField] private float _reconcileThreshold = 0.3f;
+        [Tooltip("Error above which the visual hard-snaps instead of smoothly correcting.")]
         [SerializeField] private float _hardSnapThreshold  = 3f;
-        [SerializeField] private float _reconcileDuration  = 0.15f;
+        [Tooltip("Seconds to smoothly blend from current position to server position.")]
+        [SerializeField] private float _reconcileDuration  = 0.12f;
 
         [Header("History Buffer")]
         [SerializeField] private int _historySize = 32;
 
         [Header("Visual Pool Types")]
-        [Tooltip("Pool type for 2D projectile visuals.")]
-        [SerializeField] private PoolableObjectType _visualPoolType2D
-            = PoolableObjectType.Projectile_Visual2D;
-
-        [Tooltip("Pool type for 3D projectile visuals.")]
-        [SerializeField] private PoolableObjectType _visualPoolType3D
-            = PoolableObjectType.Projectile_Visual3D;
+        [SerializeField] private PoolableObjectType _visualPoolType2D = PoolableObjectType.Projectile_Visual2D;
+        [SerializeField] private PoolableObjectType _visualPoolType3D = PoolableObjectType.Projectile_Visual3D;
 
         [Header("Local Player")]
         [SerializeField] private ulong _localPlayerMidId;
@@ -139,15 +110,11 @@ namespace MidManStudio.Projectiles.Network
 
         #region State
 
-        private readonly Dictionary<uint, PredictedProjectile> _predictions
-            = new Dictionary<uint, PredictedProjectile>(64);
+        private readonly Dictionary<uint, PredictedProjectile> _predictions = new(64);
 
-        // ── Immediate prediction tracking ─────────────────────────────────────
-        // When the owning client fires, we spawn a visual with a temp ID before
-        // the server confirms. These temp IDs are queued FIFO; when the server
-        // confirmation arrives we pop the oldest and link it to the real projId.
+        // Immediate prediction tracking: FIFO queue of temp IDs spawned before server confirms.
         private readonly Queue<uint> _pendingTempIds = new Queue<uint>(16);
-        private uint _nextTempId = 0xFFFE0000u; // well above any real server projId
+        private uint _nextTempId = 0xFFFE0000u;
 
         #endregion
 
@@ -157,13 +124,12 @@ namespace MidManStudio.Projectiles.Network
 
         #endregion
 
-        #region Public API — Immediate Local Prediction
+        #region Public API — Immediate Prediction
 
         /// <summary>
-        /// Spawn a prediction visual right now — before the server has confirmed
-        /// the fire event. Call this from the owning client's fire method.
-        /// When SpawnConfirmedClientRpc arrives, OnSpawnConfirmed will link the
-        /// temp visual(s) to the server-assigned projIds via LinkPredictionId().
+        /// Spawn a prediction visual this frame — before the server confirms.
+        /// Called from the firing client's fire method (FireSim). When SpawnConfirmedClientRpc
+        /// arrives, OnSpawnConfirmed links the temp visual to the server-assigned projId.
         /// </summary>
         public void SpawnImmediatePrediction(SpawnConfirmation tempConf)
         {
@@ -177,19 +143,13 @@ namespace MidManStudio.Projectiles.Network
 
         #endregion
 
-        #region Public API — Called by MID_ProjectileNetworkBridge
+        #region Public API — Bridge callbacks
 
         /// <summary>
-        /// Called when the server confirms a projectile spawn.
+        /// Called by MID_ProjectileNetworkBridge when the server confirms a Rust sim spawn.
         ///
-        /// Three cases:
-        ///   1. Local player + pending temp prediction  → link temp → real ID (no new visual).
-        ///   2. Local player + no pending (edge case)  → spawn fresh visual.
-        ///   3. Any other player (non-local)            → spawn fresh visual.
-        ///
-        /// Case 3 is the critical fix: previously non-local projectiles were routed to
-        /// the empty ClientProjectileVisualManager stub, making host projectiles invisible
-        /// to clients and vice-versa.
+        /// Local player with pending temp: link temp visual to real ID (no second visual).
+        /// Everyone else: spawn a fresh prediction visual so all players' projectiles are visible.
         /// </summary>
         public void OnSpawnConfirmed(SpawnConfirmation confirmation)
         {
@@ -200,25 +160,15 @@ namespace MidManStudio.Projectiles.Network
                 uint serverProjId = confirmation.BaseProjId + (uint)i;
 
                 if (isLocal && _pendingTempIds.Count > 0)
-                {
-                    // Link the oldest immediate-prediction visual to the confirmed ID.
-                    uint tempId = _pendingTempIds.Dequeue();
-                    LinkPredictionId(tempId, serverProjId);
-                }
+                    LinkPredictionId(_pendingTempIds.Dequeue(), serverProjId);
                 else
-                {
-                    // No pending temp prediction (non-local player, or very rare edge case):
-                    // spawn a fresh prediction visual so other players' projectiles are visible.
                     SpawnPredictionVisual(serverProjId, confirmation, i);
-                }
             }
         }
 
         public void OnHitConfirmed(HitConfirmation confirmation)
         {
-            if (!_predictions.TryGetValue(confirmation.ProjId, out var pred))
-                return;
-
+            if (!_predictions.TryGetValue(confirmation.ProjId, out var pred)) return;
             pred.IsConfirmedHit       = true;
             pred.ConfirmedHitPosition = confirmation.HitPosition;
         }
@@ -231,7 +181,6 @@ namespace MidManStudio.Projectiles.Network
                 ReconcileOne(snapshots2D[i].ProjId,
                     new Vector3(snapshots2D[i].X, snapshots2D[i].Y, 0f),
                     snapshots2D[i].ServerTick);
-
             for (int i = 0; i < count3D; i++)
                 ReconcileOne(snapshots3D[i].ProjId,
                     new Vector3(snapshots3D[i].X, snapshots3D[i].Y, snapshots3D[i].Z),
@@ -254,7 +203,7 @@ namespace MidManStudio.Projectiles.Network
                 var pred = kvp.Value;
                 if (pred.VisualObject == null) { toRemove.Add(kvp.Key); continue; }
 
-                // ── Confirmed hit: travel to hit point then despawn ────────────
+                // ── Confirmed hit: travel to impact point then despawn ─────────
                 if (pred.IsConfirmedHit)
                 {
                     pred.VisualObject.transform.position = Vector3.MoveTowards(
@@ -262,25 +211,16 @@ namespace MidManStudio.Projectiles.Network
                         pred.ConfirmedHitPosition,
                         pred.Speed * Time.deltaTime);
 
-                    if (Vector3.Distance(
-                        pred.VisualObject.transform.position,
-                        pred.ConfirmedHitPosition) < 0.05f)
-                    {
-                        ReturnPredictionVisual(pred);
-                        toRemove.Add(kvp.Key);
-                    }
+                    if (Vector3.Distance(pred.VisualObject.transform.position, pred.ConfirmedHitPosition) < 0.05f)
+                    { ReturnPredictionVisual(pred); toRemove.Add(kvp.Key); }
                     continue;
                 }
 
                 // ── Lifetime expired ──────────────────────────────────────────
                 if (now - pred.SpawnTime >= pred.MaxLifetime)
-                {
-                    ReturnPredictionVisual(pred);
-                    toRemove.Add(kvp.Key);
-                    continue;
-                }
+                { ReturnPredictionVisual(pred); toRemove.Add(kvp.Key); continue; }
 
-                // ── Straight-line prediction ──────────────────────────────────
+                // ── Linear prediction ─────────────────────────────────────────
                 float   elapsed   = now - pred.SpawnTime;
                 Vector3 predicted = pred.Origin + pred.Direction * pred.Speed * elapsed;
 
@@ -291,12 +231,24 @@ namespace MidManStudio.Projectiles.Network
                 });
 
                 Vector3 displayPos;
+
                 if (pred.IsReconciling)
                 {
-                    float t = Mathf.Clamp01(
-                        (now - pred.ReconcileStartTime) / pred.ReconcileDuration);
-                    displayPos = Vector3.Lerp(predicted, pred.ReconcileTarget, 1f - t);
-                    if (t >= 1f) pred.IsReconciling = false;
+                    float t = Mathf.Clamp01((now - pred.ReconcileStartTime) / pred.ReconcileDuration);
+
+                    // FIX: lerp FROM where reconciliation started TO the server-correct position.
+                    // Old code was Lerp(predicted, target, 1-t) which started AT the server
+                    // position and returned BACK to prediction — producing the back-and-forth.
+                    displayPos = Vector3.Lerp(pred.ReconcileStartPosition, pred.ReconcileTarget, t);
+
+                    if (t >= 1f)
+                    {
+                        pred.IsReconciling = false;
+                        // Rebase origin so the prediction continues FORWARD from the corrected
+                        // server position. Without this, prediction would immediately diverge
+                        // again and trigger another reconciliation on the next snapshot.
+                        pred.Origin = pred.ReconcileTarget - pred.Direction * pred.Speed * elapsed;
+                    }
                 }
                 else
                 {
@@ -312,37 +264,26 @@ namespace MidManStudio.Projectiles.Network
 
         #endregion
 
-        #region Spawn / Link Prediction Visual
+        #region Spawn / Link Visual
 
-        /// <summary>
-        /// Spawn a pooled prediction visual for one projectile in the batch.
-        /// <paramref name="directionIndex"/> selects the correct per-pellet direction
-        /// from the SpawnConfirmation (fixes multi-pellet shots all using Direction[0]).
-        /// </summary>
-        private void SpawnPredictionVisual(
-            uint projId, SpawnConfirmation conf, int directionIndex = 0)
+        private void SpawnPredictionVisual(uint projId, SpawnConfirmation conf, int directionIndex = 0)
         {
             var cfg = ProjectileRegistry.Instance.Get(conf.ConfigId);
             if (cfg == null) return;
 
-            // Use the per-pellet direction (shotgun / pattern support).
             Vector3 dir = conf.GetDirection(directionIndex).normalized;
             if (dir.sqrMagnitude < 0.001f) dir = Vector3.right;
 
-            Quaternion rot      = GetDirectionRotation(dir);
+            Quaternion rot = GetDirectionRotation(dir);
             PoolableObjectType poolType = cfg.Is3D ? _visualPoolType3D : _visualPoolType2D;
 
             var obj = LocalObjectPool.Instance?.GetObject(poolType, conf.Origin, rot);
-            if (obj == null)
-            {
-                LogWarning($"Pool returned null for type {poolType}, projId={projId}");
-                return;
-            }
+            if (obj == null) { LogWarning($"Pool returned null for {poolType}, projId={projId}"); return; }
 
             var vis = obj.GetComponent<ProjectileVisualBase>();
             vis?.InitializeClientVisual(conf.ConfigId, conf.Origin, dir, conf.Speed);
 
-            var pred = new PredictedProjectile
+            _predictions[projId] = new PredictedProjectile
             {
                 BaseProjId      = conf.BaseProjId,
                 ProjId          = projId,
@@ -361,28 +302,19 @@ namespace MidManStudio.Projectiles.Network
                 IsConfirmedHit  = false,
                 IsReconciling   = false
             };
-
-            _predictions[projId] = pred;
         }
 
-        /// <summary>
-        /// Swap a temp prediction ID for the real server-confirmed projId.
-        /// The visual keeps moving without interruption.
-        /// </summary>
         private void LinkPredictionId(uint tempId, uint realId)
         {
             if (!_predictions.TryGetValue(tempId, out var pred))
             {
-                // Temp prediction already expired (extremely unlikely on LAN).
-                LogWarning($"LinkPredictionId: tempId={tempId} not found (expired?). realId={realId} skipped.");
+                LogWarning($"LinkPredictionId: tempId={tempId} expired before confirmation. realId={realId}");
                 return;
             }
-
             _predictions.Remove(tempId);
             pred.ProjId     = realId;
-            pred.BaseProjId = realId; // update base too for snapshot reconciliation
+            pred.BaseProjId = realId;
             _predictions[realId] = pred;
-
             Log($"Linked temp={tempId} → server={realId}");
         }
 
@@ -394,19 +326,20 @@ namespace MidManStudio.Projectiles.Network
         {
             if (!_predictions.TryGetValue(projId, out var pred)) return;
 
+            // Find what we predicted at the server tick (using history for accurate comparison).
             Vector3 ourPredicted;
             if (pred.History.TryFindLatest(s => s.ServerTick <= serverTick, out var state))
                 ourPredicted = state.PredictedPosition;
             else
                 ourPredicted = pred.VisualObject != null
-                    ? pred.VisualObject.transform.position
-                    : pred.Origin;
+                    ? pred.VisualObject.transform.position : pred.Origin;
 
             float error = Vector3.Distance(serverPos, ourPredicted);
-            if (error < _reconcileThreshold) return;
+            if (error < _reconcileThreshold) return; // small jitter — ignore
 
             if (error > _hardSnapThreshold)
             {
+                // Large error: hard-snap and rebase immediately.
                 if (pred.VisualObject != null)
                     pred.VisualObject.transform.position = serverPos;
                 float elapsed = Time.time - pred.SpawnTime;
@@ -415,7 +348,10 @@ namespace MidManStudio.Projectiles.Network
                 return;
             }
 
-            pred.IsReconciling      = true;
+            // Smooth correction: record where the visual currently is, then lerp toward server.
+            pred.IsReconciling       = true;
+            pred.ReconcileStartPosition = pred.VisualObject != null
+                ? pred.VisualObject.transform.position : ourPredicted;
             pred.ReconcileTarget    = serverPos;
             pred.ReconcileStartTime = Time.time;
             pred.ReconcileDuration  = _reconcileDuration;
@@ -427,11 +363,8 @@ namespace MidManStudio.Projectiles.Network
 
         private void ReturnPredictionVisual(PredictedProjectile pred)
         {
-            if (pred.VisualScript != null)
-                pred.VisualScript.ReturnToPoolImmediate();
-            else if (pred.VisualObject != null)
-                LocalObjectPool.Instance?.ReturnObject(pred.VisualObject, pred.UsedPoolType);
-
+            if (pred.VisualScript != null) pred.VisualScript.ReturnToPoolImmediate();
+            else if (pred.VisualObject != null) LocalObjectPool.Instance?.ReturnObject(pred.VisualObject, pred.UsedPoolType);
             pred.VisualObject = null;
             pred.VisualScript = null;
         }
@@ -443,18 +376,11 @@ namespace MidManStudio.Projectiles.Network
         public static Quaternion GetDirectionRotation(Vector3 dir)
         {
             if (dir.sqrMagnitude < 0.001f) return Quaternion.identity;
-
             if (Mathf.Abs(dir.z) < 0.01f)
-            {
-                float angle = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
-                return Quaternion.Euler(0f, 0f, angle);
-            }
-            else
-            {
-                Vector3 up = Mathf.Abs(Vector3.Dot(dir.normalized, Vector3.up)) > 0.99f
-                    ? Vector3.forward : Vector3.up;
-                return Quaternion.LookRotation(dir.normalized, up);
-            }
+                return Quaternion.Euler(0f, 0f, Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg);
+            Vector3 up = Mathf.Abs(Vector3.Dot(dir.normalized, Vector3.up)) > 0.99f
+                ? Vector3.forward : Vector3.up;
+            return Quaternion.LookRotation(dir.normalized, up);
         }
 
         public static void ApplyDirectionRotation(Transform t, Vector3 dir)
@@ -472,14 +398,8 @@ namespace MidManStudio.Projectiles.Network
                 ? NetworkManager.Singleton.ServerTime.Tick
                 : Mathf.RoundToInt(Time.time * 50f);
 
-        private void Log(string msg)
-        {
-            if (_enableLogs)
-                MID_HelperFunctions.LogDebug(msg, nameof(ClientPredictionManager));
-        }
-
-        private void LogWarning(string msg)
-            => MID_HelperFunctions.LogWarning(msg, nameof(ClientPredictionManager));
+        private void Log(string msg)    { if (_enableLogs) MID_HelperFunctions.LogDebug(msg, nameof(ClientPredictionManager)); }
+        private void LogWarning(string msg) => MID_HelperFunctions.LogWarning(msg, nameof(ClientPredictionManager));
 
         #endregion
     }
