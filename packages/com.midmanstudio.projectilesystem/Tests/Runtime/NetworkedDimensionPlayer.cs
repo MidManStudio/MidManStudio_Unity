@@ -22,7 +22,7 @@ using MidManStudio.Projectiles.Adapters;
 using MidManStudio.Projectiles.Config;
 using MidManStudio.Core.Pools;
 using MidManStudio.Projectiles.Network;
-
+using Unity.Netcode.Components;
 namespace TestGame
 {
     public enum PlayerShootMode
