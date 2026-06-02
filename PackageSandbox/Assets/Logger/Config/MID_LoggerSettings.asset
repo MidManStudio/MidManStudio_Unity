@@ -12,4 +12,5 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: cbc534480fe004892ac2add101a134bc, type: 3}
   m_Name: MID_LoggerSettings
   m_EditorClassIdentifier: 
-  _defaultLogLevel: 3
+  _customIcon: {fileID: 0}
+  _defaultLogLevel: 0

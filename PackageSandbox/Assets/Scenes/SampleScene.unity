@@ -1762,7 +1762,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _context: {fileID: 11400000, guid: 45c6f11e0ce2948f4a2557726f919fd3, type: 2}
   _showWhenMask: 8
-  _logLevel: 0
+  _logLevel: 2
 --- !u!114 &399749543
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1778,7 +1778,7 @@ MonoBehaviour:
   _onVisibilityChanged:
     m_PersistentCalls:
       m_Calls: []
-  _logLevel: 0
+  _logLevel: 2
 --- !u!225 &399749544
 CanvasGroup:
   m_ObjectHideFlags: 0
@@ -1997,7 +1997,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _context: {fileID: 11400000, guid: 45c6f11e0ce2948f4a2557726f919fd3, type: 2}
   _showWhenMask: 1
-  _logLevel: 0
+  _logLevel: 2
 --- !u!114 &566781205
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2013,7 +2013,7 @@ MonoBehaviour:
   _onVisibilityChanged:
     m_PersistentCalls:
       m_Calls: []
-  _logLevel: 0
+  _logLevel: 2
 --- !u!225 &566781206
 CanvasGroup:
   m_ObjectHideFlags: 0
@@ -2333,7 +2333,7 @@ MonoBehaviour:
   _headshotParticleCount: 12
   _defaultParticleType: 100
   _bindings: []
-  _logLevel: 0
+  _logLevel: 2
 --- !u!4 &659763116
 Transform:
   m_ObjectHideFlags: 0
@@ -2540,7 +2540,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _context: {fileID: 11400000, guid: 45c6f11e0ce2948f4a2557726f919fd3, type: 2}
   _showWhenMask: 16
-  _logLevel: 0
+  _logLevel: 2
 --- !u!114 &731688481
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2556,7 +2556,7 @@ MonoBehaviour:
   _onVisibilityChanged:
     m_PersistentCalls:
       m_Calls: []
-  _logLevel: 0
+  _logLevel: 2
 --- !u!225 &731688482
 CanvasGroup:
   m_ObjectHideFlags: 0
@@ -8980,7 +8980,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _context: {fileID: 11400000, guid: 45c6f11e0ce2948f4a2557726f919fd3, type: 2}
   _showWhenMask: 4
-  _logLevel: 0
+  _logLevel: 2
 --- !u!114 &1493270237
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -8996,7 +8996,7 @@ MonoBehaviour:
   _onVisibilityChanged:
     m_PersistentCalls:
       m_Calls: []
-  _logLevel: 0
+  _logLevel: 2
 --- !u!225 &1493270238
 CanvasGroup:
   m_ObjectHideFlags: 0
@@ -16092,7 +16092,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _context: {fileID: 11400000, guid: 45c6f11e0ce2948f4a2557726f919fd3, type: 2}
   _showWhenMask: 2
-  _logLevel: 0
+  _logLevel: 2
 --- !u!114 &1962098015
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -16108,7 +16108,7 @@ MonoBehaviour:
   _onVisibilityChanged:
     m_PersistentCalls:
       m_Calls: []
-  _logLevel: 0
+  _logLevel: 2
 --- !u!225 &1962098016
 CanvasGroup:
   m_ObjectHideFlags: 0
