@@ -13,6 +13,13 @@
 //
 // ADDED: _hitLayers (LayerMask) — controls which Unity layers this projectile's
 //   Rust collision hits are allowed to register against.
+//
+// ADDED (Phase 2 — Deterministic Prediction):
+//   Public read-only accessors for Wave and Circular movement parameters so that
+//   DeterministicMotionMath (ClientPredictionManager) can read them without
+//   reflection or additional serialization. These fields are already registered
+//   with the Rust lib via RegisterMovementParams(); the properties simply expose
+//   the same values to the C# prediction layer.
 
 using UnityEngine;
 using System;
@@ -227,16 +234,31 @@ namespace MidManStudio.Projectiles.Config
         }
 
         // ── Wave/Circular registration ────────────────────────────────────────
+
         [Header("Wave Movement (only used when MovementType = Wave)")]
         [SerializeField] private float _waveAmplitude   = 1f;
         [SerializeField] private float _waveFrequency   = 1f;
         [SerializeField] private float _wavePhaseOffset = 0f;
         [SerializeField] private bool  _waveVertical    = false;
 
+        // Public read-only accessors — used by DeterministicMotionMath for
+        // client-side closed-form wave position calculation.
+        public float WaveAmplitude   => _waveAmplitude;
+        public float WaveFrequency   => _waveFrequency;
+        public float WavePhaseOffset => _wavePhaseOffset;
+        public bool  WaveVertical    => _waveVertical;
+
         [Header("Circular Movement (only used when MovementType = Circular)")]
         [SerializeField] private float _circularRadius       = 0.5f;
         [SerializeField] private float _circularAngularSpeed = 180f;
         [SerializeField] private float _circularStartAngle   = 0f;
+
+        // Public read-only accessors — used by DeterministicMotionMath.
+        // CircularAngularSpeed is in degrees/sec; callers convert to radians as needed.
+        // CircularStartAngle is in degrees; callers convert to radians as needed.
+        public float CircularRadius       => _circularRadius;
+        public float CircularAngularSpeed => _circularAngularSpeed;
+        public float CircularStartAngle   => _circularStartAngle;
 
         public void RegisterMovementParams()
         {
