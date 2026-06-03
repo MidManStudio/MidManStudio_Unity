@@ -5,6 +5,13 @@
 // is silently dropped and the client appears to not fire at all. Routing through the
 // bridge bypasses the player ownership check entirely, exactly like FireServerRpc does
 // for Rust sim projectiles.
+//
+// ADDED (Phase 1 — Deterministic Prediction):
+//   SpawnConfirmation.ServerNetworkTime — authoritative server time captured
+//   immediately after BatchSpawnHelper completes on the server. This float becomes
+//   the t=0 clock anchor for proxy-client deterministic simulation of Wave and
+//   Circular projectiles. Serialized at the end of NetworkSerialize for backward
+//   compatibility (old readers simply stop before this field).
 
 using System;
 using System.Runtime.InteropServices;
@@ -69,6 +76,15 @@ namespace MidManStudio.Projectiles.Network
         public byte      ExtraDirectionCount;
         public Vector3[] ExtraDirections;
 
+        /// <summary>
+        /// Server-authoritative NetworkTime.TimeAsFloat captured immediately after
+        /// BatchSpawnHelper completes. Used by ClientPredictionManager as the t=0
+        /// clock anchor for deterministic Wave/Circular prediction on proxy clients.
+        /// Zero means the field was not set (old server or offline mode) — fall back
+        /// to local-time estimation in that case.
+        /// </summary>
+        public float ServerNetworkTime;
+
         public void NetworkSerialize<T>(BufferSerializer<T> s) where T : IReaderWriter
         {
             s.SerializeValue(ref BaseProjId); s.SerializeValue(ref ProjectileCount);
@@ -82,6 +98,9 @@ namespace MidManStudio.Projectiles.Network
                 s.SerializeValue(ref d);
                 if (s.IsReader && ExtraDirections != null) ExtraDirections[i] = d;
             }
+            // ServerNetworkTime serialized last for backward compatibility.
+            // Old readers stop before this field; new readers with old writers receive 0.
+            s.SerializeValue(ref ServerNetworkTime);
         }
 
         public Vector3 GetDirection(int i)
@@ -161,7 +180,13 @@ namespace MidManStudio.Projectiles.Network
         {
             if (!IsServer) return;
             var cfg = ProjectileRegistry.Instance.Get(request.ConfigId);
-            if (cfg == null) { MID_Logger.LogWarning(_logLevel, $"FireServerRpc: unknown configId {request.ConfigId}", nameof(MID_ProjectileNetworkBridge)); return; }
+            if (cfg == null)
+            {
+                MID_Logger.LogWarning(_logLevel,
+                    $"FireServerRpc: unknown configId {request.ConfigId}",
+                    nameof(MID_ProjectileNetworkBridge));
+                return;
+            }
 
             float clampedSpeed = Mathf.Clamp(request.Speed, cfg.MinSpeed, cfg.MaxSpeed);
             var context = new WeaponFireContext
@@ -169,40 +194,60 @@ namespace MidManStudio.Projectiles.Network
                 ProjectileCount = request.ProjectileCount, IsNetworked = true, IsRaycastWeapon = false,
                 LatencyCompensation = ComputeLatencyComp(rpcParams, request.ClientFireTick),
                 OwnerMidId = request.OwnerMidId, FiredByNetworkObjectId = request.FiredByNetworkObjectId,
-                IsBotOwner = request.IsBotOwner, WeaponLevel = request.WeaponLevel, DamageMultiplier = request.DamageMultiplier
+                IsBotOwner = request.IsBotOwner, WeaponLevel = request.WeaponLevel,
+                DamageMultiplier = request.DamageMultiplier
             };
 
-            var spawnPts   = BuildServerSpawnPoints(request);
-            var rustParams = ProjectileRegistry.Instance.GetRustSpawnParams(request.ConfigId, clampedSpeed);
-            uint baseId    = Authority.AllocateProjIds(request.ProjectileCount);
-            var dataTemplate = new ServerProjectileData(request.OwnerMidId, request.FiredByNetworkObjectId,
+            var spawnPts     = BuildServerSpawnPoints(request);
+            var rustParams   = ProjectileRegistry.Instance.GetRustSpawnParams(request.ConfigId, clampedSpeed);
+            uint baseId      = Authority.AllocateProjIds(request.ProjectileCount);
+            var dataTemplate = new ServerProjectileData(
+                request.OwnerMidId, request.FiredByNetworkObjectId,
                 request.IsBotOwner, request.WeaponLevel,
-                new Vector2(request.Origin.x, request.Origin.y), request.DamageMultiplier, cfg);
+                new Vector2(request.Origin.x, request.Origin.y),
+                request.DamageMultiplier, cfg);
 
             int written;
             if (!cfg.Is3D)
             {
                 var (ptr, rem) = Authority.Get2DWriteHead();
-                written = BatchSpawnHelper.SpawnBatch2D(spawnPts, request.ProjectileCount, null, rustParams,
+                written = BatchSpawnHelper.SpawnBatch2D(
+                    spawnPts, request.ProjectileCount, null, rustParams,
                     request.ConfigId, 0, baseId, ptr, rem, context.LatencyCompensation);
                 Authority.NotifyBatchSpawned2D(written, baseId, dataTemplate);
             }
             else
             {
                 var (ptr, rem) = Authority.Get3DWriteHead();
-                written = BatchSpawnHelper.SpawnBatch3D(spawnPts, request.ProjectileCount, rustParams,
+                written = BatchSpawnHelper.SpawnBatch3D(
+                    spawnPts, request.ProjectileCount, rustParams,
                     request.ConfigId, 0, baseId, ptr, rem, context.LatencyCompensation);
                 Authority.NotifyBatchSpawned3D(written, baseId, dataTemplate);
             }
 
             if (written <= 0) return;
 
+            // Capture the authoritative server time NOW — after the Rust buffer has
+            // received the (latency-compensated) projectile. Proxy clients subtract
+            // this from their live ServerTime to compute timeAlive for deterministic
+            // Wave/Circular position calculation.
+            float serverNetworkTime = NetworkManager.Singleton != null
+                ? (float)NetworkManager.Singleton.ServerTime.TimeAsFloat
+                : 0f;
+
             SpawnConfirmedClientRpc(new SpawnConfirmation
             {
-                BaseProjId = baseId, ProjectileCount = (byte)written, ConfigId = request.ConfigId,
-                ServerSpawnTick = GetServerTick(), Origin = request.Origin, Direction = request.Direction,
-                Speed = clampedSpeed, OwnerMidId = request.OwnerMidId,
-                ExtraDirectionCount = request.ExtraDirectionCount, ExtraDirections = request.ExtraDirections
+                BaseProjId          = baseId,
+                ProjectileCount     = (byte)written,
+                ConfigId            = request.ConfigId,
+                ServerSpawnTick     = GetServerTick(),
+                Origin              = request.Origin,
+                Direction           = request.Direction,
+                Speed               = clampedSpeed,
+                OwnerMidId          = request.OwnerMidId,
+                ExtraDirectionCount = request.ExtraDirectionCount,
+                ExtraDirections     = request.ExtraDirections,
+                ServerNetworkTime   = serverNetworkTime
             });
         }
 
@@ -233,7 +278,7 @@ namespace MidManStudio.Projectiles.Network
 
         #endregion
 
-        #region Client → Server: Physics (NEW)
+        #region Client → Server: Physics
 
         /// <summary>
         /// Spawns a physics NetworkObject projectile on the server. RequireOwnership=false so
@@ -259,7 +304,7 @@ namespace MidManStudio.Projectiles.Network
             {
                 MID_Logger.LogWarning(_logLevel,
                     $"FirePhysicsProjectileServerRpc: pool returned null for {poolType}. " +
-                    "Ensure MID_NetworkObjectPool is assigned and the blueprint prefabs are registered.",
+                    "Ensure MID_NetworkObjectPool is assigned and blueprints are registered.",
                     nameof(MID_ProjectileNetworkBridge));
                 return;
             }
@@ -289,7 +334,8 @@ namespace MidManStudio.Projectiles.Network
             // Pure clients use the prediction manager.
             if (IsServer) return;
             MID_Logger.LogDebug(_logLevel,
-                $"SpawnConfirmedClientRpc: baseId={confirmation.BaseProjId} count={confirmation.ProjectileCount}",
+                $"SpawnConfirmedClientRpc: baseId={confirmation.BaseProjId} " +
+                $"count={confirmation.ProjectileCount} serverNetTime={confirmation.ServerNetworkTime:F3}",
                 nameof(MID_ProjectileNetworkBridge));
             Prediction?.OnSpawnConfirmed(confirmation);
         }
