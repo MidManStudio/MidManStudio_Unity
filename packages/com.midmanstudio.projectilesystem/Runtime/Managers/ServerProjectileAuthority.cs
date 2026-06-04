@@ -1,22 +1,17 @@
 // ServerProjectileAuthority.cs
 // Server-only. Owns the Rust sim buffers (2D and 3D).
 //
-// KEY FIX (Rust Sim invisible on host):
-//   Added _renderer2D / _renderer3D serialized references and LateUpdate()
-//   that calls Render() with the server buffers.
-//   Previously nothing rendered the server-side buffers — LocalProjectileManager
-//   has its own empty buffer in networked mode, SpawnConfirmedClientRpc skips
-//   the host (IsServer early return), so Rust Sim projectiles were simulated
-//   but never drawn. Assign the scene's ProjectileRenderer2D/3D here.
+// FIX (Rust Sim invisible on host): Added _renderer2D / _renderer3D and LateUpdate().
 //
-// FIX (piercing — permanent target immunity):
-//   _hitTargets2D / _hitTargets3D: per-projectile sets of targetIds that have
-//   already been hit. Unlike the per-tick immunity this is permanent for the
-//   projectile's lifetime, so a piercing bullet hits each target AT MOST ONCE
-//   regardless of speed or target size. Sets are removed when the projectile dies.
+// FIX (piercing — permanent target immunity): _hitTargets2D / _hitTargets3D per-projectile sets.
 //
-// FIX (trails, 3D): TrailPool?.SyncToSimulation3D after Tick3D.
-// RETAINED: Collision layer filtering, snapshot, state save/restore.
+// FIX (snapshot bandwidth / receive queue overflow):
+//   SendSnapshots() now skips Wave and Circular projectiles entirely.
+//   ClientPredictionManager.ReconcileOne() already ignores DeterministicMath types,
+//   so sending snapshots for them wastes bandwidth and contributes to the
+//   "Receive queue is full" UTP warning that causes NamedMessage.Handle NPE spam
+//   on Play Mode exit. Filtering here can eliminate the majority of snapshot payload
+//   in Wave/Circular-heavy games.
 
 using System;
 using System.Collections.Generic;
@@ -144,9 +139,6 @@ namespace MidManStudio.Projectiles.Managers
         #endregion
 
         #region Piercing — Permanent Per-Projectile Target Immunity
-        // Key: projId.  Value: set of targetIds already hit by this projectile.
-        // Each target can only be hit ONCE per projectile lifetime.
-        // Entries are removed when the projectile dies (CompactDead).
 
         private readonly Dictionary<uint, HashSet<uint>> _hitTargets2D = new(128);
         private readonly Dictionary<uint, HashSet<uint>> _hitTargets3D = new(128);
@@ -216,6 +208,11 @@ namespace MidManStudio.Projectiles.Managers
         private ProjectileSnapshot3D[] _snapshots3D;
         private int _fixedUpdateCounter;
 
+        // Cached byte values for movement type filter in SendSnapshots —
+        // avoids repeated enum casts inside the hot loop.
+        private static readonly byte _movWave     = (byte)ProjectileMovementType.Wave;
+        private static readonly byte _movCircular = (byte)ProjectileMovementType.Circular;
+
         #endregion
 
         #region Public API — Counts
@@ -279,12 +276,6 @@ namespace MidManStudio.Projectiles.Managers
 
         #region LateUpdate — Render Server Buffers (Host / Offline)
 
-        /// <summary>
-        /// Renders the server-side Rust sim buffers on host or offline.
-        /// Pure clients receive visuals from ClientPredictionManager pool objects.
-        /// This is the ONLY render path for host-side Rust Sim projectiles because
-        /// SpawnConfirmedClientRpc.IsServer early-returns to prevent double visuals.
-        /// </summary>
         private void LateUpdate()
         {
             if (!IsServer()) return;
@@ -343,19 +334,16 @@ namespace MidManStudio.Projectiles.Managers
                 int     idx = (int)h.ProjIndex;
                 if (idx < 0 || idx >= _count2D) continue;
 
-                // FIX: permanent per-projectile target immunity — each target hit at most once
                 if (AlreadyHit2D(h.ProjId, h.TargetId)) continue;
                 if (!PassesLayerFilter2D(h.ProjId, h.TargetId)) continue;
 
                 bool headshot = CheckHeadshot2D(in h);
                 Adapter.ProcessHit(in h, headshot);
 
-                // Record hit regardless of pierce (prevents re-hitting same target)
                 RecordHit2D(h.ProjId, h.TargetId);
 
                 if (!Adapter.IsRegistered(h.ProjId))
                 {
-                    // Projectile died
                     if (idx < _count2D) _projs2D[idx].Alive = 0;
                 }
             }
@@ -371,7 +359,7 @@ namespace MidManStudio.Projectiles.Managers
                     uint deadId = _projs2D[read].ProjId;
                     Adapter.NotifyDead(deadId);
                     TrailPool?.NotifyDead(deadId);
-                    ClearHitRecord2D(deadId);    // free the hit-target set back to pool
+                    ClearHitRecord2D(deadId);
                     continue;
                 }
                 if (write != read) _projs2D[write] = _projs2D[read];
@@ -480,6 +468,16 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Snapshot
 
+        /// <summary>
+        /// Sends position snapshots for active projectiles to all clients for
+        /// linear-prediction reconciliation.
+        ///
+        /// FIX: Wave and Circular projectiles are excluded from the snapshot payload.
+        /// ClientPredictionManager.ReconcileOne() already ignores these types
+        /// (PredictionMode.DeterministicMath) — sending them was pure overhead that
+        /// contributed to the "Receive queue is full" UTP warning seen at high fire rates.
+        /// In Wave/Circular-heavy games this can eliminate the majority of snapshot data.
+        /// </summary>
         private void SendSnapshots()
         {
             if (NetworkBridge == null) return;
@@ -491,15 +489,27 @@ namespace MidManStudio.Projectiles.Managers
             for (int i = 0; i < _count2D; i++)
             {
                 if (_projs2D[i].Alive == 0) continue;
+
+                // Skip DeterministicMath types — clients compute these analytically.
+                // Snapshots for Wave/Circular are discarded by the client anyway
+                // and only waste receive-queue slots.
+                byte mt = _projs2D[i].MovementType;
+                if (mt == _movWave || mt == _movCircular) continue;
+
                 _snapshots2D[snap2DCount++] = new ProjectileSnapshot2D
                 {
                     ProjId = _projs2D[i].ProjId, X = _projs2D[i].X,
                     Y = _projs2D[i].Y, ServerTick = serverTick
                 };
             }
+
             for (int i = 0; i < _count3D; i++)
             {
                 if (_projs3D[i].Alive == 0) continue;
+
+                byte mt = _projs3D[i].MovementType;
+                if (mt == _movWave || mt == _movCircular) continue;
+
                 _snapshots3D[snap3DCount++] = new ProjectileSnapshot3D
                 {
                     ProjId = _projs3D[i].ProjId, X = _projs3D[i].X,
@@ -507,6 +517,7 @@ namespace MidManStudio.Projectiles.Managers
                 };
             }
 
+            // Skip the RPC entirely if there is nothing to send after filtering.
             if (snap2DCount > 0 || snap3DCount > 0)
                 NetworkBridge.SendSnapshotClientRpc(
                     _snapshots2D, snap2DCount, _snapshots3D, snap3DCount);
