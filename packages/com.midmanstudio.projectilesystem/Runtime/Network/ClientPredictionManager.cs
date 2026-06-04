@@ -2,7 +2,25 @@
 //
 // REWRITE — Deterministic Client-Local Special Movement Prediction.
 //
-// PROBLEM FIXED:
+// FIX (host mode — _pendingTempIds accumulation):
+//   SpawnImmediatePrediction and SpawnLocalPhysicsVisual now return immediately
+//   when IsServer is true. On the host, ServerProjectileAuthority.LateUpdate
+//   renders directly from the Rust buffer. Creating prediction visuals on the
+//   host produces double visuals AND causes _pendingTempIds to grow without
+//   bound because SpawnConfirmedClientRpc always returns early for IsServer,
+//   so the queue entries are never consumed.
+//
+// FIX (expired prediction → dropped visual):
+//   OnSpawnConfirmed now checks _predictions.ContainsKey(tempId) before
+//   calling LinkPredictionId. If the temp prediction expired before the RPC
+//   arrived (typical under receive queue overflow — see transport config in
+//   MID_ProjectileNetworkBridge.ConfigureTransportForHighThroughput), the
+//   method falls back to spawning a fresh proxy visual at the server-confirmed
+//   position rather than silently dropping the projectile visual entirely.
+//   This means the LinkPredictionId "not found" warning is now an unexpected
+//   state (should not fire from normal flow) rather than a routine occurrence.
+//
+// PROBLEM FIXED (wave/circular zig-zag):
 //   Wave and Circular projectiles showed zig-zag on proxy clients and a
 //   straight-then-choppy transition for the shooter. Root cause: the old
 //   snapshot-velocity-estimation path computed velocity as Δposition/Δtime
@@ -218,9 +236,19 @@ namespace MidManStudio.Projectiles.Network
         /// ServerNetworkTime in <paramref name="tempConf"/> will be 0 (client-side);
         /// falls back to current server time as initial anchor, then corrected
         /// by LinkPredictionId when SpawnConfirmedClientRpc arrives.
+        ///
+        /// FIX: skipped in host mode — the host renders directly from
+        /// ServerProjectileAuthority.LateUpdate (Rust buffer). Creating prediction
+        /// visuals on the host would cause double visuals and _pendingTempIds
+        /// accumulation because SpawnConfirmedClientRpc returns early for IsServer.
         /// </summary>
         public void SpawnImmediatePrediction(SpawnConfirmation tempConf)
         {
+            // Host mode: server renders directly; predictions would create double
+            // visuals and _pendingTempIds would grow without bound.
+            if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsServer)
+                return;
+
             for (int i = 0; i < tempConf.ProjectileCount; i++)
             {
                 uint tempId = _nextTempId++;
@@ -232,10 +260,18 @@ namespace MidManStudio.Projectiles.Network
         /// <summary>
         /// Standalone visual for a physics projectile on the firing client.
         /// Does NOT queue a temp ID — physics never sends SpawnConfirmedClientRpc.
+        ///
+        /// FIX: skipped in host mode — physics projectiles are server-owned
+        /// NetworkObjects; NetworkTransform handles visual sync for the host.
         /// </summary>
         public void SpawnLocalPhysicsVisual(
             ushort configId, Vector3 origin, Vector3 dir, float speed)
         {
+            // Host mode: NetworkTransform on the physics projectile drives
+            // the visual — no separate prediction visual needed.
+            if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsServer)
+                return;
+
             uint id = _nextTempId++;
             SpawnPredictionVisual(id, new SpawnConfirmation
             {
@@ -262,6 +298,11 @@ namespace MidManStudio.Projectiles.Network
         /// Called by MID_ProjectileNetworkBridge when server confirms a Rust sim spawn.
         /// Local player with pending temp IDs: links the visual to the real projId.
         /// Everyone else (proxy): spawns a fresh visual at the correct server position.
+        ///
+        /// FIX: if the dequeued temp prediction expired before this RPC arrived
+        /// (typically caused by UnityTransport receive queue overflow delaying the RPC
+        /// past MaxLifetime), fall back to spawning a fresh proxy visual at the
+        /// server-confirmed position rather than silently dropping the projectile.
         /// </summary>
         public void OnSpawnConfirmed(SpawnConfirmation conf)
         {
@@ -271,10 +312,29 @@ namespace MidManStudio.Projectiles.Network
                 uint realId = conf.BaseProjId + (uint)i;
                 if (isLocal && _pendingTempIds.Count > 0)
                 {
-                    LinkPredictionId(_pendingTempIds.Dequeue(), realId, conf.ServerNetworkTime);
+                    uint tempId = _pendingTempIds.Dequeue();
+                    if (_predictions.ContainsKey(tempId))
+                    {
+                        // Normal path: prediction still alive, link it.
+                        LinkPredictionId(tempId, realId, conf.ServerNetworkTime);
+                    }
+                    else
+                    {
+                        // The temp prediction expired before SpawnConfirmedClientRpc
+                        // arrived. This happens when the receive queue is full and the
+                        // RPC is delayed past the projectile's MaxLifetime.
+                        // Increase UnityTransport.RecvQueueCapacity (see
+                        // MID_ProjectileNetworkBridge.ConfigureTransportForHighThroughput).
+                        // Fallback: spawn a fresh proxy visual at the server position.
+                        Log($"TempId={tempId} prediction expired before confirmation; " +
+                            $"spawning proxy visual for realId={realId}");
+                        SpawnPredictionVisual(realId, conf, i);
+                        FastForwardProxyVisual(realId, conf.ServerNetworkTime);
+                    }
                 }
                 else
                 {
+                    // Proxy clients, or local player with no pending predictions.
                     SpawnPredictionVisual(realId, conf, i);
                     // Immediately jump proxy visual to current deterministic position.
                     // Without this it appears at spawn origin and sweeps forward over
@@ -559,8 +619,12 @@ namespace MidManStudio.Projectiles.Network
         {
             if (!_predictions.TryGetValue(tempId, out var pred))
             {
+                // OnSpawnConfirmed now checks ContainsKey before calling here,
+                // so this branch represents an unexpected state — should not fire
+                // in normal operation. If it does, there is a race between Update
+                // removing the prediction and OnSpawnConfirmed's ContainsKey check.
                 LogWarning(
-                    $"LinkPredictionId: tempId={tempId} not found (expired?). realId={realId}");
+                    $"LinkPredictionId: tempId={tempId} missing unexpectedly. realId={realId}");
                 return;
             }
             _predictions.Remove(tempId);
