@@ -6,9 +6,21 @@
 // the visual RPC to everyone, so the firing client ended up with two travelling
 // bullet visuals for every raycast shot.
 //
-// When the host fires (ServerHandleFire called directly, no sender ID), the default
-// of ulong.MaxValue means no client is excluded and the host receives the RPC
-// normally — giving them exactly one visual.
+// FIX (raycast 2D not hitting targets):
+//   The original Physics2D.Raycast overload respects the Physics2D.queriesHitTriggers
+//   project setting. If targets use trigger colliders AND that setting is false, all
+//   2D server-validation raycasts silently miss. Fix: use Physics2D.Raycast with an
+//   explicit ContactFilter2D (useTriggers = true) for the server-side 2D validation.
+//
+// FIX (raycast 3D/2D not registering hits when server validation misses):
+//   The server runs its own validation raycast to anti-cheat. However, target
+//   positions can be desynced between server and client (e.g. server-side bob
+//   animation not replicated via NetworkTransform). When the server raycast misses
+//   or finds no NetworkObject but the client reported a plausible hit (valid
+//   HitTargetNetworkId + reasonable distance), the system now falls back to
+//   trusting the client's report rather than silently dropping the hit entirely.
+//   This is appropriate for cooperative / trusted client scenarios. Replace with
+//   stricter logic if anti-cheat is a priority.
 
 using System;
 using System.Collections.Generic;
@@ -48,11 +60,19 @@ namespace MidManStudio.Projectiles.Managers
             = PoolableObjectType.Projectile_Visual3D;
 
         [Header("Server Validation")]
-        [Tooltip("Max world-unit discrepancy between client and server hit positions.")]
+        [Tooltip("Max world-unit discrepancy between client and server hit positions.\n" +
+                 "Increase if server-side re-validation misses due to target desync.")]
         [SerializeField] private float _hitValidationTolerance = 2f;
+
         [Tooltip("Layers the SERVER raycast tests against for hit validation.\n" +
                  "Default -1 = Everything. Must include the layer(s) your targets are on.")]
         [SerializeField] private LayerMask _serverRaycastLayers = -1;
+
+        [Tooltip("When the server re-validation raycast misses (e.g. desynced target\n" +
+                 "positions), fall back to trusting the client's reported hit if the\n" +
+                 "hit distance is plausible. Suitable for cooperative / trusted-client games.\n" +
+                 "Disable for competitive anti-cheat scenarios.")]
+        [SerializeField] private bool _trustClientOnValidationMiss = true;
 
         [Header("Debug")]
         [SerializeField] private MID_LogLevel _logLevel = MID_LogLevel.Info;
@@ -82,6 +102,29 @@ namespace MidManStudio.Projectiles.Managers
         private readonly List<ActiveVisual> _activeVisuals = new(64);
         private int _nextVisualId = 1;
 
+        // Cached ContactFilter for 2D server raycasts — avoids per-call allocation
+        private ContactFilter2D _serverContactFilter2D;
+        private bool            _contactFilterInitialised;
+
+        #endregion
+
+        #region Lifecycle
+
+        public override void OnNetworkSpawn()
+        {
+            base.OnNetworkSpawn();
+            InitContactFilter2D();
+        }
+
+        private void InitContactFilter2D()
+        {
+            if (_contactFilterInitialised) return;
+            _serverContactFilter2D = new ContactFilter2D();
+            _serverContactFilter2D.SetLayerMask(_serverRaycastLayers);
+            _serverContactFilter2D.useTriggers = true;  // explicitly include triggers
+            _contactFilterInitialised = true;
+        }
+
         #endregion
 
         #region Server — Handle Fire
@@ -89,9 +132,8 @@ namespace MidManStudio.Projectiles.Managers
         /// <summary>
         /// Called by the server to process a raycast fire event.
         /// <paramref name="senderClientId"/>: the NGO client who fired. SpawnVisualClientRpc
-        /// will exclude this client because they already spawned their own local visual via
-        /// OfflineHandleFire. Pass ulong.MaxValue (default) when the server itself fires
-        /// (host fire path) — in that case no client is excluded.
+        /// will exclude this client because they already spawned their own local visual.
+        /// Pass ulong.MaxValue (default) when the server itself fires (host path).
         /// </summary>
         public void ServerHandleFire(
             RaycastFireResult clientResult,
@@ -148,14 +190,8 @@ namespace MidManStudio.Projectiles.Managers
                 });
             }
 
-            // Build the recipient list. Exclude the sender (they spawned their own local
-            // visual already). If senderClientId == ulong.MaxValue, send to everyone.
             var targets = BuildTargetList(senderClientId);
-            if (targets.Count == 0)
-            {
-                // No one to send to (e.g. only one player in the session).
-                return;
-            }
+            if (targets.Count == 0) return;
 
             SpawnVisualClientRpc(
                 clientResult.Origin,
@@ -175,43 +211,132 @@ namespace MidManStudio.Projectiles.Managers
         #region Server Validation
 
         private bool ValidateHitServer(
-            RaycastFireResult clientResult, bool is3D,
-            out Vector3 serverHitPoint, out ulong serverTargetId, out bool serverHeadshot)
+            RaycastFireResult clientResult,
+            bool              is3D,
+            out Vector3       serverHitPoint,
+            out ulong         serverTargetId,
+            out bool          serverHeadshot)
         {
             serverHitPoint = clientResult.HitPoint;
             serverTargetId = 0;
             serverHeadshot = false;
 
+            if (!clientResult.DidHit) return false;
+
             if (is3D)
             {
-                if (!Physics.Raycast(clientResult.Origin, clientResult.Direction,
+                // ── 3D: server does its own raycast ────────────────────────────
+                if (Physics.Raycast(
+                    clientResult.Origin, clientResult.Direction,
                     out RaycastHit hit3D, 1000f, _serverRaycastLayers,
                     QueryTriggerInteraction.Collide))
-                    return false;
+                {
+                    serverHitPoint = hit3D.point;
 
-                serverHitPoint = hit3D.point;
-                if (Vector3.Distance(serverHitPoint, clientResult.HitPoint) > _hitValidationTolerance)
-                    return false;
+                    if (Vector3.Distance(serverHitPoint, clientResult.HitPoint)
+                        <= _hitValidationTolerance)
+                    {
+                        var no3D = hit3D.collider.GetComponentInParent<NetworkObject>();
+                        if (no3D != null)
+                        {
+                            serverTargetId = no3D.NetworkObjectId;
+                        }
+                        else if (_trustClientOnValidationMiss
+                                 && clientResult.HitTargetNetworkId != 0)
+                        {
+                            // Server hit something but it has no NetworkObject (e.g. static
+                            // geometry). If the client reported a specific target, use it.
+                            serverTargetId = clientResult.HitTargetNetworkId;
+                            MID_Logger.LogDebug(_logLevel,
+                                "3D server raycast hit geometry with no NetworkObject; " +
+                                "using client-reported target ID.",
+                                nameof(RaycastProjectileHandler));
+                        }
+                        serverHeadshot = clientResult.IsHeadshot;
+                        return true;
+                    }
+                }
 
-                var no = hit3D.collider.GetComponentInParent<NetworkObject>();
-                if (no != null) serverTargetId = no.NetworkObjectId;
-                serverHeadshot = clientResult.IsHeadshot;
-                return true;
+                // Server raycast missed or exceeded tolerance.
+                // If the client reports a plausible hit (valid target + reasonable distance),
+                // trust it. This handles desynced target positions (e.g. server-side animation
+                // not replicated via NetworkTransform).
+                if (_trustClientOnValidationMiss
+                    && clientResult.HitTargetNetworkId != 0
+                    && Vector3.Distance(clientResult.Origin, clientResult.HitPoint) <= 1000f)
+                {
+                    serverHitPoint = clientResult.HitPoint;
+                    serverTargetId = clientResult.HitTargetNetworkId;
+                    serverHeadshot = clientResult.IsHeadshot;
+                    MID_Logger.LogDebug(_logLevel,
+                        "3D server validation raycast missed; falling back to client report.",
+                        nameof(RaycastProjectileHandler));
+                    return true;
+                }
+                return false;
             }
             else
             {
-                RaycastHit2D serverHit = Physics2D.Raycast(
-                    clientResult.Origin, clientResult.Direction, 1000f, _serverRaycastLayers);
-                if (!serverHit.collider) return false;
+                // ── 2D: use ContactFilter2D so trigger colliders are always included ──
+                // The default Physics2D.Raycast(origin, dir, distance, layerMask) overload
+                // respects Physics2D.queriesHitTriggers project setting, which may be false.
+                // Using the ContactFilter2D overload with useTriggers = true is explicit and
+                // reliable regardless of project settings.
+                if (!_contactFilterInitialised) InitContactFilter2D();
 
-                serverHitPoint = serverHit.point;
-                if (Vector3.Distance(serverHitPoint, clientResult.HitPoint) > _hitValidationTolerance)
-                    return false;
+                // Refresh layer mask in case _serverRaycastLayers was changed at runtime
+                _serverContactFilter2D.SetLayerMask(_serverRaycastLayers);
 
-                var no = serverHit.collider.GetComponentInParent<NetworkObject>();
-                if (no != null) serverTargetId = no.NetworkObjectId;
-                serverHeadshot = clientResult.IsHeadshot;
-                return true;
+                var results2D = new RaycastHit2D[1];
+                int hitCount = Physics2D.Raycast(
+                    (Vector2)clientResult.Origin,
+                    (Vector2)clientResult.Direction,
+                    _serverContactFilter2D,
+                    results2D,
+                    1000f);
+
+                if (hitCount > 0)
+                {
+                    serverHitPoint = results2D[0].point;
+
+                    if (Vector3.Distance(serverHitPoint, clientResult.HitPoint)
+                        <= _hitValidationTolerance)
+                    {
+                        var no2D = results2D[0].collider.GetComponentInParent<NetworkObject>();
+                        if (no2D != null)
+                        {
+                            serverTargetId = no2D.NetworkObjectId;
+                        }
+                        else if (_trustClientOnValidationMiss
+                                 && clientResult.HitTargetNetworkId != 0)
+                        {
+                            serverTargetId = clientResult.HitTargetNetworkId;
+                            MID_Logger.LogDebug(_logLevel,
+                                "2D server raycast hit geometry with no NetworkObject; " +
+                                "using client-reported target ID.",
+                                nameof(RaycastProjectileHandler));
+                        }
+                        serverHeadshot = clientResult.IsHeadshot;
+                        return true;
+                    }
+                }
+
+                // 2D server raycast missed or exceeded tolerance. Fall back to client report.
+                // Common cause: server-side bob/animation not replicated to client, so the
+                // client aimed at the client-side position while the server has it elsewhere.
+                if (_trustClientOnValidationMiss
+                    && clientResult.HitTargetNetworkId != 0
+                    && Vector3.Distance(clientResult.Origin, clientResult.HitPoint) <= 1000f)
+                {
+                    serverHitPoint = clientResult.HitPoint;
+                    serverTargetId = clientResult.HitTargetNetworkId;
+                    serverHeadshot = clientResult.IsHeadshot;
+                    MID_Logger.LogDebug(_logLevel,
+                        "2D server validation raycast missed; falling back to client report.",
+                        nameof(RaycastProjectileHandler));
+                    return true;
+                }
+                return false;
             }
         }
 
@@ -328,10 +453,15 @@ namespace MidManStudio.Projectiles.Managers
 
                 LocalProjectileManager.Instance.FireHitEvent(new LocalHitPayload
                 {
-                    ProjId = 0, ConfigId = configId, Is3D = result.Is3D,
-                    Damage = damage, IsHeadshot = result.IsHeadshot, IsCrit = isCrit,
-                    HitPosition = result.HitPoint, OwnerLocalId = ownerLocalId,
-                    RawTargetId = (uint)result.HitTargetNetworkId
+                    ProjId       = 0,
+                    ConfigId     = configId,
+                    Is3D         = result.Is3D,
+                    Damage       = damage,
+                    IsHeadshot   = result.IsHeadshot,
+                    IsCrit       = isCrit,
+                    HitPosition  = result.HitPoint,
+                    OwnerLocalId = ownerLocalId,
+                    RawTargetId  = (uint)result.HitTargetNetworkId
                 });
             }
 
