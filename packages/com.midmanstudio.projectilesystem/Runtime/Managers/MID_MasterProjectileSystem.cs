@@ -105,7 +105,8 @@ namespace MidManStudio.Projectiles.Managers
             }
 
             BatchSpawnHelper.Initialise();
-
+// Inside Initialise(), after the BatchSpawnHelper.Initialise() call:
+MID_ProjectileNetworkBridge.ConfigureTransportForHighThroughput();
             if (_localManager == null)
                 _localManager = FindObjectOfType<LocalProjectileManager>();
 
