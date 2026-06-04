@@ -76,6 +76,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Visual/ProjectileVisualBase.cs">
       <Link>Runtime/Visual/ProjectileVisualBase.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Network/DeterministicMotionMath.cs">
+      <Link>Runtime/Network/DeterministicMotionMath.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/LocalProjectileManager.cs">
       <Link>Runtime/Managers/LocalProjectileManager.cs</Link>
     </Compile>
