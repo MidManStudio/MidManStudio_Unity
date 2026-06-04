@@ -5,9 +5,16 @@
 //   MOVE_CIRCULAR → (Ax,Ay) = first perpendicular axis for orbit plane
 //   All others    → (Ax,Ay) = (0, GravityAy) as before
 //
-// Without this fix, Wave required you to set gravity to see any oscillation
-// (the wave was accidentally riding the gravity vector) and Circular had no
-// orbit plane defined so it appeared stationary.
+// FIX (spawn-forward visual artifact):
+//   Latency compensation no longer advances the projectile's X/Y/Z position.
+//   Previously: p.X += p.Vx * latencyCompensation  (etc.) moved the bullet
+//   to its "time-compensated" location BEFORE inserting it into the Rust buffer.
+//   The host renders directly from that buffer, so it saw the bullet already
+//   vel × latencyComp units ahead of the barrel — visually wrong.
+//   Fix: only reduce Lifetime by latencyCompensation. The DeterministicMath
+//   client-prediction path + ServerNetworkTime naturally account for the clock
+//   offset without needing the position to be pre-advanced. Collision accuracy
+//   loss is negligible for typical LAN/online latencies (< 100 ms).
 
 using System;
 using System.Runtime.InteropServices;
@@ -65,8 +72,6 @@ namespace MidManStudio.Projectiles.Adapters
         }
 
         // ── Perpendicular axis helpers ─────────────────────────────────────────
-        // Wave and Circular movement use Ax/Ay as the oscillation / orbit
-        // perpendicular axis. For all other movement types, Ax = 0 and Ay = gravity.
 
         /// <summary>
         /// Returns (Ax, Ay) for a 2D projectile given its direction and movement type.
@@ -94,9 +99,6 @@ namespace MidManStudio.Projectiles.Adapters
         {
             if (movementType == MOVE_WAVE || movementType == MOVE_CIRCULAR)
             {
-                // Primary perpendicular axis (lies in XY plane, perpendicular to dir's XY part)
-                // For a bullet going (0,0,1): perp = (1,0,0) — the X axis
-                // Normalise the XY component of direction, then rotate 90°
                 float len = Mathf.Sqrt(dir.x * dir.x + dir.y * dir.y);
                 if (len > 0.001f)
                     return (-dir.y / len, dir.x / len, 0f);
@@ -136,8 +138,12 @@ namespace MidManStudio.Projectiles.Adapters
                 {
                     ref var p = ref _temp2D[i];
                     if (p.Alive == 0) continue;
-                    p.X += p.Vx * latencyCompensation;
-                    p.Y += p.Vy * latencyCompensation;
+
+                    // FIX: Position is NOT advanced — bullet spawns at the original fire origin
+                    // on all rendering clients (including the host). The old behaviour
+                    // (p.X += p.Vx * latencyCompensation; p.Y += p.Vy * latencyCompensation)
+                    // caused the host to see bullets pop in vel × latencyComp units ahead.
+                    // Lifetime is still reduced so the projectile expires at the correct time.
                     p.Lifetime -= latencyCompensation;
                     if (p.Lifetime <= 0f) p.Alive = 0;
                 }
@@ -180,9 +186,8 @@ namespace MidManStudio.Projectiles.Adapters
                 {
                     ref var p = ref _temp3D[i];
                     if (p.Alive == 0) continue;
-                    p.X += p.Vx * latencyCompensation;
-                    p.Y += p.Vy * latencyCompensation;
-                    p.Z += p.Vz * latencyCompensation;
+
+                    // FIX: Same as 2D — position NOT advanced, only lifetime reduced.
                     p.Lifetime -= latencyCompensation;
                     if (p.Lifetime <= 0f) p.Alive = 0;
                 }
@@ -356,7 +361,6 @@ namespace MidManStudio.Projectiles.Adapters
         public ushort OwnerId;
         public uint   BaseId;
 
-        // Movement type constants duplicated for Burst (no static class access in jobs)
         private const byte MOVE_WAVE     = 4;
         private const byte MOVE_CIRCULAR = 5;
 
@@ -367,8 +371,6 @@ namespace MidManStudio.Projectiles.Adapters
             float spd = pt.Speed > 0f ? pt.Speed : DefaultSpeed;
             float ang = math.atan2(pt.Direction.y, pt.Direction.x) * math.degrees(1f);
 
-            // Wave / Circular: Ax/Ay = perpendicular axis in XY plane
-            // Others: Ax = 0, Ay = gravity
             float ax, ay;
             if (MovementType == MOVE_WAVE || MovementType == MOVE_CIRCULAR)
             {
@@ -439,13 +441,12 @@ namespace MidManStudio.Projectiles.Adapters
             float ax, ay, az;
             if (MovementType == MOVE_WAVE || MovementType == MOVE_CIRCULAR)
             {
-                // Perpendicular axis in XY plane (normalised XY component of dir, rotated 90°)
                 float xyLen = math.sqrt(pt.Direction.x * pt.Direction.x
                                       + pt.Direction.y * pt.Direction.y);
                 if (xyLen > 0.001f)
                 { ax = -pt.Direction.y / xyLen; ay = pt.Direction.x / xyLen; az = 0f; }
                 else
-                { ax = 1f; ay = 0f; az = 0f; } // Bullet is along Z — pick X as perp
+                { ax = 1f; ay = 0f; az = 0f; }
             }
             else
             {

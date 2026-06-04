@@ -1,6 +1,13 @@
 // MID_AudioBenchRunner.cs — v2
 // Matches MID_NativeAudioBridge v2 (AudioSource pool) + MID_AudioLimiter (Rust DSP).
 //
+// FIX: process_buffer_bench DllImport now uses EntryPoint = "process_buffer".
+//   The Rust library exports the symbol as "process_buffer". Without EntryPoint,
+//   the P/Invoke runtime looks for a symbol literally named "process_buffer_bench"
+//   which doesn't exist → EntryPointNotFoundException at LimiterInner startup.
+//   The rename exists purely to avoid a C# method-name collision with
+//   MID_AudioLimiter's own import; the actual DLL symbol must still match.
+//
 // What this compares:
 //
 //   A) Naive  — AudioSource.PlayOneShot(clip) on a single source.
@@ -113,12 +120,18 @@ namespace MidManStudio.Core.Benchmarks
 
         // ── Limiter DllImport (bench only) ───────────────────────────────────
         // Test file only — production code uses MID_AudioLimiter for DSP calls.
+        //
+        // FIX: EntryPoint = "process_buffer" maps the C# method name to the
+        // actual Rust export. Without this the runtime looks for a symbol named
+        // "process_buffer_bench" which does not exist → EntryPointNotFoundException.
+        // The C# rename avoids a method-name collision with MID_AudioLimiter's
+        // own process_buffer import; both ultimately call the same Rust export.
 #if (!UNITY_WEBGL || UNITY_EDITOR) && !UNITY_IOS
-        [DllImport("mid_audio")] private static extern void  process_buffer_bench(float[] buf, int len);
+        [DllImport("mid_audio", EntryPoint = "process_buffer")]
+        private static extern void process_buffer_bench(float[] buf, int len);
+
         [DllImport("mid_audio")] private static extern void  reset_limiter();
         [DllImport("mid_audio")] private static extern void  set_limiter_params(float t, float a, float r);
-        // rename to avoid collision with MID_AudioLimiter's import
-        // Unity resolves by symbol name, not method name, so this is fine
 #endif
 
         // ── Manual pool for comparison ────────────────────────────────────────
@@ -493,6 +506,10 @@ namespace MidManStudio.Core.Benchmarks
         // on the audio thread via MID_AudioLimiter.OnAudioFilterRead.
         //
         // WebGL: skipped (DLL not available).
+        //
+        // FIX: process_buffer_bench now has EntryPoint = "process_buffer" so P/Invoke
+        // resolves to the actual Rust export rather than looking for a nonexistent
+        // "process_buffer_bench" symbol.
 
         private IEnumerator LimiterInner()
         {
