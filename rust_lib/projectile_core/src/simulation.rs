@@ -43,7 +43,10 @@
 use crate::{NativeProjectile, NativeProjectile3D};
 use crate::config_store;
 use crate::simd::{fast_atan2, fast_inv_sqrt, fast_sqrt};
-use crate::math::{f32x4, Vec2x4, Vec3x4};
+// f32x4 module and f32x4 type share the same identifier; importing the TYPE
+// requires the full submodule path to avoid ambiguity with the module name.
+use crate::math::f32x4::f32x4;
+use crate::math::{Vec2x4, Vec3x4};
 
 const RAD2DEG: f32 = 57.295_779_51_f32;
 
@@ -603,4 +606,4 @@ fn tick_scale_3d(p: &mut NativeProjectile3D, dt: f32) {
         p.scale_y += delta;
         p.scale_z += delta;
     }
-        }
+}
