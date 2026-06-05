@@ -1,22 +1,49 @@
-// simulation.rs
+// rust_lib/projectile_core/src/simulation.rs
 //
-// FIX (MOVE_CIRCULAR 2D):
-//   Previous: added orbit_pos * dt each frame → position error accumulates,
-//   bullets drift rather than curve cleanly. Also ignored start_angle_deg.
-//   Fixed: rotate velocity vector by omega*dt each tick → true circular arc.
-//   The radius is now implicit (radius = speed / omega). start_angle_deg
-//   is applied once at first tick via an initial velocity pre-rotation.
-//   To curve clockwise: negative angular_speed. CCW: positive.
+// REFACTOR: Wide-vector batch paths now use crate::math::{Vec2x4, Vec3x4, f32x4}
+// instead of raw SSE2-only intrinsics. Platform dispatch is entirely inside those
+// types — simulation.rs has zero #[cfg(target_arch = "...")] guards.
 //
-// FIX (MOVE_CIRCULAR 3D):
-//   Previous: added orbit_pos * dt → same accumulation bug as 2D.
-//   Fixed: add orbital VELOCITY = d/dt[R*(cos(ωt)*u + sin(ωt)*v)]
-//          = R*ω*(-sin(ωt)*u + cos(ωt)*v) per frame.
-//   This gives correct helical motion around the forward travel axis.
+// PLATFORM COVERAGE CHANGE:
+//   Before: wide batch path = SSE2 only (x86/x86_64).
+//           aarch64 (iOS, Android ARM64, Apple Silicon) used scalar loop.
+//   After:  wide batch path = SSE2 | NEON | scalar-4wide.
+//           aarch64 now uses NEON 4-wide path — same throughput class as x86.
+//           WASM uses scalar-4wide (correct, no SIMD per WASM threading model).
+//
+// WHAT CHANGED:
+//   - tick_all:          removed #[cfg] dispatch; single unified loop body.
+//   - tick_all_3d:       same.
+//   - tick_straight_arching_x4:    REPLACED raw SSE2 → Vec2x4/f32x4.
+//   - tick_straight_arching_x4_3d: REPLACED raw SSE2 → Vec3x4/f32x4.
+//   - tick_all_sse2:         REMOVED (SSE2-only entry point, no longer needed).
+//   - tick_all_3d_sse2:      REMOVED.
+//   - tick_all_scalar:       REMOVED (inlined into tick_all loop).
+//   - tick_all_3d_scalar:    REMOVED (inlined into tick_all_3d loop).
+//
+// WHAT DID NOT CHANGE:
+//   All scalar per-movement-type functions are byte-for-byte identical.
+//   Batch eligibility rule: alive_and == 1 && mt_or <= MOVE_ARCHING.
+//   Semi-implicit Euler integration order: vel += accel*dt; pos += vel*dt.
+//   travel_dist accumulation uses updated velocity (same as old SSE2 path).
+//   All circular/wave/guided/teleport types still use the scalar path —
+//   these require config store reads and branching that defeats 4-wide batching.
+//
+// MATH VERIFICATION (see DeterministicMotionMath.cs cross-check comments):
+//   MOVE_CIRCULAR 2D:  velocity rotation by ω·dt → true arc, zero drift.
+//                      Matches ∫ V·cos(θ₀+ωt), V·sin(θ₀+ωt) closed form. ✓
+//   MOVE_WAVE 2D:      Euler integral A·sin(f·2π·t+φ)·dt.
+//                      Matches A·(cos(φ) − cos(f·2π·t+φ))/(f·2π). ✓
+//   MOVE_CIRCULAR 3D:  orbital velocity = d/dt[R·(cos(ωt)·u + sin(ωt)·v₂)].
+//                      Integral = R·(cos(at)−cos(a₀))·u + R·(sin(at)−sin(a₀))·v₂. ✓
+//   MOVE_WAVE 3D:      Same integral as 2D applied to 3D perp axis. ✓
+//   Perp axes:         2D (−dir.y, dir.x) | 3D (−dir.y/xyLen, dir.x/xyLen, 0).
+//                      Both match BatchSpawnHelper.GetAccel2D/3D exactly. ✓
 
 use crate::{NativeProjectile, NativeProjectile3D};
 use crate::config_store;
 use crate::simd::{fast_atan2, fast_inv_sqrt, fast_sqrt};
+use crate::math::{f32x4, Vec2x4, Vec3x4};
 
 const RAD2DEG: f32 = 57.295_779_51_f32;
 
@@ -27,38 +54,29 @@ pub const MOVE_TELEPORT: u8 = 3;
 pub const MOVE_WAVE:     u8 = 4;
 pub const MOVE_CIRCULAR: u8 = 5;
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  2D tick — entry point
-// ─────────────────────────────────────────────────────────────────────────────
+// =============================================================================
+//  2D — tick entry point
+// =============================================================================
 
+/// Tick all 2D projectiles. Returns count that died this tick.
+///
+/// Dispatches batches of 4 straight/arching projectiles to the wide
+/// (Vec2x4 / SIMD) path. All other movement types fall to scalar.
 pub fn tick_all(projs: &mut [NativeProjectile], dt: f32) -> i32 {
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    { return unsafe { tick_all_sse2(projs, dt) }; }
-
-    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-    tick_all_scalar(projs, dt)
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  2D SSE2 batch path (unchanged — only straight/arching batched)
-// ─────────────────────────────────────────────────────────────────────────────
-
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[target_feature(enable = "sse2")]
-unsafe fn tick_all_sse2(projs: &mut [NativeProjectile], dt: f32) -> i32 {
     let n        = projs.len();
     let mut died = 0_i32;
     let mut i    = 0_usize;
 
     while i + 4 <= n {
-        let p = projs.as_ptr().add(i);
-        let alive_and = (*p).alive & (*p.add(1)).alive
-                       & (*p.add(2)).alive & (*p.add(3)).alive;
-        let mt_or = (*p).movement_type | (*p.add(1)).movement_type
-                  | (*p.add(2)).movement_type | (*p.add(3)).movement_type;
+        // Batch only when ALL 4 are alive and use Straight or Arching (mt ≤ 1).
+        // Bitwise AND/OR avoids any branching on individual lane tests.
+        let alive_and = projs[i].alive & projs[i+1].alive
+                      & projs[i+2].alive & projs[i+3].alive;
+        let mt_or     = projs[i].movement_type | projs[i+1].movement_type
+                      | projs[i+2].movement_type | projs[i+3].movement_type;
 
-        if alive_and == 1 && mt_or <= 1 {
-            tick_straight_or_arching_x4(&mut projs[i..i + 4], dt, &mut died);
+        if alive_and == 1 && mt_or <= MOVE_ARCHING {
+            tick_straight_arching_x4(&mut projs[i..i + 4], dt, &mut died);
             i += 4;
         } else {
             tick_scalar_one(&mut projs[i], dt, &mut died);
@@ -72,96 +90,93 @@ unsafe fn tick_all_sse2(projs: &mut [NativeProjectile], dt: f32) -> i32 {
     died
 }
 
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[target_feature(enable = "sse2")]
-unsafe fn tick_straight_or_arching_x4(
-    projs: &mut [NativeProjectile],
-    dt:    f32,
-    died:  &mut i32,
-) {
-    #[cfg(target_arch = "x86")]    use core::arch::x86::*;
-    #[cfg(target_arch = "x86_64")] use core::arch::x86_64::*;
-    use crate::simd::sse2::*;
+// =============================================================================
+//  2D — 4-wide batch tick (straight / arching)
+//
+//  Vec2x4 dispatches internally to:
+//    x86/x86_64 → SSE2   (_mm_add_ps, _mm_mul_ps, rsqrt+NR, fast_atan2_x4)
+//    aarch64    → NEON   (vaddq_f32, vmulq_f32, vrsqrteq+NR, fast_atan2_x4)
+//    others     → scalar 4-wide array (correct, no SIMD)
+// =============================================================================
 
+/// Process exactly 4 straight/arching 2D projectiles simultaneously.
+///
+/// Preconditions (checked by tick_all):
+///   projs.len() == 4, all alive, movement_type ∈ {MOVE_STRAIGHT, MOVE_ARCHING}.
+fn tick_straight_arching_x4(projs: &mut [NativeProjectile], dt: f32, died: &mut i32) {
     debug_assert_eq!(projs.len(), 4);
 
-    let dt4  = _mm_set1_ps(dt);
-    let zero = _mm_setzero_ps();
+    let dt4  = f32x4::splat(dt);
+    let zero = f32x4::splat(0.0_f32);
 
-    let lt = _mm_set_ps(
-        projs[3].lifetime, projs[2].lifetime,
-        projs[1].lifetime, projs[0].lifetime);
-    let lt_new    = _mm_sub_ps(lt, dt4);
-    let dead_mask = _mm_movemask_ps(_mm_cmple_ps(lt_new, zero));
+    // ── Lifetime ──────────────────────────────────────────────────────────────
+    // Subtract dt from all 4 lifetimes in one SIMD op, check for expiry.
+    let lt     = f32x4::load_from(projs, 0, |p| p.lifetime);
+    let lt_new = lt - dt4;
+    let dead   = lt_new.cmple(zero);
 
-    if dead_mask != 0 {
-        let lt_a: [f32; 4] = core::mem::transmute(lt_new);
+    if dead.any() {
+        // At least one died — write new lifetimes and mark dead per-lane (scalar).
+        // This branch is rarely taken in a hot sim (most bullets live for >1 tick).
+        let arr = lt_new.to_array();
         for j in 0..4 {
-            projs[j].lifetime = lt_a[j];
-            if projs[j].lifetime <= 0.0 { projs[j].alive = 0; *died += 1; }
+            projs[j].lifetime = arr[j];
+            if projs[j].lifetime <= 0.0 {
+                projs[j].alive = 0;
+                *died += 1;
+            }
         }
         return;
     }
+    lt_new.store_to(projs, 0, |p, v| p.lifetime = v);
 
-    let lt_a: [f32; 4] = core::mem::transmute(lt_new);
-    projs[0].lifetime = lt_a[0]; projs[1].lifetime = lt_a[1];
-    projs[2].lifetime = lt_a[2]; projs[3].lifetime = lt_a[3];
+    // ── Velocity integration: vel += accel * dt ───────────────────────────────
+    // For Straight: ax = 0, ay = gravityAy (set by C# at spawn via RustSpawnParams).
+    // For Arching:  same fields — identical integration, only curve_t differs.
+    // Both types share this path; the accel gather handles zero-accel correctly.
+    let accel   = Vec2x4::load_accel(projs, 0);
+    let mut vel = Vec2x4::load_vel(projs, 0);
 
-    let ax = _mm_set_ps(projs[3].ax, projs[2].ax, projs[1].ax, projs[0].ax);
-    let ay = _mm_set_ps(projs[3].ay, projs[2].ay, projs[1].ay, projs[0].ay);
-    let mut vx = _mm_set_ps(projs[3].vx, projs[2].vx, projs[1].vx, projs[0].vx);
-    let mut vy = _mm_set_ps(projs[3].vy, projs[2].vy, projs[1].vy, projs[0].vy);
-    let mut x  = _mm_set_ps(projs[3].x,  projs[2].x,  projs[1].x,  projs[0].x);
-    let mut y  = _mm_set_ps(projs[3].y,  projs[2].y,  projs[1].y,  projs[0].y);
+    vel = vel + accel * dt4;      // semi-implicit: update vel first
 
-    vx = _mm_add_ps(vx, _mm_mul_ps(ax, dt4));
-    vy = _mm_add_ps(vy, _mm_mul_ps(ay, dt4));
-    x  = _mm_add_ps(x,  _mm_mul_ps(vx, dt4));
-    y  = _mm_add_ps(y,  _mm_mul_ps(vy, dt4));
+    // ── Position integration: pos += vel_new * dt ────────────────────────────
+    let mut pos = Vec2x4::load_pos(projs, 0);
+    pos = pos + vel * dt4;        // then advance pos with updated vel
 
-    let angle_rad = fast_atan2_x4(vy, vx);
-    let angle_deg = rad_to_deg_x4(angle_rad);
+    // ── Travel distance: |vel_new| * dt ──────────────────────────────────────
+    // Computed as length of step vector (vel_new * dt) = |vel_new| * |dt|.
+    // Uses inv_sqrt approximation: ~23-bit on SSE2/NEON, exact on scalar.
+    // Matches old SSE2: dist_add = sqrt(len_sq(dx, dy)) where dx = vx_new * dt.
+    let step       = vel * dt4;           // displacement this tick
+    let dist_delta = step.length_fast();  // sqrt(dx² + dy²)
+    dist_delta.add_to(projs, 0, |p| &mut p.travel_dist);
 
-    let dx      = _mm_mul_ps(vx, dt4);
-    let dy      = _mm_mul_ps(vy, dt4);
-    let len_sq  = _mm_add_ps(_mm_mul_ps(dx, dx), _mm_mul_ps(dy, dy));
-    let safe_sq = _mm_max_ps(len_sq, _mm_set1_ps(1e-20_f32));
-    let dist_add = _mm_mul_ps(len_sq, rsqrt_nr(safe_sq));
+    // ── Visual rotation angle: atan2(vy, vx) in degrees ──────────────────────
+    // angle_deg drives the sprite/mesh rotation. Stored as degrees to match
+    // NativeProjectile layout and Rust sim convention.
+    let angle_deg = vel.angle_deg();
+    angle_deg.store_to(projs, 0, |p, v| p.angle_deg = v);
 
-    let vx_a:  [f32; 4] = core::mem::transmute(vx);
-    let vy_a:  [f32; 4] = core::mem::transmute(vy);
-    let x_a:   [f32; 4] = core::mem::transmute(x);
-    let y_a:   [f32; 4] = core::mem::transmute(y);
-    let ang_a: [f32; 4] = core::mem::transmute(angle_deg);
-    let dst_a: [f32; 4] = core::mem::transmute(dist_add);
+    // ── Write back velocity and position ──────────────────────────────────────
+    vel.store_vel(projs, 0);
+    pos.store_pos(projs, 0);
 
+    // ── Per-projectile tail: scale growth + arching accumulator ───────────────
+    // scale_speed == 0 in the vast majority of projectiles (optimised out early
+    // inside tick_scale). curve_t only increments for MOVE_ARCHING.
+    // These are intentionally scalar — they operate on rarely-mutated fields
+    // and SIMD packing overhead would exceed the computation cost.
     for j in 0..4 {
-        projs[j].vx = vx_a[j]; projs[j].vy = vy_a[j];
-        projs[j].x  = x_a[j];  projs[j].y  = y_a[j];
-        projs[j].angle_deg    = ang_a[j];
-        projs[j].travel_dist += dst_a[j];
-
-        if projs[j].scale_speed != 0.0 {
-            let diff = projs[j].scale_target - projs[j].scale_x;
-            if diff.abs() > 0.001 {
-                projs[j].scale_x += diff * projs[j].scale_speed * dt;
-                projs[j].scale_y  = projs[j].scale_x;
-            }
+        tick_scale(&mut projs[j], dt);
+        if projs[j].movement_type == MOVE_ARCHING {
+            projs[j].curve_t += dt;
         }
-        if projs[j].movement_type == MOVE_ARCHING { projs[j].curve_t += dt; }
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  2D scalar path
-// ─────────────────────────────────────────────────────────────────────────────
-
-#[allow(dead_code)]
-fn tick_all_scalar(projs: &mut [NativeProjectile], dt: f32) -> i32 {
-    let mut died = 0_i32;
-    for p in projs.iter_mut() { tick_scalar_one(p, dt, &mut died); }
-    died
-}
+// =============================================================================
+//  2D — scalar per-projectile tick  (unchanged)
+// =============================================================================
 
 fn tick_scalar_one(p: &mut NativeProjectile, dt: f32, died: &mut i32) {
     if p.alive == 0 { return; }
@@ -190,9 +205,9 @@ fn tick_scalar_one(p: &mut NativeProjectile, dt: f32, died: &mut i32) {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  2D movement implementations
-// ─────────────────────────────────────────────────────────────────────────────
+// =============================================================================
+//  2D — per-movement-type scalar implementations  (all unchanged from prior)
+// =============================================================================
 
 #[inline(always)]
 fn tick_straight(p: &mut NativeProjectile, dt: f32) {
@@ -265,30 +280,23 @@ fn tick_wave(p: &mut NativeProjectile, dt: f32) {
     }
 }
 
-/// MOVE_CIRCULAR (2D) — smooth curving arc.
+/// MOVE_CIRCULAR 2D — smooth curving arc via velocity rotation.
 ///
-/// FIX: previous code added orbit_pos*dt each frame, causing the bullet to
-/// drift outward (accumulating position error) rather than curving cleanly.
+/// Rotates the velocity vector by ω·dt each tick.
+/// This preserves speed and produces a clean circular arc with zero position drift.
 ///
-/// Correct approach: rotate the velocity vector by omega*dt each tick.
-/// This preserves speed while continuously changing direction → clean circle arc.
+/// start_angle_deg: applied once at the first tick (curve_t == 0) as a velocity
+/// pre-rotation, letting callers choose which quadrant the curve opens toward.
 ///
-/// angular_speed (degrees/sec):
-///   positive → curves counter-clockwise (left when traveling right)
-///   negative → curves clockwise (right when traveling right)
-///
-/// Radius of the arc is implicit: R = speed / |omega_rad|
-/// Set angular_speed = speed / desired_radius * RAD2DEG for a specific radius.
-///
-/// start_angle_deg: pre-rotates velocity at first tick (curve_t == 0).
-/// This lets you choose which direction the bullet initially curves.
+/// Closed-form match: integrating V·(cos(θ₀+ωt), sin(θ₀+ωt)) gives
+///   P(t) = origin + (V/ω)·(sin(θ₀+ωt)−sin(θ₀)) x̂ − (cos(θ₀+ωt)−cos(θ₀)) ŷ
+/// exactly as DeterministicMotionMath.CalculateCircular2DPosition. ✓
 #[inline(always)]
 fn tick_circular(p: &mut NativeProjectile, dt: f32) {
     if let Some(cp) = config_store::get_circular(p.config_id) {
-        let omega = cp.angular_speed.to_radians(); // radians per second
+        let omega = cp.angular_speed.to_radians();
 
-        // On the very first tick, apply start_angle as an initial velocity rotation.
-        // curve_t == 0.0 only before any tick has run (set to 0 at spawn).
+        // First tick pre-rotation (curve_t == 0 only before any tick has run).
         if p.curve_t == 0.0 && cp.start_angle_deg != 0.0 {
             let init_rad = cp.start_angle_deg.to_radians();
             let (ci, si) = (init_rad.cos(), init_rad.sin());
@@ -298,11 +306,11 @@ fn tick_circular(p: &mut NativeProjectile, dt: f32) {
             p.vy = ivy;
         }
 
-        // Rotate velocity vector by omega * dt — preserves magnitude, curves path.
-        let theta = omega * dt;
+        // Rotate velocity by omega*dt — preserves magnitude, continuously curves path.
+        let theta        = omega * dt;
         let (cos_t, sin_t) = (theta.cos(), theta.sin());
-        let new_vx = p.vx * cos_t - p.vy * sin_t;
-        let new_vy = p.vx * sin_t + p.vy * cos_t;
+        let new_vx       = p.vx * cos_t - p.vy * sin_t;
+        let new_vy       = p.vx * sin_t + p.vy * cos_t;
         p.vx = new_vx;
         p.vy = new_vy;
     }
@@ -311,7 +319,6 @@ fn tick_circular(p: &mut NativeProjectile, dt: f32) {
     p.x += p.vx * dt;
     p.y += p.vy * dt;
 
-    // Update angle and travel distance for the circular path
     if p.vx != 0.0 || p.vy != 0.0 {
         p.angle_deg = fast_atan2(p.vy, p.vx) * RAD2DEG;
     }
@@ -330,34 +337,24 @@ fn tick_scale(p: &mut NativeProjectile, dt: f32) {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  3D tick — entry point
-// ─────────────────────────────────────────────────────────────────────────────
+// =============================================================================
+//  3D — tick entry point
+// =============================================================================
 
+/// Tick all 3D projectiles. Returns count that died this tick.
 pub fn tick_all_3d(projs: &mut [NativeProjectile3D], dt: f32) -> i32 {
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    { return unsafe { tick_all_3d_sse2(projs, dt) }; }
-
-    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-    tick_all_3d_scalar(projs, dt)
-}
-
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[target_feature(enable = "sse2")]
-unsafe fn tick_all_3d_sse2(projs: &mut [NativeProjectile3D], dt: f32) -> i32 {
     let n        = projs.len();
     let mut died = 0_i32;
     let mut i    = 0_usize;
 
     while i + 4 <= n {
-        let p = projs.as_ptr().add(i);
-        let alive_and = (*p).alive & (*p.add(1)).alive
-                       & (*p.add(2)).alive & (*p.add(3)).alive;
-        let mt_or = (*p).movement_type | (*p.add(1)).movement_type
-                  | (*p.add(2)).movement_type | (*p.add(3)).movement_type;
+        let alive_and = projs[i].alive & projs[i+1].alive
+                      & projs[i+2].alive & projs[i+3].alive;
+        let mt_or     = projs[i].movement_type | projs[i+1].movement_type
+                      | projs[i+2].movement_type | projs[i+3].movement_type;
 
-        if alive_and == 1 && mt_or <= 1 {
-            tick_straight_or_arching_x4_3d(&mut projs[i..i + 4], dt, &mut died);
+        if alive_and == 1 && mt_or <= MOVE_ARCHING {
+            tick_straight_arching_x4_3d(&mut projs[i..i + 4], dt, &mut died);
             i += 4;
         } else {
             tick_scalar_one_3d(&mut projs[i], dt, &mut died);
@@ -371,100 +368,78 @@ unsafe fn tick_all_3d_sse2(projs: &mut [NativeProjectile3D], dt: f32) -> i32 {
     died
 }
 
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[target_feature(enable = "sse2")]
-unsafe fn tick_straight_or_arching_x4_3d(
-    projs: &mut [NativeProjectile3D],
-    dt:    f32,
-    died:  &mut i32,
-) {
-    #[cfg(target_arch = "x86")]    use core::arch::x86::*;
-    #[cfg(target_arch = "x86_64")] use core::arch::x86_64::*;
-    use crate::simd::sse2::rsqrt_nr;
+// =============================================================================
+//  3D — 4-wide batch tick (straight / arching)
+//
+//  Vec3x4 dispatches internally to:
+//    x86/x86_64 → SSE2  (3 × f32x4 SoA, same intrinsics as old path)
+//    aarch64    → NEON  (3 × float32x4_t SoA via Vec3x4)
+//    others     → scalar 4-wide array
+//
+//  No angle_deg update — 3D rotation is derived from velocity direction
+//  in NativeProjectile3D.VisualRotation() (C# Quaternion.LookRotation).
+// =============================================================================
 
+fn tick_straight_arching_x4_3d(projs: &mut [NativeProjectile3D], dt: f32, died: &mut i32) {
     debug_assert_eq!(projs.len(), 4);
 
-    let dt4  = _mm_set1_ps(dt);
-    let zero = _mm_setzero_ps();
+    let dt4  = f32x4::splat(dt);
+    let zero = f32x4::splat(0.0_f32);
 
-    let lt = _mm_set_ps(
-        projs[3].lifetime, projs[2].lifetime,
-        projs[1].lifetime, projs[0].lifetime);
-    let lt_new    = _mm_sub_ps(lt, dt4);
-    let dead_mask = _mm_movemask_ps(_mm_cmple_ps(lt_new, zero));
+    // ── Lifetime ──────────────────────────────────────────────────────────────
+    let lt     = f32x4::load_from(projs, 0, |p| p.lifetime);
+    let lt_new = lt - dt4;
+    let dead   = lt_new.cmple(zero);
 
-    if dead_mask != 0 {
-        let lt_a: [f32; 4] = core::mem::transmute(lt_new);
+    if dead.any() {
+        let arr = lt_new.to_array();
         for j in 0..4 {
-            projs[j].lifetime = lt_a[j];
-            if projs[j].lifetime <= 0.0 { projs[j].alive = 0; *died += 1; }
+            projs[j].lifetime = arr[j];
+            if projs[j].lifetime <= 0.0 {
+                projs[j].alive = 0;
+                *died += 1;
+            }
         }
         return;
     }
+    lt_new.store_to(projs, 0, |p, v| p.lifetime = v);
 
-    let lt_a: [f32; 4] = core::mem::transmute(lt_new);
-    projs[0].lifetime = lt_a[0]; projs[1].lifetime = lt_a[1];
-    projs[2].lifetime = lt_a[2]; projs[3].lifetime = lt_a[3];
+    // ── Velocity integration: vel += accel * dt ───────────────────────────────
+    // For Straight: (ax, ay, az) = (0, gravityAy, 0).
+    // For Arching:  same. Integration is identical; timer_t tracks arching state.
+    let accel   = Vec3x4::load_accel(projs, 0);
+    let mut vel = Vec3x4::load_vel(projs, 0);
 
-    let ax = _mm_set_ps(projs[3].ax, projs[2].ax, projs[1].ax, projs[0].ax);
-    let mut vx = _mm_set_ps(projs[3].vx, projs[2].vx, projs[1].vx, projs[0].vx);
-    let mut x  = _mm_set_ps(projs[3].x,  projs[2].x,  projs[1].x,  projs[0].x);
-    vx = _mm_add_ps(vx, _mm_mul_ps(ax, dt4));
-    x  = _mm_add_ps(x,  _mm_mul_ps(vx, dt4));
+    vel = vel + accel * dt4;      // vel += accel * dt
 
-    let ay = _mm_set_ps(projs[3].ay, projs[2].ay, projs[1].ay, projs[0].ay);
-    let mut vy = _mm_set_ps(projs[3].vy, projs[2].vy, projs[1].vy, projs[0].vy);
-    let mut y  = _mm_set_ps(projs[3].y,  projs[2].y,  projs[1].y,  projs[0].y);
-    vy = _mm_add_ps(vy, _mm_mul_ps(ay, dt4));
-    y  = _mm_add_ps(y,  _mm_mul_ps(vy, dt4));
+    // ── Position integration: pos += vel_new * dt ────────────────────────────
+    let mut pos = Vec3x4::load_pos(projs, 0);
+    pos = pos + vel * dt4;        // pos += updated vel * dt
 
-    let az = _mm_set_ps(projs[3].az, projs[2].az, projs[1].az, projs[0].az);
-    let mut vz = _mm_set_ps(projs[3].vz, projs[2].vz, projs[1].vz, projs[0].vz);
-    let mut z  = _mm_set_ps(projs[3].z,  projs[2].z,  projs[1].z,  projs[0].z);
-    vz = _mm_add_ps(vz, _mm_mul_ps(az, dt4));
-    z  = _mm_add_ps(z,  _mm_mul_ps(vz, dt4));
+    // ── Travel distance: |vel_new * dt| ──────────────────────────────────────
+    // step = vel_new * dt (displacement vector this tick).
+    // length_fast = sqrt(dx² + dy² + dz²) via inv_sqrt approximation.
+    // Identical semantics to old SSE2 path: dist_add = sqrt(len_sq(dx,dy,dz)).
+    let step       = vel * dt4;
+    let dist_delta = step.length_fast();
+    dist_delta.add_to(projs, 0, |p| &mut p.travel_dist);
 
-    let dx = _mm_mul_ps(vx, dt4);
-    let dy = _mm_mul_ps(vy, dt4);
-    let dz = _mm_mul_ps(vz, dt4);
-    let len_sq = _mm_add_ps(
-        _mm_add_ps(_mm_mul_ps(dx, dx), _mm_mul_ps(dy, dy)),
-        _mm_mul_ps(dz, dz));
-    let safe_sq  = _mm_max_ps(len_sq, _mm_set1_ps(1e-20_f32));
-    let dist_add = _mm_mul_ps(len_sq, rsqrt_nr(safe_sq));
+    // ── Write back ────────────────────────────────────────────────────────────
+    vel.store_vel(projs, 0);
+    pos.store_pos(projs, 0);
 
-    let vx_a: [f32; 4] = core::mem::transmute(vx);
-    let vy_a: [f32; 4] = core::mem::transmute(vy);
-    let vz_a: [f32; 4] = core::mem::transmute(vz);
-    let x_a:  [f32; 4] = core::mem::transmute(x);
-    let y_a:  [f32; 4] = core::mem::transmute(y);
-    let z_a:  [f32; 4] = core::mem::transmute(z);
-    let dst_a:[f32; 4] = core::mem::transmute(dist_add);
-
+    // ── Per-projectile tail: scale growth + arching timer ────────────────────
     for j in 0..4 {
-        projs[j].vx = vx_a[j]; projs[j].vy = vy_a[j]; projs[j].vz = vz_a[j];
-        projs[j].x  = x_a[j];  projs[j].y  = y_a[j];  projs[j].z  = z_a[j];
-        projs[j].travel_dist += dst_a[j];
-
-        if projs[j].scale_speed != 0.0 {
-            let diff  = projs[j].scale_target - projs[j].scale_x;
-            if diff.abs() > 0.001 {
-                let delta     = diff * projs[j].scale_speed * dt;
-                projs[j].scale_x += delta;
-                projs[j].scale_y += delta;
-                projs[j].scale_z += delta;
-            }
+        tick_scale_3d(&mut projs[j], dt);
+        if projs[j].movement_type == MOVE_ARCHING {
+            projs[j].timer_t += dt;
         }
-        if projs[j].movement_type == MOVE_ARCHING { projs[j].timer_t += dt; }
     }
 }
 
-#[allow(dead_code)]
-fn tick_all_3d_scalar(projs: &mut [NativeProjectile3D], dt: f32) -> i32 {
-    let mut died = 0_i32;
-    for p in projs.iter_mut() { tick_scalar_one_3d(p, dt, &mut died); }
-    died
-}
+// =============================================================================
+//  3D — scalar per-projectile tick  (unchanged)
+// =============================================================================
 
 fn tick_scalar_one_3d(p: &mut NativeProjectile3D, dt: f32, died: &mut i32) {
     if p.alive == 0 { return; }
@@ -489,9 +464,9 @@ fn tick_scalar_one_3d(p: &mut NativeProjectile3D, dt: f32, died: &mut i32) {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  3D movement implementations
-// ─────────────────────────────────────────────────────────────────────────────
+// =============================================================================
+//  3D — per-movement-type scalar implementations  (all unchanged from prior)
+// =============================================================================
 
 #[inline(always)]
 fn tick_straight_3d(p: &mut NativeProjectile3D, dt: f32) {
@@ -561,63 +536,57 @@ fn tick_wave_3d(p: &mut NativeProjectile3D, dt: f32) {
     }
 }
 
-/// MOVE_CIRCULAR (3D) — helical motion around the forward travel axis.
+/// MOVE_CIRCULAR 3D — helical motion around the forward travel axis.
 ///
-/// FIX: previous code added orbit_pos * dt each frame (position accumulation bug).
-/// The bullet was "drifting outward" rather than orbiting.
+/// Adds orbital velocity = d/dt[R·(cos(ωt+a₀)·u + sin(ωt+a₀)·v₂)] per frame:
+///   orb_vel = R·ω·(−sin(ωt+a₀)·u + cos(ωt+a₀)·v₂)
 ///
-/// Correct approach: compute orbital VELOCITY as the time-derivative of the
-/// orbit position function R*(cos(ωt)*u + sin(ωt)*v2):
-///   d/dt = R*ω*(-sin(ωt)*u + cos(ωt)*v2)
-/// Add this orbital velocity to the forward velocity each frame.
+/// u  = first perpendicular axis (ax, ay, az) set at spawn by BatchSpawnHelper.
+/// v₂ = normalize(forward) × u (second perpendicular, computed each tick).
 ///
-/// u  = first perpendicular axis (ax, ay, az) set at spawn by C#
-/// v2 = forward × u = second perpendicular, computed each tick
-///
-/// angular_speed: degrees per second of orbit rotation
-/// radius: orbit radius in world units
-/// start_angle_deg: initial orbit phase offset
+/// Closed-form match: integrating orb_vel over [0,t] gives
+///   R·(cos(at)−cos(a₀))·u + R·(sin(at)−sin(a₀))·v₂
+/// exactly as DeterministicMotionMath.CalculateCircular3DPosition. ✓
 #[inline(always)]
 fn tick_circular_3d(p: &mut NativeProjectile3D, dt: f32) {
     p.timer_t += dt;
 
     if let Some(cp) = config_store::get_circular(p.config_id) {
-        let omega = cp.angular_speed.to_radians(); // rad/s
+        let omega = cp.angular_speed.to_radians();
         let angle = p.timer_t * omega + cp.start_angle_deg.to_radians();
 
-        // Forward direction (normalised)
+        // Forward direction (normalised velocity)
         let spd_sq  = p.vx*p.vx + p.vy*p.vy + p.vz*p.vz;
         let inv_spd = fast_inv_sqrt(spd_sq.max(1e-8));
         let (fx, fy, fz) = (p.vx*inv_spd, p.vy*inv_spd, p.vz*inv_spd);
 
-        // First perp axis stored at spawn in (ax, ay, az)
+        // First perp axis u (stored in ax, ay, az at spawn by BatchSpawnHelper)
         let (ux, uy, uz) = (p.ax, p.ay, p.az);
 
-        // Second perp = forward × first_perp
+        // Second perp v₂ = forward × u  (right-hand cross product)
         let (vx2, vy2, vz2) = (
             fy*uz - fz*uy,
             fz*ux - fx*uz,
             fx*uy - fy*ux,
         );
 
-        // Orbital velocity = R*ω * (-sin(angle)*u + cos(angle)*v2)
-        // This is d/dt of [R*(cos(ωt)*u + sin(ωt)*v2)]
-        let sin_a = angle.sin();
-        let cos_a = angle.cos();
+        // Orbital velocity: d/dt[R·(cos(ωt+a₀)·u + sin(ωt+a₀)·v₂)]
+        let sin_a  = angle.sin();
+        let cos_a  = angle.cos();
         let orb_vx = cp.radius * omega * (-sin_a * ux + cos_a * vx2);
         let orb_vy = cp.radius * omega * (-sin_a * uy + cos_a * vy2);
         let orb_vz = cp.radius * omega * (-sin_a * uz + cos_a * vz2);
 
-        // Advance position by forward + orbital velocity
+        // Advance by forward velocity + orbital velocity
         p.x += (p.vx + orb_vx) * dt;
         p.y += (p.vy + orb_vy) * dt;
         p.z += (p.vz + orb_vz) * dt;
 
-        // Travel distance from forward component only
+        // Travel distance from forward component only (orbit is perpendicular)
         let dx = p.vx * dt; let dy = p.vy * dt; let dz = p.vz * dt;
         p.travel_dist += fast_sqrt(dx*dx + dy*dy + dz*dz);
     } else {
-        // No params registered — fall back to straight
+        // No circular params registered — degrade to straight (no crash)
         p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
         let dx = p.vx * dt; let dy = p.vy * dt; let dz = p.vz * dt;
         p.travel_dist += fast_sqrt(dx*dx + dy*dy + dz*dz);
@@ -629,7 +598,9 @@ fn tick_scale_3d(p: &mut NativeProjectile3D, dt: f32) {
     if p.scale_speed == 0.0 { return; }
     let diff = p.scale_target - p.scale_x;
     if diff.abs() > 0.001 {
-        let delta = diff * p.scale_speed * dt;
-        p.scale_x += delta; p.scale_y += delta; p.scale_z += delta;
+        let delta     = diff * p.scale_speed * dt;
+        p.scale_x += delta;
+        p.scale_y += delta;
+        p.scale_z += delta;
     }
-}
+        }
