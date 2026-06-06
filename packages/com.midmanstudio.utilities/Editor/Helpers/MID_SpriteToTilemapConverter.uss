@@ -1,0 +1,292 @@
+/* MID_SpriteToTilemapConverter.uss
+   Self-contained palette — no cross-file dependency. Requires Unity 2022.3+. */
+
+/* ── Palette ─────────────────────────────────────────────────────────────── */
+:root {
+    --green:    rgba(71,  230, 115, 1.0);
+    --blue:     rgba(100, 165, 255, 1.0);
+    --orange:   rgba(255, 180,  64, 1.0);
+    --red:      rgba(255,  90,  90, 1.0);
+    --yellow:   rgba(255, 200,  60, 1.0);
+
+    --text-hi:  rgba(210, 210, 210, 1.0);
+    --text-mid: rgba(145, 145, 145, 1.0);
+    --text-lo:  rgba( 80,  80,  80, 1.0);
+
+    --bg-0:     rgba( 22,  22,  24, 1.0);
+    --bg-1:     rgba( 32,  32,  34, 1.0);
+    --bg-2:     rgba( 44,  44,  46, 1.0);
+
+    --border:   rgba( 70,  70,  72, 0.6);
+    --r-s:      4px;
+    --r-m:      6px;
+}
+
+/* ── Root ────────────────────────────────────────────────────────────────── */
+.mid-root {
+    flex-direction:   column;
+    flex-grow:        1;
+    background-color: var(--bg-0);
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+.mid-header {
+    min-height:          56px;
+    flex-direction:      row;
+    align-items:         center;
+    padding:             0 14px;
+    border-bottom-width: 1px;
+    border-bottom-color: var(--border);
+    overflow:            hidden;
+}
+.mid-header__text  { flex-direction: column; justify-content: center; }
+.mid-header__title { font-size: 13px; -unity-font-style: bold; color: var(--text-hi); }
+.mid-header__sub   { font-size: 10px; color: var(--text-mid); margin-top: 2px; }
+
+/* ── Empty state ─────────────────────────────────────────────────────────── */
+.mid-empty {
+    align-items:     center;
+    justify-content: center;
+    padding:         20px;
+}
+.mid-empty__icon {
+    font-size:         22px;
+    color:             var(--text-lo);
+    margin-bottom:     6px;
+    -unity-text-align: middle-center;
+}
+.mid-empty__text {
+    font-size:         11px;
+    color:             var(--text-mid);
+    -unity-text-align: middle-center;
+    white-space:       normal;
+}
+
+/* ── Sections ────────────────────────────────────────────────────────────── */
+.stc-section {
+    margin:     0 12px 4px 12px;
+    padding-top: 10px;
+}
+
+.stc-section__title {
+    font-size:         9px;
+    -unity-font-style: bold;
+    color:             var(--text-lo);
+    margin-bottom:     5px;
+}
+
+.stc-section-header-row {
+    flex-direction: row;
+    align-items:    center;
+    margin-bottom:  5px;
+}
+
+.stc-stats-lbl {
+    font-size:   10px;
+    color:       var(--text-mid);
+    flex-grow:   1;
+    margin-left: 8px;
+}
+
+/* ── Card ────────────────────────────────────────────────────────────────── */
+.stc-card {
+    background-color: var(--bg-1);
+    border-radius:    var(--r-m);
+    border-width:     1px;
+    border-color:     var(--border);
+    padding:          10px;
+}
+
+/* ── Field rows inside card ──────────────────────────────────────────────── */
+.stc-field-slot {
+    margin-bottom: 6px;
+}
+
+.stc-row {
+    flex-direction: row;
+    align-items:    center;
+    margin-bottom:  6px;
+}
+
+.stc-row__label {
+    font-size:   11px;
+    color:       var(--text-mid);
+    width:       112px;
+    flex-shrink: 0;
+}
+
+.stc-row__field {
+    flex-grow:  1;
+    height:     22px;
+    font-size:  11px;
+}
+
+.stc-object-field {
+    flex-grow:     1;
+    margin-bottom: 0;
+}
+
+.stc-browse-btn {
+    height:           22px;
+    padding:          0 8px;
+    border-radius:    var(--r-s);
+    border-width:     1px;
+    border-color:     var(--border);
+    background-color: rgba(255,255,255,0.06);
+    color:            var(--text-mid);
+    font-size:        13px;
+    margin-left:      4px;
+}
+.stc-browse-btn:hover { background-color: rgba(255,255,255,0.12); color: var(--text-hi); }
+
+.stc-toggle {
+    font-size:  11px;
+    color:      var(--text-mid);
+    margin-top: 4px;
+}
+
+/* ── Scan button ─────────────────────────────────────────────────────────── */
+.stc-scan-btn {
+    height:            24px;
+    padding:           0 12px;
+    border-radius:     var(--r-s);
+    border-width:      1px;
+    border-color:      rgba(100,165,255,0.35);
+    background-color:  rgba(100,165,255,0.09);
+    color:             var(--blue);
+    font-size:         10px;
+    -unity-font-style: bold;
+    flex-shrink:       0;
+}
+.stc-scan-btn:hover { background-color: rgba(100,165,255,0.18); }
+
+/* ── Column headers ──────────────────────────────────────────────────────── */
+.stc-col-headers {
+    flex-direction:   row;
+    align-items:      center;
+    padding:          4px 6px;
+    margin-top:       6px;
+    border-top-width: 1px;
+    border-top-color: var(--border);
+}
+
+.stc-col-hdr {
+    font-size:         9px;
+    -unity-font-style: bold;
+    color:             var(--text-lo);
+}
+
+/* Column widths — keep in sync with BuildGroupRow() in C# */
+.stc-col--layer  { flex-grow: 1; min-width: 80px; }
+.stc-col--order  { width: 58px; -unity-text-align: middle-center; }
+.stc-col--count  { width: 58px; -unity-text-align: middle-center; }
+.stc-col--target { width: 190px; flex-shrink: 0; }
+
+/* ── Group rows ──────────────────────────────────────────────────────────── */
+.stc-group-row {
+    padding:             2px 6px;
+    min-height:          28px;
+    border-top-width:    1px;
+    border-top-color:    rgba(255,255,255,0.05);
+}
+.stc-group-row:hover { background-color: rgba(255,255,255,0.03); }
+
+.stc-group-layer {
+    font-size: 11px;
+    color:     var(--text-hi);
+    overflow:  hidden;
+}
+
+.stc-group-order {
+    font-size:         11px;
+    color:             var(--orange);
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+}
+
+.stc-group-count {
+    font-size:         11px;
+    color:             var(--text-mid);
+    -unity-text-align: middle-center;
+}
+
+.stc-group-tilemap { height: 20px; }
+
+/* ── Hint box ────────────────────────────────────────────────────────────── */
+.stc-hint-box {
+    margin-top:       6px;
+    padding:          7px 9px;
+    border-radius:    var(--r-s);
+    background-color: rgba(100,165,255,0.05);
+    border-width:     1px;
+    border-color:     rgba(100,165,255,0.16);
+}
+.stc-hint-text {
+    font-size:   10px;
+    color:       rgba(100,165,255,0.70);
+    white-space: normal;
+}
+
+/* ── Action buttons ──────────────────────────────────────────────────────── */
+.stc-action-row {
+    flex-direction: row;
+    align-items:    center;
+}
+
+.stc-btn {
+    height:            34px;
+    flex-grow:         1;
+    border-radius:     var(--r-m);
+    border-width:      1px;
+    font-size:         11px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    margin-right:      6px;
+}
+.stc-btn:last-child { margin-right: 0; }
+
+.stc-btn--dry {
+    background-color: rgba(100,165,255,0.08);
+    border-color:     rgba(100,165,255,0.28);
+    color:            var(--blue);
+}
+.stc-btn--dry:hover    { background-color: rgba(100,165,255,0.16); }
+.stc-btn--dry:disabled { opacity: 0.35; }
+
+.stc-btn--convert {
+    background-color: rgba(71,230,115,0.09);
+    border-color:     rgba(71,230,115,0.32);
+    color:            var(--green);
+}
+.stc-btn--convert:hover    { background-color: rgba(71,230,115,0.18); }
+.stc-btn--convert:disabled { opacity: 0.35; }
+
+/* ── Results ─────────────────────────────────────────────────────────────── */
+.stc-results {
+    border-radius:    var(--r-m);
+    border-width:     1px;
+    padding:          10px 12px;
+    background-color: rgba(100,165,255,0.05);
+    border-color:     rgba(100,165,255,0.22);
+}
+
+.stc-results--success {
+    background-color: rgba(71,230,115,0.07);
+    border-color:     rgba(71,230,115,0.28);
+}
+
+.stc-results--warning {
+    background-color: rgba(255,200,60,0.07);
+    border-color:     rgba(255,200,60,0.28);
+}
+
+.stc-results--error {
+    background-color: rgba(255,90,90,0.07);
+    border-color:     rgba(255,90,90,0.28);
+}
+
+.stc-results__text {
+    font-size:   10px;
+    color:       var(--text-mid);
+    white-space: normal;
+}
