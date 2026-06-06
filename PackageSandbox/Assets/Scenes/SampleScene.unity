@@ -256,7 +256,7 @@ MonoBehaviour:
   _context: {fileID: 11400000, guid: 45c6f11e0ce2948f4a2557726f919fd3, type: 2}
   _initialState: 1
   _configurations: []
-  _logLevel: 2
+  _logLevel: 1
 --- !u!4 &104538039
 Transform:
   m_ObjectHideFlags: 0
@@ -1302,7 +1302,7 @@ MonoBehaviour:
   _blendDuration3D: 0.45
   _fieldOfView: 70
   _blendStyle: 1
-  _logLevel: 2
+  _logLevel: 1
 --- !u!114 &330585549
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1559,7 +1559,7 @@ MonoBehaviour:
   _projRenderer2D: {fileID: 1771295139}
   _projRenderer3D: {fileID: 100733518}
   _startMode: 0
-  _logLevel: 2
+  _logLevel: 1
 --- !u!4 &387326405
 Transform:
   m_ObjectHideFlags: 0
@@ -1762,7 +1762,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _context: {fileID: 11400000, guid: 45c6f11e0ce2948f4a2557726f919fd3, type: 2}
   _showWhenMask: 8
-  _logLevel: 2
+  _logLevel: 1
 --- !u!114 &399749543
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1778,7 +1778,7 @@ MonoBehaviour:
   _onVisibilityChanged:
     m_PersistentCalls:
       m_Calls: []
-  _logLevel: 2
+  _logLevel: 1
 --- !u!225 &399749544
 CanvasGroup:
   m_ObjectHideFlags: 0
@@ -1997,7 +1997,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _context: {fileID: 11400000, guid: 45c6f11e0ce2948f4a2557726f919fd3, type: 2}
   _showWhenMask: 1
-  _logLevel: 2
+  _logLevel: 1
 --- !u!114 &566781205
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2013,7 +2013,7 @@ MonoBehaviour:
   _onVisibilityChanged:
     m_PersistentCalls:
       m_Calls: []
-  _logLevel: 2
+  _logLevel: 1
 --- !u!225 &566781206
 CanvasGroup:
   m_ObjectHideFlags: 0
@@ -2333,7 +2333,7 @@ MonoBehaviour:
   _headshotParticleCount: 12
   _defaultParticleType: 100
   _bindings: []
-  _logLevel: 2
+  _logLevel: 1
 --- !u!4 &659763116
 Transform:
   m_ObjectHideFlags: 0
@@ -2540,7 +2540,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _context: {fileID: 11400000, guid: 45c6f11e0ce2948f4a2557726f919fd3, type: 2}
   _showWhenMask: 16
-  _logLevel: 2
+  _logLevel: 1
 --- !u!114 &731688481
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2556,7 +2556,7 @@ MonoBehaviour:
   _onVisibilityChanged:
     m_PersistentCalls:
       m_Calls: []
-  _logLevel: 2
+  _logLevel: 1
 --- !u!225 &731688482
 CanvasGroup:
   m_ObjectHideFlags: 0
@@ -2835,7 +2835,7 @@ MonoBehaviour:
   _lobbyManager: {fileID: 1861802234}
   _networkMonitor: {fileID: 1782100385}
   _lobbyContext: {fileID: 11400000, guid: 45c6f11e0ce2948f4a2557726f919fd3, type: 2}
-  _logLevel: 2
+  _logLevel: 1
   _playerNameInput: {fileID: 1788822650}
   _hostButton: {fileID: 1845744666}
   _lookForLobbiesButton: {fileID: 117065486}
@@ -3047,7 +3047,8 @@ MonoBehaviour:
   _serverRaycastLayers:
     serializedVersion: 2
     m_Bits: 320
-  _logLevel: 2
+  _trustClientOnValidationMiss: 1
+  _logLevel: 1
 --- !u!114 &1044549677
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -3320,7 +3321,7 @@ MonoBehaviour:
     prefab: {fileID: 5978565870698086511, guid: 14de134453b154ff29ad10a233bb8c17,
       type: 3}
     prewarmCount: 10
-  _logLevel: 2
+  _logLevel: 1
 --- !u!114 &1194435583
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -8980,7 +8981,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _context: {fileID: 11400000, guid: 45c6f11e0ce2948f4a2557726f919fd3, type: 2}
   _showWhenMask: 4
-  _logLevel: 2
+  _logLevel: 1
 --- !u!114 &1493270237
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -8996,7 +8997,7 @@ MonoBehaviour:
   _onVisibilityChanged:
     m_PersistentCalls:
       m_Calls: []
-  _logLevel: 2
+  _logLevel: 1
 --- !u!225 &1493270238
 CanvasGroup:
   m_ObjectHideFlags: 0
@@ -9038,7 +9039,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 124680961c2bd47be9955222b694f272, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _logLevel: 2
+  _logLevel: 1
   particleConfigs:
   - particleType: 100
     displayName: 
@@ -9262,7 +9263,7 @@ MonoBehaviour:
   _gameHUDCanvas: {fileID: 294835980}
   _hitSoundClipIndex: 1
   _hitSoundVolume: 0.5
-  _logLevel: 2
+  _logLevel: 1
 --- !u!4 &1561834169
 Transform:
   m_ObjectHideFlags: 0
@@ -14534,7 +14535,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _checkInterval: 2
-  _logLevel: 2
+  _logLevel: 1
 --- !u!4 &1782100386
 Transform:
   m_ObjectHideFlags: 0
@@ -14591,7 +14592,7 @@ MonoBehaviour:
   _impactHandler: {fileID: 659763115}
   _networkObjectPool: {fileID: 1194435582}
   _forceOfflineMode: 0
-  _logLevel: 2
+  _logLevel: 1
 --- !u!4 &1783256105
 Transform:
   m_ObjectHideFlags: 0
@@ -15110,7 +15111,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c9dcb1b092ff049be91ea98157552aa4, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _logLevel: 2
+  _logLevel: 1
   poolConfigs:
   - objectType: 100
     displayName: 
@@ -15193,7 +15194,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 453e5cc62233c4ef9839310bf602dc6f, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _logLevel: 2
+  _logLevel: 1
   _effects:
   - category: 0
     effectType: 0
@@ -15522,7 +15523,7 @@ MonoBehaviour:
   - 007
   - 42
   - 99
-  _logLevel: 2
+  _logLevel: 1
 --- !u!114 &1861802235
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -15603,7 +15604,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 05a8fa5bedfc54853add1882db489ce7, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _logLevel: 2
+  _logLevel: 1
   _poolSize: 256
   _fadePad: 0.1
 --- !u!114 &1873585529
@@ -15663,7 +15664,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 3d21896433af64db397d1a9d7db6f3ba, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _logLevel: 2
+  _logLevel: 1
   _clips:
   - {fileID: 8300000, guid: 8f6a0fa17b5844de093213cad1ebe633, type: 3}
   - {fileID: 8300000, guid: e4bee692a69be4d0384ee4375f3fe112, type: 3}
@@ -16092,7 +16093,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _context: {fileID: 11400000, guid: 45c6f11e0ce2948f4a2557726f919fd3, type: 2}
   _showWhenMask: 2
-  _logLevel: 2
+  _logLevel: 1
 --- !u!114 &1962098015
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -16108,7 +16109,7 @@ MonoBehaviour:
   _onVisibilityChanged:
     m_PersistentCalls:
       m_Calls: []
-  _logLevel: 2
+  _logLevel: 1
 --- !u!225 &1962098016
 CanvasGroup:
   m_ObjectHideFlags: 0
@@ -16158,7 +16159,7 @@ MonoBehaviour:
   _renderer2D: {fileID: 1771295139}
   _renderer3D: {fileID: 100733518}
   _trailPool: {fileID: 1873585527}
-  _logLevel: 2
+  _logLevel: 1
 --- !u!4 &1989346787
 Transform:
   m_ObjectHideFlags: 0
@@ -16654,7 +16655,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 20b337516dd4f4c8397847ea840c47d7, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _logLevel: 2
+  _logLevel: 1
 --- !u!114 &2073678067
 MonoBehaviour:
   m_ObjectHideFlags: 0
