@@ -1,5 +1,5 @@
 // lib.rs — all public FFI exports
-// Unity P/Invoke (DllImport / __Internal on iOS)
+// Unity P/Invoke (DllImport / __Internal on iOS and WebGL)
 //
 // 2D struct sizes:
 //   NativeProjectile   = 72 bytes
@@ -12,23 +12,31 @@
 //   HitResult3D         = 28 bytes
 //   CollisionTarget3D   = 24 bytes
 //
-// SIMD acceleration (mid-math derived, see simd.rs):
+// SIMD acceleration (see simd.rs and math/):
 //   x86/x86_64: SSE2 guaranteed — 4-wide tick batching, fast_atan2_x4,
-//                rsqrt_nr for sqrt/normalize, SIMD narrow-phase collision.
-//   All others: scalar fast_atan2 + Quake rsqrt (still ~6-8x vs libm).
+//               rsqrt_nr for sqrt/normalize, SIMD narrow-phase collision.
+//   aarch64:    NEON mandatory — vrsqrteq+NR, vdivq, vcgt/vclt/vbsl.
+//   All others: scalar fast_atan2 + Quake rsqrt.
+//
+//   math/ provides Vec2x4, Vec3x4, f32x4 — SIMD-backed wide vector types
+//   used by simulation.rs and collision.rs. Platform dispatch is inside f32x4.
 
 mod simulation;
 mod collision;
 mod patterns;
 mod state;
 mod config_store;
-mod simd;            // ← new
+mod simd;
+mod math;        // ← wide math types: f32x4, Vec2x4, Vec3x4
 
 pub use simulation::*;
 pub use collision::*;
 pub use patterns::*;
 pub use state::*;
 pub use config_store::*;
+
+// math types are pub(crate) — simulation/collision use them internally.
+// Not exposed in the C FFI surface.
 
 use std::slice;
 
@@ -47,7 +55,7 @@ use std::slice;
 //  2D data types
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Core 2D projectile state. 72 bytes.
+/// Core 2D projectile state. 72 bytes. Must match C# NativeProjectile exactly.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NativeProjectile {
@@ -119,7 +127,7 @@ pub struct SpawnRequest {
 //  3D data types
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Core 3D projectile state. 84 bytes.
+/// Core 3D projectile state. 84 bytes. Must match C# NativeProjectile3D exactly.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NativeProjectile3D {
@@ -241,9 +249,9 @@ pub unsafe extern "C" fn check_hits_grid_ex(
     if projs.is_null() || targets.is_null() || out_hits.is_null() {
         zero(out_hit_count); return;
     }
-    let projs_s   = slice::from_raw_parts(projs,    proj_count   as usize);
-    let targets_s = slice::from_raw_parts(targets,  target_count as usize);
-    let hits_s    = slice::from_raw_parts_mut(out_hits, max_hits  as usize);
+    let projs_s   = slice::from_raw_parts(projs,     proj_count   as usize);
+    let targets_s = slice::from_raw_parts(targets,   target_count as usize);
+    let hits_s    = slice::from_raw_parts_mut(out_hits, max_hits   as usize);
     let count     = collision::check_hits(projs_s, targets_s, hits_s, cell_size);
     if !out_hit_count.is_null() { *out_hit_count = count as i32; }
 }
@@ -268,9 +276,9 @@ pub unsafe extern "C" fn check_hits_grid_3d(
     if projs.is_null() || targets.is_null() || out_hits.is_null() {
         zero(out_hit_count); return;
     }
-    let projs_s   = slice::from_raw_parts(projs,    proj_count   as usize);
-    let targets_s = slice::from_raw_parts(targets,  target_count as usize);
-    let hits_s    = slice::from_raw_parts_mut(out_hits, max_hits  as usize);
+    let projs_s   = slice::from_raw_parts(projs,     proj_count   as usize);
+    let targets_s = slice::from_raw_parts(targets,   target_count as usize);
+    let hits_s    = slice::from_raw_parts_mut(out_hits, max_hits   as usize);
     let count     = collision::check_hits_3d(projs_s, targets_s, hits_s, cell_size);
     if !out_hit_count.is_null() { *out_hit_count = count as i32; }
 }
@@ -422,19 +430,19 @@ pub extern "C" fn clear_movement_params() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Layout validation
+//  Layout validation — called by C# ProjectileLib.ValidateStructSizes()
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[no_mangle] pub extern "C" fn projectile_struct_size()      -> i32 { core::mem::size_of::<NativeProjectile>()   as i32 }
-#[no_mangle] pub extern "C" fn hit_result_struct_size()      -> i32 { core::mem::size_of::<HitResult>()          as i32 }
-#[no_mangle] pub extern "C" fn collision_target_struct_size()-> i32 { core::mem::size_of::<CollisionTarget>()    as i32 }
-#[no_mangle] pub extern "C" fn spawn_request_struct_size()   -> i32 { core::mem::size_of::<SpawnRequest>()       as i32 }
-#[no_mangle] pub extern "C" fn projectile3d_struct_size()    -> i32 { core::mem::size_of::<NativeProjectile3D>() as i32 }
-#[no_mangle] pub extern "C" fn hit_result3d_struct_size()    -> i32 { core::mem::size_of::<HitResult3D>()        as i32 }
-#[no_mangle] pub extern "C" fn collision_target3d_struct_size()->i32 { core::mem::size_of::<CollisionTarget3D>() as i32 }
+#[no_mangle] pub extern "C" fn projectile_struct_size()       -> i32 { core::mem::size_of::<NativeProjectile>()   as i32 }
+#[no_mangle] pub extern "C" fn hit_result_struct_size()       -> i32 { core::mem::size_of::<HitResult>()          as i32 }
+#[no_mangle] pub extern "C" fn collision_target_struct_size() -> i32 { core::mem::size_of::<CollisionTarget>()    as i32 }
+#[no_mangle] pub extern "C" fn spawn_request_struct_size()    -> i32 { core::mem::size_of::<SpawnRequest>()       as i32 }
+#[no_mangle] pub extern "C" fn projectile3d_struct_size()     -> i32 { core::mem::size_of::<NativeProjectile3D>() as i32 }
+#[no_mangle] pub extern "C" fn hit_result3d_struct_size()     -> i32 { core::mem::size_of::<HitResult3D>()        as i32 }
+#[no_mangle] pub extern "C" fn collision_target3d_struct_size()-> i32 { core::mem::size_of::<CollisionTarget3D>() as i32 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Compile-time layout assertions
+//  Compile-time layout assertions — catches mismatches before runtime
 // ─────────────────────────────────────────────────────────────────────────────
 
 const _: () = assert!(core::mem::size_of::<NativeProjectile>()   == 72);
