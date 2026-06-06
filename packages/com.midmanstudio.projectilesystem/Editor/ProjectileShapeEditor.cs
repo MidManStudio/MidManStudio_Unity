@@ -1,26 +1,21 @@
-// ProjectileShapeEditor.cs — COMPLETE REWRITE
+// ProjectileShapeEditor.cs — FULL REWRITE WITH FORMULA SUPPORT
 //
-// CHANGES:
-//   + Canvas is now fully interactive — drag vertices directly in the preview.
-//     Previously the canvas was draw-only; vertex editing was only in the list below.
-//   + Grid with configurable spacing drawn in canvas. Grid lines every _gridSpacing
-//     world units. Axis lines drawn in red/green.
-//   + Snap to grid: when _snapEnabled, dragged vertices snap to _snapIncrement
-//     world-unit intervals (default 0.1). Snap is per-axis independently.
-//   + Selected vertex: highlighted in cyan with crosshair lines + coordinate label.
-//   + Right-click on vertex → delete it (no button needed).
-//   + Click empty canvas space (in Add mode) → appends new vertex at clicked position.
-//   + Toolbar row: [Add Vertex toggle] [Snap toggle] [Snap size field] [Grid spacing]
-//   + Hover label: shows world-space coordinates of mouse position in canvas.
-//   + The vertex list below still shows for precise numeric editing.
-//   + Auto-triangulate uses fan from vertex 0 (convex only) — unchanged.
-//   + "Rebuild Mesh Cache" unchanged.
-//   + RequiresConstantRepaint() = true so hover label updates smoothly.
+// ADDITIONS vs previous:
+//   + DrawFormulaFields() — shown when Shape = Formula.
+//     Shows _formulaX / _formulaY text fields with live per-field validation
+//     (green ✓ or red error message), sample-count slider, and an "Insert
+//     Example" popup menu sourced from MathFormulaEvaluator.GetExamples().
+//   + Mesh rebuilds immediately on formula or sample-count change so the
+//     canvas preview updates in real-time.
+//   + All other behaviour (drag-vertices, snap, grid, add/delete modes)
+//     is unchanged and still only active for the Custom preset.
+//   + RequiresConstantRepaint() = true (unchanged — needed for hover label).
 
 #if UNITY_EDITOR
 using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
+using MidManStudio.Projectiles.Config;
 
 namespace MidManStudio.Projectiles.EditorTools
 {
@@ -28,22 +23,28 @@ namespace MidManStudio.Projectiles.EditorTools
     public class ProjectileShapeEditor : Editor
     {
         // ── Canvas layout ──────────────────────────────────────────────────────
-        private const float CANVAS_HEIGHT  = 220f;
-        private const float PIXELS_PER_UNIT = 80f;  // screen pixels per world unit
+        private const float CANVAS_HEIGHT   = 220f;
+        private const float PIXELS_PER_UNIT = 80f;
 
-        // ── Grid / snap settings (persisted per-editor session) ───────────────
-        private float _gridSpacing   = 0.5f;   // world units between grid lines
-        private float _snapIncrement = 0.1f;   // world units snap step
+        // ── Grid / snap ────────────────────────────────────────────────────────
+        private float _gridSpacing   = 0.5f;
+        private float _snapIncrement = 0.1f;
         private bool  _snapEnabled   = true;
-        private bool  _addMode       = false;  // click canvas to add vertex
+        private bool  _addMode       = false;
 
-        // ── Interaction state ─────────────────────────────────────────────────
+        // ── Interaction state ──────────────────────────────────────────────────
         private int     _selectedVert = -1;
         private int     _draggingVert = -1;
         private bool    _isDragging   = false;
-        private Vector2 _dragStartWorld;
 
-        // ── Colours ───────────────────────────────────────────────────────────
+        // ── Formula validation cache ───────────────────────────────────────────
+        // Per-editor-session only — not serialised.
+        private string _lastValidatedX;
+        private string _lastValidatedY;
+        private string _formulaXError;
+        private string _formulaYError;
+
+        // ── Colours ────────────────────────────────────────────────────────────
         private static readonly Color ColBackground = new Color(0.12f, 0.12f, 0.12f);
         private static readonly Color ColGrid       = new Color(0.28f, 0.28f, 0.28f, 0.8f);
         private static readonly Color ColAxisX      = new Color(0.85f, 0.30f, 0.30f, 0.9f);
@@ -55,13 +56,15 @@ namespace MidManStudio.Projectiles.EditorTools
         private static readonly Color ColVertHover  = new Color(1.00f, 1.00f, 0.55f, 1.00f);
         private static readonly Color ColCrosshair  = new Color(0.20f, 1.00f, 0.90f, 0.50f);
         private static readonly Color ColAddMode    = new Color(0.30f, 1.00f, 0.45f, 0.25f);
+        private static readonly Color ColValidOk    = new Color(0.30f, 0.90f, 0.30f);
+        private static readonly Color ColValidErr   = new Color(0.95f, 0.30f, 0.30f);
 
-        private const float VERT_RADIUS       = 6f;   // px, hit-test radius
-        private const float VERT_RADIUS_DRAW  = 5f;   // px, visual radius
-
-        // ─────────────────────────────────────────────────────────────────────
+        private const float VERT_RADIUS      = 6f;
+        private const float VERT_RADIUS_DRAW = 5f;
 
         private Rect _canvasRect;
+
+        // ─────────────────────────────────────────────────────────────────────
 
         public override void OnInspectorGUI()
         {
@@ -81,12 +84,22 @@ namespace MidManStudio.Projectiles.EditorTools
 
             EditorGUILayout.Space(6);
 
-            // ── Canvas toolbar ─────────────────────────────────────────────────
-            DrawToolbar(so);
+            // ── Formula fields (only when Shape = Formula) ─────────────────────
+            if (so.Shape == ProjectileShapeSO.Preset.Formula)
+            {
+                DrawFormulaFields(so);
+                EditorGUILayout.Space(4);
+            }
+
+            // ── Canvas toolbar (Custom only) ───────────────────────────────────
+            if (so.Shape == ProjectileShapeSO.Preset.Custom)
+                DrawToolbar(so);
 
             // ── Interactive canvas ─────────────────────────────────────────────
-            EditorGUILayout.LabelField("Shape Preview  (drag vertices, right-click to delete)",
-                EditorStyles.boldLabel);
+            string canvasLabel = so.Shape == ProjectileShapeSO.Preset.Custom
+                ? "Shape Preview  (drag vertices, right-click to delete)"
+                : "Shape Preview";
+            EditorGUILayout.LabelField(canvasLabel, EditorStyles.boldLabel);
 
             _canvasRect = GUILayoutUtility.GetRect(
                 GUIContent.none, GUIStyle.none,
@@ -99,20 +112,24 @@ namespace MidManStudio.Projectiles.EditorTools
                 DrawGrid();
                 DrawAxes();
                 DrawMesh(so);
-                if (_addMode) DrawAddModeOverlay();
-                DrawVertices(so);
+                if (so.Shape == ProjectileShapeSO.Preset.Custom)
+                {
+                    if (_addMode) DrawAddModeOverlay();
+                    DrawVertices(so);
+                }
                 DrawHoverCoord();
             }
 
-            HandleCanvasInput(so);
+            if (so.Shape == ProjectileShapeSO.Preset.Custom)
+                HandleCanvasInput(so);
 
-            // ── Vertex list (numeric editing) ──────────────────────────────────
+            // ── Vertex list + utilities (Custom only) ──────────────────────────
             if (so.Shape == ProjectileShapeSO.Preset.Custom)
             {
                 EditorGUILayout.Space(4);
-                EditorGUILayout.LabelField("Vertices (also editable by dragging in canvas)",
+                EditorGUILayout.LabelField(
+                    "Vertices (also editable by dragging in canvas)",
                     EditorStyles.miniBoldLabel);
-
                 DrawVertexList(so);
 
                 EditorGUILayout.Space(4);
@@ -120,7 +137,6 @@ namespace MidManStudio.Projectiles.EditorTools
                 {
                     if (GUILayout.Button("Auto-Triangulate (convex)") && so.Vertices?.Count >= 3)
                         AutoTriangulate(so);
-
                     if (GUILayout.Button("Normalize UVs") && so.Vertices?.Count >= 3)
                         NormalizeUVs(so);
                 }
@@ -136,13 +152,116 @@ namespace MidManStudio.Projectiles.EditorTools
             serializedObject.ApplyModifiedProperties();
         }
 
-        // ── Toolbar ───────────────────────────────────────────────────────────
+        // ── Formula fields ─────────────────────────────────────────────────────
+
+        private void DrawFormulaFields(ProjectileShapeSO so)
+        {
+            var propX = serializedObject.FindProperty("_formulaX");
+            var propY = serializedObject.FindProperty("_formulaY");
+            var propN = serializedObject.FindProperty("_formulaSampleCount");
+
+            EditorGUILayout.LabelField(
+                "Parametric Shape Formulas  (t ∈ [0,1)  |  i = index  |  n = count)",
+                EditorStyles.boldLabel);
+
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+
+            // X formula
+            EditorGUI.BeginChangeCheck();
+
+            EditorGUILayout.LabelField("X(t)", EditorStyles.miniBoldLabel);
+            EditorGUILayout.PropertyField(propX, GUIContent.none);
+
+            if (propX.stringValue != _lastValidatedX)
+            {
+                _lastValidatedX = propX.stringValue;
+                MathFormulaEvaluator.Validate(propX.stringValue, out _formulaXError);
+            }
+            DrawFormulaStatus(_formulaXError);
+            DrawExampleDropdown(propX, FormulaUsage.ShapeX);
+
+            EditorGUILayout.Space(4);
+
+            // Y formula
+            EditorGUILayout.LabelField("Y(t)", EditorStyles.miniBoldLabel);
+            EditorGUILayout.PropertyField(propY, GUIContent.none);
+
+            if (propY.stringValue != _lastValidatedY)
+            {
+                _lastValidatedY = propY.stringValue;
+                MathFormulaEvaluator.Validate(propY.stringValue, out _formulaYError);
+            }
+            DrawFormulaStatus(_formulaYError);
+            DrawExampleDropdown(propY, FormulaUsage.ShapeY);
+
+            EditorGUILayout.Space(4);
+
+            // Sample count
+            EditorGUILayout.PropertyField(propN, new GUIContent(
+                "Sample Points",
+                "Number of perimeter vertices. Higher = smoother curve."));
+
+            bool changed = EditorGUI.EndChangeCheck();
+            if (changed)
+            {
+                serializedObject.ApplyModifiedProperties();
+                so.BuildMesh();
+                EditorUtility.SetDirty(so);
+            }
+
+            EditorGUILayout.EndVertical();
+
+            EditorGUILayout.HelpBox(
+                "Variables: t (0..1), i (index), n (count), pi, tau, e\n" +
+                "Functions: sin cos tan sqrt abs pow min max clamp lerp\n" +
+                "           floor ceil round sign frac saturate pingpong\n" +
+                "Circle:  X = cos(t*tau)*0.5   Y = sin(t*tau)*0.5\n" +
+                "Star5:   X = cos(t*tau)*(0.5+0.15*cos(t*tau*5))\n" +
+                "         Y = sin(t*tau)*(0.5+0.15*cos(t*tau*5))",
+                MessageType.None);
+        }
+
+        private static void DrawFormulaStatus(string error)
+        {
+            if (error == null)
+            {
+                var style = new GUIStyle(EditorStyles.miniLabel);
+                style.normal.textColor = ColValidOk;
+                EditorGUILayout.LabelField("✓ Valid", style);
+            }
+            else
+            {
+                var style = new GUIStyle(EditorStyles.wordWrappedMiniLabel);
+                style.normal.textColor = ColValidErr;
+                EditorGUILayout.LabelField($"✕ {error}", style);
+            }
+        }
+
+        private static void DrawExampleDropdown(
+            SerializedProperty prop, FormulaUsage usage)
+        {
+            var examples = MathFormulaEvaluator.GetExamples(usage);
+            if (examples.Length == 0) return;
+
+            var options = new string[examples.Length + 1];
+            options[0]  = "Insert Example…";
+            for (int i = 0; i < examples.Length; i++) options[i + 1] = examples[i];
+
+            int sel = EditorGUILayout.Popup(0, options);
+            if (sel > 0)
+            {
+                prop.stringValue = examples[sel - 1];
+                prop.serializedObject.ApplyModifiedProperties();
+                GUI.changed = true;
+            }
+        }
+
+        // ── Toolbar (Custom only) ──────────────────────────────────────────────
 
         private void DrawToolbar(ProjectileShapeSO so)
         {
             using (new EditorGUILayout.HorizontalScope(EditorStyles.toolbar))
             {
-                // Add mode toggle
                 var oldBg = GUI.backgroundColor;
                 GUI.backgroundColor = _addMode
                     ? new Color(0.3f, 1f, 0.45f) : Color.white;
@@ -156,16 +275,13 @@ namespace MidManStudio.Projectiles.EditorTools
 
                 GUILayout.Space(6);
 
-                // Snap toggle
                 _snapEnabled = GUILayout.Toggle(_snapEnabled, "Snap",
                     EditorStyles.toolbarButton, GUILayout.Width(44));
-
                 if (_snapEnabled)
                 {
                     GUILayout.Label("Step:", EditorStyles.miniBoldLabel, GUILayout.Width(30));
                     _snapIncrement = EditorGUILayout.FloatField(
-                        _snapIncrement, EditorStyles.toolbarTextField,
-                        GUILayout.Width(36));
+                        _snapIncrement, EditorStyles.toolbarTextField, GUILayout.Width(36));
                     _snapIncrement = Mathf.Max(0.01f, _snapIncrement);
                 }
 
@@ -178,7 +294,6 @@ namespace MidManStudio.Projectiles.EditorTools
 
                 GUILayout.FlexibleSpace();
 
-                // Selection info
                 if (_selectedVert >= 0 && so.Vertices != null
                     && _selectedVert < so.Vertices.Count)
                 {
@@ -189,59 +304,44 @@ namespace MidManStudio.Projectiles.EditorTools
             }
         }
 
-        // ── Drawing ───────────────────────────────────────────────────────────
+        // ── Drawing ────────────────────────────────────────────────────────────
 
-        private void DrawBackground()
-        {
-            EditorGUI.DrawRect(_canvasRect, ColBackground);
-        }
+        private void DrawBackground() => EditorGUI.DrawRect(_canvasRect, ColBackground);
 
         private void DrawGrid()
         {
             Handles.color = ColGrid;
-            var center    = _canvasRect.center;
+            float halfW = _canvasRect.width  * 0.5f / PIXELS_PER_UNIT;
+            float halfH = _canvasRect.height * 0.5f / PIXELS_PER_UNIT;
 
-            // How many lines fit in the canvas
-            float halfW = _canvasRect.width  * 0.5f;
-            float halfH = _canvasRect.height * 0.5f;
-
-            float worldHalfW = halfW / PIXELS_PER_UNIT;
-            float worldHalfH = halfH / PIXELS_PER_UNIT;
-
-            // Vertical lines
-            float startX = Mathf.Ceil(-worldHalfW / _gridSpacing) * _gridSpacing;
-            for (float wx = startX; wx <= worldHalfW; wx += _gridSpacing)
+            float startX = Mathf.Ceil(-halfW / _gridSpacing) * _gridSpacing;
+            for (float wx = startX; wx <= halfW; wx += _gridSpacing)
             {
-                if (Mathf.Abs(wx) < 0.001f) continue; // axis drawn separately
-                Vector2 top = WorldToCanvas(new Vector2(wx,  worldHalfH));
-                Vector2 bot = WorldToCanvas(new Vector2(wx, -worldHalfH));
-                Handles.DrawLine(top, bot);
+                if (Mathf.Abs(wx) < 0.001f) continue;
+                Handles.DrawLine(
+                    WorldToCanvas(new Vector2(wx,  halfH)),
+                    WorldToCanvas(new Vector2(wx, -halfH)));
             }
-
-            // Horizontal lines
-            float startY = Mathf.Ceil(-worldHalfH / _gridSpacing) * _gridSpacing;
-            for (float wy = startY; wy <= worldHalfH; wy += _gridSpacing)
+            float startY = Mathf.Ceil(-halfH / _gridSpacing) * _gridSpacing;
+            for (float wy = startY; wy <= halfH; wy += _gridSpacing)
             {
                 if (Mathf.Abs(wy) < 0.001f) continue;
-                Vector2 left  = WorldToCanvas(new Vector2(-worldHalfW, wy));
-                Vector2 right = WorldToCanvas(new Vector2( worldHalfW, wy));
-                Handles.DrawLine(left, right);
+                Handles.DrawLine(
+                    WorldToCanvas(new Vector2(-halfW, wy)),
+                    WorldToCanvas(new Vector2( halfW, wy)));
             }
         }
 
         private void DrawAxes()
         {
-            var center = _canvasRect.center;
             float halfW = _canvasRect.width  * 0.5f / PIXELS_PER_UNIT;
             float halfH = _canvasRect.height * 0.5f / PIXELS_PER_UNIT;
 
-            // X axis (red)
             Handles.color = ColAxisX;
             Handles.DrawLine(
                 WorldToCanvas(new Vector2(-halfW, 0f)),
                 WorldToCanvas(new Vector2( halfW, 0f)));
 
-            // Y axis (green)
             Handles.color = ColAxisY;
             Handles.DrawLine(
                 WorldToCanvas(new Vector2(0f, -halfH)),
@@ -256,17 +356,15 @@ namespace MidManStudio.Projectiles.EditorTools
             var verts = m.vertices;
             var tris  = m.triangles;
 
-            // Fill
             Handles.color = ColMeshFill;
             for (int t = 0; t < tris.Length; t += 3)
             {
-                var a  = (Vector3)WorldToCanvas(verts[tris[t    ]]);
+                var a  = (Vector3)WorldToCanvas(verts[tris[t]]);
                 var b  = (Vector3)WorldToCanvas(verts[tris[t + 1]]);
                 var c2 = (Vector3)WorldToCanvas(verts[tris[t + 2]]);
                 Handles.DrawAAConvexPolygon(a, b, c2);
             }
 
-            // Outline
             Handles.color = ColMeshEdge;
             var drawn = new HashSet<long>();
             for (int t = 0; t < tris.Length; t += 3)
@@ -298,35 +396,27 @@ namespace MidManStudio.Projectiles.EditorTools
                 bool    isHovered  = !_isDragging
                     && Vector2.Distance(mouse, screenPos) < VERT_RADIUS + 4f
                     && _canvasRect.Contains(mouse);
-                bool    isDragged  = (i == _draggingVert && _isDragging);
 
-                // Crosshair for selected vertex
                 if (isSelected)
                 {
                     Handles.color = ColCrosshair;
                     float crossLen = 12f;
-                    Handles.DrawLine(
-                        new Vector2(screenPos.x - crossLen, screenPos.y),
-                        new Vector2(screenPos.x + crossLen, screenPos.y));
-                    Handles.DrawLine(
-                        new Vector2(screenPos.x, screenPos.y - crossLen),
-                        new Vector2(screenPos.x, screenPos.y + crossLen));
+                    Handles.DrawLine(new Vector2(screenPos.x - crossLen, screenPos.y),
+                                     new Vector2(screenPos.x + crossLen, screenPos.y));
+                    Handles.DrawLine(new Vector2(screenPos.x, screenPos.y - crossLen),
+                                     new Vector2(screenPos.x, screenPos.y + crossLen));
                 }
 
-                // Vertex dot
-                Color col = isSelected || isDragged ? ColVertSel
-                          : isHovered              ? ColVertHover
-                          : ColVert;
+                Color col = isSelected || (i == _draggingVert && _isDragging) ? ColVertSel
+                          : isHovered ? ColVertHover : ColVert;
                 Handles.color = col;
                 Handles.DrawSolidDisc(screenPos, Vector3.forward, VERT_RADIUS_DRAW);
 
-                // Index label
-                var labelRect = new Rect(
-                    screenPos.x + VERT_RADIUS_DRAW + 2f,
-                    screenPos.y - 8f, 40f, 16f);
                 var labelStyle = new GUIStyle(EditorStyles.miniLabel)
                     { normal = { textColor = col } };
-                GUI.Label(labelRect, $"V{i}", labelStyle);
+                GUI.Label(new Rect(screenPos.x + VERT_RADIUS_DRAW + 2f,
+                                   screenPos.y - 8f, 40f, 16f),
+                          $"V{i}", labelStyle);
             }
         }
 
@@ -343,22 +433,19 @@ namespace MidManStudio.Projectiles.EditorTools
             Vector2 mouse = Event.current.mousePosition;
             if (!_canvasRect.Contains(mouse)) return;
 
-            Vector2 world = CanvasToWorld(mouse);
-            Vector2 snapped = _snapEnabled
-                ? SnapToGrid(world) : world;
+            Vector2 world   = CanvasToWorld(mouse);
+            Vector2 snapped = _snapEnabled ? SnapToGrid(world) : world;
 
             string label = _snapEnabled
                 ? $"({snapped.x:F2}, {snapped.y:F2})  [snapped]"
                 : $"({world.x:F2}, {world.y:F2})";
 
-            var rect = new Rect(
-                _canvasRect.xMin + 4f,
-                _canvasRect.yMax - 18f,
-                200f, 16f);
-            GUI.Label(rect, label, EditorStyles.miniLabel);
+            GUI.Label(
+                new Rect(_canvasRect.xMin + 4f, _canvasRect.yMax - 18f, 200f, 16f),
+                label, EditorStyles.miniLabel);
         }
 
-        // ── Input handling ────────────────────────────────────────────────────
+        // ── Input handling (Custom only) ───────────────────────────────────────
 
         private void HandleCanvasInput(ProjectileShapeSO so)
         {
@@ -370,127 +457,79 @@ namespace MidManStudio.Projectiles.EditorTools
 
             switch (e.type)
             {
-                case EventType.MouseDown when e.button == 0:
-                    HandleLeftMouseDown(so, e);
-                    break;
-
-                case EventType.MouseDown when e.button == 1:
-                    HandleRightMouseDown(so, e);
-                    break;
-
-                case EventType.MouseDrag when e.button == 0:
-                    HandleMouseDrag(so, e);
-                    break;
-
-                case EventType.MouseUp when e.button == 0:
-                    HandleMouseUp(so, e);
-                    break;
+                case EventType.MouseDown when e.button == 0: HandleLeftMouseDown(so, e);  break;
+                case EventType.MouseDown when e.button == 1: HandleRightMouseDown(so, e); break;
+                case EventType.MouseDrag  when e.button == 0: HandleMouseDrag(so, e);     break;
+                case EventType.MouseUp    when e.button == 0: HandleMouseUp(so, e);       break;
             }
         }
 
         private void HandleLeftMouseDown(ProjectileShapeSO so, Event e)
         {
             Vector2 mouse = e.mousePosition;
-
             if (_addMode)
             {
-                // Add vertex at clicked position
                 Vector2 world   = CanvasToWorld(mouse);
                 Vector2 snapped = _snapEnabled ? SnapToGrid(world) : world;
-
                 Undo.RecordObject(so, "Add Vertex");
                 so.Vertices.Add(snapped);
                 if (so.UVs == null) so.UVs = new List<Vector2>();
                 so.UVs.Add(Vector2.zero);
                 _selectedVert = so.Vertices.Count - 1;
                 EditorUtility.SetDirty(so);
-                Repaint();
-                e.Use();
-                return;
+                Repaint(); e.Use(); return;
             }
-
-            // Try to select / start dragging nearest vertex
             int nearest = FindNearestVertex(so, mouse);
             if (nearest >= 0)
             {
                 _selectedVert = nearest;
                 _draggingVert = nearest;
-                _isDragging   = false; // not yet moved
-                _dragStartWorld = CanvasToWorld(mouse);
-                e.Use();
-                Repaint();
+                _isDragging   = false;
+                e.Use(); Repaint();
             }
-            else
-            {
-                // Click empty space = deselect
-                _selectedVert = -1;
-                Repaint();
-            }
+            else { _selectedVert = -1; Repaint(); }
         }
 
         private void HandleRightMouseDown(ProjectileShapeSO so, Event e)
         {
             int nearest = FindNearestVertex(so, e.mousePosition);
             if (nearest < 0) return;
-
             Undo.RecordObject(so, "Delete Vertex");
             so.Vertices.RemoveAt(nearest);
-            if (so.UVs != null && nearest < so.UVs.Count)
-                so.UVs.RemoveAt(nearest);
-
+            if (so.UVs != null && nearest < so.UVs.Count) so.UVs.RemoveAt(nearest);
             if (_selectedVert == nearest)   _selectedVert = -1;
             else if (_selectedVert > nearest) _selectedVert--;
-
-            so.BuildMesh();
-            EditorUtility.SetDirty(so);
-            e.Use();
-            Repaint();
+            so.BuildMesh(); EditorUtility.SetDirty(so); e.Use(); Repaint();
         }
 
         private void HandleMouseDrag(ProjectileShapeSO so, Event e)
         {
             if (_draggingVert < 0 || _draggingVert >= so.Vertices.Count) return;
-
             _isDragging = true;
-
             Vector2 world   = CanvasToWorld(e.mousePosition);
             Vector2 snapped = _snapEnabled ? SnapToGrid(world) : world;
-
-            // Clamp to canvas world bounds
             float halfW = _canvasRect.width  * 0.5f / PIXELS_PER_UNIT;
             float halfH = _canvasRect.height * 0.5f / PIXELS_PER_UNIT;
-            snapped.x   = Mathf.Clamp(snapped.x, -halfW + 0.1f, halfW - 0.1f);
-            snapped.y   = Mathf.Clamp(snapped.y, -halfH + 0.1f, halfH - 0.1f);
-
+            snapped.x = Mathf.Clamp(snapped.x, -halfW + 0.1f, halfW - 0.1f);
+            snapped.y = Mathf.Clamp(snapped.y, -halfH + 0.1f, halfH - 0.1f);
             Undo.RecordObject(so, "Move Vertex");
             so.Vertices[_draggingVert] = snapped;
-
-            // Sync UV if present
             if (so.UVs != null && _draggingVert < so.UVs.Count)
-                so.UVs[_draggingVert] = Vector2.zero; // will be rebuilt
-
-            so.BuildMesh();
-            EditorUtility.SetDirty(so);
-            e.Use();
-            Repaint();
+                so.UVs[_draggingVert] = Vector2.zero;
+            so.BuildMesh(); EditorUtility.SetDirty(so); e.Use(); Repaint();
         }
 
         private void HandleMouseUp(ProjectileShapeSO so, Event e)
         {
             if (_draggingVert >= 0 && _isDragging)
             {
-                // Rebuild UVs after drag completes
-                if (so.Vertices != null && so.Vertices.Count >= 3)
-                    NormalizeUVs(so);
-                so.BuildMesh();
-                EditorUtility.SetDirty(so);
+                if (so.Vertices != null && so.Vertices.Count >= 3) NormalizeUVs(so);
+                so.BuildMesh(); EditorUtility.SetDirty(so);
             }
-            _draggingVert = -1;
-            _isDragging   = false;
-            e.Use();
+            _draggingVert = -1; _isDragging = false; e.Use();
         }
 
-        // ── Vertex list (numeric) ─────────────────────────────────────────────
+        // ── Vertex list (numeric) ──────────────────────────────────────────────
 
         private void DrawVertexList(ProjectileShapeSO so)
         {
@@ -501,7 +540,6 @@ namespace MidManStudio.Projectiles.EditorTools
             {
                 using (new EditorGUILayout.HorizontalScope())
                 {
-                    // Highlight selected
                     var prevBg  = GUI.backgroundColor;
                     var prevCol = GUI.contentColor;
                     if (i == _selectedVert)
@@ -515,7 +553,6 @@ namespace MidManStudio.Projectiles.EditorTools
                         _selectedVert = (i == _selectedVert) ? -1 : i;
                         Repaint();
                     }
-
                     GUI.contentColor    = prevCol;
                     GUI.backgroundColor = prevBg;
 
@@ -529,15 +566,14 @@ namespace MidManStudio.Projectiles.EditorTools
                         EditorUtility.SetDirty(so);
                     }
 
-                    // Delete button
                     GUI.backgroundColor = new Color(1f, 0.4f, 0.4f);
                     if (GUILayout.Button("✕", GUILayout.Width(22), GUILayout.Height(18)))
                     {
                         Undo.RecordObject(so, "Delete Vertex");
                         so.Vertices.RemoveAt(i);
                         if (i < so.UVs.Count) so.UVs.RemoveAt(i);
-                        if (_selectedVert == i)       _selectedVert = -1;
-                        else if (_selectedVert > i)   _selectedVert--;
+                        if (_selectedVert == i)     _selectedVert = -1;
+                        else if (_selectedVert > i) _selectedVert--;
                         so.BuildMesh();
                         EditorUtility.SetDirty(so);
                         GUI.backgroundColor = Color.white;
@@ -559,10 +595,8 @@ namespace MidManStudio.Projectiles.EditorTools
                 }
                 if (GUILayout.Button("Clear All", GUILayout.Height(20)))
                 {
-                    if (EditorUtility.DisplayDialog(
-                        "Clear Vertices",
-                        "Delete all vertices?",
-                        "Clear", "Cancel"))
+                    if (EditorUtility.DisplayDialog("Clear Vertices",
+                        "Delete all vertices?", "Clear", "Cancel"))
                     {
                         Undo.RecordObject(so, "Clear Vertices");
                         so.Vertices.Clear();
@@ -576,42 +610,31 @@ namespace MidManStudio.Projectiles.EditorTools
             }
         }
 
-        // ── Coordinate utilities ──────────────────────────────────────────────
+        // ── Coordinate utilities ───────────────────────────────────────────────
 
-        /// World space → canvas screen space.
-        private Vector2 WorldToCanvas(Vector2 world)
-        {
-            return new Vector2(
+        private Vector2 WorldToCanvas(Vector2 world) =>
+            new Vector2(
                 _canvasRect.center.x + world.x * PIXELS_PER_UNIT,
-                _canvasRect.center.y - world.y * PIXELS_PER_UNIT); // Y flipped
-        }
+                _canvasRect.center.y - world.y * PIXELS_PER_UNIT);
 
         private Vector3 WorldToCanvas(Vector3 world)
             => WorldToCanvas(new Vector2(world.x, world.y));
 
-        /// Canvas screen space → world space.
-        private Vector2 CanvasToWorld(Vector2 screen)
-        {
-            return new Vector2(
-                (screen.x - _canvasRect.center.x) / PIXELS_PER_UNIT,
-               -(screen.y - _canvasRect.center.y) / PIXELS_PER_UNIT); // Y flipped
-        }
+        private Vector2 CanvasToWorld(Vector2 screen) =>
+            new Vector2(
+                 (screen.x - _canvasRect.center.x) / PIXELS_PER_UNIT,
+                -(screen.y - _canvasRect.center.y) / PIXELS_PER_UNIT);
 
-        /// Snap world position to grid.
-        private Vector2 SnapToGrid(Vector2 world)
-        {
-            return new Vector2(
+        private Vector2 SnapToGrid(Vector2 world) =>
+            new Vector2(
                 Mathf.Round(world.x / _snapIncrement) * _snapIncrement,
                 Mathf.Round(world.y / _snapIncrement) * _snapIncrement);
-        }
 
-        /// Find nearest vertex to screen position. Returns -1 if none within hit radius.
         private int FindNearestVertex(ProjectileShapeSO so, Vector2 screenPos)
         {
             if (so.Vertices == null) return -1;
-            float  bestDist = VERT_RADIUS + 4f;
-            int    bestIdx  = -1;
-
+            float bestDist = VERT_RADIUS + 4f;
+            int   bestIdx  = -1;
             for (int i = 0; i < so.Vertices.Count; i++)
             {
                 float d = Vector2.Distance(screenPos, WorldToCanvas(so.Vertices[i]));
@@ -620,7 +643,7 @@ namespace MidManStudio.Projectiles.EditorTools
             return bestIdx;
         }
 
-        // ── Mesh utilities ────────────────────────────────────────────────────
+        // ── Mesh utilities ─────────────────────────────────────────────────────
 
         private void AutoTriangulate(ProjectileShapeSO so)
         {
@@ -641,7 +664,7 @@ namespace MidManStudio.Projectiles.EditorTools
         private void NormalizeUVs(ProjectileShapeSO so)
         {
             if (so.Vertices == null || so.Vertices.Count == 0) return;
-            if (so.UVs      == null) so.UVs = new List<Vector2>();
+            if (so.UVs == null) so.UVs = new List<Vector2>();
 
             float minX = float.MaxValue, maxX = float.MinValue;
             float minY = float.MaxValue, maxY = float.MinValue;
@@ -652,11 +675,9 @@ namespace MidManStudio.Projectiles.EditorTools
             }
             float rw = (maxX - minX) < 0.0001f ? 1f : maxX - minX;
             float rh = (maxY - minY) < 0.0001f ? 1f : maxY - minY;
-
             so.UVs.Clear();
             foreach (var v in so.Vertices)
                 so.UVs.Add(new Vector2((v.x - minX) / rw, (v.y - minY) / rh));
-
             EditorUtility.SetDirty(so);
         }
 
