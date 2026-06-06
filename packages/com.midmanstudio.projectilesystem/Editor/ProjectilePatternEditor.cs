@@ -1,15 +1,11 @@
 // ProjectilePatternEditor.cs
-//
-// CHANGES:
-//   + Preview scales to full 360° when pattern uses Ring360/Spiral/Star shapes
-//     or when any control point exceeds ±90°. Previously clipped at ±90°.
-//   + AngleRange is now dynamic — computed from actual pattern extent.
-//   + Linear spline type draws straight lines between control points
-//     instead of the curved Catmull-Rom approximation.
-//   + Sample ray preview accounts for 3D: draws H+V angle in 2D canvas as a
-//     rotated ray (horizontal angle = X position, vertical angle = Y position).
-//   + Mode label in header shows current PatternShape and SplineType.
-//   + Scene gizmo now uses cfg.Is3D-correct angle: Quaternion.Euler(-V, H, 0).
+// ADDITIONS vs previous:
+//   + DrawShapeSpecificFields now handles PatternShape.Formula:
+//     shows _patternFormulaH / _patternFormulaV text fields with live
+//     per-field validation (green ✓ or red error) and example dropdowns
+//     via MathFormulaEvaluator.GetExamples().
+//   + Formula validation cache (_lastValidatedH/V, _formulaHError/VError).
+//   + All other behaviour unchanged.
 
 #if UNITY_EDITOR
 using UnityEngine;
@@ -29,18 +25,28 @@ namespace MidManStudio.Projectiles.EditorTools
         private int     _draggingPoint   = -1;
         private Vector2 _dragOffset;
 
+        // ── Formula validation cache ──────────────────────────────────────────
+        private string _lastValidatedH;
+        private string _lastValidatedV;
+        private string _formulaHError;
+        private string _formulaVError;
+
         // ── Preview constants ─────────────────────────────────────────────────
         private const float PreviewHeight    = 300f;
         private const float PreviewPadding   = 30f;
         private const int   SplineResolution = 64;
 
-        private static readonly Color SplineColor  = new Color(0.3f, 0.8f, 1.0f);
-        private static readonly Color PointColor   = new Color(1.0f, 0.8f, 0.2f);
-        private static readonly Color PointHover   = new Color(1.0f, 1.0f, 0.5f);
-        private static readonly Color SimRayColor  = new Color(0.2f, 1.0f, 0.4f, 0.7f);
-        private static readonly Color GridColor    = new Color(0.3f, 0.3f, 0.3f, 0.5f);
-        private static readonly Color OriginColor  = new Color(0.7f, 0.7f, 0.7f, 0.8f);
-        private static readonly Color LinearColor  = new Color(1.0f, 0.6f, 0.2f);
+        private static readonly Color SplineColor = new Color(0.3f, 0.8f, 1.0f);
+        private static readonly Color PointColor  = new Color(1.0f, 0.8f, 0.2f);
+        private static readonly Color PointHover  = new Color(1.0f, 1.0f, 0.5f);
+        private static readonly Color SimRayColor = new Color(0.2f, 1.0f, 0.4f, 0.7f);
+        private static readonly Color GridColor   = new Color(0.3f, 0.3f, 0.3f, 0.5f);
+        private static readonly Color OriginColor = new Color(0.7f, 0.7f, 0.7f, 0.8f);
+        private static readonly Color LinearColor = new Color(1.0f, 0.6f, 0.2f);
+        private static readonly Color ColValidOk  = new Color(0.30f, 0.90f, 0.30f);
+        private static readonly Color ColValidErr = new Color(0.95f, 0.30f, 0.30f);
+
+        // ─────────────────────────────────────────────────────────────────────
 
         public override void OnInspectorGUI()
         {
@@ -51,25 +57,32 @@ namespace MidManStudio.Projectiles.EditorTools
             EditorGUILayout.PropertyField(serializedObject.FindProperty("_shape"));
             EditorGUILayout.Space(2);
 
-            // ── Shape-specific fields ─────────────────────────────────────────
-            bool isSpline = pattern.Shape == PatternShape.Spline;
+            bool isSpline  = pattern.Shape == PatternShape.Spline;
+            bool isFormula = pattern.Shape == PatternShape.Formula;
 
+            // ── Shape-specific fields ─────────────────────────────────────────
             if (isSpline)
             {
                 EditorGUILayout.PropertyField(serializedObject.FindProperty("_splineType"));
                 EditorGUILayout.PropertyField(serializedObject.FindProperty("_projectileCount"));
                 EditorGUILayout.PropertyField(serializedObject.FindProperty("_speedVariance"));
                 EditorGUILayout.PropertyField(serializedObject.FindProperty("_rngSeed"));
-
                 EditorGUILayout.Space(6);
                 DrawControlPointList();
+            }
+            else if (isFormula)
+            {
+                EditorGUILayout.PropertyField(serializedObject.FindProperty("_projectileCount"));
+                EditorGUILayout.PropertyField(serializedObject.FindProperty("_speedVariance"));
+                EditorGUILayout.PropertyField(serializedObject.FindProperty("_rngSeed"));
+                EditorGUILayout.Space(6);
+                DrawFormulaFields(pattern);
             }
             else
             {
                 EditorGUILayout.PropertyField(serializedObject.FindProperty("_projectileCount"));
                 EditorGUILayout.PropertyField(serializedObject.FindProperty("_speedVariance"));
                 EditorGUILayout.PropertyField(serializedObject.FindProperty("_rngSeed"));
-
                 EditorGUILayout.Space(4);
                 DrawShapeSpecificFields(pattern.Shape);
             }
@@ -90,7 +103,8 @@ namespace MidManStudio.Projectiles.EditorTools
             // ── Scene simulation ──────────────────────────────────────────────
             EditorGUILayout.Space(6);
             _showSimulation = EditorGUILayout.Foldout(
-                _showSimulation, "Simulate (Gizmo in Scene)", true, EditorStyles.foldoutHeader);
+                _showSimulation, "Simulate (Gizmo in Scene)", true,
+                EditorStyles.foldoutHeader);
 
             if (_showSimulation)
             {
@@ -104,42 +118,144 @@ namespace MidManStudio.Projectiles.EditorTools
             }
         }
 
-        // ── Shape-specific inspector sections ─────────────────────────────────
+        // ── Formula fields ────────────────────────────────────────────────────
+
+        private void DrawFormulaFields(ProjectilePatternSO pattern)
+        {
+            var propH = serializedObject.FindProperty("_patternFormulaH");
+            var propV = serializedObject.FindProperty("_patternFormulaV");
+
+            EditorGUILayout.LabelField(
+                "Shot Angle Formulas  (t = i/n  |  i = index  |  n = count)",
+                EditorStyles.boldLabel);
+
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+
+            // H formula
+            EditorGUILayout.LabelField("H(i,n)  — horizontal degrees",
+                EditorStyles.miniBoldLabel);
+            EditorGUI.BeginChangeCheck();
+            EditorGUILayout.PropertyField(propH, GUIContent.none);
+            if (EditorGUI.EndChangeCheck())
+                serializedObject.ApplyModifiedProperties();
+
+            if (propH.stringValue != _lastValidatedH)
+            {
+                _lastValidatedH = propH.stringValue;
+                MathFormulaEvaluator.Validate(propH.stringValue, out _formulaHError);
+            }
+            DrawFormulaStatus(_formulaHError);
+            DrawExampleDropdown(propH, FormulaUsage.PatternH);
+
+            EditorGUILayout.Space(4);
+
+            // V formula
+            EditorGUILayout.LabelField("V(i,n)  — vertical degrees",
+                EditorStyles.miniBoldLabel);
+            EditorGUI.BeginChangeCheck();
+            EditorGUILayout.PropertyField(propV, GUIContent.none);
+            if (EditorGUI.EndChangeCheck())
+                serializedObject.ApplyModifiedProperties();
+
+            if (propV.stringValue != _lastValidatedV)
+            {
+                _lastValidatedV = propV.stringValue;
+                MathFormulaEvaluator.Validate(propV.stringValue, out _formulaVError);
+            }
+            DrawFormulaStatus(_formulaVError);
+            DrawExampleDropdown(propV, FormulaUsage.PatternV);
+
+            EditorGUILayout.EndVertical();
+
+            EditorGUILayout.HelpBox(
+                "Variables: t=i/n (0..1), i (index), n (count), pi, tau, e\n" +
+                "Functions: sin cos tan sqrt abs min max clamp lerp floor ceil\n" +
+                "Ring:    H = i/n*360              V = 0\n" +
+                "Fan:     H = i/(n-1)*180 - 90     V = 0\n" +
+                "Spiral:  H = i/n*360*3            V = i/(n-1)*60 - 30",
+                MessageType.None);
+        }
+
+        private static void DrawFormulaStatus(string error)
+        {
+            if (error == null)
+            {
+                var s = new GUIStyle(EditorStyles.miniLabel);
+                s.normal.textColor = ColValidOk;
+                EditorGUILayout.LabelField("✓ Valid", s);
+            }
+            else
+            {
+                var s = new GUIStyle(EditorStyles.wordWrappedMiniLabel);
+                s.normal.textColor = ColValidErr;
+                EditorGUILayout.LabelField($"✕ {error}", s);
+            }
+        }
+
+        private static void DrawExampleDropdown(
+            SerializedProperty prop, FormulaUsage usage)
+        {
+            var examples = MathFormulaEvaluator.GetExamples(usage);
+            if (examples.Length == 0) return;
+
+            var options = new string[examples.Length + 1];
+            options[0]  = "Insert Example…";
+            for (int i = 0; i < examples.Length; i++) options[i + 1] = examples[i];
+
+            int sel = EditorGUILayout.Popup(0, options);
+            if (sel > 0)
+            {
+                prop.stringValue = examples[sel - 1];
+                prop.serializedObject.ApplyModifiedProperties();
+                GUI.changed = true;
+            }
+        }
+
+        // ── Shape-specific inspector sections ────────────────────────────────
 
         private void DrawShapeSpecificFields(PatternShape shape)
         {
             switch (shape)
             {
                 case PatternShape.Fan:
-                    EditorGUILayout.PropertyField(serializedObject.FindProperty("_fanHalfArcDeg"),
+                    EditorGUILayout.PropertyField(
+                        serializedObject.FindProperty("_fanHalfArcDeg"),
                         new GUIContent("Half Arc (°)"));
-                    EditorGUILayout.PropertyField(serializedObject.FindProperty("_fanVerticalDeg"),
+                    EditorGUILayout.PropertyField(
+                        serializedObject.FindProperty("_fanVerticalDeg"),
                         new GUIContent("Vertical Tilt (°)"));
                     break;
 
                 case PatternShape.VShape:
-                    EditorGUILayout.PropertyField(serializedObject.FindProperty("_vShapeAngleDeg"),
+                    EditorGUILayout.PropertyField(
+                        serializedObject.FindProperty("_vShapeAngleDeg"),
                         new GUIContent("Arm Angle (°)"));
-                    EditorGUILayout.PropertyField(serializedObject.FindProperty("_vShapeIncludeCenter"),
+                    EditorGUILayout.PropertyField(
+                        serializedObject.FindProperty("_vShapeIncludeCenter"),
                         new GUIContent("Include Center Bullet"));
-                    EditorGUILayout.PropertyField(serializedObject.FindProperty("_vShapeVerticalDeg"),
+                    EditorGUILayout.PropertyField(
+                        serializedObject.FindProperty("_vShapeVerticalDeg"),
                         new GUIContent("Vertical Tilt (°)"));
                     break;
 
                 case PatternShape.Shotgun:
-                    EditorGUILayout.PropertyField(serializedObject.FindProperty("_shotgunConeDeg"),
+                    EditorGUILayout.PropertyField(
+                        serializedObject.FindProperty("_shotgunConeDeg"),
                         new GUIContent("Cone Half-Angle (°)"));
                     break;
 
                 case PatternShape.Star:
-                    EditorGUILayout.PropertyField(serializedObject.FindProperty("_starPoints"),
+                    EditorGUILayout.PropertyField(
+                        serializedObject.FindProperty("_starPoints"),
                         new GUIContent("Polygon Points"));
-                    EditorGUILayout.PropertyField(serializedObject.FindProperty("_starInnerScale"),
+                    EditorGUILayout.PropertyField(
+                        serializedObject.FindProperty("_starInnerScale"),
                         new GUIContent("Inner Ring Scale"));
                     break;
 
                 case PatternShape.Spiral:
-                    EditorGUILayout.PropertyField(serializedObject.FindProperty("_spiralAngleStep"),
+                    EditorGUILayout.PropertyField(
+                        serializedObject.FindProperty("_spiralAngleStep"),
                         new GUIContent("Angle Step Per Bullet (°)"));
                     break;
             }
@@ -147,15 +263,16 @@ namespace MidManStudio.Projectiles.EditorTools
 
         private void DrawControlPointList()
         {
-            EditorGUILayout.LabelField("Control Points  (X = H°, Y = V°)", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("Control Points  (X = H°, Y = V°)",
+                EditorStyles.boldLabel);
 
             var pointsProp = serializedObject.FindProperty("_controlPoints");
             EditorGUI.indentLevel++;
             for (int i = 0; i < pointsProp.arraySize; i++)
             {
                 EditorGUILayout.BeginHorizontal();
-                var elem = pointsProp.GetArrayElementAtIndex(i);
-                EditorGUILayout.PropertyField(elem,
+                EditorGUILayout.PropertyField(
+                    pointsProp.GetArrayElementAtIndex(i),
                     new GUIContent($"Point {i}"), true);
 
                 if (GUILayout.Button("✕", GUILayout.Width(22), GUILayout.Height(18))
@@ -190,6 +307,19 @@ namespace MidManStudio.Projectiles.EditorTools
             EditorGUILayout.LabelField(
                 $"Shape: {shapeStr}   Projectiles: {pattern.ProjectileCount}",
                 EditorStyles.miniLabel);
+
+            // Validation summary for Formula mode
+            if (pattern.Shape == PatternShape.Formula)
+            {
+                bool hOk = _formulaHError == null;
+                bool vOk = _formulaVError == null;
+                if (!hOk || !vOk)
+                {
+                    EditorGUILayout.HelpBox(
+                        "Formula errors — preview may fall back to (0,0). " +
+                        "Fix formulas above.", MessageType.Warning);
+                }
+            }
         }
 
         // ── Main preview viewport ─────────────────────────────────────────────
@@ -200,7 +330,6 @@ namespace MidManStudio.Projectiles.EditorTools
                 GUIContent.none, GUIStyle.none,
                 GUILayout.ExpandWidth(true), GUILayout.Height(PreviewHeight));
 
-            // Compute dynamic angle range from actual sample directions
             float angleRange = ComputeAngleRange(pattern);
 
             if (Event.current.type == EventType.Repaint)
@@ -221,12 +350,6 @@ namespace MidManStudio.Projectiles.EditorTools
 
         // ── Dynamic angle range ───────────────────────────────────────────────
 
-        /// <summary>
-        /// Computes the display angle range for the preview canvas.
-        /// Ring360/Spiral use full 180° (they wrap 360° and we show both H and V axes).
-        /// Spline uses the extent of its control points + 15° padding.
-        /// Other presets use their relevant parameter.
-        /// </summary>
         private float ComputeAngleRange(ProjectilePatternSO pattern)
         {
             switch (pattern.Shape)
@@ -234,7 +357,8 @@ namespace MidManStudio.Projectiles.EditorTools
                 case PatternShape.Ring360:
                 case PatternShape.Spiral:
                 case PatternShape.Star:
-                    return 180f; // need to show full circle in angle space
+                case PatternShape.Formula:
+                    return 180f;
 
                 case PatternShape.Fan:
                     return Mathf.Max(pattern.FanHalfArcDeg + 15f, 45f);
@@ -259,15 +383,11 @@ namespace MidManStudio.Projectiles.EditorTools
         // ── Drawing helpers ───────────────────────────────────────────────────
 
         private void DrawPreviewBackground()
-        {
-            EditorGUI.DrawRect(_previewRect, new Color(0.12f, 0.12f, 0.12f));
-        }
+            => EditorGUI.DrawRect(_previewRect, new Color(0.12f, 0.12f, 0.12f));
 
         private void DrawPreviewGrid(float angleRange)
         {
             Handles.color = GridColor;
-
-            // Centre axis lines
             Handles.DrawLine(
                 AngleToPreview(new Vector2(0f, -angleRange), angleRange),
                 AngleToPreview(new Vector2(0f,  angleRange), angleRange));
@@ -275,7 +395,6 @@ namespace MidManStudio.Projectiles.EditorTools
                 AngleToPreview(new Vector2(-angleRange, 0f), angleRange),
                 AngleToPreview(new Vector2( angleRange, 0f), angleRange));
 
-            // Sub-grid lines at 1/4 intervals
             Handles.color = new Color(0.2f, 0.2f, 0.2f, 0.4f);
             float step = angleRange * 0.5f;
             foreach (float a in new[] { -step, step })
@@ -294,8 +413,6 @@ namespace MidManStudio.Projectiles.EditorTools
             Handles.color = OriginColor;
             Vector2 origin = AngleToPreview(Vector2.zero, angleRange);
             Handles.DrawSolidDisc(origin, Vector3.forward, 3f);
-
-            // Forward direction indicator (small upward tick = V=+5°)
             Vector2 fwd = AngleToPreview(new Vector2(0f, angleRange * 0.06f), angleRange);
             Handles.DrawLine(origin, fwd);
         }
@@ -308,15 +425,11 @@ namespace MidManStudio.Projectiles.EditorTools
             }
             else
             {
-                // For non-spline shapes just draw lines from origin to each sample direction
                 var dirs = pattern.SampleDirections();
                 Handles.color = SplineColor;
                 Vector2 origin = AngleToPreview(Vector2.zero, angleRange);
                 foreach (var d in dirs)
-                {
-                    Vector2 end = AngleToPreview(d * 0.7f, angleRange);
-                    Handles.DrawLine(origin, end);
-                }
+                    Handles.DrawLine(origin, AngleToPreview(d * 0.7f, angleRange));
             }
         }
 
@@ -328,8 +441,8 @@ namespace MidManStudio.Projectiles.EditorTools
                 ? LinearColor : SplineColor;
             Handles.color = lineCol;
 
-            int   res  = pattern.SplineType == PatternSplineType.Linear
-                ? pattern.ControlPoints.Length - 1   // draw exact segments
+            int res = pattern.SplineType == PatternSplineType.Linear
+                ? pattern.ControlPoints.Length - 1
                 : SplineResolution;
 
             Vector2 prev = AngleToPreview(pattern.EvaluateSpline(0f), angleRange);
@@ -350,7 +463,6 @@ namespace MidManStudio.Projectiles.EditorTools
 
             foreach (var dir in dirs)
             {
-                // Clamp display to canvas — rays can go off-screen for Ring360
                 Vector2 rawEnd = AngleToPreview(dir * 0.8f, angleRange);
                 Handles.DrawLine(origin, rawEnd);
                 Handles.DrawSolidDisc(rawEnd, Vector3.forward, 3f);
@@ -360,17 +472,14 @@ namespace MidManStudio.Projectiles.EditorTools
         private void DrawControlPoints(ProjectilePatternSO pattern, float angleRange)
         {
             if (pattern.ControlPoints == null) return;
-
             Vector2 mousePos = Event.current.mousePosition;
 
             for (int i = 0; i < pattern.ControlPoints.Length; i++)
             {
                 Vector2 screenPos = AngleToPreview(pattern.ControlPoints[i], angleRange);
                 bool    hovered   = Vector2.Distance(mousePos, screenPos) < 12f;
-
-                Handles.color = hovered ? PointHover : PointColor;
+                Handles.color     = hovered ? PointHover : PointColor;
                 Handles.DrawSolidDisc(screenPos, Vector3.forward, 8f);
-
                 GUI.Label(new Rect(screenPos.x + 10f, screenPos.y - 8f, 36f, 16f),
                     i.ToString(), EditorStyles.miniLabel);
             }
@@ -453,11 +562,8 @@ namespace MidManStudio.Projectiles.EditorTools
             float rayLen = 5f;
 
             Handles.color = SimRayColor;
-
             foreach (var angleDeg in samples)
             {
-                // 3D-correct: H=yaw around Y, V=pitch around X (negative = up)
-                // Matches NetworkedDimensionPlayer.BuildSpawnPointsFromPattern for cfgIs3D=true
                 Vector3 dir = Quaternion.Euler(-angleDeg.y, angleDeg.x, 0f) * t.forward;
                 Handles.DrawLine(t.position, t.position + dir * rayLen);
                 Handles.DrawSolidDisc(t.position + dir * rayLen, dir, 0.05f);
