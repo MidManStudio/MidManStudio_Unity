@@ -1,18 +1,17 @@
 // ProjectilePatternSO.cs
-//
 // ADDITIONS vs previous:
-//   + PatternSplineType.Linear — connects control points with straight lines.
-//     This gives EXACT rigid shapes: 3 points = triangle, 4 points = square,
-//     5 = pentagon etc. No smoothing applied.
-//     Use case: you want projectiles to fire at mathematically exact angles
-//     defined by your control points with no curve between them.
-//   + EvaluateLinear() private method.
-//   + PatternShape presets from previous response retained.
-//   + SampleDirections() uses full ±180° / 360° angle space for presets;
-//     only the Spline path is limited by control-point positions.
+//   + PatternShape.Formula = 7 — horizontal and vertical angles driven by
+//     math expressions evaluated per-projectile via MathFormulaEvaluator.
+//     H formula → degrees horizontal.  V formula → degrees vertical.
+//     Variables: t = i/n (normalised), i (index float), n (count float).
+//   + _patternFormulaH / _patternFormulaV fields + public accessors.
+//   + SampleFormula() private method.
+//   + SampleDirections() dispatch updated.
+//   + CreateDefaultPatterns() gets two formula examples.
 
 using System;
 using UnityEngine;
+using MidManStudio.Projectiles.Config;
 
 #if UNITY_EDITOR
 using UnityEditor;
@@ -22,14 +21,8 @@ namespace MidManStudio.Projectiles.Config
 {
     public enum PatternSplineType
     {
-        /// Smooth curve passing through all control points.
         CatmullRom,
-
-        /// Smooth curve with alternating anchor/handle points.
         Bezier,
-
-        /// Straight lines between control points — exact angular positions.
-        /// Use for rigid shapes: triangle (3 pts), square (4 pts), etc.
         Linear
     }
 
@@ -42,6 +35,7 @@ namespace MidManStudio.Projectiles.Config
         Shotgun = 4,
         Star    = 5,
         Spiral  = 6,
+        Formula = 7,   // NEW — per-projectile H/V from math expressions
     }
 
     [CreateAssetMenu(
@@ -57,14 +51,11 @@ namespace MidManStudio.Projectiles.Config
         [Header("Spline (only when Shape = Spline)")]
         [Tooltip("CatmullRom = smooth through all points.\n" +
                  "Bezier = smooth with control handles.\n" +
-                 "Linear = straight lines — exact rigid shapes (triangle, square etc).")]
+                 "Linear = straight lines — exact rigid shapes.")]
         [SerializeField] private PatternSplineType _splineType = PatternSplineType.CatmullRom;
         public PatternSplineType SplineType => _splineType;
 
-        [Tooltip("Control points: X = horizontal angle (°), Y = vertical angle (°).\n" +
-                 "Linear mode: each point is an exact fire direction.\n" +
-                 "Triangle example: (-60,0), (60,0), (0,60)\n" +
-                 "Square example: (-45,0), (45,0), (45,45), (-45,45)")]
+        [Tooltip("Control points: X = horizontal angle (°), Y = vertical angle (°).")]
         [SerializeField] private Vector2[] _controlPoints = new Vector2[]
         {
             new Vector2(-15f, 0f),
@@ -84,25 +75,46 @@ namespace MidManStudio.Projectiles.Config
         [SerializeField] private uint _rngSeed = 12345;
         public uint RngSeed => _rngSeed;
 
+        // ── Preset shape parameters ───────────────────────────────────────────
+
         [Header("Fan Settings")]
         [SerializeField, Range(1f, 180f)] private float _fanHalfArcDeg = 45f;
         public float FanHalfArcDeg => _fanHalfArcDeg;
         [SerializeField, Range(-90f, 90f)] private float _fanVerticalDeg = 0f;
 
         [Header("V-Shape Settings")]
-        [SerializeField, Range(1f, 90f)]  private float _vShapeAngleDeg = 30f;
-        [SerializeField] private bool _vShapeIncludeCenter = false;
+        [SerializeField, Range(1f, 90f)]   private float _vShapeAngleDeg = 30f;
+        [SerializeField]                   private bool  _vShapeIncludeCenter = false;
         [SerializeField, Range(-45f, 45f)] private float _vShapeVerticalDeg = 0f;
 
         [Header("Shotgun Settings")]
         [SerializeField, Range(1f, 90f)] private float _shotgunConeDeg = 15f;
 
         [Header("Star Settings")]
-        [SerializeField, Range(3, 12)] private int   _starPoints     = 5;
-        [SerializeField, Range(0f, 1f)] private float _starInnerScale = 0f;
+        [SerializeField, Range(3, 12)]   private int   _starPoints     = 5;
+        [SerializeField, Range(0f, 1f)]  private float _starInnerScale = 0f;
 
         [Header("Spiral Settings")]
         [SerializeField, Range(0f, 360f)] private float _spiralAngleStep = 30f;
+
+        // ── Formula pattern (Shape = Formula) ────────────────────────────────
+        // Evaluated once per projectile.
+        // Variables: t = i/n (normalised float), i (index float), n (count float).
+        // Example ring:   H = "i / n * 360"  V = "0"
+        // Example spiral: H = "i / n * 360 + i * 15"  V = "sin(i/n*tau)*20"
+
+        [Header("Formula Pattern (only when Shape = Formula)")]
+        [Tooltip("H(i,n) expression — horizontal angle in degrees.\n" +
+                 "Variables: t=i/n, i (index), n (count), pi, tau, e.\n" +
+                 "Example ring: i / n * 360")]
+        [SerializeField] private string _patternFormulaH = "i / n * 360";
+
+        [Tooltip("V(i,n) expression — vertical angle in degrees.\n" +
+                 "Example flat: 0    Example wave: sin(i / n * tau) * 20")]
+        [SerializeField] private string _patternFormulaV = "0";
+
+        public string PatternFormulaH => _patternFormulaH;
+        public string PatternFormulaV => _patternFormulaV;
 
         // ─────────────────────────────────────────────────────────────────────
         //  Public API
@@ -110,13 +122,6 @@ namespace MidManStudio.Projectiles.Config
 
         /// <summary>
         /// Returns N (horizontalDeg, verticalDeg) direction pairs in local weapon space.
-        ///
-        /// Caller converts to world directions:
-        ///   2D: Quaternion.Euler(0, 0, H) * baseDir
-        ///   3D: Quaternion.Euler(-V, H, 0) * baseDir
-        ///
-        /// All preset shapes (Ring360, Fan, etc.) distribute in the full angle range
-        /// required and work correctly in both 2D and 3D.
         /// </summary>
         public Vector2[] SampleDirections(int count = -1)
         {
@@ -131,6 +136,7 @@ namespace MidManStudio.Projectiles.Config
                 PatternShape.Shotgun => SampleShotgun(n),
                 PatternShape.Star    => SampleStar(n),
                 PatternShape.Spiral  => SampleSpiral(n),
+                PatternShape.Formula => SampleFormula(n),
                 _                    => SampleSpline(n),
             };
         }
@@ -162,11 +168,11 @@ namespace MidManStudio.Projectiles.Config
 
         private Vector2[] SampleVShape(int n)
         {
-            bool  hasCenter = _vShapeIncludeCenter;
-            int   perArm    = Mathf.Max((hasCenter ? n - 1 : n) / 2, 1);
-            int   total     = hasCenter ? perArm * 2 + 1 : perArm * 2;
-            var   result    = new Vector2[total];
-            int   idx       = 0;
+            bool hasCenter = _vShapeIncludeCenter;
+            int  perArm    = Mathf.Max((hasCenter ? n - 1 : n) / 2, 1);
+            int  total     = hasCenter ? perArm * 2 + 1 : perArm * 2;
+            var  result    = new Vector2[total];
+            int  idx       = 0;
 
             for (int i = 0; i < perArm; i++)
             {
@@ -180,7 +186,6 @@ namespace MidManStudio.Projectiles.Config
             }
             if (hasCenter && idx < total)
                 result[idx] = new Vector2(0f, _vShapeVerticalDeg);
-
             return result;
         }
 
@@ -202,18 +207,54 @@ namespace MidManStudio.Projectiles.Config
             var result = new Vector2[n];
             for (int i = 0; i < n; i++)
             {
-                float angle = i / (float)Mathf.Max(n, 1) * _starPoints * (360f / _starPoints);
-                result[i]   = new Vector2(angle % 360f, 0f);
+                float angle = i / (float)Mathf.Max(n, 1)
+                            * _starPoints * (360f / _starPoints);
+                result[i] = new Vector2(angle % 360f, 0f);
             }
             return result;
         }
 
         private Vector2[] SampleSpiral(int n)
         {
-            var result = new Vector2[n];
+            var   result   = new Vector2[n];
             float ringStep = 360f / Mathf.Max(n, 1);
             for (int i = 0; i < n; i++)
-                result[i] = new Vector2((i * ringStep + i * _spiralAngleStep) % 360f, 0f);
+                result[i] = new Vector2(
+                    (i * ringStep + i * _spiralAngleStep) % 360f, 0f);
+            return result;
+        }
+
+        // ── Formula ── NEW ────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Evaluates <see cref="_patternFormulaH"/> and <see cref="_patternFormulaV"/>
+        /// for each projectile index.  Falls back to (0, 0) on per-projectile error.
+        /// </summary>
+        private Vector2[] SampleFormula(int n)
+        {
+            var result = new Vector2[n];
+            for (int idx = 0; idx < n; idx++)
+            {
+                var ctx = new FormulaContext
+                {
+                    t = n > 1 ? (float)idx / n : 0f,
+                    i = idx,
+                    n = n
+                };
+
+                float h = MathFormulaEvaluator.Evaluate(_patternFormulaH, ctx, out string errH);
+                float v = MathFormulaEvaluator.Evaluate(_patternFormulaV, ctx, out string errV);
+
+                if (errH != null || errV != null)
+                {
+                    // Suppress per-tick log spam in play mode — formula errors are
+                    // shown in the editor inspector instead.
+                    h = 0f;
+                    v = 0f;
+                }
+
+                result[idx] = new Vector2(h, v);
+            }
             return result;
         }
 
@@ -239,24 +280,12 @@ namespace MidManStudio.Projectiles.Config
 
             return _splineType switch
             {
-                PatternSplineType.Linear     => EvaluateLinear(t),
-                PatternSplineType.Bezier     => EvaluateBezier(t),
-                _                            => EvaluateCatmullRom(t),
+                PatternSplineType.Linear   => EvaluateLinear(t),
+                PatternSplineType.Bezier   => EvaluateBezier(t),
+                _                          => EvaluateCatmullRom(t),
             };
         }
 
-        /// <summary>
-        /// Linear interpolation between control points — EXACT positions, no smoothing.
-        /// N control points define N-1 segments. t=0 → point[0], t=1 → point[N-1].
-        ///
-        /// Use for rigid shapes:
-        ///   Triangle: 4 points (close the shape by repeating point[0] at end optional)
-        ///   Square: (-45,0), (45,0), (45,45), (-45,45)
-        ///
-        /// With _projectileCount matching the point count, each bullet fires EXACTLY
-        /// at a control point angle. With more projectiles than points, bullets are
-        /// distributed along the line segments between points.
-        /// </summary>
         private Vector2 EvaluateLinear(float t)
         {
             int   n      = _controlPoints.Length;
@@ -298,9 +327,7 @@ namespace MidManStudio.Projectiles.Config
             return pts[0];
         }
 
-        // ─────────────────────────────────────────────────────────────────────
-        //  Speed variance
-        // ─────────────────────────────────────────────────────────────────────
+        // ── Speed variance ────────────────────────────────────────────────────
 
         public float GetSpeedMultiplier(int projectileIndex, uint seed)
         {
@@ -317,9 +344,7 @@ namespace MidManStudio.Projectiles.Config
             return (seed >> 8) / 16777216f;
         }
 
-        // ─────────────────────────────────────────────────────────────────────
-        //  Editor: create default assets
-        // ─────────────────────────────────────────────────────────────────────
+        // ── Editor: create default assets ────────────────────────────────────
 
 #if UNITY_EDITOR
         [MenuItem("MidManStudio/Projectile System/Create Default Pattern Assets", priority = 50)]
@@ -329,54 +354,61 @@ namespace MidManStudio.Projectiles.Config
             if (!System.IO.Directory.Exists(dir))
                 System.IO.Directory.CreateDirectory(dir);
 
-            Create(dir, "Ring_8",       p => { p._shape = PatternShape.Ring360; p._projectileCount = 8; });
-            Create(dir, "Ring_16",      p => { p._shape = PatternShape.Ring360; p._projectileCount = 16; });
-            Create(dir, "Fan_5_90deg",  p => { p._shape = PatternShape.Fan; p._projectileCount = 5; p._fanHalfArcDeg = 45f; });
-            Create(dir, "Fan_7_180deg", p => { p._shape = PatternShape.Fan; p._projectileCount = 7; p._fanHalfArcDeg = 90f; });
-            Create(dir, "Shotgun_5",    p => { p._shape = PatternShape.Shotgun; p._projectileCount = 5; p._shotgunConeDeg = 20f; });
-            Create(dir, "Shotgun_9",    p => { p._shape = PatternShape.Shotgun; p._projectileCount = 9; p._shotgunConeDeg = 25f; });
-            Create(dir, "VShape_3",     p => { p._shape = PatternShape.VShape; p._projectileCount = 3; p._vShapeAngleDeg = 25f; p._vShapeIncludeCenter = true; });
-            Create(dir, "Pentagon_5",   p => { p._shape = PatternShape.Star; p._projectileCount = 5; p._starPoints = 5; });
-            Create(dir, "Hexagon_6",    p => { p._shape = PatternShape.Star; p._projectileCount = 6; p._starPoints = 6; });
-            Create(dir, "Spiral_12",    p => { p._shape = PatternShape.Spiral; p._projectileCount = 12; p._spiralAngleStep = 15f; });
+            Create(dir, "Ring_8",      p => { p._shape = PatternShape.Ring360; p._projectileCount = 8; });
+            Create(dir, "Ring_16",     p => { p._shape = PatternShape.Ring360; p._projectileCount = 16; });
+            Create(dir, "Fan_5_90deg", p => { p._shape = PatternShape.Fan; p._projectileCount = 5; p._fanHalfArcDeg = 45f; });
+            Create(dir, "Fan_7_180deg",p => { p._shape = PatternShape.Fan; p._projectileCount = 7; p._fanHalfArcDeg = 90f; });
+            Create(dir, "Shotgun_5",   p => { p._shape = PatternShape.Shotgun; p._projectileCount = 5; p._shotgunConeDeg = 20f; });
+            Create(dir, "Shotgun_9",   p => { p._shape = PatternShape.Shotgun; p._projectileCount = 9; p._shotgunConeDeg = 25f; });
+            Create(dir, "VShape_3",    p => { p._shape = PatternShape.VShape;  p._projectileCount = 3; p._vShapeAngleDeg = 25f; p._vShapeIncludeCenter = true; });
+            Create(dir, "Pentagon_5",  p => { p._shape = PatternShape.Star; p._projectileCount = 5; p._starPoints = 5; });
+            Create(dir, "Hexagon_6",   p => { p._shape = PatternShape.Star; p._projectileCount = 6; p._starPoints = 6; });
+            Create(dir, "Spiral_12",   p => { p._shape = PatternShape.Spiral; p._projectileCount = 12; p._spiralAngleStep = 15f; });
 
-            // Linear rigid shapes — EXACT angular positions
             Create(dir, "Triangle_Linear", p =>
             {
-                p._shape            = PatternShape.Spline;
-                p._splineType       = PatternSplineType.Linear;
-                p._projectileCount  = 3;
-                p._controlPoints    = new[]
-                {
-                    new Vector2(-30f, -15f),
-                    new Vector2(  0f,  25f),
-                    new Vector2( 30f, -15f)
+                p._shape           = PatternShape.Spline;
+                p._splineType      = PatternSplineType.Linear;
+                p._projectileCount = 3;
+                p._controlPoints   = new[] {
+                    new Vector2(-30f, -15f), new Vector2(0f, 25f), new Vector2(30f, -15f)
                 };
             });
 
             Create(dir, "Square_Linear", p =>
             {
-                p._shape            = PatternShape.Spline;
-                p._splineType       = PatternSplineType.Linear;
-                p._projectileCount  = 4;
-                p._controlPoints    = new[]
-                {
-                    new Vector2(-30f, -30f),
-                    new Vector2( 30f, -30f),
-                    new Vector2( 30f,  30f),
-                    new Vector2(-30f,  30f)
+                p._shape           = PatternShape.Spline;
+                p._splineType      = PatternSplineType.Linear;
+                p._projectileCount = 4;
+                p._controlPoints   = new[] {
+                    new Vector2(-30f, -30f), new Vector2(30f, -30f),
+                    new Vector2(30f,  30f),  new Vector2(-30f, 30f)
                 };
             });
 
-            Create(dir, "Spread_Wide_3", p =>
+            // Formula examples
+            Create(dir, "Formula_Ring_12", p =>
             {
-                p._shape           = PatternShape.Spline;
-                p._splineType      = PatternSplineType.CatmullRom;
-                p._projectileCount = 3;
-                p._controlPoints   = new[]
-                {
-                    new Vector2(-30f, 0f), new Vector2(0f, 0f), new Vector2(30f, 0f)
-                };
+                p._shape           = PatternShape.Formula;
+                p._projectileCount = 12;
+                p._patternFormulaH = "i / n * 360";
+                p._patternFormulaV = "0";
+            });
+
+            Create(dir, "Formula_WaveSphere_16", p =>
+            {
+                p._shape           = PatternShape.Formula;
+                p._projectileCount = 16;
+                p._patternFormulaH = "i / n * 360";
+                p._patternFormulaV = "sin(i / n * tau * 2) * 30";
+            });
+
+            Create(dir, "Formula_Spiral_3D_20", p =>
+            {
+                p._shape           = PatternShape.Formula;
+                p._projectileCount = 20;
+                p._patternFormulaH = "i / n * 360 * 3";
+                p._patternFormulaV = "i / (n - 1) * 60 - 30";
             });
 
             AssetDatabase.SaveAssets();
