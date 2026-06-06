@@ -1,0 +1,107 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements"
+         xmlns:uie="UnityEditor.UIElements"
+         editor-extension-mode="True">
+
+    <ui:VisualElement class="mid-root">
+
+        <!-- Header: GradientBannerElement injected as absolute child from C# -->
+        <ui:VisualElement name="header" class="mid-header">
+            <ui:VisualElement class="mid-header__text">
+                <ui:Label class="mid-header__title" text="Sprite &#x2192; Tilemap Converter" />
+                <ui:Label class="mid-header__sub"
+                    text="Bake SpriteRenderers into Chunk-Mode Tilemaps &#x00B7; grouped by Sorting Layer + Order &#x00B7; exact position preserved" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <ui:ScrollView style="flex-grow:1;">
+
+            <!-- ══ SOURCE SETUP ══ -->
+            <ui:VisualElement class="stc-section">
+                <ui:Label class="stc-section__title" text="SOURCE SETUP" />
+                <ui:VisualElement class="stc-card">
+
+                    <!-- ObjectField injected from C# into this slot -->
+                    <ui:VisualElement name="source-field-slot" class="stc-field-slot" />
+
+                    <ui:VisualElement class="stc-row">
+                        <ui:Label class="stc-row__label" text="Tile Output Path" />
+                        <ui:TextField name="tile-path-field" class="stc-row__field"
+                            tooltip="Project-relative folder where Tile (.asset) files will be created." />
+                        <ui:Button name="browse-btn" class="stc-browse-btn" text="&#x2026;"
+                            tooltip="Browse for the tile output folder" />
+                    </ui:VisualElement>
+
+                    <ui:Toggle name="delete-source-toggle"
+                               label="Delete source GameObjects after conversion"
+                               class="stc-toggle"
+                               tooltip="Destroys the original SpriteRenderer hierarchy on success. Supports Ctrl+Z Undo." />
+                </ui:VisualElement>
+            </ui:VisualElement>
+
+            <!-- ══ LAYER GROUPS ══ -->
+            <ui:VisualElement class="stc-section">
+
+                <ui:VisualElement class="stc-section-header-row">
+                    <ui:Label class="stc-section__title" text="LAYER GROUPS" />
+                    <ui:Label name="scan-stats" class="stc-stats-lbl" text="Not scanned" />
+                    <ui:Button name="scan-btn" class="stc-scan-btn" text="&#x27F3;  Scan Source"
+                        tooltip="Discover all SpriteRenderers in the source hierarchy and group them by Sorting Layer + Sorting Order" />
+                </ui:VisualElement>
+
+                <ui:VisualElement class="stc-card">
+
+                    <!-- Empty / not-yet-scanned state -->
+                    <ui:VisualElement name="groups-empty" class="mid-empty">
+                        <ui:Label class="mid-empty__icon" text="&#x1F50D;" />
+                        <ui:Label class="mid-empty__text"
+                            text="Assign a Source Root above, then click Scan Source to discover layer groups." />
+                    </ui:VisualElement>
+
+                    <!-- Column headers — hidden until a scan has results -->
+                    <ui:VisualElement name="groups-col-headers" class="stc-col-headers"
+                                      style="display:none;">
+                        <ui:Label class="stc-col-hdr stc-col--layer"  text="SORTING LAYER"  />
+                        <ui:Label class="stc-col-hdr stc-col--order"  text="ORDER"           />
+                        <ui:Label class="stc-col-hdr stc-col--count"  text="SPRITES"         />
+                        <ui:Label class="stc-col-hdr stc-col--target" text="TARGET TILEMAP"  />
+                    </ui:VisualElement>
+
+                    <!-- Group rows injected from C# -->
+                    <ui:VisualElement name="groups-list" style="display:none;" />
+
+                </ui:VisualElement>
+
+                <ui:VisualElement class="stc-hint-box">
+                    <ui:Label class="stc-hint-text"
+                        text="Assign one Tilemap per group. Each Tilemap should be set to Chunk Mode for best performance on low-end devices. Groups with no Tilemap assigned are skipped. Two sprites landing on the same cell in the same Tilemap will be flagged as a collision — resolve by using different Sorting Orders." />
+                </ui:VisualElement>
+
+            </ui:VisualElement>
+
+            <!-- ══ ACTIONS ══ -->
+            <ui:VisualElement class="stc-section">
+                <ui:Label class="stc-section__title" text="ACTIONS" />
+                <ui:VisualElement class="stc-action-row">
+                    <ui:Button name="dry-run-btn" class="stc-btn stc-btn--dry"
+                        text="&#x1F50E;  Dry Run"
+                        tooltip="Simulate the conversion and show a full report. Nothing is written to disk." />
+                    <ui:Button name="convert-btn" class="stc-btn stc-btn--convert"
+                        text="&#x2713;  Convert"
+                        tooltip="Bake all sprites into their assigned Tilemaps and create Tile assets at the output path." />
+                </ui:VisualElement>
+            </ui:VisualElement>
+
+            <!-- ══ RESULT ══ -->
+            <ui:VisualElement name="results-section" class="stc-section" style="display:none;">
+                <ui:Label class="stc-section__title" text="RESULT" />
+                <ui:VisualElement name="results-box" class="stc-results">
+                    <ui:Label name="results-log" class="stc-results__text" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+
+            <!-- Bottom spacer -->
+            <ui:VisualElement style="height:16px;" />
+
+        </ui:ScrollView>
+    </ui:VisualElement>
+</ui:UXML>
