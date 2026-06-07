@@ -1,9 +1,17 @@
-// NetworkedDimensionPlayer.cs
-// CHANGE: FirePhysics now calls predMgr.SpawnLocalPhysicsVisual for the
-// firing client before sending the bridge ServerRpc. This is a standalone
-// prediction visual (does NOT add to _pendingTempIds — no server confirmation
-// is expected for physics) that guarantees the firing client sees their
-// projectile even when the NetworkObject pool visual fails on their machine.
+// packages/com.midmanstudio.projectilesystem/Tests/Runtime/NetworkedDimensionPlayer.cs
+//
+// CHANGE: Config ID fields are now int (ProjectileConfigType enum values) rather
+// than raw ushort registry indices. ResolveConfigId() resolves through
+// ProjectileConfigManager.Instance.GetConfigId() when available, falling back
+// to a direct cast for scenes that don't use the enum system yet.
+//
+//   _configId2D / _configId3D  →  _configTypeId2D / _configTypeId3D  (int)
+//
+// Inspector usage after running Config Type Generator:
+//   Set _configTypeId2D = (int)ProjectileConfigType.Default   (= 0)
+//   Set _configTypeId3D = (int)ProjectileConfigType.Default   (= 0)
+//
+// All other behaviour unchanged.
 
 using UnityEngine;
 using Unity.Netcode;
@@ -63,9 +71,17 @@ namespace TestGame
         [SerializeField, Range(-80f, 0f)] private float _pitchMin = -80f;
         [SerializeField, Range(0f,  80f)] private float _pitchMax =  80f;
 
-        [Header("Projectile Config IDs")]
-        [SerializeField] private ushort _configId2D = 0;
-        [SerializeField] private ushort _configId3D = 0;
+        [Header("Projectile Config Type IDs")]
+        [Tooltip(
+            "ProjectileConfigType enum value cast to int.\n" +
+            "After running Config Type Generator set this to (int)ProjectileConfigType.YourConfig.\n" +
+            "Default = 0 maps to ProjectileConfigType.Default.\n" +
+            "Resolved via ProjectileConfigManager when available, " +
+            "falls back to direct ushort cast otherwise.")]
+        [SerializeField] private int _configTypeId2D = 0;
+
+        [Tooltip("ProjectileConfigType enum value for 3D projectiles.")]
+        [SerializeField] private int _configTypeId3D = 0;
 
         [Header("Fire Settings")]
         [SerializeField] private float _fireRate = 5f;
@@ -175,7 +191,6 @@ namespace TestGame
                     ? DimensionManager.Instance.Current : Dimension.TwoD;
                 _currentDimension = startDim;
 
-                // Constraints applied NOW (not in Awake) because IsOwner is false in Awake.
                 ApplyRigidbodyConstraints(startDim);
 
                 if (DimensionManager.HasInstance)
@@ -308,13 +323,31 @@ namespace TestGame
             || _shootMode == PlayerShootMode.Raycast3D
             || _shootMode == PlayerShootMode.Physics3D;
 
+        // ── Config resolution ─────────────────────────────────────────────────
+        // Converts a ProjectileConfigType int value to the runtime ushort configId
+        // that ProjectileRegistry assigned during session startup.
+        //
+        //   _configTypeId2D / _configTypeId3D  = (int)ProjectileConfigType.SomeValue
+        //   ProjectileConfigManager maps those stable enum ints → session ushort IDs
+        //
+        // Fallback: if ProjectileConfigManager is absent (scene not yet fully set up,
+        // or using the raw registry path), the typeId is cast directly to ushort.
+        // This works for the default case where Default = 0 and registry ID 0 match.
         private ushort ResolveConfigId()
         {
             bool prefer3D = _shootMode == PlayerShootMode.RustSim3D
                          || _shootMode == PlayerShootMode.Raycast3D
                          || _shootMode == PlayerShootMode.Physics3D
                          || _currentDimension == Dimension.ThreeD;
-            return prefer3D ? _configId3D : _configId2D;
+
+            int typeId = prefer3D ? _configTypeId3D : _configTypeId2D;
+
+            if (ProjectileConfigManager.HasInstance)
+                return ProjectileConfigManager.Instance.GetConfigId(typeId);
+
+            // Fallback: direct cast (works when enum value == registry index,
+            // which is true when configs are registered in enum order).
+            return (ushort)typeId;
         }
 
         private Vector3   ResolveFireDir()   => Use3DConvention() && _headPivot != null ? _headPivot.forward : transform.right;
@@ -430,9 +463,18 @@ namespace TestGame
         private void FireSim()
         {
             if (!MID_MasterProjectileSystem.HasInstance) return;
+
             ushort cfgId = ResolveConfigId();
             var    cfg   = ProjectileRegistry.Instance.Get(cfgId);
-            if (cfg == null) { MID_Logger.LogWarning(_logLevel, $"Config {cfgId} not registered.", nameof(NetworkedDimensionPlayer)); return; }
+            if (cfg == null)
+            {
+                MID_Logger.LogWarning(_logLevel,
+                    $"FireSim: configId {cfgId} not registered. " +
+                    "Ensure ProjectileConfigManager.RegisterAll() has run and " +
+                    "_configTypeId2D/_configTypeId3D match valid ProjectileConfigType values.",
+                    nameof(NetworkedDimensionPlayer));
+                return;
+            }
 
             Transform sp   = ResolveShotPoint();
             Vector3 origin = sp != null ? sp.position : transform.position;
@@ -493,6 +535,7 @@ namespace TestGame
         private void FireRaycast(bool is3D)
         {
             if (!MID_MasterProjectileSystem.HasInstance) return;
+
             ushort cfgId = ResolveConfigId();
             var    cfg   = ProjectileRegistry.Instance.Get(cfgId);
             if (cfg == null) return;
@@ -548,12 +591,6 @@ namespace TestGame
 
             if (MID_MasterProjectileSystem.Instance.IsNetworked)
             {
-                // FIX: Guarantee the firing client sees their own physics projectile.
-                // SpawnLocalPhysicsVisual creates a standalone prediction visual that does
-                // NOT add to _pendingTempIds (no SpawnConfirmedClientRpc is coming for physics).
-                // The NetworkObject pool visual (from PhysicsProjectileBase.OnNetworkSpawn)
-                // will also appear if the LocalObjectPool has the blueprint configured —
-                // both visuals at the same position is acceptable and the NT-accurate one wins.
                 if (!IsServer)
                 {
                     ushort cfgId = ResolveConfigId();
