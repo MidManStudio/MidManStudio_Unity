@@ -3,6 +3,16 @@
 // values (lock-file backed), writes the ProjectileConfigType enum, and
 // auto-generates/updates the ProjectileConfigMappingSO asset.
 //
+// FIX: [pinned] tag is now always emitted inside a // comment.
+//      Previously, when Comment was empty and WasPinned=true, the tag was
+//      appended without a // prefix, producing invalid C#:
+//          Default = 0, [pinned]      ← compile error
+//      Now always emits:
+//          Default = 0,               (no pin, no comment)
+//          Default = 0, // [pinned]   (pin only)
+//          Default = 0, // my note    (comment only)
+//          Default = 0, // my note [pinned]  (both)
+//
 // USAGE: MidManStudio > Projectile System > Config Type Generator → Generate Now
 
 #if UNITY_EDITOR
@@ -318,9 +328,20 @@ namespace MidManStudio.Projectiles.EditorUtils
                 else
                     foreach (var e in blk.Entries)
                     {
-                        string pin = e.WasPinned ? " [pinned]" : "";
-                        string cmt = string.IsNullOrWhiteSpace(e.Comment)
-                            ? pin : $" // {e.Comment}{pin}";
+                        // FIX: always emit the trailing text inside a // comment.
+                        // Previously: pin = " [pinned]" was appended without //,
+                        // producing invalid syntax when Comment was empty.
+                        string pinTag  = e.WasPinned ? "[pinned]" : "";
+                        string comment = e.Comment?.Trim() ?? "";
+                        string cmt;
+                        if (comment.Length > 0 && pinTag.Length > 0)
+                            cmt = $" // {comment} {pinTag}";
+                        else if (comment.Length > 0)
+                            cmt = $" // {comment}";
+                        else if (pinTag.Length > 0)
+                            cmt = $" // {pinTag}";
+                        else
+                            cmt = "";
                         sb.AppendLine($"        {e.EnumName} = {e.Value},{cmt}");
                     }
 
@@ -496,7 +517,8 @@ namespace MidManStudio.Projectiles.EditorUtils
             {
                 EditorGUILayout.HelpBox(
                     "No settings found.\n" +
-                    "Create: MidManStudio > Projectile System > Config Generator Settings",
+                    "Create: MidManStudio > Projectile System > Config Generator Settings\n" +
+                    "Or run: MidManStudio > Projectile System > Internal > Recreate Default Config Assets",
                     MessageType.Warning);
                 if (GUILayout.Button("Create Default Settings")) CreateDefaultSettings();
             }
@@ -539,7 +561,8 @@ namespace MidManStudio.Projectiles.EditorUtils
             {
                 EditorGUILayout.HelpBox(
                     "No ProjectileConfigProviderSO assets found. " +
-                    "Create one to start registering config types.",
+                    "Run MidManStudio > Projectile System > Internal > Recreate Default Config Assets " +
+                    "to create the built-in provider, or create one manually.",
                     MessageType.Info);
             }
             else
@@ -583,7 +606,7 @@ namespace MidManStudio.Projectiles.EditorUtils
 
             var oldBg = GUI.backgroundColor;
             GUI.backgroundColor = new Color(0.3f, 0.85f, 0.3f);
-            if (GUILayout.Button("⚙  Generate Now", GUILayout.Height(36)))
+            if (GUILayout.Button("Generate Now", GUILayout.Height(36)))
             {
                 _lastResult = ProjectileConfigGeneratorCore.Generate(_settings);
                 if (_lastResult.Success)
@@ -591,12 +614,13 @@ namespace MidManStudio.Projectiles.EditorUtils
                         "Config Type Generator",
                         $"Generation complete!\n\n" +
                         $"Blocks:  {_lastResult.BlocksWritten}\n" +
-                        $"Entries: {_lastResult.EntriesWritten}", "OK");
+                        $"Entries: {_lastResult.EntriesWritten}\n\n" +
+                        "Assign ProjectileConfigMapping.asset to ProjectileConfigManager in the scene.", "OK");
             }
             GUI.backgroundColor = oldBg;
             GUI.enabled = true;
 
-            if (GUILayout.Button("📂  Open Output Folder", GUILayout.Height(36)))
+            if (GUILayout.Button("Open Output Folder", GUILayout.Height(36)))
             {
                 var dir = _settings != null
                     ? Path.GetDirectoryName(_settings.enumOutputPath) : "Assets";
@@ -622,7 +646,7 @@ namespace MidManStudio.Projectiles.EditorUtils
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
             if (_lastResult.Success)
                 EditorGUILayout.HelpBox(
-                    $"✓ Success — {_lastResult.BlocksWritten} blocks, " +
+                    $"Success — {_lastResult.BlocksWritten} blocks, " +
                     $"{_lastResult.EntriesWritten} entries.", MessageType.Info);
             foreach (var w in _lastResult.Warnings) EditorGUILayout.HelpBox(w, MessageType.Warning);
             foreach (var e in _lastResult.Errors)   EditorGUILayout.HelpBox(e, MessageType.Error);
