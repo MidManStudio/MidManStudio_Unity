@@ -64,6 +64,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/MID_PackageUpdateChecker.cs">
       <Link>Editor/Helpers/MID_PackageUpdateChecker.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/MID_SpriteToTilemapConverter.cs">
+      <Link>Editor/Helpers/MID_SpriteToTilemapConverter.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/SceneManagement/SceneTypeGenerator.cs">
       <Link>Editor/SceneManagement/SceneTypeGenerator.cs</Link>
     </Compile>
@@ -114,6 +117,9 @@
     </Compile>
   </ItemGroup>
   <ItemGroup>
+    <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/MID_SpriteToTilemapConverter.uxml">
+      <Link>Editor/Helpers/MID_SpriteToTilemapConverter.uxml</Link>
+    </None>
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/MID_ScriptUtilitiesWindow.uxml">
       <Link>Editor/Helpers/MID_ScriptUtilitiesWindow.uxml</Link>
     </None>
@@ -122,6 +128,9 @@
     </None>
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/MID_ScriptExecutionOrderWindow.uxml">
       <Link>Editor/Helpers/MID_ScriptExecutionOrderWindow.uxml</Link>
+    </None>
+    <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/MID_SpriteToTilemapConverter.uss">
+      <Link>Editor/Helpers/MID_SpriteToTilemapConverter.uss</Link>
     </None>
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/MID_ScriptUtilitiesWindow.uss">
       <Link>Editor/Helpers/MID_ScriptUtilitiesWindow.uss</Link>

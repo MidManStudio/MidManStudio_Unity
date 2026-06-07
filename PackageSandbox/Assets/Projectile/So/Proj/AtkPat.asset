@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1634ad6e2cb614737b6b868e529db1e0, type: 3}
   m_Name: AtkPat
   m_EditorClassIdentifier: 
-  _shape: 4
+  _shape: 7
   _splineType: 2
   _controlPoints:
   - {x: -2.2727273, y: -90}
@@ -30,3 +30,5 @@ MonoBehaviour:
   _starPoints: 5
   _starInnerScale: 0
   _spiralAngleStep: 30
+  _patternFormulaH: i / (n - 1) * 180 - 90
+  _patternFormulaV: sin(i / n * pi) * 45

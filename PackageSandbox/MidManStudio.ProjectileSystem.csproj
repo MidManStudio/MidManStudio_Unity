@@ -91,6 +91,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Core/ProjectileManager.cs">
       <Link>Runtime/Core/ProjectileManager.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Config/ProjectileConfigManager.cs">
+      <Link>Runtime/Config/ProjectileConfigManager.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Config/ProjectilePatternSO.cs">
       <Link>Runtime/Config/ProjectilePatternSO.cs</Link>
     </Compile>
@@ -118,8 +121,14 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Network/ClientProjectileVisualManager.cs">
       <Link>Runtime/Network/ClientProjectileVisualManager.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Config/MathFormulaEvaluator.cs">
+      <Link>Runtime/Config/MathFormulaEvaluator.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectile3D.cs">
       <Link>Runtime/Managers/PhysicsProjectile3D.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Config/Generator/ProjectileConfigGeneratorSettingsSO.cs">
+      <Link>Runtime/Config/Generator/ProjectileConfigGeneratorSettingsSO.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Config/ProjectileRegistry.cs">
       <Link>Runtime/Config/ProjectileRegistry.cs</Link>
@@ -154,6 +163,12 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Adapters/BatchSpawnHelper.cs">
       <Link>Runtime/Adapters/BatchSpawnHelper.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Config/ProjectileConfigMappingSO.cs">
+      <Link>Runtime/Config/ProjectileConfigMappingSO.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Config/Generator/ProjectileConfigEntry.cs">
+      <Link>Runtime/Config/Generator/ProjectileConfigEntry.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Adapters/ProjectileTypeRouter.cs">
       <Link>Runtime/Adapters/ProjectileTypeRouter.cs</Link>
     </Compile>
@@ -165,6 +180,9 @@
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/RaycastProjectileHandler.cs">
       <Link>Runtime/Managers/RaycastProjectileHandler.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Config/Generator/ProjectileConfigProviderSO.cs">
+      <Link>Runtime/Config/Generator/ProjectileConfigProviderSO.cs</Link>
     </Compile>
   </ItemGroup>
   <ItemGroup>

@@ -1,0 +1,9 @@
+﻿{
+    "entries": [
+        {
+            "packageId": "com.mygame",
+            "enumName": "Default",
+            "value": 0
+        }
+    ]
+}
