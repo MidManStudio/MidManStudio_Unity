@@ -2,50 +2,35 @@
 //
 // REWRITE — Deterministic Client-Local Special Movement Prediction.
 //
+// FIX (Arching visual jank): Linear extrapolation completely ignores gravity,
+//   causing the predicted position to diverge from the server's parabolic path
+//   immediately. Every 4-tick snapshot interval triggers reconciliation, snapping
+//   the visual repeatedly. Fix: parabolic prediction for MOVE_ARCHING using
+//   pos(t) = origin + dir*speed*t + (0, 0.5*gravityAy*t², 0). GravityAy is read
+//   from cfg.GravityScale and stored in PredictedProjectile.GravityAy.
+//   Rotation also updated to match the instantaneous velocity direction.
+//
+// FIX (Guided "goes back then forward" + zig-zag): Linear extrapolation
+//   origin + dir*speed*t does not follow homing trajectories. Each snapshot
+//   showing the curved path triggered reconciliation, snapping the visual backward
+//   (especially severe immediately after spawn when predicted position overshoots
+//   the server's delayed snapshot position). Fix: MOVE_GUIDED and MOVE_TELEPORT
+//   now use a "snapshot-chase" mode: position and direction are updated from
+//   server snapshots, and the visual smoothly lerps toward the extrapolated
+//   snapshot position. Standard linear reconciliation is bypassed for these types.
+//
 // FIX (host mode — _pendingTempIds accumulation):
-//   SpawnImmediatePrediction and SpawnLocalPhysicsVisual now return immediately
-//   when IsServer is true. On the host, ServerProjectileAuthority.LateUpdate
-//   renders directly from the Rust buffer. Creating prediction visuals on the
-//   host produces double visuals AND causes _pendingTempIds to grow without
-//   bound because SpawnConfirmedClientRpc always returns early for IsServer,
-//   so the queue entries are never consumed.
+//   SpawnImmediatePrediction and SpawnLocalPhysicsVisual return immediately when
+//   IsServer is true.
 //
 // FIX (expired prediction → dropped visual):
-//   OnSpawnConfirmed now checks _predictions.ContainsKey(tempId) before
-//   calling LinkPredictionId. If the temp prediction expired before the RPC
-//   arrived (typical under receive queue overflow — see transport config in
-//   MID_ProjectileNetworkBridge.ConfigureTransportForHighThroughput), the
-//   method falls back to spawning a fresh proxy visual at the server-confirmed
-//   position rather than silently dropping the projectile visual entirely.
-//   This means the LinkPredictionId "not found" warning is now an unexpected
-//   state (should not fire from normal flow) rather than a routine occurrence.
-//
-// PROBLEM FIXED (wave/circular zig-zag):
-//   Wave and Circular projectiles showed zig-zag on proxy clients and a
-//   straight-then-choppy transition for the shooter. Root cause: the old
-//   snapshot-velocity-estimation path computed velocity as Δposition/Δtime
-//   between snapshot intervals. Over 4 ticks of curved motion the position
-//   delta points along a chord, not the tangent — rapidly oscillating the
-//   estimated velocity and producing zig-zag.
-//
-// SOLUTION — PredictionMode.DeterministicMath:
-//   For MOVE_WAVE and MOVE_CIRCULAR, each client independently computes the
-//   projectile's position using the exact closed-form integral that matches
-//   the Rust simulation's differential equations (see DeterministicMotionMath).
-//   The server's NetworkTime.TimeAsFloat captured at spawn (ServerNetworkTime
-//   in SpawnConfirmation) serves as the shared t=0 clock anchor.
-//
-//   Shooter:     position set directly each frame — analytically exact, zero
-//                dependency on server snapshots.
-//   Proxy client: position lerped toward deterministic target at factor 15/s —
-//                absorbs residual NGO clock drift only, not an interpolation delay.
-//   Snapshots:   still sent for all types; DeterministicMath silently ignores
-//                them. Linear mode (Straight/Arching/Guided) reconciliation unchanged.
+//   OnSpawnConfirmed checks _predictions.ContainsKey before LinkPredictionId.
+//   Falls back to spawning a fresh proxy visual rather than dropping it silently.
 //
 // UNCHANGED:
-//   Linear prediction and snapshot reconciliation for all non-Wave/Circular types.
-//   Host rendering path (ServerProjectileAuthority.LateUpdate), collision detection,
-//   impact effects, hit confirmation, physics and raycast visual paths.
+//   DeterministicMath (Wave/Circular) — analytically exact, no snapshots.
+//   Linear prediction (Straight) — unchanged.
+//   Host rendering path, collision, impact, physics/raycast visual paths.
 
 using System;
 using System.Collections.Generic;
@@ -61,7 +46,7 @@ using Unity.Netcode;
 namespace MidManStudio.Projectiles.Network
 {
     // ─────────────────────────────────────────────────────────────────────────
-    //  Internal helpers (unchanged)
+    //  Internal helpers
     // ─────────────────────────────────────────────────────────────────────────
 
     internal sealed class CircularBuffer<T>
@@ -100,8 +85,8 @@ namespace MidManStudio.Projectiles.Network
 
     internal enum PredictionMode : byte
     {
-        /// Linear prediction + threshold-based snapshot reconciliation.
-        /// Used for Straight, Arching, Guided, Teleport.
+        /// Linear / parabolic prediction + snapshot reconciliation.
+        /// Straight: linear. Arching: parabolic (gravity-corrected).
         Linear = 0,
 
         /// Closed-form parametric calculation — no snapshot reconciliation.
@@ -129,16 +114,12 @@ namespace MidManStudio.Projectiles.Network
         public PredictionMode PredictionMode;
 
         // ── DeterministicMath clock anchor ────────────────────────────────────
-        /// Server NetworkTime.TimeAsFloat at spawn. t=0 for all deterministic math.
-        /// Set from SpawnConfirmation.ServerNetworkTime; falls back to client-side
-        /// estimate for SpawnImmediatePrediction, then corrected by LinkPredictionId.
         public float ServerSpawnNetworkTime;
 
-        // ── Cached movement type (avoids per-frame registry lookup) ───────────
+        // ── Cached movement type ──────────────────────────────────────────────
         public byte CachedMovementType;
 
         // ── Initial velocity components ───────────────────────────────────────
-        /// Direction.normalized * Speed, stored pre-computed for circular math.
         public float InitialVelX, InitialVelY, InitialVelZ;
 
         // ── Cached wave parameters ────────────────────────────────────────────
@@ -147,19 +128,14 @@ namespace MidManStudio.Projectiles.Network
         public float CachedWavePhaseOffset;
 
         // ── Cached circular parameters ────────────────────────────────────────
-        /// Angular speed in RADIANS/sec (converted from degrees at spawn).
         public float CachedCircularAngularSpeedRad;
-        /// Start angle in RADIANS (converted from degrees at spawn).
         public float CachedCircularStartAngleRad;
-        /// Explicit orbit radius (used for 3D circular only; 2D uses speed/omega).
         public float CachedCircularRadius;
 
         // ── Pre-computed perpendicular axis ───────────────────────────────────
-        /// Matches BatchSpawnHelper.GetAccel2D/3D for Wave/Circular spawn.
         public float PerpAxisX, PerpAxisY, PerpAxisZ;
 
         // ── Proxy flag ────────────────────────────────────────────────────────
-        /// True for projectiles owned by other players. Controls lerp vs direct-set.
         public bool IsProxyProjectile;
 
         // ── Visual ────────────────────────────────────────────────────────────
@@ -167,8 +143,23 @@ namespace MidManStudio.Projectiles.Network
         public ProjectileVisualBase VisualScript;
         public PoolableObjectType   UsedPoolType;
 
-        // ── Linear prediction (PredictionMode.Linear only) ───────────────────
-        /// Null for DeterministicMath mode — not needed.
+        // ── Arching gravity (FIX) ─────────────────────────────────────────────
+        /// Vertical gravity acceleration (cfg.GravityScale == Rust GravityAy).
+        /// Non-zero for MOVE_ARCHING configs that have gravity.
+        public float GravityAy;
+
+        // ── Snapshot-chase (FIX) — Guided and Teleport ───────────────────────
+        /// Latest server-confirmed position received via snapshot.
+        public Vector3 LastSnapshotPos;
+        /// Velocity direction estimated from consecutive snapshots.
+        /// Initialized to Direction; updated each snapshot.
+        public Vector3 LastSnapshotVelDir;
+        /// Time.time when LastSnapshotPos was recorded.
+        public float LastSnapshotTime;
+        /// True once at least one snapshot has been received.
+        public bool HasSnapshot;
+
+        // ── Linear prediction (PredictionMode.Linear) ────────────────────────
         public CircularBuffer<ProjectileStatePayload> History;
         public bool    IsReconciling;
         public Vector3 ReconcileStartPosition;
@@ -190,8 +181,8 @@ namespace MidManStudio.Projectiles.Network
     {
         #region Inspector
 
-        [Header("Reconciliation (Linear mode only)")]
-        [Tooltip("Position error below which reconciliation is skipped for linear projectiles.")]
+        [Header("Reconciliation (Linear mode — Straight/Arching only)")]
+        [Tooltip("Position error below which reconciliation is skipped.")]
         [SerializeField] private float _reconcileThreshold = 0.3f;
         [Tooltip("Error above which a hard-snap is used instead of smooth blending.")]
         [SerializeField] private float _hardSnapThreshold  = 3f;
@@ -200,6 +191,11 @@ namespace MidManStudio.Projectiles.Network
 
         [Header("History Buffer (Linear mode)")]
         [SerializeField] private int _historySize = 32;
+
+        [Header("Snapshot Chase (Guided/Teleport)")]
+        [Tooltip("Lerp speed (units/sec factor) for snapshot-chase visual correction.\n" +
+                 "Higher = snappier, lower = smoother but laggier.")]
+        [SerializeField] private float _snapshotChaseLerp = 15f;
 
         [Header("Visual Pool Types")]
         [SerializeField] private PoolableObjectType _visualPoolType2D
@@ -233,19 +229,10 @@ namespace MidManStudio.Projectiles.Network
 
         /// <summary>
         /// Immediate visual for the firing client's Rust sim projectile.
-        /// ServerNetworkTime in <paramref name="tempConf"/> will be 0 (client-side);
-        /// falls back to current server time as initial anchor, then corrected
-        /// by LinkPredictionId when SpawnConfirmedClientRpc arrives.
-        ///
-        /// FIX: skipped in host mode — the host renders directly from
-        /// ServerProjectileAuthority.LateUpdate (Rust buffer). Creating prediction
-        /// visuals on the host would cause double visuals and _pendingTempIds
-        /// accumulation because SpawnConfirmedClientRpc returns early for IsServer.
+        /// FIX: skipped in host mode — host renders from ServerProjectileAuthority.LateUpdate.
         /// </summary>
         public void SpawnImmediatePrediction(SpawnConfirmation tempConf)
         {
-            // Host mode: server renders directly; predictions would create double
-            // visuals and _pendingTempIds would grow without bound.
             if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsServer)
                 return;
 
@@ -259,16 +246,11 @@ namespace MidManStudio.Projectiles.Network
 
         /// <summary>
         /// Standalone visual for a physics projectile on the firing client.
-        /// Does NOT queue a temp ID — physics never sends SpawnConfirmedClientRpc.
-        ///
-        /// FIX: skipped in host mode — physics projectiles are server-owned
-        /// NetworkObjects; NetworkTransform handles visual sync for the host.
+        /// FIX: skipped in host mode.
         /// </summary>
         public void SpawnLocalPhysicsVisual(
             ushort configId, Vector3 origin, Vector3 dir, float speed)
         {
-            // Host mode: NetworkTransform on the physics projectile drives
-            // the visual — no separate prediction visual needed.
             if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsServer)
                 return;
 
@@ -285,9 +267,8 @@ namespace MidManStudio.Projectiles.Network
                 OwnerMidId          = _localPlayerMidId,
                 ExtraDirectionCount = 0,
                 ExtraDirections     = null,
-                ServerNetworkTime   = 0f   // falls back to GetApproxServerTime() in spawn
+                ServerNetworkTime   = 0f
             }, 0);
-            // NOT queued — standalone, no server confirmation expected.
         }
 
         #endregion
@@ -296,13 +277,8 @@ namespace MidManStudio.Projectiles.Network
 
         /// <summary>
         /// Called by MID_ProjectileNetworkBridge when server confirms a Rust sim spawn.
-        /// Local player with pending temp IDs: links the visual to the real projId.
-        /// Everyone else (proxy): spawns a fresh visual at the correct server position.
-        ///
-        /// FIX: if the dequeued temp prediction expired before this RPC arrived
-        /// (typically caused by UnityTransport receive queue overflow delaying the RPC
-        /// past MaxLifetime), fall back to spawning a fresh proxy visual at the
-        /// server-confirmed position rather than silently dropping the projectile.
+        /// FIX: if temp prediction expired before RPC arrived, spawns a fresh proxy
+        /// visual rather than silently dropping the projectile.
         /// </summary>
         public void OnSpawnConfirmed(SpawnConfirmation conf)
         {
@@ -315,17 +291,10 @@ namespace MidManStudio.Projectiles.Network
                     uint tempId = _pendingTempIds.Dequeue();
                     if (_predictions.ContainsKey(tempId))
                     {
-                        // Normal path: prediction still alive, link it.
                         LinkPredictionId(tempId, realId, conf.ServerNetworkTime);
                     }
                     else
                     {
-                        // The temp prediction expired before SpawnConfirmedClientRpc
-                        // arrived. This happens when the receive queue is full and the
-                        // RPC is delayed past the projectile's MaxLifetime.
-                        // Increase UnityTransport.RecvQueueCapacity (see
-                        // MID_ProjectileNetworkBridge.ConfigureTransportForHighThroughput).
-                        // Fallback: spawn a fresh proxy visual at the server position.
                         Log($"TempId={tempId} prediction expired before confirmation; " +
                             $"spawning proxy visual for realId={realId}");
                         SpawnPredictionVisual(realId, conf, i);
@@ -334,11 +303,7 @@ namespace MidManStudio.Projectiles.Network
                 }
                 else
                 {
-                    // Proxy clients, or local player with no pending predictions.
                     SpawnPredictionVisual(realId, conf, i);
-                    // Immediately jump proxy visual to current deterministic position.
-                    // Without this it appears at spawn origin and sweeps forward over
-                    // several frames — highly visible for fast projectiles.
                     FastForwardProxyVisual(realId, conf.ServerNetworkTime);
                 }
             }
@@ -414,9 +379,6 @@ namespace MidManStudio.Projectiles.Network
                     Vector3 targetPos = ComputeDeterministicPosition(pred, timeAlive);
                     Vector3 velDir    = ComputeDeterministicVelocityDir(pred, timeAlive);
 
-                    // Shooter: set directly — analytically exact, no lerp needed.
-                    // Proxy:   gentle lerp to absorb residual NGO clock drift only.
-                    //          15f/s corrects ~1 world unit of drift in ~0.5 s.
                     if (pred.IsProxyProjectile)
                     {
                         pred.VisualObject.transform.position = Vector3.Lerp(
@@ -434,12 +396,29 @@ namespace MidManStudio.Projectiles.Network
                             ? DeterministicMotionMath.CalculateLookRotation3D(velDir)
                             : DeterministicMotionMath.CalculateLookRotation2D(velDir);
 
-                        // 25f/s slerp for proxies tracks fast direction changes on arcs.
                         pred.VisualObject.transform.rotation = pred.IsProxyProjectile
                             ? Quaternion.Slerp(pred.VisualObject.transform.rotation,
                                 targetRot, Time.deltaTime * 25f)
                             : targetRot;
                     }
+                    continue;
+                }
+
+                // ── Snapshot-chase path (Guided, Teleport) ────────────────────
+                // FIX: These movement types don't follow straight-line paths.
+                // Linear extrapolation causes zig-zag and "goes back" artifacts.
+                // Instead, chase the latest server snapshot position.
+                if (pred.CachedMovementType == (byte)ProjectileMovementType.Guided ||
+                    pred.CachedMovementType == (byte)ProjectileMovementType.Teleport)
+                {
+                    float elapsed = now - pred.SpawnTime;
+                    if (elapsed >= pred.MaxLifetime)
+                    {
+                        ReturnPredictionVisual(pred);
+                        toRemove.Add(kvp.Key);
+                        continue;
+                    }
+                    UpdateSnapshotChaseVisual(pred, elapsed, now);
                     continue;
                 }
 
@@ -451,9 +430,37 @@ namespace MidManStudio.Projectiles.Network
                     continue;
                 }
 
-                // ── Linear prediction (Straight / Arching / Guided / Teleport) ─
-                float elapsed   = now - pred.SpawnTime;
-                Vector3 predicted = pred.Origin + pred.Direction * pred.Speed * elapsed;
+                // ── Linear / Parabolic prediction (Straight and Arching) ──────
+                float elapsedLinear   = now - pred.SpawnTime;
+                Vector3 predicted;
+                Vector3 currentVelDir = pred.Direction;
+
+                if (pred.CachedMovementType == (byte)ProjectileMovementType.Arching
+                    && pred.GravityAy != 0f)
+                {
+                    // FIX: Parabolic integration matching the Rust semi-implicit Euler:
+                    //   pos(t) = origin + dir*speed*t + (0, 0.5*g*t², 0)
+                    // This eliminates the per-snapshot drift that triggered constant
+                    // reconciliation for arching projectiles with significant gravity.
+                    Vector3 basePos  = pred.Origin + pred.Direction * pred.Speed * elapsedLinear;
+                    float   gravDisp = 0.5f * pred.GravityAy * elapsedLinear * elapsedLinear;
+                    predicted = new Vector3(basePos.x, basePos.y + gravDisp, basePos.z);
+
+                    // Update rotation to match current velocity direction (not fixed initial dir).
+                    // vel(t) = dir*speed + (0, g*t, 0)
+                    float vyNow = pred.Direction.y * pred.Speed + pred.GravityAy * elapsedLinear;
+                    Vector3 velNow = new Vector3(
+                        pred.Direction.x * pred.Speed,
+                        vyNow,
+                        pred.Direction.z * pred.Speed);
+                    if (velNow.sqrMagnitude > 0.001f)
+                        currentVelDir = velNow.normalized;
+                }
+                else
+                {
+                    // Straight: simple linear extrapolation.
+                    predicted = pred.Origin + pred.Direction * pred.Speed * elapsedLinear;
+                }
 
                 if (pred.History != null)
                 {
@@ -475,9 +482,9 @@ namespace MidManStudio.Projectiles.Network
                     if (t >= 1f)
                     {
                         pred.IsReconciling = false;
-                        // Rebase origin so prediction continues forward from corrected spot
+                        // Rebase origin so prediction continues forward from corrected spot.
                         pred.Origin = pred.ReconcileTarget
-                                    - pred.Direction * pred.Speed * elapsed;
+                                    - pred.Direction * pred.Speed * elapsedLinear;
                     }
                 }
                 else
@@ -486,10 +493,56 @@ namespace MidManStudio.Projectiles.Network
                 }
 
                 pred.VisualObject.transform.position = linearDisplayPos;
-                ApplyDirectionRotation(pred.VisualObject.transform, pred.Direction);
+                // FIX: use gravity-corrected velocity direction for arching rotation.
+                ApplyDirectionRotation(pred.VisualObject.transform, currentVelDir);
             }
 
             foreach (var id in toRemove) _predictions.Remove(id);
+        }
+
+        #endregion
+
+        #region Snapshot Chase (Guided / Teleport)
+
+        /// <summary>
+        /// Moves the visual toward the latest server snapshot position, extrapolated
+        /// forward at projectile speed using the direction estimated from consecutive
+        /// snapshots. Avoids the zig-zag caused by linear-vs-curved path mismatch.
+        ///
+        /// Before the first snapshot arrives, falls back to straight-line extrapolation
+        /// from spawn (same as before, but only for a brief period until first snapshot).
+        /// </summary>
+        private void UpdateSnapshotChaseVisual(
+            PredictedProjectile pred, float elapsed, float now)
+        {
+            if (pred.VisualObject == null) return;
+
+            Vector3 targetPos;
+            Vector3 velDir;
+
+            if (pred.HasSnapshot)
+            {
+                // Extrapolate from latest known snapshot position using snapshot velocity.
+                float timeSinceSnap = Mathf.Max(0f, now - pred.LastSnapshotTime);
+                targetPos = pred.LastSnapshotPos
+                          + pred.LastSnapshotVelDir * pred.Speed * timeSinceSnap;
+                velDir    = pred.LastSnapshotVelDir;
+            }
+            else
+            {
+                // No snapshot yet — use linear extrapolation from spawn origin.
+                // This is only used in the first snapshot interval (~80ms at 50Hz).
+                targetPos = pred.Origin + pred.Direction * pred.Speed * elapsed;
+                velDir    = pred.Direction;
+            }
+
+            // Smooth lerp — absorbs clock drift without jarring snaps.
+            pred.VisualObject.transform.position = Vector3.Lerp(
+                pred.VisualObject.transform.position, targetPos,
+                Time.deltaTime * _snapshotChaseLerp);
+
+            if (velDir.sqrMagnitude > 0.001f)
+                ApplyDirectionRotation(pred.VisualObject.transform, velDir);
         }
 
         #endregion
@@ -517,24 +570,24 @@ namespace MidManStudio.Projectiles.Network
             var vis = obj.GetComponent<ProjectileVisualBase>();
             vis?.InitializeClientVisual(conf.ConfigId, conf.Origin, dir, conf.Speed);
 
-            // ── Determine prediction mode ─────────────────────────────────────
+            // ── Determine prediction mode ──────────────────────────────────────
             bool isDeterministic = cfg.MovementType == ProjectileMovementType.Wave
                                 || cfg.MovementType == ProjectileMovementType.Circular;
             PredictionMode mode  = isDeterministic
                 ? PredictionMode.DeterministicMath
                 : PredictionMode.Linear;
 
-            // ── Initial velocity components ───────────────────────────────────
+            // ── Initial velocity components ────────────────────────────────────
             float velX = dir.x * conf.Speed;
             float velY = dir.y * conf.Speed;
             float velZ = dir.z * conf.Speed;
 
-            // ── Perpendicular axis — MUST match BatchSpawnHelper.GetAccel2D/3D ─
+            // ── Perpendicular axis ─────────────────────────────────────────────
             Vector3 perpAxis = cfg.Is3D
                 ? DeterministicMotionMath.ComputePerpAxis3D(dir)
                 : DeterministicMotionMath.ComputePerpAxis2D(dir);
 
-            // ── Cache wave / circular params to avoid per-frame lookups ────────
+            // ── Cache wave / circular params ───────────────────────────────────
             float waveAmp = 0f, waveFreq = 0f, wavePhase = 0f;
             float circOmegaRad = 0f, circStartRad = 0f, circRadius = 0f;
 
@@ -546,7 +599,7 @@ namespace MidManStudio.Projectiles.Network
                     waveFreq  = cfg.WaveFrequency;
                     wavePhase = cfg.WavePhaseOffset;
                 }
-                else // Circular
+                else
                 {
                     circOmegaRad = cfg.CircularAngularSpeed * Mathf.Deg2Rad;
                     circStartRad = cfg.CircularStartAngle   * Mathf.Deg2Rad;
@@ -554,10 +607,7 @@ namespace MidManStudio.Projectiles.Network
                 }
             }
 
-            // ── Clock anchor ──────────────────────────────────────────────────
-            // For SpawnImmediatePrediction calls, conf.ServerNetworkTime == 0.
-            // Use current server time as initial estimate; LinkPredictionId will
-            // update it to the server-confirmed value when the RPC arrives.
+            // ── Clock anchor ───────────────────────────────────────────────────
             float serverNetTime = conf.ServerNetworkTime > 0f
                 ? conf.ServerNetworkTime
                 : GetApproxServerTime();
@@ -579,33 +629,36 @@ namespace MidManStudio.Projectiles.Network
                 VisualScript    = vis,
                 UsedPoolType    = poolType,
 
-                // Prediction mode
                 PredictionMode         = mode,
                 CachedMovementType     = (byte)cfg.MovementType,
                 ServerSpawnNetworkTime = serverNetTime,
                 IsProxyProjectile      = isProxy,
 
-                // Initial velocity
                 InitialVelX = velX,
                 InitialVelY = velY,
                 InitialVelZ = velZ,
 
-                // Wave params (zero if not wave)
                 CachedWaveAmplitude   = waveAmp,
                 CachedWaveFrequency   = waveFreq,
                 CachedWavePhaseOffset = wavePhase,
 
-                // Circular params (zero if not circular)
                 CachedCircularAngularSpeedRad = circOmegaRad,
                 CachedCircularStartAngleRad   = circStartRad,
                 CachedCircularRadius          = circRadius,
 
-                // Perpendicular axis
                 PerpAxisX = perpAxis.x,
                 PerpAxisY = perpAxis.y,
                 PerpAxisZ = perpAxis.z,
 
-                // Linear mode fields (null history for DeterministicMath saves alloc)
+                // FIX: Arching gravity from config
+                GravityAy = cfg.GravityScale,
+
+                // FIX: Snapshot-chase initial state for Guided/Teleport
+                LastSnapshotVelDir = dir,   // initial direction guess before first snapshot
+                LastSnapshotPos    = Vector3.zero,
+                LastSnapshotTime   = 0f,
+                HasSnapshot        = false,
+
                 History       = mode == PredictionMode.Linear
                     ? new CircularBuffer<ProjectileStatePayload>(_historySize)
                     : null,
@@ -619,10 +672,6 @@ namespace MidManStudio.Projectiles.Network
         {
             if (!_predictions.TryGetValue(tempId, out var pred))
             {
-                // OnSpawnConfirmed now checks ContainsKey before calling here,
-                // so this branch represents an unexpected state — should not fire
-                // in normal operation. If it does, there is a race between Update
-                // removing the prediction and OnSpawnConfirmed's ContainsKey check.
                 LogWarning(
                     $"LinkPredictionId: tempId={tempId} missing unexpectedly. realId={realId}");
                 return;
@@ -631,9 +680,6 @@ namespace MidManStudio.Projectiles.Network
             pred.ProjId     = realId;
             pred.BaseProjId = realId;
 
-            // Update clock anchor to the server's confirmed spawn time.
-            // Corrects the initial estimate set during SpawnImmediatePrediction,
-            // keeping the shooter's visual aligned with the server's t=0.
             if (serverNetworkTime > 0f)
                 pred.ServerSpawnNetworkTime = serverNetworkTime;
 
@@ -643,8 +689,8 @@ namespace MidManStudio.Projectiles.Network
 
         /// <summary>
         /// Immediately positions a newly-spawned proxy visual at its current
-        /// deterministic location. Prevents the "spawns at origin then sweeps
-        /// forward" artifact visible for fast projectiles with high latency.
+        /// deterministic location. Only applies to DeterministicMath mode (Wave/Circular).
+        /// Guided/Teleport snapshots handle their own catch-up via the snapshot-chase path.
         /// </summary>
         private void FastForwardProxyVisual(uint projId, float serverNetworkTime)
         {
@@ -654,7 +700,7 @@ namespace MidManStudio.Projectiles.Network
             if (pred.VisualObject == null) return;
 
             float catchUpTime = Mathf.Max(0f, GetApproxServerTime() - serverNetworkTime);
-            if (catchUpTime < 0.02f) return;  // negligibly recent — skip
+            if (catchUpTime < 0.02f) return;
             catchUpTime = Mathf.Min(catchUpTime, pred.MaxLifetime);
 
             pred.VisualObject.transform.position =
@@ -678,12 +724,39 @@ namespace MidManStudio.Projectiles.Network
             if (!_predictions.TryGetValue(projId, out var pred)) return;
 
             // DeterministicMath projectiles don't need snapshot reconciliation.
-            // The closed-form formula is analytically exact — snapshots are intentionally
-            // ignored for Wave and Circular types to prevent velocity-estimation zig-zag.
             if (pred.PredictionMode == PredictionMode.DeterministicMath)
                 return;
 
-            // ── Linear prediction reconciliation ─────────────────────────────
+            // ── FIX: Guided and Teleport — update snapshot data, don't reconcile. ──
+            // Standard linear reconciliation causes zig-zag because these types
+            // don't follow straight-line paths. Instead, store the server position
+            // and estimate direction from consecutive snapshots for the chase path.
+            if (pred.CachedMovementType == (byte)ProjectileMovementType.Guided ||
+                pred.CachedMovementType == (byte)ProjectileMovementType.Teleport)
+            {
+                // Estimate velocity direction from delta between consecutive snapshots.
+                if (pred.HasSnapshot)
+                {
+                    Vector3 delta = serverPos - pred.LastSnapshotPos;
+                    if (delta.sqrMagnitude > 0.0001f)
+                        pred.LastSnapshotVelDir = delta.normalized;
+                    // If delta is tiny (projectile barely moved), keep previous direction.
+                }
+                else
+                {
+                    // First snapshot: use initial fire direction as best guess.
+                    pred.LastSnapshotVelDir = pred.Direction;
+                }
+
+                pred.LastSnapshotPos  = serverPos;
+                pred.LastSnapshotTime = Time.time;
+                pred.HasSnapshot      = true;
+                return;
+            }
+
+            // ── Linear prediction reconciliation (Straight and Arching) ─────────
+            // Arching prediction is now parabolic so errors should be small —
+            // reconciliation fires much less often than before.
             Vector3 ourPredicted;
             if (pred.History != null
                 && pred.History.TryFindLatest(s => s.ServerTick <= serverTick, out var state))
@@ -706,7 +779,6 @@ namespace MidManStudio.Projectiles.Network
                 return;
             }
 
-            // Smooth correction: blend from current visual position to server truth
             pred.IsReconciling          = true;
             pred.ReconcileStartPosition = pred.VisualObject != null
                 ? pred.VisualObject.transform.position : ourPredicted;
@@ -734,11 +806,6 @@ namespace MidManStudio.Projectiles.Network
 
         #region Deterministic Position / Velocity Helpers
 
-        /// <summary>
-        /// Compute the closed-form position for a DeterministicMath projectile
-        /// at <paramref name="timeAlive"/> seconds from its spawn.
-        /// Dispatches to the correct DeterministicMotionMath method.
-        /// </summary>
         private static Vector3 ComputeDeterministicPosition(
             PredictedProjectile pred, float timeAlive)
         {
@@ -788,15 +855,10 @@ namespace MidManStudio.Projectiles.Network
                         timeAlive);
 
                 default:
-                    // Fallback (should not reach here in DeterministicMath mode)
                     return pred.Origin + pred.Direction * pred.Speed * timeAlive;
             }
         }
 
-        /// <summary>
-        /// Compute the instantaneous velocity direction for a DeterministicMath
-        /// projectile at <paramref name="timeAlive"/> seconds. Used for rotation.
-        /// </summary>
         private static Vector3 ComputeDeterministicVelocityDir(
             PredictedProjectile pred, float timeAlive)
         {
@@ -871,10 +933,6 @@ namespace MidManStudio.Projectiles.Network
 
         #region Clock Helpers
 
-        /// <summary>
-        /// Returns the server's NetworkTime as a float.
-        /// Falls back to Time.time in offline/editor contexts.
-        /// </summary>
         private static float GetApproxServerTime()
             => NetworkManager.Singleton != null
                 ? (float)NetworkManager.Singleton.ServerTime.TimeAsFloat
