@@ -1,21 +1,18 @@
 // packages/com.midmanstudio.projectilesystem/Runtime/Managers/MID_MasterProjectileSystem.cs
 //
-// FIX: FireNetworkedSim now automatically calls SpawnImmediatePrediction for
-//   non-server clients. Previously this was the game code's responsibility via
-//   GetPredictionManager() — if NetworkedDimensionPlayer forgot to call it, the
-//   local player's own projectiles appeared with a full RTT delay.
+// ARCHITECTURE CHANGE:
+//   FireNetworkedSim now spawns immediately into LocalProjectileManager for the
+//   firing client (non-server). This gives zero-latency visual feedback using the
+//   same Rust sim + GPU instanced rendering path as the host — no pool objects.
 //
-//   The immediate prediction is spawned BEFORE FireServerRpc so the temp ID is
-//   enqueued before OnSpawnConfirmed can possibly dequeue it (even on loopback,
-//   SpawnConfirmedClientRpc goes through NGO's pipeline with at least one frame delay).
+//   RegisterTarget2D/3D and Deactivate variants no longer register targets in
+//   LocalProjectileManager when networked. This keeps LocalProjectileManager's
+//   target buffers empty in networked mode so collision detection is automatically
+//   skipped (FixedUpdate already guards on _targetCountXD > 0). The server's
+//   ServerProjectileAuthority handles all authoritative collision.
 //
-//   BaseProjId = 0 in the temp SpawnConfirmation — SpawnImmediatePrediction replaces
-//   it with _nextTempId++ internally so the actual value doesn't matter.
-//   ServerNetworkTime = 0 initially; updated to the real server time when
-//   LinkPredictionId runs on SpawnConfirmedClientRpc arrival.
-//
-//   GetPredictionManager() is kept for game code that needs special-case prediction
-//   (physics projectiles, etc.) but is no longer needed for the standard Rust sim path.
+//   SetLocalPlayerMidId now also sets the ID on MID_ProjectileNetworkBridge so
+//   SpawnConfirmedClientRpc can distinguish firing client from other clients.
 
 using System;
 using UnityEngine;
@@ -88,10 +85,8 @@ namespace MidManStudio.Projectiles.Managers
         public RaycastProjectileHandler       GetRaycastHandler()    => _raycastHandler;
 
         /// <summary>
-        /// Exposes the prediction manager for game code that needs special-case prediction
-        /// (physics projectiles, custom spawn logic, etc.).
-        /// The standard Rust sim fire path (Fire()) now calls SpawnImmediatePrediction
-        /// automatically — game code no longer needs to call it for normal projectiles.
+        /// For physics/raycast pool visuals that still need manual prediction management.
+        /// The standard Rust sim path no longer requires this — it's automatic.
         /// </summary>
         public ClientPredictionManager        GetPredictionManager() => _predictionManager;
 
@@ -159,8 +154,15 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Public API — Identity
 
+        /// <summary>
+        /// Sets the local player MID ID on both ClientPredictionManager (for physics
+        /// visuals) and MID_ProjectileNetworkBridge (to identify firing client in RPCs).
+        /// </summary>
         public void SetLocalPlayerMidId(ulong midId)
-            => _predictionManager?.SetLocalPlayerMidId(midId);
+        {
+            _predictionManager?.SetLocalPlayerMidId(midId);
+            _networkBridge?.SetLocalPlayerMidId(midId);
+        }
 
         #endregion
 
@@ -263,27 +265,17 @@ namespace MidManStudio.Projectiles.Managers
                 ExtraDirections        = extraDirs
             };
 
-            // FIX: Spawn immediate local prediction for the firing client BEFORE
-            // sending the RPC. The temp visual is linked to the real server ID when
-            // SpawnConfirmedClientRpc arrives. Host is skipped (renders from Rust buffer).
-            // SpawnImmediatePrediction is a no-op on the server so the IsServer check
-            // inside it is a safety net — the outer !IsServer guard is the real gate.
-            if (!IsServer && _predictionManager != null)
+            // ARCHITECTURE: Firing client immediately spawns into their own Rust sim buffer.
+            // Renders via ProjectileRenderer2D/3D — same GPU instanced path as the host.
+            // No pool objects, no C# prediction math. The temp IDs are linked to real server
+            // IDs when SpawnConfirmedClientRpc arrives via LinkNetworkProjectileBatch.
+            // Host is excluded — it renders from ServerProjectileAuthority's buffer.
+            if (!IsServer && _localManager != null)
             {
-                _predictionManager.SpawnImmediatePrediction(new SpawnConfirmation
-                {
-                    BaseProjId          = 0,            // temp ID assigned internally by prediction
-                    ProjectileCount     = request.ProjectileCount,
-                    ConfigId            = configId,
-                    ServerSpawnTick     = GetBridgeTick(),
-                    Origin              = request.Origin,
-                    Direction           = request.Direction,
-                    Speed               = resolvedSpeed,
-                    OwnerMidId          = context.OwnerMidId,
-                    ExtraDirectionCount = request.ExtraDirectionCount,
-                    ExtraDirections     = request.ExtraDirections,
-                    ServerNetworkTime   = 0f            // unknown yet; LinkPredictionId updates it
-                });
+                if (!cfg.Is3D)
+                    _localManager.SpawnFiringClientBatch2D(spawnPoints, count, configId, resolvedSpeed);
+                else
+                    _localManager.SpawnFiringClientBatch3D(spawnPoints, count, configId, resolvedSpeed);
             }
 
             _networkBridge.FireServerRpc(request);
@@ -351,7 +343,6 @@ namespace MidManStudio.Projectiles.Managers
                     result.IsHeadshot, result.HitTargetNetworkId,
                     result.Is3D);
 
-                // Local travelling visual for the firing client
                 _raycastHandler?.OfflineHandleFire(
                     result, configId, (uint)context.OwnerMidId, 1f);
             }
@@ -363,32 +354,36 @@ namespace MidManStudio.Projectiles.Managers
 
         public void RegisterTarget2D(in CollisionTarget target, int unityLayer = 0)
         {
-            if (IsServer)     _authority?.RegisterTarget2D(target, unityLayer);
-            _localManager?.RegisterTarget2D(target, unityLayer);
+            if (IsServer)       _authority?.RegisterTarget2D(target, unityLayer);
+            // FIX: Do NOT register in localManager when networked.
+            // Keeping localManager target buffer empty in networked mode means
+            // FixedUpdate's collision check is skipped automatically (_targetCount2D == 0).
+            // The server handles all authoritative collision via ServerProjectileAuthority.
+            if (!IsNetworked)   _localManager?.RegisterTarget2D(target, unityLayer);
         }
 
         public void RegisterTarget3D(in CollisionTarget3D target, int unityLayer = 0)
         {
-            if (IsServer)     _authority?.RegisterTarget3D(target, unityLayer);
-            _localManager?.RegisterTarget3D(target, unityLayer);
+            if (IsServer)       _authority?.RegisterTarget3D(target, unityLayer);
+            if (!IsNetworked)   _localManager?.RegisterTarget3D(target, unityLayer);
         }
 
         public void DeactivateTarget2D(uint targetId)
         {
-            if (IsServer)     _authority?.DeactivateTarget2D(targetId);
-            _localManager?.DeactivateTarget2D(targetId);
+            if (IsServer)       _authority?.DeactivateTarget2D(targetId);
+            if (!IsNetworked)   _localManager?.DeactivateTarget2D(targetId);
         }
 
         public void DeactivateTarget3D(uint targetId)
         {
-            if (IsServer)     _authority?.DeactivateTarget3D(targetId);
-            _localManager?.DeactivateTarget3D(targetId);
+            if (IsServer)       _authority?.DeactivateTarget3D(targetId);
+            if (!IsNetworked)   _localManager?.DeactivateTarget3D(targetId);
         }
 
         public void ClearAllTargets()
         {
-            if (IsServer)     _authority?.ClearAllTargets();
-            _localManager?.ClearAllTargets();
+            if (IsServer)       _authority?.ClearAllTargets();
+            if (!IsNetworked)   _localManager?.ClearAllTargets();
         }
 
         #endregion
