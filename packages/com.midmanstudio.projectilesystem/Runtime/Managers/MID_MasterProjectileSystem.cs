@@ -1,6 +1,18 @@
-// MID_MasterProjectileSystem.cs
-// CHANGE: Added GetPredictionManager() so NetworkedDimensionPlayer can call
-//         SpawnImmediatePrediction() directly from the fire path.
+// packages/com.midmanstudio.projectilesystem/Runtime/Managers/MID_MasterProjectileSystem.cs
+//
+// ARCHITECTURE CHANGE:
+//   FireNetworkedSim now spawns immediately into LocalProjectileManager for the
+//   firing client (non-server). This gives zero-latency visual feedback using the
+//   same Rust sim + GPU instanced rendering path as the host — no pool objects.
+//
+//   RegisterTarget2D/3D and Deactivate variants no longer register targets in
+//   LocalProjectileManager when networked. This keeps LocalProjectileManager's
+//   target buffers empty in networked mode so collision detection is automatically
+//   skipped (FixedUpdate already guards on _targetCountXD > 0). The server's
+//   ServerProjectileAuthority handles all authoritative collision.
+//
+//   SetLocalPlayerMidId now also sets the ID on MID_ProjectileNetworkBridge so
+//   SpawnConfirmedClientRpc can distinguish firing client from other clients.
 
 using System;
 using UnityEngine;
@@ -73,8 +85,8 @@ namespace MidManStudio.Projectiles.Managers
         public RaycastProjectileHandler       GetRaycastHandler()    => _raycastHandler;
 
         /// <summary>
-        /// Exposes the prediction manager so firing clients can call
-        /// SpawnImmediatePrediction() before the server-RPC round-trip completes.
+        /// For physics/raycast pool visuals that still need manual prediction management.
+        /// The standard Rust sim path no longer requires this — it's automatic.
         /// </summary>
         public ClientPredictionManager        GetPredictionManager() => _predictionManager;
 
@@ -105,8 +117,8 @@ namespace MidManStudio.Projectiles.Managers
             }
 
             BatchSpawnHelper.Initialise();
-// Inside Initialise(), after the BatchSpawnHelper.Initialise() call:
-MID_ProjectileNetworkBridge.ConfigureTransportForHighThroughput();
+            MID_ProjectileNetworkBridge.ConfigureTransportForHighThroughput();
+
             if (_localManager == null)
                 _localManager = FindObjectOfType<LocalProjectileManager>();
 
@@ -142,8 +154,15 @@ MID_ProjectileNetworkBridge.ConfigureTransportForHighThroughput();
 
         #region Public API — Identity
 
+        /// <summary>
+        /// Sets the local player MID ID on both ClientPredictionManager (for physics
+        /// visuals) and MID_ProjectileNetworkBridge (to identify firing client in RPCs).
+        /// </summary>
         public void SetLocalPlayerMidId(ulong midId)
-            => _predictionManager?.SetLocalPlayerMidId(midId);
+        {
+            _predictionManager?.SetLocalPlayerMidId(midId);
+            _networkBridge?.SetLocalPlayerMidId(midId);
+        }
 
         #endregion
 
@@ -215,6 +234,10 @@ MID_ProjectileNetworkBridge.ConfigureTransportForHighThroughput();
         {
             if (_networkBridge == null) return;
 
+            float resolvedSpeed = count > 0 && spawnPoints[0].Speed > 0f
+                ? spawnPoints[0].Speed
+                : cfg.ResolveSpeed();
+
             int extraCount = Mathf.Min(count - 1, 63);
             Vector3[] extraDirs = null;
             if (extraCount > 0)
@@ -229,7 +252,7 @@ MID_ProjectileNetworkBridge.ConfigureTransportForHighThroughput();
                 ConfigId               = configId,
                 Origin                 = count > 0 ? spawnPoints[0].Origin    : Vector3.zero,
                 Direction              = count > 0 ? spawnPoints[0].Direction : Vector3.forward,
-                Speed                  = count > 0 ? spawnPoints[0].Speed     : cfg.ResolveSpeed(),
+                Speed                  = resolvedSpeed,
                 RngSeed                = (uint)UnityEngine.Random.Range(0, int.MaxValue),
                 ProjectileCount        = (byte)Mathf.Min(count, 255),
                 OwnerMidId             = context.OwnerMidId,
@@ -241,6 +264,19 @@ MID_ProjectileNetworkBridge.ConfigureTransportForHighThroughput();
                 ExtraDirectionCount    = (byte)extraCount,
                 ExtraDirections        = extraDirs
             };
+
+            // ARCHITECTURE: Firing client immediately spawns into their own Rust sim buffer.
+            // Renders via ProjectileRenderer2D/3D — same GPU instanced path as the host.
+            // No pool objects, no C# prediction math. The temp IDs are linked to real server
+            // IDs when SpawnConfirmedClientRpc arrives via LinkNetworkProjectileBatch.
+            // Host is excluded — it renders from ServerProjectileAuthority's buffer.
+            if (!IsServer && _localManager != null)
+            {
+                if (!cfg.Is3D)
+                    _localManager.SpawnFiringClientBatch2D(spawnPoints, count, configId, resolvedSpeed);
+                else
+                    _localManager.SpawnFiringClientBatch3D(spawnPoints, count, configId, resolvedSpeed);
+            }
 
             _networkBridge.FireServerRpc(request);
         }
@@ -307,7 +343,6 @@ MID_ProjectileNetworkBridge.ConfigureTransportForHighThroughput();
                     result.IsHeadshot, result.HitTargetNetworkId,
                     result.Is3D);
 
-                // Local travelling visual for the firing client
                 _raycastHandler?.OfflineHandleFire(
                     result, configId, (uint)context.OwnerMidId, 1f);
             }
@@ -319,39 +354,43 @@ MID_ProjectileNetworkBridge.ConfigureTransportForHighThroughput();
 
         public void RegisterTarget2D(in CollisionTarget target, int unityLayer = 0)
         {
-            if (IsServer)     _authority?.RegisterTarget2D(target, unityLayer);
-            _localManager?.RegisterTarget2D(target, unityLayer);
+            if (IsServer)       _authority?.RegisterTarget2D(target, unityLayer);
+            // FIX: Do NOT register in localManager when networked.
+            // Keeping localManager target buffer empty in networked mode means
+            // FixedUpdate's collision check is skipped automatically (_targetCount2D == 0).
+            // The server handles all authoritative collision via ServerProjectileAuthority.
+            if (!IsNetworked)   _localManager?.RegisterTarget2D(target, unityLayer);
         }
 
         public void RegisterTarget3D(in CollisionTarget3D target, int unityLayer = 0)
         {
-            if (IsServer)     _authority?.RegisterTarget3D(target, unityLayer);
-            _localManager?.RegisterTarget3D(target, unityLayer);
+            if (IsServer)       _authority?.RegisterTarget3D(target, unityLayer);
+            if (!IsNetworked)   _localManager?.RegisterTarget3D(target, unityLayer);
         }
 
         public void DeactivateTarget2D(uint targetId)
         {
-            if (IsServer)     _authority?.DeactivateTarget2D(targetId);
-            _localManager?.DeactivateTarget2D(targetId);
+            if (IsServer)       _authority?.DeactivateTarget2D(targetId);
+            if (!IsNetworked)   _localManager?.DeactivateTarget2D(targetId);
         }
 
         public void DeactivateTarget3D(uint targetId)
         {
-            if (IsServer)     _authority?.DeactivateTarget3D(targetId);
-            _localManager?.DeactivateTarget3D(targetId);
+            if (IsServer)       _authority?.DeactivateTarget3D(targetId);
+            if (!IsNetworked)   _localManager?.DeactivateTarget3D(targetId);
         }
 
         public void ClearAllTargets()
         {
-            if (IsServer)     _authority?.ClearAllTargets();
-            _localManager?.ClearAllTargets();
+            if (IsServer)       _authority?.ClearAllTargets();
+            if (!IsNetworked)   _localManager?.ClearAllTargets();
         }
 
         #endregion
 
         #region Public API — State
 
-        public int SaveState2D(byte[] buf)         => _authority?.SaveState2D(buf) ?? 0;
+        public int SaveState2D(byte[] buf)           => _authority?.SaveState2D(buf) ?? 0;
         public int RestoreState2D(byte[] buf, int n) => _authority?.RestoreState2D(buf, n) ?? 0;
 
         #endregion

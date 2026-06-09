@@ -1,13 +1,21 @@
-// ProjectileVisual_.cs  — 2D pool visual
+// packages/com.midmanstudio.projectilesystem/Runtime/Visual/ProjectileVisual_.cs
 //
-// FIX: ApplySpriteOptimised no longer disables the SpriteRenderer when the
-//   config has no sprite (UseSprite=false or ProjectileSprite not assigned).
-//   Instead a 1×1 white sprite is generated at runtime and used as a fallback,
-//   so raycast and client-prediction pool visuals are always visible.
-//   The _fallbackSprite is static and created once, shared across all instances.
+// FIX (client-side shape rendering):
+//   Shape mesh components (MeshFilter, MeshRenderer) are now created dynamically
+//   at runtime if not already present on the pool prefab.
+//   Previously, clients whose pool prefab only had SpriteRenderer + TrailRenderer
+//   fell back to sprite rendering even when the config specified a CustomShape.
+//   The host rendered correctly because ProjectileRenderer2D reads directly from the
+//   Rust buffer using Graphics.DrawMeshInstanced — it never needs MeshFilter on the visual.
+//   Clients use pool visuals (ProjectileVisual_) and thus DO need the components.
 //
-// FIX: Correct 2D rotation via atan2 → Z-Euler (not LookRotation).
-// FIX: _trailConfigured flag properly gates re-application on recycled objects.
+//   PREFAB NOTE: You no longer need to pre-add MeshFilter/MeshRenderer to pool prefabs.
+//   They are added at runtime the first time a shape config is used on a pooled instance.
+//   Assign _fallbackShapeMaterial in the inspector for correct shader behaviour
+//   (InstancedProjectile.shader or InstancedProjectile_URP.shader).
+//   Without it, falls back to Sprites/Default — renders correctly but without atlas UVs.
+//
+// Previous fixes retained.
 
 using UnityEngine;
 using MidManStudio.Projectiles.Config;
@@ -26,6 +34,18 @@ namespace MidManStudio.Projectiles.Visuals
         [SerializeField] private int _spriteSortingOrder = 1;
         [SerializeField] private int _trailSortingOrder  = 0;
 
+        [Header("Shape Mesh (auto-created at runtime when needed)")]
+        [Tooltip("MeshFilter for CustomShape configs. Auto-found then created if missing.")]
+        [SerializeField] private MeshFilter   _shapeMeshFilter;
+        [Tooltip("MeshRenderer for CustomShape configs. Auto-found then created if missing.")]
+        [SerializeField] private MeshRenderer _shapeMeshRenderer;
+        [Tooltip("Sorting order for the shape MeshRenderer.")]
+        [SerializeField] private int _shapeSortingOrder = 1;
+        [Tooltip("Material for shape mesh rendering.\n" +
+                 "Assign InstancedProjectile.shader material for correct atlas UV support.\n" +
+                 "If null, falls back to Sprites/Default (no atlas UV remapping).")]
+        [SerializeField] private Material _fallbackShapeMaterial;
+
         #endregion
 
         #region State
@@ -34,6 +54,9 @@ namespace MidManStudio.Projectiles.Visuals
         private bool   _trailConfigured;
         private ushort _cachedConfigId;
         private bool   _configInitialised;
+        private bool   _usingShapeMesh;
+
+        private MaterialPropertyBlock _shapeMpb;
 
         // Shared across all instances — created once, never destroyed
         private static Sprite _fallbackSprite;
@@ -42,28 +65,20 @@ namespace MidManStudio.Projectiles.Visuals
 
         #region Fallback Sprite
 
-        /// <summary>
-        /// Returns a 1×1 white sprite used when the config has no sprite assigned.
-        /// Ensures the SpriteRenderer is always visible so raycast / pool visuals
-        /// can be seen even for configs with UseSprite = false.
-        /// </summary>
         private static Sprite GetFallbackSprite()
         {
             if (_fallbackSprite != null) return _fallbackSprite;
 
-            // Build a 4×4 solid-white texture
             var tex = new Texture2D(4, 4, TextureFormat.RGBA32, false)
             {
                 filterMode = FilterMode.Point,
                 wrapMode   = TextureWrapMode.Clamp
             };
-
             Color32[] pixels = new Color32[16];
             for (int i = 0; i < 16; i++) pixels[i] = new Color32(255, 255, 255, 255);
             tex.SetPixels32(pixels);
             tex.Apply(false, true);
 
-            // PPU = 4 → sprite is 1 world-unit wide/tall at default scale
             _fallbackSprite = Sprite.Create(
                 tex,
                 new Rect(0, 0, 4, 4),
@@ -71,6 +86,22 @@ namespace MidManStudio.Projectiles.Visuals
                 pixelsPerUnit: 4f);
             _fallbackSprite.name = "FallbackProjectileSprite";
             return _fallbackSprite;
+        }
+
+        #endregion
+
+        #region Unity Lifecycle
+
+        protected override void Awake()
+        {
+            base.Awake();
+
+            // Try to find pre-existing components — don't create yet (may never be needed)
+            if (_shapeMeshFilter   == null) _shapeMeshFilter   = GetComponent<MeshFilter>();
+            if (_shapeMeshRenderer == null) _shapeMeshRenderer = GetComponent<MeshRenderer>();
+
+            // Disable if found — sprite is the default visual
+            if (_shapeMeshRenderer != null) _shapeMeshRenderer.enabled = false;
         }
 
         #endregion
@@ -94,7 +125,32 @@ namespace MidManStudio.Projectiles.Visuals
                 _configInitialised = true;
             }
 
-            ApplySpriteOptimised(cfg?.ProjectileSprite);
+            // Resolve shape first
+            bool hasCustomShape = cfg != null && cfg.CustomShape != null;
+            Mesh shapeMesh      = hasCustomShape ? cfg.CustomShape.GetMesh() : null;
+            bool needsShapeMesh = hasCustomShape && shapeMesh != null && shapeMesh.vertexCount > 0;
+
+            // FIX: Ensure components exist at runtime (client pool prefabs don't pre-add them)
+            if (needsShapeMesh) EnsureShapeMeshComponents();
+
+            bool canUseShape = needsShapeMesh
+                            && _shapeMeshFilter   != null
+                            && _shapeMeshRenderer != null;
+
+            if (canUseShape)
+            {
+                ApplyShapeMeshOptimised(cfg, shapeMesh);
+                if (projectileSpriteRend != null) projectileSpriteRend.enabled = false;
+                _usingShapeMesh = true;
+            }
+            else
+            {
+                // Disable shape renderer — it may have been created on a previous pool cycle
+                if (_shapeMeshRenderer != null) _shapeMeshRenderer.enabled = false;
+                _usingShapeMesh = false;
+                ApplySpriteOptimised(cfg?.ProjectileSprite);
+            }
+
             ApplyTrailOptimised(cfg);
         }
 
@@ -111,6 +167,15 @@ namespace MidManStudio.Projectiles.Visuals
                 projectileSpriteRend.color   = Color.white;
             }
 
+            if (_shapeMeshRenderer != null) _shapeMeshRenderer.enabled  = false;
+            if (_shapeMeshFilter   != null) _shapeMeshFilter.sharedMesh = null;
+
+            if (_usingShapeMesh)
+            {
+                transform.localScale = Vector3.one;
+                _usingShapeMesh = false;
+            }
+
             if (projectileTrailRend != null)
             {
                 projectileTrailRend.emitting = false;
@@ -121,30 +186,98 @@ namespace MidManStudio.Projectiles.Visuals
 
         public override void HideProjectile()
         {
-            if (projectileSpriteRend != null) projectileSpriteRend.enabled = false;
-            if (projectileTrailRend  != null) projectileTrailRend.emitting = false;
+            if (projectileSpriteRend != null) projectileSpriteRend.enabled  = false;
+            if (_shapeMeshRenderer   != null) _shapeMeshRenderer.enabled    = false;
+            if (projectileTrailRend  != null) projectileTrailRend.emitting  = false;
         }
 
         #endregion
 
-        #region Visual Setup
+        #region Shape Mesh
+
+        /// <summary>
+        /// Creates MeshFilter and MeshRenderer dynamically if not already present.
+        /// This allows pool prefabs to omit these components — they are added the
+        /// first time a shape config is used on this pooled instance.
+        /// </summary>
+        private void EnsureShapeMeshComponents()
+        {
+            if (_shapeMeshFilter == null)
+                _shapeMeshFilter = GetComponent<MeshFilter>() ?? gameObject.AddComponent<MeshFilter>();
+
+            if (_shapeMeshRenderer == null)
+            {
+                _shapeMeshRenderer = GetComponent<MeshRenderer>() ?? gameObject.AddComponent<MeshRenderer>();
+
+                // Assign material — prefer inspector-assigned, then Sprites/Default
+                if (_shapeMeshRenderer.sharedMaterial == null)
+                {
+                    if (_fallbackShapeMaterial != null)
+                    {
+                        _shapeMeshRenderer.sharedMaterial = _fallbackShapeMaterial;
+                    }
+                    else
+                    {
+                        // Sprites/Default is always available (Built-in and URP)
+                        var shader = Shader.Find("Sprites/Default");
+                        if (shader == null) shader = Shader.Find("Unlit/Transparent");
+                        if (shader != null)
+                            _shapeMeshRenderer.sharedMaterial = new Material(shader)
+                                { name = "DynamicShapeFallback" };
+                    }
+                }
+
+                _shapeMeshRenderer.enabled = false;
+            }
+        }
+
+        /// <summary>
+        /// Applies the CustomShape mesh to MeshFilter/MeshRenderer.
+        /// Scale matches ProjectileRenderer2D: (FullSizeX, FullSizeY, 1).
+        /// </summary>
+        private void ApplyShapeMeshOptimised(ProjectileConfigSO cfg, Mesh mesh)
+        {
+            _shapeMeshFilter.sharedMesh = mesh;
+
+            // Scale to world size — matches what ProjectileRenderer2D computes for the instanced path
+            transform.localScale = new Vector3(cfg.FullSizeX, cfg.FullSizeY, 1f);
+
+            // Apply sprite texture via MPB — avoids material instance allocation
+            if (cfg.ProjectileSprite?.texture != null)
+            {
+                if (_shapeMpb == null) _shapeMpb = new MaterialPropertyBlock();
+                _shapeMpb.SetTexture("_MainTex", cfg.ProjectileSprite.texture);
+                _shapeMeshRenderer.SetPropertyBlock(_shapeMpb);
+            }
+
+            _shapeMeshRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            _shapeMeshRenderer.receiveShadows     = false;
+            _shapeMeshRenderer.sortingOrder       = _shapeSortingOrder;
+            _shapeMeshRenderer.enabled            = true;
+        }
+
+        #endregion
+
+        #region Sprite
 
         private void ApplySpriteOptimised(Sprite sprite)
         {
             if (projectileSpriteRend == null) return;
 
-            // FIX: always enable — use fallback white sprite when none assigned
-            projectileSpriteRend.enabled      = true;
-            projectileSpriteRend.sortingOrder  = _spriteSortingOrder;
+            projectileSpriteRend.enabled     = true;
+            projectileSpriteRend.sortingOrder = _spriteSortingOrder;
 
             Sprite toUse = sprite != null ? sprite : GetFallbackSprite();
-
             if (_cachedSprite != toUse)
             {
                 projectileSpriteRend.sprite = toUse;
                 _cachedSprite = toUse;
             }
         }
+
+        #endregion
+
+        #region Trail
 
         private void ApplyTrailOptimised(ProjectileConfigSO cfg)
         {
