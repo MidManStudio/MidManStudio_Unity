@@ -1,17 +1,21 @@
-// LocalProjectileManager.cs
-// CHANGES:
-//   + PIERCE IMMUNITY UPGRADE: Replaced per-tick HashSet (_pierceImmunity2D/3D,
-//     cleared every frame) with permanent per-projectile hit-sets matching
-//     ServerProjectileAuthority. Each target can only be hit ONCE per projectile
-//     lifetime regardless of speed or target size.
-//     Dictionary<uint, HashSet<uint>> _hitTargets2D/3D keyed by projId.
-//     Sets are pooled (Stack<HashSet<uint>>) and returned on projectile death
-//     to avoid GC pressure.
-//   + Removed _pierceImmunity2D / _pierceImmunity3D HashSets entirely.
-//   + CompactDead2D/3D now calls ClearHitRecord2D/3D for each dead projectile.
-//   + ProcessHit2D/3D checks AlreadyHit before processing, calls RecordHit after.
-//   + All other fixes from previous session retained:
-//     layer filtering, TrailPool.SyncToSimulation3D, OnHit always fires.
+// packages/com.midmanstudio.projectilesystem/Runtime/Managers/LocalProjectileManager.cs
+//
+// ARCHITECTURE CHANGE: LocalProjectileManager now serves as the client-side
+// Rust sim buffer for networked play in addition to offline use.
+//
+// In networked play on pure clients:
+//   - No collision targets are registered (MasterSystem guards this per IsNetworked)
+//   - No LocalProjectileData registered for network visual projectiles
+//   - ProjectileRenderer2D/3D renders from this buffer (same GPU instanced path as host)
+//   - Firing client: SpawnFiringClientBatch* immediately → LinkNetworkProjectileBatch on confirm
+//   - Other clients: SpawnNetworkBatch* with server-assigned IDs on SpawnConfirmed RPC
+//   - All clients: KillNetworkProjectile on HitConfirmed RPC
+//   - All clients: ReconcileSnapshots on SendSnapshot RPC
+//
+// This replaces the per-projectile pool-object ClientPredictionManager approach
+// for the Rust sim path entirely. All machines now use the same rendering pipeline.
+//
+// Offline mode is unchanged — Spawn2D/3D with LocalProjectileData and damage events.
 
 using System;
 using System.Collections.Generic;
@@ -24,6 +28,7 @@ using MidManStudio.Projectiles.Core;
 using MidManStudio.Projectiles.Config;
 using MidManStudio.Projectiles.Adapters;
 using MidManStudio.Projectiles.Visuals;
+using MidManStudio.Projectiles.Network;
 
 namespace MidManStudio.Projectiles.Managers
 {
@@ -108,10 +113,7 @@ namespace MidManStudio.Projectiles.Managers
 
         #endregion
 
-        #region Permanent Per-Projectile Pierce Immunity
-        // Mirrors ServerProjectileAuthority pattern exactly.
-        // Each target is hit AT MOST ONCE per projectile lifetime.
-        // Sets are pooled to avoid GC allocation per spawn.
+        #region Permanent Per-Projectile Pierce Immunity (offline only)
 
         private readonly Dictionary<uint, HashSet<uint>> _hitTargets2D = new(128);
         private readonly Dictionary<uint, HashSet<uint>> _hitTargets3D = new(128);
@@ -175,7 +177,21 @@ namespace MidManStudio.Projectiles.Managers
 
         #endregion
 
-        #region Local State
+        #region Network Visual — Temp ID Tracking
+
+        // Temp IDs for firing client's immediately-spawned projectiles.
+        // Range 0xFFFE0000+ avoids collision with server IDs (start at 1) and
+        // offline IDs (_nextProjId from 1). Server confirms the real ID via RPC.
+        private uint _nextTempId = 0xFFFE0000u;
+
+        // Queue of (baseTempId, count) enqueued by SpawnFiringClientBatch.
+        // Dequeued FIFO by LinkNetworkProjectileBatch when server confirm arrives.
+        private readonly Queue<(uint baseTempId, int count)> _pendingTempBases
+            = new Queue<(uint, int)>(16);
+
+        #endregion
+
+        #region Local State (offline path)
 
         private uint _nextProjId = 1;
 
@@ -263,6 +279,9 @@ namespace MidManStudio.Projectiles.Managers
                 ProjectileLib.tick_projectiles(
                     _pinProjs2D.AddrOfPinnedObject(), _count2D, dt);
 
+                // Collision only runs when targets are registered (offline mode).
+                // In networked mode, MID_MasterProjectileSystem skips RegisterTarget2D
+                // so _targetCount2D stays 0 — no collision on client visual buffer.
                 if (_targetCount2D > 0)
                 {
                     ProjectileLib.check_hits_grid_ex(
@@ -361,13 +380,12 @@ namespace MidManStudio.Projectiles.Managers
 
         #endregion
 
-        #region Hit Processing
+        #region Hit Processing (offline path only)
 
         private void ProcessHit2D(in HitResult hit)
         {
             if (!_localData.TryGetValue(hit.ProjId, out var data)) return;
 
-            // Permanent pierce immunity — each target hit at most once per projectile
             if (AlreadyHit2D(hit.ProjId, hit.TargetId)) return;
             if (!PassesLayerFilter2D(hit.ProjId, hit.TargetId)) return;
 
@@ -403,21 +421,17 @@ namespace MidManStudio.Projectiles.Managers
 
             OnHit?.Invoke(payload);
 
-            // Record this target as hit for this projectile (permanent for lifetime)
             RecordHit2D(hit.ProjId, hit.TargetId);
 
             data.CollisionsRemaining--;
             if (data.CollisionsRemaining <= 0)
             {
-                // Kill the projectile in the Rust buffer
                 int idx = (int)hit.ProjIndex;
                 if (idx >= 0 && idx < _count2D) _projs2D[idx].Alive = 0;
                 _localData.Remove(hit.ProjId);
-                // Hit record will be cleared by CompactDead2D
             }
             else
             {
-                // Still piercing — update remaining count
                 _localData[hit.ProjId] = data;
             }
         }
@@ -492,8 +506,8 @@ namespace MidManStudio.Projectiles.Managers
                 if (_projs2D[read].Alive == 0)
                 {
                     uint id = _projs2D[read].ProjId;
-                    _localData.Remove(id);
-                    ClearHitRecord2D(id);         // return hit-set to pool
+                    _localData.Remove(id);      // no-op for visual-only network projectiles
+                    ClearHitRecord2D(id);
                     _trailPool?.NotifyDead(id);
                     OnProjectileDied?.Invoke(id);
                     continue;
@@ -513,7 +527,7 @@ namespace MidManStudio.Projectiles.Managers
                 {
                     uint id = _projs3D[read].ProjId;
                     _localData.Remove(id);
-                    ClearHitRecord3D(id);         // return hit-set to pool
+                    ClearHitRecord3D(id);
                     _trailPool?.NotifyDead(id);
                     OnProjectileDied?.Invoke(id);
                     continue;
@@ -526,7 +540,7 @@ namespace MidManStudio.Projectiles.Managers
 
         #endregion
 
-        #region Public API — Spawn
+        #region Public API — Offline Spawn
 
         public void Spawn2D(
             SpawnPoint[] spawnPoints,
@@ -612,7 +626,294 @@ namespace MidManStudio.Projectiles.Managers
 
         #endregion
 
-        #region Public API — Targets (rich LocalDamageTarget objects)
+        #region Public API — Network Visual (Client-Side Rust Sim)
+
+        // ── Firing client: immediate prediction with temp IDs ─────────────────
+
+        /// <summary>
+        /// Spawns projectiles immediately on the firing client using temp IDs.
+        /// Called from MID_MasterProjectileSystem.FireNetworkedSim BEFORE the server RPC.
+        /// When SpawnConfirmedClientRpc arrives, call LinkNetworkProjectileBatch to
+        /// replace temp IDs with real server IDs.
+        /// Returns the base temp ID for logging/debugging.
+        /// </summary>
+        public uint SpawnFiringClientBatch2D(
+            SpawnPoint[] spawnPoints, int count, ushort configId, float resolvedSpeed)
+        {
+            if (_count2D >= _maxProjectiles2D) return 0;
+
+            var  rustParams = ProjectileRegistry.Instance.GetRustSpawnParams(configId, resolvedSpeed);
+            uint baseTempId = _nextTempId;
+            _nextTempId += (uint)count;
+
+            var (writePtr, remaining) = GetWriteHead2D();
+            int written = BatchSpawnHelper.SpawnBatch2D(
+                spawnPoints, count, null, rustParams,
+                configId, 0, baseTempId, writePtr, remaining, 0f);
+
+            if (written > 0)
+            {
+                _count2D += written;
+                _pendingTempBases.Enqueue((baseTempId, written));
+            }
+
+            return baseTempId;
+        }
+
+        /// <summary>3D version of SpawnFiringClientBatch2D.</summary>
+        public uint SpawnFiringClientBatch3D(
+            SpawnPoint[] spawnPoints, int count, ushort configId, float resolvedSpeed)
+        {
+            if (_count3D >= _maxProjectiles3D) return 0;
+
+            var  rustParams = ProjectileRegistry.Instance.GetRustSpawnParams(configId, resolvedSpeed);
+            uint baseTempId = _nextTempId;
+            _nextTempId += (uint)count;
+
+            var (writePtr, remaining) = GetWriteHead3D();
+            int written = BatchSpawnHelper.SpawnBatch3D(
+                spawnPoints, count, rustParams,
+                configId, 0, baseTempId, writePtr, remaining, 0f);
+
+            if (written > 0)
+            {
+                _count3D += written;
+                _pendingTempBases.Enqueue((baseTempId, written));
+            }
+
+            return baseTempId;
+        }
+
+        // ── Other clients: spawn with real server IDs from SpawnConfirmed RPC ──
+
+        /// <summary>
+        /// Spawns a network visual batch into the 2D Rust buffer for other clients.
+        /// Uses the server-assigned BaseProjId directly — no temp ID mapping needed.
+        /// Applies a velocity-based position estimate to account for RPC travel time.
+        /// No LocalProjectileData registered — visual only, no damage events.
+        /// </summary>
+        public void SpawnNetworkBatch2D(SpawnConfirmation conf, float serverNetworkTime)
+        {
+            if (_count2D >= _maxProjectiles2D) return;
+
+            var cfg = ProjectileRegistry.Instance.Get(conf.ConfigId);
+            if (cfg == null || cfg.Is3D) return;
+
+            int count = Mathf.Min(conf.ProjectileCount, _maxProjectiles2D - _count2D);
+            if (count <= 0) return;
+
+            var rustParams = ProjectileRegistry.Instance.GetRustSpawnParams(conf.ConfigId, conf.Speed);
+            var spawnPts   = BuildSpawnPointsFromConfirmation(conf, count);
+            var (writePtr, remaining) = GetWriteHead2D();
+
+            int startIdx = _count2D;
+            int written  = BatchSpawnHelper.SpawnBatch2D(
+                spawnPts, count, null, rustParams,
+                conf.ConfigId, 0, conf.BaseProjId,
+                writePtr, remaining, 0f);
+
+            if (written <= 0) return;
+
+            // Estimate time-in-flight and advance positions so the projectile
+            // appears at its expected current location rather than at the barrel.
+            if (serverNetworkTime > 0f)
+            {
+                float catchUp = Mathf.Clamp(
+                    serverNetworkTime, 0f, rustParams.Lifetime * 0.9f);
+
+                for (int i = 0; i < written; i++)
+                {
+                    ref var p = ref _projs2D[startIdx + i];
+                    // Simple Euler advance matching Rust straight-line integration
+                    p.X += p.Vx * catchUp;
+                    p.Y += p.Vy * catchUp;
+                    p.Lifetime -= catchUp;
+                    if (p.Lifetime <= 0f) p.Alive = 0;
+                }
+            }
+
+            _count2D += written;
+            // No LocalProjectileData — CompactDead's Remove() is a no-op for these
+        }
+
+        /// <summary>3D version of SpawnNetworkBatch2D.</summary>
+        public void SpawnNetworkBatch3D(SpawnConfirmation conf, float serverNetworkTime)
+        {
+            if (_count3D >= _maxProjectiles3D) return;
+
+            var cfg = ProjectileRegistry.Instance.Get(conf.ConfigId);
+            if (cfg == null || !cfg.Is3D) return;
+
+            int count = Mathf.Min(conf.ProjectileCount, _maxProjectiles3D - _count3D);
+            if (count <= 0) return;
+
+            var rustParams = ProjectileRegistry.Instance.GetRustSpawnParams(conf.ConfigId, conf.Speed);
+            var spawnPts   = BuildSpawnPointsFromConfirmation(conf, count);
+            var (writePtr, remaining) = GetWriteHead3D();
+
+            int startIdx = _count3D;
+            int written  = BatchSpawnHelper.SpawnBatch3D(
+                spawnPts, count, rustParams,
+                conf.ConfigId, 0, conf.BaseProjId,
+                writePtr, remaining, 0f);
+
+            if (written <= 0) return;
+
+            if (serverNetworkTime > 0f)
+            {
+                float catchUp = Mathf.Clamp(
+                    serverNetworkTime, 0f, rustParams.Lifetime * 0.9f);
+
+                for (int i = 0; i < written; i++)
+                {
+                    ref var p = ref _projs3D[startIdx + i];
+                    p.X += p.Vx * catchUp;
+                    p.Y += p.Vy * catchUp;
+                    p.Z += p.Vz * catchUp;
+                    p.Lifetime -= catchUp;
+                    if (p.Lifetime <= 0f) p.Alive = 0;
+                }
+            }
+
+            _count3D += written;
+        }
+
+        // ── Firing client: link temp ID to real server ID ─────────────────────
+
+        /// <summary>
+        /// Called when SpawnConfirmedClientRpc arrives for the local firing client.
+        /// Dequeues the oldest pending temp batch and updates ProjId fields to real IDs.
+        /// If the temp projectile already died (rare — expired before RPC arrived),
+        /// the search silently finds nothing and the real ID is never tracked. That's fine —
+        /// the server will send a dead notification shortly anyway.
+        /// </summary>
+        public void LinkNetworkProjectileBatch(uint realBaseId, int count)
+        {
+            if (_pendingTempBases.Count == 0) return;
+            var (tempBase, tempCount) = _pendingTempBases.Dequeue();
+
+            int n = Mathf.Min(tempCount, count);
+            for (int i = 0; i < n; i++)
+            {
+                uint tempId = tempBase + (uint)i;
+                uint realId = realBaseId + (uint)i;
+
+                // Search 2D buffer
+                bool found = false;
+                for (int j = 0; j < _count2D && !found; j++)
+                {
+                    if (_projs2D[j].ProjId == tempId)
+                    {
+                        _projs2D[j].ProjId = realId;
+                        found = true;
+                    }
+                }
+                // Search 3D buffer if not found in 2D
+                if (!found)
+                {
+                    for (int j = 0; j < _count3D; j++)
+                    {
+                        if (_projs3D[j].ProjId == tempId)
+                        {
+                            _projs3D[j].ProjId = realId;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── All clients: kill on server hit confirmation ───────────────────────
+
+        /// <summary>
+        /// Forces a projectile dead in the local buffer when the server confirms a hit.
+        /// Called from MID_ProjectileNetworkBridge.HitConfirmedClientRpc.
+        /// No-op if the projectile already naturally expired (Alive==0 or already compacted).
+        /// </summary>
+        public void KillNetworkProjectile(uint projId)
+        {
+            for (int i = 0; i < _count2D; i++)
+            {
+                if (_projs2D[i].ProjId == projId)
+                {
+                    _projs2D[i].Alive = 0;
+                    return;
+                }
+            }
+            for (int i = 0; i < _count3D; i++)
+            {
+                if (_projs3D[i].ProjId == projId)
+                {
+                    _projs3D[i].Alive = 0;
+                    return;
+                }
+            }
+        }
+
+        // ── All clients: reconcile positions from server snapshots ─────────────
+
+        /// <summary>
+        /// Reconciles 2D projectile positions from server authority snapshots.
+        /// If error is below threshold: skip (Rust sim is tracking correctly).
+        /// If error is above threshold: correct position directly. The Rust sim
+        /// continues smoothly from the corrected position on the next tick.
+        /// Wave/Circular types are never sent snapshots (filtered server-side).
+        /// </summary>
+        public void ReconcileSnapshots2D(ProjectileSnapshot2D[] snapshots, int count)
+        {
+            const float kSkipThreshold = 0.08f;  // world units — below this skip correction
+
+            for (int s = 0; s < count; s++)
+            {
+                uint projId = snapshots[s].ProjId;
+                for (int i = 0; i < _count2D; i++)
+                {
+                    if (_projs2D[i].ProjId != projId) continue;
+
+                    float dx = snapshots[s].X - _projs2D[i].X;
+                    float dy = snapshots[s].Y - _projs2D[i].Y;
+                    float errSq = dx * dx + dy * dy;
+
+                    if (errSq < kSkipThreshold * kSkipThreshold) break;
+
+                    // Direct position correction — Rust sim continues from here
+                    _projs2D[i].X = snapshots[s].X;
+                    _projs2D[i].Y = snapshots[s].Y;
+                    break;
+                }
+            }
+        }
+
+        /// <summary>3D version of ReconcileSnapshots2D.</summary>
+        public void ReconcileSnapshots3D(ProjectileSnapshot3D[] snapshots, int count)
+        {
+            const float kSkipThreshold = 0.08f;
+
+            for (int s = 0; s < count; s++)
+            {
+                uint projId = snapshots[s].ProjId;
+                for (int i = 0; i < _count3D; i++)
+                {
+                    if (_projs3D[i].ProjId != projId) continue;
+
+                    float dx    = snapshots[s].X - _projs3D[i].X;
+                    float dy    = snapshots[s].Y - _projs3D[i].Y;
+                    float dz    = snapshots[s].Z - _projs3D[i].Z;
+                    float errSq = dx * dx + dy * dy + dz * dz;
+
+                    if (errSq < kSkipThreshold * kSkipThreshold) break;
+
+                    _projs3D[i].X = snapshots[s].X;
+                    _projs3D[i].Y = snapshots[s].Y;
+                    _projs3D[i].Z = snapshots[s].Z;
+                    break;
+                }
+            }
+        }
+
+        #endregion
+
+        #region Public API — Offline Targets
 
         public uint RegisterTarget(LocalDamageTarget target, int unityLayer = 0)
         {
@@ -678,7 +979,7 @@ namespace MidManStudio.Projectiles.Managers
 
         #endregion
 
-        #region Public API — Targets (direct CollisionTarget structs)
+        #region Public API — Direct CollisionTarget Structs (offline)
 
         public void RegisterTarget2D(in CollisionTarget target, int unityLayer = 0)
         {
@@ -818,6 +1119,20 @@ namespace MidManStudio.Projectiles.Managers
                 _pinProjs3D.AddrOfPinnedObject(),
                 _count3D * Marshal.SizeOf<NativeProjectile3D>());
             return (ptr, _maxProjectiles3D - _count3D);
+        }
+
+        private static SpawnPoint[] BuildSpawnPointsFromConfirmation(
+            SpawnConfirmation conf, int count)
+        {
+            var pts = new SpawnPoint[count];
+            for (int i = 0; i < count; i++)
+                pts[i] = new SpawnPoint
+                {
+                    Origin    = conf.Origin,
+                    Direction = conf.GetDirection(i).normalized,
+                    Speed     = conf.Speed
+                };
+            return pts;
         }
 
         #endregion
