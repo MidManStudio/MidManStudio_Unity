@@ -1,7 +1,7 @@
 ﻿{
     "entries": [
         {
-            "packageId": "com.mygame",
+            "packageId": "com.midmanstudio.projectilesystem",
             "enumName": "Default",
             "value": 0
         }

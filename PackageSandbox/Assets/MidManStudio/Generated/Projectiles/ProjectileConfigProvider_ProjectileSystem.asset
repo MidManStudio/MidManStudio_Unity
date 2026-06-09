@@ -10,13 +10,13 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 4c80c433e0f9a4e668a5636d90eabcea, type: 3}
-  m_Name: ProjectileConfigProvider
+  m_Name: ProjectileConfigProvider_ProjectileSystem
   m_EditorClassIdentifier: 
-  packageId: com.mygame
-  displayName: My Game
-  priority: 100
+  packageId: com.midmanstudio.projectilesystem
+  displayName: MidMan Projectile System
+  priority: 0
   entries:
   - enumName: Default
-    configSO: {fileID: 11400000, guid: 8e58172a408094bb8aef35fad0f936b2, type: 2}
-    comment: 
+    configSO: {fileID: 11400000, guid: f4b04dd9575fc41e99b500d03c3b1fc2, type: 2}
+    comment: Default straight projectile
     explicitOffset: 0

@@ -8924,6 +8924,52 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ac0b09e7857660247b1477e93731de29, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+--- !u!1 &1490368099
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1490368101}
+  - component: {fileID: 1490368100}
+  m_Layer: 0
+  m_Name: ProjectileConfigManager
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1490368100
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1490368099}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1e39db7651ff74f83967bd9b1312c926, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _mapping: {fileID: 11400000, guid: b92f8613d78ea4f41aa406e3b59cf3f5, type: 2}
+  _logRegistrations: 0
+--- !u!4 &1490368101
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1490368099}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1493270234
 GameObject:
   m_ObjectHideFlags: 0
@@ -9240,6 +9286,8 @@ MonoBehaviour:
   _registry: {fileID: 739842192}
   _projectileSystem: {fileID: 1783256104}
   _networkManager: {fileID: 378658491}
+  _configManager: {fileID: 1490368100}
+  _configMapping: {fileID: 11400000, guid: b92f8613d78ea4f41aa406e3b59cf3f5, type: 2}
   _configs:
   - {fileID: 11400000, guid: 8e58172a408094bb8aef35fad0f936b2, type: 2}
   _targetPrefab3D: {fileID: 8467964027819435547, guid: 68f4eae0878db41a79f190baad63c6d5,
@@ -21772,3 +21820,4 @@ SceneRoots:
   - {fileID: 324911391}
   - {fileID: 1878769836}
   - {fileID: 1834557256}
+  - {fileID: 1490368101}

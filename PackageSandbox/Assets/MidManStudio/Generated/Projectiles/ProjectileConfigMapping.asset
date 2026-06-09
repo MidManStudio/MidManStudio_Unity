@@ -13,4 +13,4 @@ MonoBehaviour:
   m_Name: ProjectileConfigMapping
   m_EditorClassIdentifier: 
   _configs:
-  - {fileID: 11400000, guid: 8e58172a408094bb8aef35fad0f936b2, type: 2}
+  - {fileID: 11400000, guid: f4b04dd9575fc41e99b500d03c3b1fc2, type: 2}
