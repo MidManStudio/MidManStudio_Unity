@@ -1,6 +1,13 @@
-
-// Singleton panel manager for a single MID_UIStateContext.
-// Drives GameObject show/hide and UnityEvent callbacks on state transitions.
+// packages/com.midmanstudio.utilities/Runtime/UIState/MID_UIStateManager.cs
+//
+// FIX (initial state for _initialState == 0):
+//   When _initialState is 0 (None), ChangeState is never called, so HandleStateChanged
+//   never fires through the manager. Objects in cfg.show arrays that were active in
+//   the scene were not hidden. Fix: explicitly call HandleStateChanged(0) in Start
+//   when _initialState is 0 so the manager's config arrays are properly applied.
+//
+//   Note: MID_UIStateVisibility handles its own initial state independently via
+//   its _initialised fix — this fix covers objects in the manager's _configurations.
 
 using System;
 using System.Collections.Generic;
@@ -101,7 +108,20 @@ namespace MidManStudio.Core.UIState
             }
 
             if (_initialState != 0)
+            {
+                // Transition to the configured initial state.
+                // This fires OnStateChanged → HandleStateChanged on this manager
+                // AND on all MID_UIStateVisibility components listening to the context.
                 _context.ChangeState(_initialState);
+            }
+            else
+            {
+                // FIX: For initial state 0 (None), ChangeState is a no-op (0→0).
+                // Explicitly apply the None state to this manager's config arrays
+                // so that cfg.show objects active in the scene are properly hidden.
+                // MID_UIStateVisibility components handle themselves via their own _initialised fix.
+                ApplyNoneState();
+            }
         }
 
         protected override void OnDestroy()
@@ -115,7 +135,6 @@ namespace MidManStudio.Core.UIState
 
         #region Public API
 
-        /// <summary>Transition to a new state.</summary>
         public void ChangeState(int newState)
         {
             if (_context == null)
@@ -127,19 +146,16 @@ namespace MidManStudio.Core.UIState
             _context.ChangeState(newState);
         }
 
-        /// <summary>Return to the previous state.</summary>
         public void GoBack()
         {
             if (_context == null) return;
             _context.GoBack();
         }
 
-        /// <summary>Clear the navigation history stack.</summary>
         public void ClearHistory() => _context?.ClearHistory();
 
         public bool IsInState(int state) => _context != null && _context.IsInState(state);
 
-        /// <summary>Swap the managed context at runtime.</summary>
         public void SetContext(MID_UIStateContext context)
         {
             if (_context != null)
@@ -155,13 +171,17 @@ namespace MidManStudio.Core.UIState
 
         #region Internal
 
+        /// <summary>
+        /// Hides all cfg.show objects for every config whose mask is not in the new state,
+        /// and shows cfg.show / hides cfg.hide for configs that ARE in the new state.
+        /// </summary>
         private void HandleStateChanged(int newState)
         {
-            // Trigger exit events for configs whose mask is NOT active in the new state
+            // Exit pass — hide show-objects for configs NOT active in the new state
             foreach (var cfg in _configurations)
             {
                 if (cfg.stateMask == 0) continue;
-                if ((newState & cfg.stateMask) != 0) continue;
+                if ((newState & cfg.stateMask) != 0) continue;   // still active → skip
 
                 foreach (var go in cfg.show)
                     if (go != null) go.SetActive(false);
@@ -170,16 +190,16 @@ namespace MidManStudio.Core.UIState
                 catch (Exception e)
                 {
                     MID_Logger.LogError(_logLevel,
-                        $"onExit exception in config '{cfg.displayName}': {e.Message}",
+                        $"onExit exception in '{cfg.displayName}': {e.Message}",
                         nameof(MID_UIStateManager));
                 }
             }
 
-            // Trigger enter events for configs whose mask IS active in the new state
+            // Enter pass — show show-objects and hide hide-objects for active configs
             foreach (var cfg in _configurations)
             {
                 if (cfg.stateMask == 0) continue;
-                if ((newState & cfg.stateMask) == 0) continue;
+                if ((newState & cfg.stateMask) == 0) continue;   // not active → skip
 
                 foreach (var go in cfg.show)
                     if (go != null) go.SetActive(true);
@@ -190,7 +210,7 @@ namespace MidManStudio.Core.UIState
                 catch (Exception e)
                 {
                     MID_Logger.LogError(_logLevel,
-                        $"onEnter exception in config '{cfg.displayName}': {e.Message}",
+                        $"onEnter exception in '{cfg.displayName}': {e.Message}",
                         nameof(MID_UIStateManager));
                 }
             }
@@ -199,6 +219,25 @@ namespace MidManStudio.Core.UIState
 
             MID_Logger.LogInfo(_logLevel,
                 $"[{_context?.contextName}] handled state → {newState}",
+                nameof(MID_UIStateManager));
+        }
+
+        /// <summary>
+        /// FIX: Applied when _initialState == 0 (None).
+        /// Hides all cfg.show objects across every config without firing onExit events,
+        /// since we are not "leaving" any state — we are simply setting initial scene state.
+        /// Does not notify context or fire OnStateChanged (context state stays at 0).
+        /// </summary>
+        private void ApplyNoneState()
+        {
+            foreach (var cfg in _configurations)
+            {
+                foreach (var go in cfg.show)
+                    if (go != null) go.SetActive(false);
+            }
+
+            MID_Logger.LogInfo(_logLevel,
+                $"[{_context?.contextName}] initial state None — all show-objects hidden.",
                 nameof(MID_UIStateManager));
         }
 
