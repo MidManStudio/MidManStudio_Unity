@@ -1,6 +1,21 @@
-// MID_MasterProjectileSystem.cs
-// CHANGE: Added GetPredictionManager() so NetworkedDimensionPlayer can call
-//         SpawnImmediatePrediction() directly from the fire path.
+// packages/com.midmanstudio.projectilesystem/Runtime/Managers/MID_MasterProjectileSystem.cs
+//
+// FIX: FireNetworkedSim now automatically calls SpawnImmediatePrediction for
+//   non-server clients. Previously this was the game code's responsibility via
+//   GetPredictionManager() — if NetworkedDimensionPlayer forgot to call it, the
+//   local player's own projectiles appeared with a full RTT delay.
+//
+//   The immediate prediction is spawned BEFORE FireServerRpc so the temp ID is
+//   enqueued before OnSpawnConfirmed can possibly dequeue it (even on loopback,
+//   SpawnConfirmedClientRpc goes through NGO's pipeline with at least one frame delay).
+//
+//   BaseProjId = 0 in the temp SpawnConfirmation — SpawnImmediatePrediction replaces
+//   it with _nextTempId++ internally so the actual value doesn't matter.
+//   ServerNetworkTime = 0 initially; updated to the real server time when
+//   LinkPredictionId runs on SpawnConfirmedClientRpc arrival.
+//
+//   GetPredictionManager() is kept for game code that needs special-case prediction
+//   (physics projectiles, etc.) but is no longer needed for the standard Rust sim path.
 
 using System;
 using UnityEngine;
@@ -73,8 +88,10 @@ namespace MidManStudio.Projectiles.Managers
         public RaycastProjectileHandler       GetRaycastHandler()    => _raycastHandler;
 
         /// <summary>
-        /// Exposes the prediction manager so firing clients can call
-        /// SpawnImmediatePrediction() before the server-RPC round-trip completes.
+        /// Exposes the prediction manager for game code that needs special-case prediction
+        /// (physics projectiles, custom spawn logic, etc.).
+        /// The standard Rust sim fire path (Fire()) now calls SpawnImmediatePrediction
+        /// automatically — game code no longer needs to call it for normal projectiles.
         /// </summary>
         public ClientPredictionManager        GetPredictionManager() => _predictionManager;
 
@@ -105,8 +122,8 @@ namespace MidManStudio.Projectiles.Managers
             }
 
             BatchSpawnHelper.Initialise();
-// Inside Initialise(), after the BatchSpawnHelper.Initialise() call:
-MID_ProjectileNetworkBridge.ConfigureTransportForHighThroughput();
+            MID_ProjectileNetworkBridge.ConfigureTransportForHighThroughput();
+
             if (_localManager == null)
                 _localManager = FindObjectOfType<LocalProjectileManager>();
 
@@ -215,6 +232,10 @@ MID_ProjectileNetworkBridge.ConfigureTransportForHighThroughput();
         {
             if (_networkBridge == null) return;
 
+            float resolvedSpeed = count > 0 && spawnPoints[0].Speed > 0f
+                ? spawnPoints[0].Speed
+                : cfg.ResolveSpeed();
+
             int extraCount = Mathf.Min(count - 1, 63);
             Vector3[] extraDirs = null;
             if (extraCount > 0)
@@ -229,7 +250,7 @@ MID_ProjectileNetworkBridge.ConfigureTransportForHighThroughput();
                 ConfigId               = configId,
                 Origin                 = count > 0 ? spawnPoints[0].Origin    : Vector3.zero,
                 Direction              = count > 0 ? spawnPoints[0].Direction : Vector3.forward,
-                Speed                  = count > 0 ? spawnPoints[0].Speed     : cfg.ResolveSpeed(),
+                Speed                  = resolvedSpeed,
                 RngSeed                = (uint)UnityEngine.Random.Range(0, int.MaxValue),
                 ProjectileCount        = (byte)Mathf.Min(count, 255),
                 OwnerMidId             = context.OwnerMidId,
@@ -241,6 +262,29 @@ MID_ProjectileNetworkBridge.ConfigureTransportForHighThroughput();
                 ExtraDirectionCount    = (byte)extraCount,
                 ExtraDirections        = extraDirs
             };
+
+            // FIX: Spawn immediate local prediction for the firing client BEFORE
+            // sending the RPC. The temp visual is linked to the real server ID when
+            // SpawnConfirmedClientRpc arrives. Host is skipped (renders from Rust buffer).
+            // SpawnImmediatePrediction is a no-op on the server so the IsServer check
+            // inside it is a safety net — the outer !IsServer guard is the real gate.
+            if (!IsServer && _predictionManager != null)
+            {
+                _predictionManager.SpawnImmediatePrediction(new SpawnConfirmation
+                {
+                    BaseProjId          = 0,            // temp ID assigned internally by prediction
+                    ProjectileCount     = request.ProjectileCount,
+                    ConfigId            = configId,
+                    ServerSpawnTick     = GetBridgeTick(),
+                    Origin              = request.Origin,
+                    Direction           = request.Direction,
+                    Speed               = resolvedSpeed,
+                    OwnerMidId          = context.OwnerMidId,
+                    ExtraDirectionCount = request.ExtraDirectionCount,
+                    ExtraDirections     = request.ExtraDirections,
+                    ServerNetworkTime   = 0f            // unknown yet; LinkPredictionId updates it
+                });
+            }
 
             _networkBridge.FireServerRpc(request);
         }
@@ -351,7 +395,7 @@ MID_ProjectileNetworkBridge.ConfigureTransportForHighThroughput();
 
         #region Public API — State
 
-        public int SaveState2D(byte[] buf)         => _authority?.SaveState2D(buf) ?? 0;
+        public int SaveState2D(byte[] buf)           => _authority?.SaveState2D(buf) ?? 0;
         public int RestoreState2D(byte[] buf, int n) => _authority?.RestoreState2D(buf, n) ?? 0;
 
         #endregion
