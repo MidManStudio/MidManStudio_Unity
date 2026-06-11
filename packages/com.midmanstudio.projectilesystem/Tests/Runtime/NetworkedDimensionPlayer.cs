@@ -1,17 +1,19 @@
 // packages/com.midmanstudio.projectilesystem/Tests/Runtime/NetworkedDimensionPlayer.cs
 //
-// CHANGE: Config ID fields are now int (ProjectileConfigType enum values) rather
-// than raw ushort registry indices. ResolveConfigId() resolves through
-// ProjectileConfigManager.Instance.GetConfigId() when available, falling back
-// to a direct cast for scenes that don't use the enum system yet.
+// FIX (client doesn't see own projectiles):
+//   FireSim() was bypassing MID_MasterProjectileSystem.Fire() entirely.
+//   It manually constructed a ProjectileFireRequest and called GetBridge().FireServerRpc()
+//   directly, skipping the SpawnFiringClientBatch2D/3D call that lives inside
+//   FireNetworkedSim(). The empty predMgr block was a leftover placeholder from
+//   the old ClientPredictionManager approach.
 //
-//   _configId2D / _configId3D  →  _configTypeId2D / _configTypeId3D  (int)
+//   Fix: FireSim() now builds a WeaponFireContext and calls
+//   MID_MasterProjectileSystem.Instance.Fire() which routes correctly:
+//     - LocalOnly/offline → FireLocal → LocalProjectileManager.Spawn2D/3D
+//     - Networked client  → FireNetworkedSim → SpawnFiringClientBatch + FireServerRpc
+//     - Networked host    → FireNetworkedSim → skip local spawn + FireServerRpc
 //
-// Inspector usage after running Config Type Generator:
-//   Set _configTypeId2D = (int)ProjectileConfigType.Default   (= 0)
-//   Set _configTypeId3D = (int)ProjectileConfigType.Default   (= 0)
-//
-// All other behaviour unchanged.
+//   All other behaviour (raycast, physics, spread, pattern) unchanged.
 
 using UnityEngine;
 using Unity.Netcode;
@@ -85,7 +87,7 @@ namespace TestGame
 
         [Header("Fire Settings")]
         [SerializeField] private float _fireRate = 5f;
-        [SerializeField, Range(1, 64)]  private int   _pelletsPerShot = 1;
+        [SerializeField, Range(1, 64)]   private int   _pelletsPerShot = 1;
         [SerializeField, Range(0f, 45f)] private float _spreadDeg     = 0f;
         [SerializeField] private KeyCode _fireKey = KeyCode.Mouse0;
 
@@ -117,7 +119,7 @@ namespace TestGame
         [SerializeField, Range(0f,1f)] private float _fireSoundVolume = 0.7f;
         [SerializeField] private AudioSource _fallbackAudioSource;
         [SerializeField] private AudioClip   _fallbackFireClip;
-        [SerializeField, Range(0f,1f)] private float _fallbackVolume = 0.6f;
+        [SerializeField, Range(0f,1f)]      private float _fallbackVolume = 0.6f;
         [SerializeField, Range(0.01f,0.3f)] private float _fallbackPitchVariance = 0.1f;
 
         [Header("Muzzle Flash — GlobalFX")]
@@ -199,6 +201,8 @@ namespace TestGame
                 if (DimensionCameraController.Instance != null)
                     DimensionCameraController.Instance.RegisterPlayerCams(transform, _headPivot);
 
+                // Sets the MID ID on MasterProjectileSystem, ClientPredictionManager,
+                // AND MID_ProjectileNetworkBridge (for firing-client routing in RPCs).
                 if (MID_MasterProjectileSystem.HasInstance)
                     MID_MasterProjectileSystem.Instance.SetLocalPlayerMidId(OwnerClientId);
 
@@ -229,10 +233,13 @@ namespace TestGame
             _netShootMode.OnValueChanged -= OnShootModeChanged;
             if (IsOwner)
             {
-                if (_modeCycleButton != null) _modeCycleButton.onClick.RemoveListener(CycleModeNext);
-                if (DimensionManager.HasInstance) DimensionManager.Instance.OnDimensionChanged -= HandleDimensionChanged;
+                if (_modeCycleButton != null)
+                    _modeCycleButton.onClick.RemoveListener(CycleModeNext);
+                if (DimensionManager.HasInstance)
+                    DimensionManager.Instance.OnDimensionChanged -= HandleDimensionChanged;
                 DimensionCameraController.Instance?.UnregisterPlayerCams();
-                Cursor.lockState = CursorLockMode.None; Cursor.visible = true;
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible   = true;
             }
             base.OnNetworkDespawn();
         }
@@ -245,11 +252,14 @@ namespace TestGame
         {
             if (!IsOwner)
             {
-                if (_headPivot != null) _headPivot.localRotation = Quaternion.Euler(_netPitch.Value, 0f, 0f);
+                if (_headPivot != null)
+                    _headPivot.localRotation = Quaternion.Euler(_netPitch.Value, 0f, 0f);
                 return;
             }
 
-            if (Input.GetKeyDown(_dimensionKey) && DimensionManager.HasInstance && !DimensionManager.Instance.IsTransitioning)
+            if (Input.GetKeyDown(_dimensionKey)
+                && DimensionManager.HasInstance
+                && !DimensionManager.Instance.IsTransitioning)
                 DimensionManager.Instance.SwitchDimension();
 
             if (Input.GetKeyDown(KeyCode.Alpha1)) ChangeMode(PlayerShootMode.LocalOnly);
@@ -261,7 +271,8 @@ namespace TestGame
             if (Input.GetKeyDown(KeyCode.Alpha7)) ChangeMode(PlayerShootMode.Physics3D);
 
             if (Use3DConvention()) HandleMouseLook();
-            if (Input.GetKeyDown(_dashKey) && Time.time >= _nextDashTime && !_isDashing) StartDash();
+            if (Input.GetKeyDown(_dashKey) && Time.time >= _nextDashTime && !_isDashing)
+                StartDash();
             HandleFire();
         }
 
@@ -269,7 +280,8 @@ namespace TestGame
         {
             if (!IsOwner) return;
             HandleMovement();
-            if (Use3DConvention()) _rb.MoveRotation(Quaternion.Euler(0f, _yaw, 0f));
+            if (Use3DConvention())
+                _rb.MoveRotation(Quaternion.Euler(0f, _yaw, 0f));
         }
 
         #endregion
@@ -288,8 +300,10 @@ namespace TestGame
             _shootMode = m;
             if (IsSpawned && IsOwner) _netShootMode.Value = (int)m;
             UpdateModeText();
-            if (Use3DConvention()) { Cursor.lockState = CursorLockMode.Locked; Cursor.visible = false; }
-            else if (_currentDimension == Dimension.TwoD) { Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
+            if (Use3DConvention())
+            { Cursor.lockState = CursorLockMode.Locked; Cursor.visible = false; }
+            else if (_currentDimension == Dimension.TwoD)
+            { Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
         }
 
         private void OnShootModeChanged(int _, int newVal)
@@ -323,16 +337,6 @@ namespace TestGame
             || _shootMode == PlayerShootMode.Raycast3D
             || _shootMode == PlayerShootMode.Physics3D;
 
-        // ── Config resolution ─────────────────────────────────────────────────
-        // Converts a ProjectileConfigType int value to the runtime ushort configId
-        // that ProjectileRegistry assigned during session startup.
-        //
-        //   _configTypeId2D / _configTypeId3D  = (int)ProjectileConfigType.SomeValue
-        //   ProjectileConfigManager maps those stable enum ints → session ushort IDs
-        //
-        // Fallback: if ProjectileConfigManager is absent (scene not yet fully set up,
-        // or using the raw registry path), the typeId is cast directly to ushort.
-        // This works for the default case where Default = 0 and registry ID 0 match.
         private ushort ResolveConfigId()
         {
             bool prefer3D = _shootMode == PlayerShootMode.RustSim3D
@@ -345,13 +349,14 @@ namespace TestGame
             if (ProjectileConfigManager.HasInstance)
                 return ProjectileConfigManager.Instance.GetConfigId(typeId);
 
-            // Fallback: direct cast (works when enum value == registry index,
-            // which is true when configs are registered in enum order).
             return (ushort)typeId;
         }
 
-        private Vector3   ResolveFireDir()   => Use3DConvention() && _headPivot != null ? _headPivot.forward : transform.right;
-        private Transform ResolveShotPoint() => Use3DConvention() ? _shotPoint3D : _shotPoint2D;
+        private Vector3   ResolveFireDir()
+            => Use3DConvention() && _headPivot != null ? _headPivot.forward : transform.right;
+
+        private Transform ResolveShotPoint()
+            => Use3DConvention() ? _shotPoint3D : _shotPoint2D;
 
         #endregion
 
@@ -362,7 +367,11 @@ namespace TestGame
             _yaw   += Input.GetAxisRaw("Mouse X") * _mouseSensitivity;
             _pitch -= Input.GetAxisRaw("Mouse Y") * _mouseSensitivity;
             _pitch  = Mathf.Clamp(_pitch, _pitchMin, _pitchMax);
-            if (_headPivot != null) { _headPivot.localRotation = Quaternion.Euler(_pitch, 0f, 0f); _netPitch.Value = _pitch; }
+            if (_headPivot != null)
+            {
+                _headPivot.localRotation = Quaternion.Euler(_pitch, 0f, 0f);
+                _netPitch.Value = _pitch;
+            }
         }
 
         #endregion
@@ -379,8 +388,10 @@ namespace TestGame
                 if (Time.time >= _dashEndTime) _isDashing = false;
                 else
                 {
-                    if (_rb.isKinematic) _rb.MovePosition(_rb.position + _dashDir * _dashSpeed * Time.fixedDeltaTime);
-                    else                 _rb.velocity = _dashDir * _dashSpeed;
+                    if (_rb.isKinematic)
+                        _rb.MovePosition(_rb.position + _dashDir * _dashSpeed * Time.fixedDeltaTime);
+                    else
+                        _rb.velocity = _dashDir * _dashSpeed;
                     return;
                 }
             }
@@ -410,14 +421,18 @@ namespace TestGame
             if (Use3DConvention())
             {
                 Vector3 d = transform.right * h + transform.forward * v;
-                _dashDir = d.sqrMagnitude > 0.01f ? d.normalized : (_headPivot != null ? _headPivot.forward : transform.forward);
+                _dashDir  = d.sqrMagnitude > 0.01f
+                    ? d.normalized
+                    : (_headPivot != null ? _headPivot.forward : transform.forward);
             }
             else
             {
                 Vector3 d = new Vector3(h, v, 0f);
-                _dashDir = d.sqrMagnitude > 0.01f ? d.normalized : transform.right;
+                _dashDir  = d.sqrMagnitude > 0.01f ? d.normalized : transform.right;
             }
-            _isDashing = true; _dashEndTime = Time.time + _dashDuration; _nextDashTime = Time.time + _dashCooldown;
+            _isDashing   = true;
+            _dashEndTime = Time.time + _dashDuration;
+            _nextDashTime = Time.time + _dashCooldown;
         }
 
         #endregion
@@ -447,19 +462,29 @@ namespace TestGame
             Transform sp   = ResolveShotPoint();
             Vector3 origin = sp != null ? sp.position : transform.position;
             Vector3 dir    = ResolveFireDir();
-            if (MID_NativeAudioBridge.HasInstance) MID_NativeAudioBridge.Instance.PlayClip(_fireSoundClipIndex, _fireSoundVolume);
+
+            if (MID_NativeAudioBridge.HasInstance)
+                MID_NativeAudioBridge.Instance.PlayClip(_fireSoundClipIndex, _fireSoundVolume);
             else if (_fallbackAudioSource != null && _fallbackFireClip != null)
             {
-                _fallbackAudioSource.pitch = 1f + Random.Range(-_fallbackPitchVariance, _fallbackPitchVariance);
+                _fallbackAudioSource.pitch = 1f
+                    + Random.Range(-_fallbackPitchVariance, _fallbackPitchVariance);
                 _fallbackAudioSource.PlayOneShot(_fallbackFireClip, _fallbackVolume);
             }
-            GlobalFXManager.Instance?.TriggerMuzzleFlash(origin, dir, _muzzleFlashParticleCount, _muzzleFlashVolume);
+            GlobalFXManager.Instance?.TriggerMuzzleFlash(
+                origin, dir, _muzzleFlashParticleCount, _muzzleFlashVolume);
         }
 
         #endregion
 
         #region Sim Fire
 
+        /// <summary>
+        /// FIX: Previously bypassed MID_MasterProjectileSystem.Fire() and called
+        /// GetBridge().FireServerRpc() directly, skipping the client's local
+        /// SpawnFiringClientBatch call. The empty predMgr block was the leftover
+        /// placeholder. Now calls Fire() which routes correctly for all cases.
+        /// </summary>
         private void FireSim()
         {
             if (!MID_MasterProjectileSystem.HasInstance) return;
@@ -476,50 +501,39 @@ namespace TestGame
                 return;
             }
 
-            Transform sp   = ResolveShotPoint();
-            Vector3 origin = sp != null ? sp.position : transform.position;
-            Vector3 dir    = ResolveFireDir();
-            int n = _shotPattern != null ? _shotPattern.ProjectileCount : Mathf.Max(_pelletsPerShot, 1);
+            Transform sp     = ResolveShotPoint();
+            Vector3   origin = sp != null ? sp.position : transform.position;
+            Vector3   dir    = ResolveFireDir();
+
+            int n = _shotPattern != null
+                ? _shotPattern.ProjectileCount
+                : Mathf.Max(_pelletsPerShot, 1);
+
             SpawnPoint[] pts = BuildSpawnPoints(origin, dir, n, cfg);
 
             bool networked = _shootMode != PlayerShootMode.LocalOnly
-                          && MID_MasterProjectileSystem.Instance.IsNetworked && IsSpawned;
+                          && MID_MasterProjectileSystem.Instance.IsNetworked
+                          && IsSpawned;
 
-            if (!networked)
+            // FIX: Build WeaponFireContext and call Fire().
+            //   LocalOnly / offline → FireLocal → LocalProjectileManager.Spawn2D/3D
+            //   Networked client    → FireNetworkedSim → SpawnFiringClientBatch + FireServerRpc
+            //   Networked host      → FireNetworkedSim → skip local spawn + FireServerRpc
+            // The master system now handles the full flow — no manual RPC call needed here.
+            var context = new WeaponFireContext
             {
-                if (LocalProjectileManager.HasInstance)
-                {
-                    if (Use3DConvention() || cfg.Is3D) LocalProjectileManager.Instance.Spawn3D(pts, pts.Length, cfgId, (uint)OwnerClientId, 1f);
-                    else                               LocalProjectileManager.Instance.Spawn2D(pts, pts.Length, cfgId, (uint)OwnerClientId, 1f);
-                }
-                return;
-            }
-
-            int extraCount = Mathf.Min(pts.Length - 1, 63);
-            Vector3[] extraDirs = null;
-            if (extraCount > 0) { extraDirs = new Vector3[extraCount]; for (int i = 0; i < extraCount; i++) extraDirs[i] = pts[i + 1].Direction; }
-
-            var request = new ProjectileFireRequest
-            {
-                ConfigId = cfgId, Origin = origin, Direction = pts[0].Direction, Speed = pts[0].Speed,
-                RngSeed = (uint)UnityEngine.Random.Range(0, int.MaxValue),
-                ProjectileCount = (byte)Mathf.Min(pts.Length, 255),
-                OwnerMidId = OwnerClientId, FiredByNetworkObjectId = NetworkObjectId,
-                IsBotOwner = false, WeaponLevel = 1, DamageMultiplier = 1f,
-                ClientFireTick = MID_MasterProjectileSystem.Instance.GetBridgeTick(),
-                ExtraDirectionCount = (byte)extraCount, ExtraDirections = extraDirs
+                FireRate               = _fireRate,
+                IsRaycastWeapon        = false,
+                ProjectileCount        = pts.Length,
+                IsNetworked            = networked,
+                OwnerMidId             = OwnerClientId,
+                FiredByNetworkObjectId = IsSpawned ? NetworkObjectId : 0UL,
+                IsBotOwner             = false,
+                WeaponLevel            = 1,
+                DamageMultiplier       = 1f
             };
 
-            if (!IsServer)
-            {
-                var predMgr = MID_MasterProjectileSystem.Instance.GetPredictionManager();
-                if (predMgr != null)
-                {
-                  
-                }
-            }
-
-            MID_MasterProjectileSystem.Instance.GetBridge()?.FireServerRpc(request);
+            MID_MasterProjectileSystem.Instance.Fire(cfgId, pts, pts.Length, context);
         }
 
         #endregion
@@ -543,27 +557,51 @@ namespace TestGame
 
             if (is3D)
             {
-                if (Physics.Raycast(origin, dir, out RaycastHit h, _raycastRange, _raycastLayers, QueryTriggerInteraction.Collide))
-                { hit = true; hitPt = h.point; var no = h.collider.GetComponentInParent<NetworkObject>(); if (no != null) netId = no.NetworkObjectId; }
+                if (Physics.Raycast(origin, dir, out RaycastHit h, _raycastRange,
+                    _raycastLayers, QueryTriggerInteraction.Collide))
+                {
+                    hit   = true;
+                    hitPt = h.point;
+                    var no = h.collider.GetComponentInParent<NetworkObject>();
+                    if (no != null) netId = no.NetworkObjectId;
+                }
             }
             else
             {
                 var h2 = Physics2D.Raycast(origin, dir, _raycastRange, _raycastLayers);
                 if (h2.collider != null)
-                { hit = true; hitPt = h2.point; var no = h2.collider.GetComponentInParent<NetworkObject>(); if (no != null) netId = no.NetworkObjectId; }
+                {
+                    hit   = true;
+                    hitPt = h2.point;
+                    var no = h2.collider.GetComponentInParent<NetworkObject>();
+                    if (no != null) netId = no.NetworkObjectId;
+                }
             }
 
-            MID_MasterProjectileSystem.Instance.RegisterRaycastFire(new RaycastFireResult
-            {
-                Origin = origin, Direction = dir, HitPoint = hitPt,
-                DidHit = hit, HitTargetNetworkId = netId, IsHeadshot = false, Is3D = is3D
-            }, cfgId, new WeaponFireContext
-            {
-                FireRate = _fireRate, ProjectileCount = 1,
-                IsNetworked = MID_MasterProjectileSystem.Instance.IsNetworked && IsSpawned,
-                IsRaycastWeapon = true, OwnerMidId = OwnerClientId, FiredByNetworkObjectId = NetworkObjectId,
-                IsBotOwner = false, WeaponLevel = 1, DamageMultiplier = 1f
-            });
+            MID_MasterProjectileSystem.Instance.RegisterRaycastFire(
+                new RaycastFireResult
+                {
+                    Origin             = origin,
+                    Direction          = dir,
+                    HitPoint           = hitPt,
+                    DidHit             = hit,
+                    HitTargetNetworkId = netId,
+                    IsHeadshot         = false,
+                    Is3D               = is3D
+                },
+                cfgId,
+                new WeaponFireContext
+                {
+                    FireRate               = _fireRate,
+                    ProjectileCount        = 1,
+                    IsNetworked            = MID_MasterProjectileSystem.Instance.IsNetworked && IsSpawned,
+                    IsRaycastWeapon        = true,
+                    OwnerMidId             = OwnerClientId,
+                    FiredByNetworkObjectId = NetworkObjectId,
+                    IsBotOwner             = false,
+                    WeaponLevel            = 1,
+                    DamageMultiplier       = 1f
+                });
         }
 
         #endregion
@@ -587,6 +625,7 @@ namespace TestGame
             {
                 if (!IsServer)
                 {
+                    // Physics pool visual for firing client — travels locally during RPC round-trip
                     ushort cfgId = ResolveConfigId();
                     MID_MasterProjectileSystem.Instance.GetPredictionManager()
                         ?.SpawnLocalPhysicsVisual(cfgId, origin, dir, _physicsProjectileSpeed);
@@ -607,17 +646,28 @@ namespace TestGame
         {
             var poolType = is3D ? _physicsPoolType3D : _physicsPoolType2D;
             Quaternion rot = is3D
-                ? (direction.sqrMagnitude > 0.001f ? Quaternion.LookRotation(direction.normalized) : Quaternion.identity)
+                ? (direction.sqrMagnitude > 0.001f
+                    ? Quaternion.LookRotation(direction.normalized)
+                    : Quaternion.identity)
                 : Quaternion.Euler(0f, 0f, Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg);
 
             var netObj = MID_MasterProjectileSystem.Instance?.SpawnPhysicsProjectile(poolType, origin, rot);
-            if (netObj == null) { MID_Logger.LogWarning(_logLevel, $"Pool null for {poolType}.", nameof(NetworkedDimensionPlayer)); return; }
+            if (netObj == null)
+            {
+                MID_Logger.LogWarning(_logLevel,
+                    $"Pool null for {poolType}.", nameof(NetworkedDimensionPlayer));
+                return;
+            }
 
             var proj = netObj.GetComponent<PhysicsProjectileBase>();
             if (proj != null)
             {
-                proj.SetOwnerContext(OwnerClientId, IsSpawned ? NetworkObjectId : 0UL, false, 1, _physicsDamageMultiplier);
-                proj.InitialiseProjectile(OwnerClientId, IsSpawned ? NetworkObjectId : 0UL, _physicsProjectileSpeed, false, 1);
+                proj.SetOwnerContext(
+                    OwnerClientId, IsSpawned ? NetworkObjectId : 0UL,
+                    false, 1, _physicsDamageMultiplier);
+                proj.InitialiseProjectile(
+                    OwnerClientId, IsSpawned ? NetworkObjectId : 0UL,
+                    _physicsProjectileSpeed, false, 1);
             }
         }
 
@@ -625,46 +675,72 @@ namespace TestGame
 
         #region Spawn Point Builders
 
-        private SpawnPoint[] BuildSpawnPoints(Vector3 origin, Vector3 dir, int n, ProjectileConfigSO cfg)
-            => _shotPattern != null ? BuildSpawnPointsFromPattern(origin, dir, cfg) : BuildSpawnPointsSpread(origin, dir, n, cfg);
+        private SpawnPoint[] BuildSpawnPoints(
+            Vector3 origin, Vector3 dir, int n, ProjectileConfigSO cfg)
+            => _shotPattern != null
+                ? BuildSpawnPointsFromPattern(origin, dir, cfg)
+                : BuildSpawnPointsSpread(origin, dir, n, cfg);
 
-        private SpawnPoint[] BuildSpawnPointsSpread(Vector3 origin, Vector3 dir, int n, ProjectileConfigSO cfg)
+        private SpawnPoint[] BuildSpawnPointsSpread(
+            Vector3 origin, Vector3 dir, int n, ProjectileConfigSO cfg)
         {
             bool use3D = Use3DConvention() || cfg.Is3D;
             var  pts   = new SpawnPoint[n];
             for (int i = 0; i < n; i++)
             {
                 float frac = n == 1 ? 0f : (i / (float)(n - 1) - 0.5f);
-                Vector3 sDir = use3D ? Quaternion.Euler(0f, frac * _spreadDeg, 0f) * dir : Quaternion.Euler(0f, 0f, frac * _spreadDeg) * dir;
-                pts[i] = new SpawnPoint { Origin = origin, Direction = sDir.normalized, Speed = cfg.ResolveSpeed() };
+                Vector3 sDir = use3D
+                    ? Quaternion.Euler(0f, frac * _spreadDeg, 0f) * dir
+                    : Quaternion.Euler(0f, 0f, frac * _spreadDeg) * dir;
+                pts[i] = new SpawnPoint
+                {
+                    Origin    = origin,
+                    Direction = sDir.normalized,
+                    Speed     = cfg.ResolveSpeed()
+                };
             }
             return pts;
         }
 
-        private SpawnPoint[] BuildSpawnPointsFromPattern(Vector3 origin, Vector3 baseDir, ProjectileConfigSO cfg)
+        private SpawnPoint[] BuildSpawnPointsFromPattern(
+            Vector3 origin, Vector3 baseDir, ProjectileConfigSO cfg)
         {
-            bool use3D = Use3DConvention() || cfg.Is3D;
+            bool use3D     = Use3DConvention() || cfg.Is3D;
             var  angleDirs = _shotPattern.SampleDirections();
             var  pts       = new SpawnPoint[angleDirs.Length];
+
             Vector3 localRight, localUp;
             if (use3D)
             {
-                Vector3 fwd = baseDir.sqrMagnitude > 0.001f ? baseDir.normalized : Vector3.forward;
-                Vector3 worldUp = Mathf.Abs(Vector3.Dot(fwd, Vector3.up)) > 0.98f ? Vector3.forward : Vector3.up;
+                Vector3 fwd    = baseDir.sqrMagnitude > 0.001f ? baseDir.normalized : Vector3.forward;
+                Vector3 worldUp = Mathf.Abs(Vector3.Dot(fwd, Vector3.up)) > 0.98f
+                    ? Vector3.forward : Vector3.up;
                 localRight = Vector3.Cross(worldUp, fwd).normalized;
                 localUp    = Vector3.Cross(fwd, localRight).normalized;
             }
-            else { localRight = Vector3.Cross(baseDir, Vector3.forward).normalized; localUp = Vector3.forward; }
+            else
+            {
+                localRight = Vector3.Cross(baseDir, Vector3.forward).normalized;
+                localUp    = Vector3.forward;
+            }
 
             for (int i = 0; i < angleDirs.Length; i++)
             {
                 var a = angleDirs[i];
                 Vector3 sDir = use3D
-                    ? Quaternion.AngleAxis(-a.y, localRight) * Quaternion.AngleAxis(a.x, localUp) * baseDir
+                    ? Quaternion.AngleAxis(-a.y, localRight)
+                      * Quaternion.AngleAxis(a.x, localUp) * baseDir
                     : Quaternion.Euler(0f, 0f, a.x) * baseDir;
+
                 if (sDir.sqrMagnitude < 0.001f) sDir = baseDir;
+
                 float mul = _shotPattern.GetSpeedMultiplier(i, _shotPattern.RngSeed);
-                pts[i] = new SpawnPoint { Origin = origin, Direction = sDir.normalized, Speed = cfg.ResolveSpeed() * mul };
+                pts[i] = new SpawnPoint
+                {
+                    Origin    = origin,
+                    Direction = sDir.normalized,
+                    Speed     = cfg.ResolveSpeed() * mul
+                };
             }
             return pts;
         }
@@ -675,7 +751,9 @@ namespace TestGame
 
         private void HandleDimensionChanged(Dimension dim)
         {
-            _currentDimension = dim; ApplyRigidbodyConstraints(dim); ApplyCursorState(dim);
+            _currentDimension = dim;
+            ApplyRigidbodyConstraints(dim);
+            ApplyCursorState(dim);
             if (dim == Dimension.ThreeD) _yaw = transform.eulerAngles.y;
         }
 
@@ -685,46 +763,63 @@ namespace TestGame
             if (dim == Dimension.TwoD)
             {
                 _rb.isKinematic = true;
-                _rb.constraints = RigidbodyConstraints.FreezePositionZ | RigidbodyConstraints.FreezeRotation;
+                _rb.constraints = RigidbodyConstraints.FreezePositionZ
+                                | RigidbodyConstraints.FreezeRotation;
                 _rb.useGravity  = false;
             }
             else
             {
                 _rb.isKinematic = false;
-                _rb.constraints = RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationY | RigidbodyConstraints.FreezeRotationZ;
+                _rb.constraints = RigidbodyConstraints.FreezeRotationX
+                                | RigidbodyConstraints.FreezeRotationY
+                                | RigidbodyConstraints.FreezeRotationZ;
                 _rb.useGravity  = true;
-                var p = transform.position; transform.position = new Vector3(p.x, p.y, 0f);
+                var p = transform.position;
+                transform.position = new Vector3(p.x, p.y, 0f);
                 _rb.velocity = new Vector3(_rb.velocity.x, 0f, _rb.velocity.z);
             }
         }
 
         private static void ApplyCursorState(Dimension dim)
         {
-            if (dim == Dimension.ThreeD) { Cursor.lockState = CursorLockMode.Locked; Cursor.visible = false; }
-            else                         { Cursor.lockState = CursorLockMode.None;   Cursor.visible = true; }
+            if (dim == Dimension.ThreeD)
+            { Cursor.lockState = CursorLockMode.Locked; Cursor.visible = false; }
+            else
+            { Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
         }
 
-        private void ApplyTint(Color col) { if (_meshRenderers != null) foreach (var r in _meshRenderers) if (r != null) r.material.color = col; }
+        private void ApplyTint(Color col)
+        {
+            if (_meshRenderers != null)
+                foreach (var r in _meshRenderers)
+                    if (r != null) r.material.color = col;
+        }
 
         private void EnsureHeadPivot()
         {
             if (_headPivot != null) return;
-            var go = new GameObject("HeadPivot"); go.transform.SetParent(transform);
-            go.transform.localPosition = new Vector3(0f, 0.85f, 0f); _headPivot = go.transform;
+            var go = new GameObject("HeadPivot");
+            go.transform.SetParent(transform);
+            go.transform.localPosition = new Vector3(0f, 0.85f, 0f);
+            _headPivot = go.transform;
         }
 
         private void EnsureShotPoints()
         {
             if (_shotPoint2D == null)
             {
-                var go = new GameObject("ShotPoint2D"); go.transform.SetParent(transform);
-                go.transform.localPosition = new Vector3(0.55f, 0f, 0f); _shotPoint2D = go.transform;
+                var go = new GameObject("ShotPoint2D");
+                go.transform.SetParent(transform);
+                go.transform.localPosition = new Vector3(0.55f, 0f, 0f);
+                _shotPoint2D = go.transform;
             }
             if (_shotPoint3D == null)
             {
                 Transform parent = _headPivot != null ? _headPivot : transform;
-                var go = new GameObject("ShotPoint3D"); go.transform.SetParent(parent);
-                go.transform.localPosition = new Vector3(0.25f, -0.05f, 0.5f); _shotPoint3D = go.transform;
+                var go = new GameObject("ShotPoint3D");
+                go.transform.SetParent(parent);
+                go.transform.localPosition = new Vector3(0.25f, -0.05f, 0.5f);
+                _shotPoint3D = go.transform;
             }
         }
 
