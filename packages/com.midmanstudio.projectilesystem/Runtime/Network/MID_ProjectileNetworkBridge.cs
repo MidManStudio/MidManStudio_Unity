@@ -1,26 +1,23 @@
 // packages/com.midmanstudio.projectilesystem/Runtime/Network/MID_ProjectileNetworkBridge.cs
 //
-// ARCHITECTURE CHANGE: SpawnConfirmedClientRpc now routes to LocalProjectileManager
-//   instead of ClientPredictionManager for the Rust sim visual path.
+// FIX (double visual on firing client):
+//   Removed ambiguous isFiringClient routing in SpawnConfirmedClientRpc.
+//   FireServerRpc now uses TargetClientIds to send two different RPCs:
+//     - LinkProjectileIdsClientRpc → ONLY the sender (firing client)
+//       Swaps temp IDs to real server IDs in their existing Rust buffer entries.
+//       No new projectiles spawned — they already have theirs running.
+//     - SpawnConfirmedClientRpc → all OTHER clients
+//       They have no existing entries; they spawn fresh Rust buffer entries.
+//   Host is excluded from both via if(IsServer) guards since it renders
+//   directly from ServerProjectileAuthority.
 //
-//   Firing client  → LinkNetworkProjectileBatch (temp ID → real ID in Rust buffer)
-//   Other clients  → SpawnNetworkBatch2D/3D (new entries in Rust buffer, position
-//                    advanced by elapsed server time to match current expected position)
-//
-//   HitConfirmedClientRpc now calls KillNetworkProjectile on LocalProjectileManager
-//   to force-clear the visual from the client's Rust sim buffer immediately.
-//   ClientPredictionManager.OnHitConfirmed is still called for physics pool visuals.
-//
-//   SendSnapshotClientRpc now calls LocalProjectileManager.ReconcileSnapshots2D/3D
-//   which corrects position directly in the Rust buffer. Rust sim continues smoothly
-//   from the corrected position on the next tick — no C# lerp overhead.
-//
-//   ADDED: _localPlayerMidId + SetLocalPlayerMidId() so SpawnConfirmedClientRpc
-//   can distinguish the firing client from all other clients without relying on
-//   OwnerClientId (which is the NGO connection ID, not the game MID ID).
+// FIX (zig-zag reconciliation):
+//   SendSnapshotClientRpc now passes currentServerTick + tickInterval to
+//   ReconcileSnapshots2D/3D so they can extrapolate the stale snapshot
+//   position forward before comparing. See LocalProjectileManager for math.
 
 using System;
-using System.Runtime.InteropServices;
+using System.Collections.Generic;
 using UnityEngine;
 using Unity.Netcode;
 using Unity.Netcode.Transports.UTP;
@@ -54,13 +51,21 @@ namespace MidManStudio.Projectiles.Network
 
         public void NetworkSerialize<T>(BufferSerializer<T> s) where T : IReaderWriter
         {
-            s.SerializeValue(ref ConfigId); s.SerializeValue(ref Origin); s.SerializeValue(ref Direction);
-            s.SerializeValue(ref Speed); s.SerializeValue(ref RngSeed); s.SerializeValue(ref ProjectileCount);
-            s.SerializeValue(ref OwnerMidId); s.SerializeValue(ref FiredByNetworkObjectId);
-            s.SerializeValue(ref IsBotOwner); s.SerializeValue(ref WeaponLevel);
-            s.SerializeValue(ref DamageMultiplier); s.SerializeValue(ref ClientFireTick);
+            s.SerializeValue(ref ConfigId);
+            s.SerializeValue(ref Origin);
+            s.SerializeValue(ref Direction);
+            s.SerializeValue(ref Speed);
+            s.SerializeValue(ref RngSeed);
+            s.SerializeValue(ref ProjectileCount);
+            s.SerializeValue(ref OwnerMidId);
+            s.SerializeValue(ref FiredByNetworkObjectId);
+            s.SerializeValue(ref IsBotOwner);
+            s.SerializeValue(ref WeaponLevel);
+            s.SerializeValue(ref DamageMultiplier);
+            s.SerializeValue(ref ClientFireTick);
             s.SerializeValue(ref ExtraDirectionCount);
-            if (s.IsReader) ExtraDirections = ExtraDirectionCount > 0 ? new Vector3[ExtraDirectionCount] : null;
+            if (s.IsReader)
+                ExtraDirections = ExtraDirectionCount > 0 ? new Vector3[ExtraDirectionCount] : null;
             for (int i = 0; i < ExtraDirectionCount; i++)
             {
                 Vector3 d = (s.IsWriter && ExtraDirections != null && i < ExtraDirections.Length)
@@ -85,20 +90,25 @@ namespace MidManStudio.Projectiles.Network
         public Vector3[] ExtraDirections;
 
         /// <summary>
-        /// Server-authoritative NetworkTime.TimeAsFloat captured immediately after
-        /// BatchSpawnHelper completes. Used by clients to estimate elapsed flight time
-        /// and advance projectile position before inserting into the local Rust buffer.
-        /// Zero means the field was not set (old server or offline mode).
+        /// Server-authoritative NetworkTime.TimeAsFloat at spawn.
+        /// Used by other clients to compute elapsed flight time for position catch-up.
+        /// Zero = not set (offline / old server).
         /// </summary>
         public float ServerNetworkTime;
 
         public void NetworkSerialize<T>(BufferSerializer<T> s) where T : IReaderWriter
         {
-            s.SerializeValue(ref BaseProjId); s.SerializeValue(ref ProjectileCount);
-            s.SerializeValue(ref ConfigId); s.SerializeValue(ref ServerSpawnTick);
-            s.SerializeValue(ref Origin); s.SerializeValue(ref Direction); s.SerializeValue(ref Speed);
-            s.SerializeValue(ref OwnerMidId); s.SerializeValue(ref ExtraDirectionCount);
-            if (s.IsReader) ExtraDirections = ExtraDirectionCount > 0 ? new Vector3[ExtraDirectionCount] : null;
+            s.SerializeValue(ref BaseProjId);
+            s.SerializeValue(ref ProjectileCount);
+            s.SerializeValue(ref ConfigId);
+            s.SerializeValue(ref ServerSpawnTick);
+            s.SerializeValue(ref Origin);
+            s.SerializeValue(ref Direction);
+            s.SerializeValue(ref Speed);
+            s.SerializeValue(ref OwnerMidId);
+            s.SerializeValue(ref ExtraDirectionCount);
+            if (s.IsReader)
+                ExtraDirections = ExtraDirectionCount > 0 ? new Vector3[ExtraDirectionCount] : null;
             for (int i = 0; i < ExtraDirectionCount; i++)
             {
                 Vector3 d = (s.IsWriter && ExtraDirections != null && i < ExtraDirections.Length)
@@ -130,9 +140,13 @@ namespace MidManStudio.Projectiles.Network
 
         public void NetworkSerialize<T>(BufferSerializer<T> s) where T : IReaderWriter
         {
-            s.SerializeValue(ref ProjId); s.SerializeValue(ref TargetNetworkId);
-            s.SerializeValue(ref Damage); s.SerializeValue(ref HitPosition);
-            s.SerializeValue(ref IsHeadshot); s.SerializeValue(ref IsCrit); s.SerializeValue(ref ConfigId);
+            s.SerializeValue(ref ProjId);
+            s.SerializeValue(ref TargetNetworkId);
+            s.SerializeValue(ref Damage);
+            s.SerializeValue(ref HitPosition);
+            s.SerializeValue(ref IsHeadshot);
+            s.SerializeValue(ref IsCrit);
+            s.SerializeValue(ref ConfigId);
         }
     }
 
@@ -151,46 +165,34 @@ namespace MidManStudio.Projectiles.Network
 
         [SerializeField] private MID_LogLevel _logLevel = MID_LogLevel.Info;
 
-        // Game MID ID of the local player.
-        // Used by SpawnConfirmedClientRpc to route: firing client gets LinkNetworkProjectileBatch,
-        // all others get SpawnNetworkBatch (full spawn into their Rust buffer).
+        // Still stored for ClientPredictionManager physics visual routing.
+        // No longer used for SpawnConfirmedClientRpc routing (that now uses TargetClientIds).
         private ulong _localPlayerMidId;
+        private bool  _isShuttingDown;
 
-        private bool _isShuttingDown;
+        // ── Transport Configuration ───────────────────────────────────────────
+
+        public static void ConfigureTransportForHighThroughput()
+        {
+            if (NetworkManager.Singleton == null) return;
+            var transport = NetworkManager.Singleton.NetworkConfig?.NetworkTransport
+                as UnityTransport;
+            if (transport == null)
+            {
+                Debug.LogWarning("[MID_ProjectileNetworkBridge] " +
+                    "ConfigureTransportForHighThroughput: not UnityTransport.");
+                return;
+            }
+            transport.MaxSendQueueSize = 16 * 1024 * 1024;
+        }
 
         // ── Public API ────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Set by MID_MasterProjectileSystem.SetLocalPlayerMidId().
-        /// Must be set before the first Fire() call for routing to work correctly.
+        /// Stored for ClientPredictionManager physics visual routing.
+        /// No longer needed for Rust sim routing — that uses TargetClientIds now.
         /// </summary>
         public void SetLocalPlayerMidId(ulong midId) => _localPlayerMidId = midId;
-
-        // ── Transport Configuration ───────────────────────────────────────────
-
-        /// <summary>
-        /// Configures UnityTransport for high-throughput projectile traffic.
-        /// MUST be called before NetworkManager.StartHost() / StartServer() / StartClient().
-        /// MID_MasterProjectileSystem.Initialise() calls this automatically.
-        /// Also call from your lobby / connection code before starting the session.
-        /// </summary>
-        public static void ConfigureTransportForHighThroughput()
-        {
-            if (NetworkManager.Singleton == null) return;
-
-            var transport = NetworkManager.Singleton.NetworkConfig?.NetworkTransport
-                as UnityTransport;
-
-            if (transport == null)
-            {
-                Debug.LogWarning(
-                    "[MID_ProjectileNetworkBridge] ConfigureTransportForHighThroughput: " +
-                    "NetworkTransport is not UnityTransport — skipping.");
-                return;
-            }
-
-            transport.MaxSendQueueSize = 16 * 1024 * 1024; // 16 MB
-        }
 
         // ── Lifecycle ─────────────────────────────────────────────────────────
 
@@ -246,7 +248,9 @@ namespace MidManStudio.Projectiles.Network
         // ── Client → Server: Rust Sim ─────────────────────────────────────────
 
         [ServerRpc(RequireOwnership = false)]
-        public void FireServerRpc(ProjectileFireRequest request, ServerRpcParams rpcParams = default)
+        public void FireServerRpc(
+            ProjectileFireRequest request,
+            ServerRpcParams rpcParams = default)
         {
             if (!IsServer || !IsSpawned || _isShuttingDown) return;
 
@@ -262,21 +266,9 @@ namespace MidManStudio.Projectiles.Network
             float clampedSpeed = Mathf.Clamp(request.Speed, cfg.MinSpeed, cfg.MaxSpeed);
             float latencyComp  = ComputeLatencyComp(rpcParams, request.ClientFireTick);
 
-            var context = new WeaponFireContext
-            {
-                ProjectileCount        = request.ProjectileCount,
-                IsNetworked            = true,
-                IsRaycastWeapon        = false,
-                LatencyCompensation    = latencyComp,
-                OwnerMidId             = request.OwnerMidId,
-                FiredByNetworkObjectId = request.FiredByNetworkObjectId,
-                IsBotOwner             = request.IsBotOwner,
-                WeaponLevel            = request.WeaponLevel,
-                DamageMultiplier       = request.DamageMultiplier
-            };
-
             var spawnPts     = BuildServerSpawnPoints(request);
-            var rustParams   = ProjectileRegistry.Instance.GetRustSpawnParams(request.ConfigId, clampedSpeed);
+            var rustParams   = ProjectileRegistry.Instance.GetRustSpawnParams(
+                request.ConfigId, clampedSpeed);
             uint baseId      = Authority.AllocateProjIds(request.ProjectileCount);
             var dataTemplate = new ServerProjectileData(
                 request.OwnerMidId, request.FiredByNetworkObjectId,
@@ -308,7 +300,7 @@ namespace MidManStudio.Projectiles.Network
                 ? (float)NetworkManager.Singleton.ServerTime.TimeAsFloat
                 : 0f;
 
-            SpawnConfirmedClientRpc(new SpawnConfirmation
+            var confirmation = new SpawnConfirmation
             {
                 BaseProjId          = baseId,
                 ProjectileCount     = (byte)written,
@@ -321,7 +313,52 @@ namespace MidManStudio.Projectiles.Network
                 ExtraDirectionCount = request.ExtraDirectionCount,
                 ExtraDirections     = request.ExtraDirections,
                 ServerNetworkTime   = serverNetworkTime
+            };
+
+            ulong senderClientId = rpcParams.Receive.SenderClientId;
+
+            // FIX: Route differently to sender vs all other clients.
+            //
+            // Sender (firing client): already has the projectile in their Rust buffer
+            // under temp IDs. Send LinkProjectileIdsClientRpc to swap temp→real IDs.
+            // No new projectiles spawned on their end — they already have theirs.
+            //
+            // All other clients: have no existing entries. Send SpawnConfirmedClientRpc
+            // so they spawn fresh Rust buffer entries with the real server IDs.
+            //
+            // Host (IsServer && IsClient): fires via MasterProjectileSystem which
+            // skips SpawnFiringClientBatch (IsServer guard) and renders from
+            // ServerProjectileAuthority. Both RPCs return early via if(IsServer).
+            // Including host in TargetClientIds for LinkProjectileIds is harmless
+            // but we exclude it for clarity.
+
+            // Send ID link to the sender only
+            LinkProjectileIdsClientRpc(baseId, written, new ClientRpcParams
+            {
+                Send = new ClientRpcSendParams
+                {
+                    TargetClientIds = new[] { senderClientId }
+                }
             });
+
+            // Send spawn to all other connected clients
+            var otherClients = new List<ulong>(
+                NetworkManager.Singleton.ConnectedClientsIds.Count);
+            foreach (ulong id in NetworkManager.Singleton.ConnectedClientsIds)
+            {
+                if (id != senderClientId) otherClients.Add(id);
+            }
+
+            if (otherClients.Count > 0)
+            {
+                SpawnConfirmedClientRpc(confirmation, new ClientRpcParams
+                {
+                    Send = new ClientRpcSendParams
+                    {
+                        TargetClientIds = otherClients
+                    }
+                });
+            }
         }
 
         // ── Client → Server: Raycast ──────────────────────────────────────────
@@ -375,7 +412,7 @@ namespace MidManStudio.Projectiles.Network
             if (netObj == null)
             {
                 MID_Logger.LogWarning(_logLevel,
-                    $"FirePhysicsProjectileServerRpc: pool returned null for {poolType}.",
+                    $"FirePhysicsProjectileServerRpc: pool null for {poolType}.",
                     nameof(MID_ProjectileNetworkBridge));
                 return;
             }
@@ -391,15 +428,16 @@ namespace MidManStudio.Projectiles.Network
         // ── Server → Clients ──────────────────────────────────────────────────
 
         /// <summary>
-        /// Routed by OwnerMidId:
-        ///   Firing client → LinkNetworkProjectileBatch (temp ID → real ID swap in Rust buffer)
-        ///   Other clients → SpawnNetworkBatch2D/3D (new Rust buffer entry, position pre-advanced)
-        ///
-        /// Host is excluded entirely (IsServer guard) — it renders from ServerProjectileAuthority.
+        /// FIX: Sent to OTHER clients only (not the firing client).
+        /// Spawns fresh Rust buffer entries for projectiles fired by remote players.
+        /// Position is advanced by elapsed server time to account for RPC travel time.
         /// </summary>
         [ClientRpc]
-        public void SpawnConfirmedClientRpc(SpawnConfirmation confirmation)
+        public void SpawnConfirmedClientRpc(
+            SpawnConfirmation confirmation,
+            ClientRpcParams rpcParams = default)
         {
+            // Host renders from ServerProjectileAuthority — skip entirely
             if (IsServer || !IsSpawned || _isShuttingDown) return;
 
             var localMgr = LocalProjectileManager.HasInstance
@@ -409,54 +447,53 @@ namespace MidManStudio.Projectiles.Network
             var cfg = ProjectileRegistry.Instance?.Get(confirmation.ConfigId);
             if (cfg == null) return;
 
-            bool isFiringClient = _localPlayerMidId != 0
-                               && confirmation.OwnerMidId == _localPlayerMidId;
+            float elapsed = GetElapsedSinceServerSpawn(confirmation.ServerNetworkTime);
 
             MID_Logger.LogDebug(_logLevel,
-                $"SpawnConfirmedClientRpc: baseId={confirmation.BaseProjId} " +
-                $"count={confirmation.ProjectileCount} " +
-                $"firing={isFiringClient} serverNetTime={confirmation.ServerNetworkTime:F3}",
+                $"SpawnConfirmedClientRpc (other client): baseId={confirmation.BaseProjId} " +
+                $"count={confirmation.ProjectileCount} elapsed={elapsed:F3}",
                 nameof(MID_ProjectileNetworkBridge));
 
-            if (isFiringClient)
-            {
-                // Swap temp IDs written by SpawnFiringClientBatch* to real server IDs.
-                // Rust sim has been running locally since fire — position is already correct.
-                localMgr.LinkNetworkProjectileBatch(
-                    confirmation.BaseProjId, confirmation.ProjectileCount);
-            }
+            if (!cfg.Is3D)
+                localMgr.SpawnNetworkBatch2D(confirmation, elapsed);
             else
-            {
-                // Compute how long the projectile has been flying since server spawned it.
-                // This is used to advance the starting position so it doesn't pop in at the barrel.
-                float elapsed = GetElapsedSinceServerSpawn(confirmation.ServerNetworkTime);
-
-                if (!cfg.Is3D)
-                    localMgr.SpawnNetworkBatch2D(confirmation, elapsed);
-                else
-                    localMgr.SpawnNetworkBatch3D(confirmation, elapsed);
-            }
+                localMgr.SpawnNetworkBatch3D(confirmation, elapsed);
         }
 
         /// <summary>
-        /// Forces the projectile dead in the client's Rust sim buffer (all clients).
-        /// For physics/raycast pool visuals, also notifies ClientPredictionManager.
-        /// Plays the impact effect regardless.
+        /// FIX: Sent ONLY to the firing client.
+        /// Swaps the temp IDs they spawned locally with the real server-assigned IDs.
+        /// No new entries are spawned — they already have their projectiles running.
+        /// </summary>
+        [ClientRpc]
+        private void LinkProjectileIdsClientRpc(
+            uint realBaseId, int count,
+            ClientRpcParams rpcParams = default)
+        {
+            // Host renders from ServerProjectileAuthority — skip
+            if (IsServer || !IsSpawned || _isShuttingDown) return;
+
+            MID_Logger.LogDebug(_logLevel,
+                $"LinkProjectileIdsClientRpc: realBase={realBaseId} count={count}",
+                nameof(MID_ProjectileNetworkBridge));
+
+            LocalProjectileManager.Instance?.LinkNetworkProjectileBatch(realBaseId, count);
+        }
+
+        /// <summary>
+        /// Forces projectile dead in client's Rust sim buffer on confirmed hit.
+        /// Also notifies ClientPredictionManager for physics pool visuals.
         /// </summary>
         [ClientRpc]
         public void HitConfirmedClientRpc(HitConfirmation confirmation)
         {
             if (!IsSpawned || _isShuttingDown) return;
 
-            // Kill the visual entry in the client's Rust sim buffer immediately.
-            // If it already expired naturally this is a no-op.
             if (IsClient)
                 LocalProjectileManager.Instance?.KillNetworkProjectile(confirmation.ProjId);
 
-            // Physics/raycast pool visuals tracked by ClientPredictionManager
             if (IsClient) Prediction?.OnHitConfirmed(confirmation);
 
-            // Impact effect (plays on all clients including host)
             ImpactHandler?.PlayImpact(
                 confirmation.HitPosition, confirmation.ConfigId, confirmation.IsHeadshot);
 
@@ -464,36 +501,39 @@ namespace MidManStudio.Projectiles.Network
         }
 
         /// <summary>
-        /// Corrects projectile positions directly in the client's Rust buffer.
-        /// If the error is below threshold the correction is skipped and Rust continues
-        /// undisturbed. Wave/Circular types are never sent snapshots (filtered server-side).
-        /// Host is excluded — it reads authoritative buffer from ServerProjectileAuthority.
+        /// FIX: Passes currentServerTick and tickInterval to ReconcileSnapshots so
+        /// the stale snapshot position can be extrapolated forward before comparing.
+        /// See LocalProjectileManager.ReconcileSnapshots2D/3D for the math.
         /// </summary>
         [ClientRpc]
         public void SendSnapshotClientRpc(
             ProjectileSnapshot2D[] snapshots2D, int count2D,
             ProjectileSnapshot3D[] snapshots3D, int count3D)
         {
-            if ((IsServer && !IsClient) || !IsSpawned || _isShuttingDown) return;
+            // Skip dedicated server AND host — both render from ServerProjectileAuthority
+            if (IsServer || !IsSpawned || _isShuttingDown) return;
 
             var localMgr = LocalProjectileManager.HasInstance
                 ? LocalProjectileManager.Instance : null;
             if (localMgr == null) return;
 
-            if (count2D > 0) localMgr.ReconcileSnapshots2D(snapshots2D, count2D);
-            if (count3D > 0) localMgr.ReconcileSnapshots3D(snapshots3D, count3D);
+            int   currentTick  = NetworkManager.Singleton?.ServerTime.Tick ?? 0;
+            float tickInterval = NetworkManager.Singleton != null
+                ? 1f / NetworkManager.Singleton.NetworkTickSystem.TickRate
+                : Time.fixedDeltaTime;
+
+            if (count2D > 0) localMgr.ReconcileSnapshots2D(
+                snapshots2D, count2D, currentTick, tickInterval);
+            if (count3D > 0) localMgr.ReconcileSnapshots3D(
+                snapshots3D, count3D, currentTick, tickInterval);
         }
 
         // ── Utility ───────────────────────────────────────────────────────────
 
         public int GetServerTick()
-            => NetworkManager.Singleton != null ? NetworkManager.Singleton.ServerTime.Tick : 0;
+            => NetworkManager.Singleton != null
+                ? NetworkManager.Singleton.ServerTime.Tick : 0;
 
-        /// <summary>
-        /// How long ago (in server time) did the server spawn this projectile?
-        /// Used to advance other clients' starting position on spawn.
-        /// Clamped to 0.5s to prevent runaway advancement on extreme latency.
-        /// </summary>
         private float GetElapsedSinceServerSpawn(float serverNetworkTime)
         {
             if (serverNetworkTime <= 0f || NetworkManager.Singleton == null) return 0f;
@@ -517,8 +557,14 @@ namespace MidManStudio.Projectiles.Network
             {
                 Vector3 dir = i == 0 ? req.Direction.normalized
                     : (req.ExtraDirections != null && i - 1 < req.ExtraDirections.Length
-                        ? req.ExtraDirections[i - 1].normalized : req.Direction.normalized);
-                pts[i] = new SpawnPoint { Origin = req.Origin, Direction = dir, Speed = req.Speed };
+                        ? req.ExtraDirections[i - 1].normalized
+                        : req.Direction.normalized);
+                pts[i] = new SpawnPoint
+                {
+                    Origin    = req.Origin,
+                    Direction = dir,
+                    Speed     = req.Speed
+                };
             }
             return pts;
         }
