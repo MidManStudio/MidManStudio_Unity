@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: DefaultProjectile
   m_EditorClassIdentifier: 
   ConfigId: 1
-  _is3D: 1
+  _is3D: 0
   _preferredSimMode: 1
   _movementType: 2
   _minSpeed: 10

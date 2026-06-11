@@ -155,8 +155,8 @@ MonoBehaviour:
   _pelletsPerShot: 1
   _spreadDeg: 5
   _fireKey: 102
-  _shotPattern: {fileID: 0}
-  _defaultShootMode: 2
+  _shotPattern: {fileID: 11400000, guid: 03b599bd62d0c433db903d79ef222655, type: 2}
+  _defaultShootMode: 1
   _modeText: {fileID: 8186747673599802949}
   _modeCycleButton: {fileID: 3717547885973104246}
   _dimensionKey: 99

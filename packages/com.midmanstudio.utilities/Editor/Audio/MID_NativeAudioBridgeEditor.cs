@@ -1,4 +1,3 @@
-// MID_NativeAudioBridgeEditor.cs — v2: reflects pool architecture
 
 #if UNITY_EDITOR
 using UnityEditor;

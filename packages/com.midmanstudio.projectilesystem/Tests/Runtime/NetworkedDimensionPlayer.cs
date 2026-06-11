@@ -515,13 +515,7 @@ namespace TestGame
                 var predMgr = MID_MasterProjectileSystem.Instance.GetPredictionManager();
                 if (predMgr != null)
                 {
-                    predMgr.SpawnImmediatePrediction(new SpawnConfirmation
-                    {
-                        BaseProjId = 0, ProjectileCount = (byte)Mathf.Min(pts.Length, 255),
-                        ConfigId = cfgId, ServerSpawnTick = MID_MasterProjectileSystem.Instance.GetBridgeTick(),
-                        Origin = origin, Direction = pts[0].Direction, Speed = pts[0].Speed,
-                        OwnerMidId = OwnerClientId, ExtraDirectionCount = (byte)extraCount, ExtraDirections = extraDirs
-                    });
+                  
                 }
             }
 
