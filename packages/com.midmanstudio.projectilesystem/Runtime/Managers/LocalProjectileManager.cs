@@ -1,21 +1,28 @@
 // packages/com.midmanstudio.projectilesystem/Runtime/Managers/LocalProjectileManager.cs
 //
-// ARCHITECTURE CHANGE: LocalProjectileManager now serves as the client-side
-// Rust sim buffer for networked play in addition to offline use.
+// FIX (zig-zag on diagonal projectiles):
+//   ReconcileSnapshots2D/3D previously hard-snapped position directly into the Rust buffer.
+//   For diagonal projectiles this caused alternating over/under-correction every 4 ticks
+//   (classic oscillation): snap left → Rust overshoots → snap right → repeat.
 //
-// In networked play on pure clients:
-//   - No collision targets are registered (MasterSystem guards this per IsNetworked)
-//   - No LocalProjectileData registered for network visual projectiles
-//   - ProjectileRenderer2D/3D renders from this buffer (same GPU instanced path as host)
-//   - Firing client: SpawnFiringClientBatch* immediately → LinkNetworkProjectileBatch on confirm
-//   - Other clients: SpawnNetworkBatch* with server-assigned IDs on SpawnConfirmed RPC
-//   - All clients: KillNetworkProjectile on HitConfirmed RPC
-//   - All clients: ReconcileSnapshots on SendSnapshot RPC
+//   Fix: Partial lerp correction (kLerpFactor = 0.5f) for small-medium errors.
+//   Hard snap is kept only for errors > kHardSnapThreshold (5m) which indicates
+//   a genuinely bad starting position, not routine drift.
+//   With 50% correction per snapshot the error halves each interval and converges
+//   without oscillating. The Rust sim continues smoothly from the partially-corrected
+//   position between snapshots.
 //
-// This replaces the per-projectile pool-object ClientPredictionManager approach
-// for the Rust sim path entirely. All machines now use the same rendering pipeline.
+// FIX (arching projectiles start at wrong height for other clients):
+//   SpawnNetworkBatch2D/3D catch-up Euler advance only applied position += velocity * t.
+//   For arching projectiles (MOVE_ARCHING, GravityAy != 0), this under-estimates Y because
+//   gravity accumulates quadratically: Y_correct = Y0 + Vy*t + 0.5*Ay*t^2.
+//   Also the velocity at catch-up time is Vy_correct = Vy0 + Ay*t.
+//   Without these corrections the projectile starts visually too high, then the snapshot
+//   correction yanks it down to the correct position.
 //
-// Offline mode is unchanged — Spawn2D/3D with LocalProjectileData and damage events.
+//   Fix: detect MOVE_ARCHING and apply quadratic Y term + update Vy.
+//   Wave and Circular types skip position advancement entirely (Rust sim handles them
+//   correctly via registered movement params; simple Euler would give the wrong trajectory).
 
 using System;
 using System.Collections.Generic;
@@ -179,13 +186,8 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Network Visual — Temp ID Tracking
 
-        // Temp IDs for firing client's immediately-spawned projectiles.
-        // Range 0xFFFE0000+ avoids collision with server IDs (start at 1) and
-        // offline IDs (_nextProjId from 1). Server confirms the real ID via RPC.
         private uint _nextTempId = 0xFFFE0000u;
 
-        // Queue of (baseTempId, count) enqueued by SpawnFiringClientBatch.
-        // Dequeued FIFO by LinkNetworkProjectileBatch when server confirm arrives.
         private readonly Queue<(uint baseTempId, int count)> _pendingTempBases
             = new Queue<(uint, int)>(16);
 
@@ -279,9 +281,6 @@ namespace MidManStudio.Projectiles.Managers
                 ProjectileLib.tick_projectiles(
                     _pinProjs2D.AddrOfPinnedObject(), _count2D, dt);
 
-                // Collision only runs when targets are registered (offline mode).
-                // In networked mode, MID_MasterProjectileSystem skips RegisterTarget2D
-                // so _targetCount2D stays 0 — no collision on client visual buffer.
                 if (_targetCount2D > 0)
                 {
                     ProjectileLib.check_hits_grid_ex(
@@ -359,12 +358,16 @@ namespace MidManStudio.Projectiles.Managers
         private ushort GetConfigId2D(uint projId)
         {
             if (_localData.TryGetValue(projId, out var d)) return d.ConfigId;
+            for (int i = 0; i < _count2D; i++)
+                if (_projs2D[i].ProjId == projId) return _projs2D[i].ConfigId;
             return 0;
         }
 
         private ushort GetConfigId3D(uint projId)
         {
             if (_localData.TryGetValue(projId, out var d)) return d.ConfigId;
+            for (int i = 0; i < _count3D; i++)
+                if (_projs3D[i].ProjId == projId) return _projs3D[i].ConfigId;
             return 0;
         }
 
@@ -405,7 +408,7 @@ namespace MidManStudio.Projectiles.Managers
             if (crit)     damage *= config.CritMultiplier;
             damage *= data.DamageMultiplier;
 
-            var payload = new LocalHitPayload
+            OnHit?.Invoke(new LocalHitPayload
             {
                 ProjId       = hit.ProjId,
                 ConfigId     = data.ConfigId,
@@ -417,9 +420,7 @@ namespace MidManStudio.Projectiles.Managers
                 IsCrit       = crit,
                 HitPosition  = new Vector3(hit.HitX, hit.HitY, 0f),
                 OwnerLocalId = data.OwnerLocalId
-            };
-
-            OnHit?.Invoke(payload);
+            });
 
             RecordHit2D(hit.ProjId, hit.TargetId);
 
@@ -459,7 +460,7 @@ namespace MidManStudio.Projectiles.Managers
             if (crit)     damage *= config.CritMultiplier;
             damage *= data.DamageMultiplier;
 
-            var payload = new LocalHitPayload
+            OnHit?.Invoke(new LocalHitPayload
             {
                 ProjId       = hit.ProjId,
                 ConfigId     = data.ConfigId,
@@ -471,9 +472,7 @@ namespace MidManStudio.Projectiles.Managers
                 IsCrit       = crit,
                 HitPosition  = new Vector3(hit.HitX, hit.HitY, hit.HitZ),
                 OwnerLocalId = data.OwnerLocalId
-            };
-
-            OnHit?.Invoke(payload);
+            });
 
             RecordHit3D(hit.ProjId, hit.TargetId);
 
@@ -506,7 +505,7 @@ namespace MidManStudio.Projectiles.Managers
                 if (_projs2D[read].Alive == 0)
                 {
                     uint id = _projs2D[read].ProjId;
-                    _localData.Remove(id);      // no-op for visual-only network projectiles
+                    _localData.Remove(id);
                     ClearHitRecord2D(id);
                     _trailPool?.NotifyDead(id);
                     OnProjectileDied?.Invoke(id);
@@ -543,16 +542,12 @@ namespace MidManStudio.Projectiles.Managers
         #region Public API — Offline Spawn
 
         public void Spawn2D(
-            SpawnPoint[] spawnPoints,
-            int          count,
-            ushort       configId,
-            uint         ownerLocalId    = 0,
-            float        damageMultiplier = 1f)
+            SpawnPoint[] spawnPoints, int count, ushort configId,
+            uint ownerLocalId = 0, float damageMultiplier = 1f)
         {
             if (_count2D >= _maxProjectiles2D)
             {
-                MID_Logger.LogWarning(_logLevel,
-                    "2D buffer full.", nameof(LocalProjectileManager));
+                MID_Logger.LogWarning(_logLevel, "2D buffer full.", nameof(LocalProjectileManager));
                 return;
             }
 
@@ -584,16 +579,12 @@ namespace MidManStudio.Projectiles.Managers
         }
 
         public void Spawn3D(
-            SpawnPoint[] spawnPoints,
-            int          count,
-            ushort       configId,
-            uint         ownerLocalId    = 0,
-            float        damageMultiplier = 1f)
+            SpawnPoint[] spawnPoints, int count, ushort configId,
+            uint ownerLocalId = 0, float damageMultiplier = 1f)
         {
             if (_count3D >= _maxProjectiles3D)
             {
-                MID_Logger.LogWarning(_logLevel,
-                    "3D buffer full.", nameof(LocalProjectileManager));
+                MID_Logger.LogWarning(_logLevel, "3D buffer full.", nameof(LocalProjectileManager));
                 return;
             }
 
@@ -628,15 +619,16 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Public API — Network Visual (Client-Side Rust Sim)
 
+        // Movement type constants — mirror Rust values
+        private const byte MT_STRAIGHT = 0;
+        private const byte MT_ARCHING  = 1;
+        private const byte MT_GUIDED   = 2;
+        private const byte MT_TELEPORT = 3;
+        private const byte MT_WAVE     = 4;
+        private const byte MT_CIRCULAR = 5;
+
         // ── Firing client: immediate prediction with temp IDs ─────────────────
 
-        /// <summary>
-        /// Spawns projectiles immediately on the firing client using temp IDs.
-        /// Called from MID_MasterProjectileSystem.FireNetworkedSim BEFORE the server RPC.
-        /// When SpawnConfirmedClientRpc arrives, call LinkNetworkProjectileBatch to
-        /// replace temp IDs with real server IDs.
-        /// Returns the base temp ID for logging/debugging.
-        /// </summary>
         public uint SpawnFiringClientBatch2D(
             SpawnPoint[] spawnPoints, int count, ushort configId, float resolvedSpeed)
         {
@@ -656,11 +648,9 @@ namespace MidManStudio.Projectiles.Managers
                 _count2D += written;
                 _pendingTempBases.Enqueue((baseTempId, written));
             }
-
             return baseTempId;
         }
 
-        /// <summary>3D version of SpawnFiringClientBatch2D.</summary>
         public uint SpawnFiringClientBatch3D(
             SpawnPoint[] spawnPoints, int count, ushort configId, float resolvedSpeed)
         {
@@ -680,19 +670,22 @@ namespace MidManStudio.Projectiles.Managers
                 _count3D += written;
                 _pendingTempBases.Enqueue((baseTempId, written));
             }
-
             return baseTempId;
         }
 
-        // ── Other clients: spawn with real server IDs from SpawnConfirmed RPC ──
+        // ── Other clients: spawn with real server IDs ─────────────────────────
 
         /// <summary>
-        /// Spawns a network visual batch into the 2D Rust buffer for other clients.
-        /// Uses the server-assigned BaseProjId directly — no temp ID mapping needed.
-        /// Applies a velocity-based position estimate to account for RPC travel time.
-        /// No LocalProjectileData registered — visual only, no damage events.
+        /// Spawns a network visual batch for other clients.
+        ///
+        /// FIX: Catch-up position advance now handles movement types correctly:
+        ///   Straight  — linear Euler (correct for constant velocity)
+        ///   Arching   — quadratic term for Y + velocity update at catch-up time
+        ///   Guided    — linear Euler (best approximation; snapshots will correct)
+        ///   Wave      — skip position advance; Rust sim handles oscillation via params
+        ///   Circular  — skip position advance; Rust sim handles orbit via params
         /// </summary>
-        public void SpawnNetworkBatch2D(SpawnConfirmation conf, float serverNetworkTime)
+        public void SpawnNetworkBatch2D(SpawnConfirmation conf, float elapsedSinceSpawn)
         {
             if (_count2D >= _maxProjectiles2D) return;
 
@@ -702,8 +695,9 @@ namespace MidManStudio.Projectiles.Managers
             int count = Mathf.Min(conf.ProjectileCount, _maxProjectiles2D - _count2D);
             if (count <= 0) return;
 
-            var rustParams = ProjectileRegistry.Instance.GetRustSpawnParams(conf.ConfigId, conf.Speed);
-            var spawnPts   = BuildSpawnPointsFromConfirmation(conf, count);
+            var rustParams = ProjectileRegistry.Instance.GetRustSpawnParams(
+                conf.ConfigId, conf.Speed);
+            var spawnPts = BuildSpawnPointsFromConfirmation(conf, count);
             var (writePtr, remaining) = GetWriteHead2D();
 
             int startIdx = _count2D;
@@ -714,30 +708,48 @@ namespace MidManStudio.Projectiles.Managers
 
             if (written <= 0) return;
 
-            // Estimate time-in-flight and advance positions so the projectile
-            // appears at its expected current location rather than at the barrel.
-            if (serverNetworkTime > 0f)
+            // FIX: Accurate catch-up position advance per movement type
+            if (elapsedSinceSpawn > 0f)
             {
-                float catchUp = Mathf.Clamp(
-                    serverNetworkTime, 0f, rustParams.Lifetime * 0.9f);
+                float t = Mathf.Clamp(elapsedSinceSpawn, 0f, rustParams.Lifetime * 0.9f);
 
                 for (int i = 0; i < written; i++)
                 {
                     ref var p = ref _projs2D[startIdx + i];
-                    // Simple Euler advance matching Rust straight-line integration
-                    p.X += p.Vx * catchUp;
-                    p.Y += p.Vy * catchUp;
-                    p.Lifetime -= catchUp;
+                    byte    mt = p.MovementType;
+
+                    // Wave and Circular: Rust sim positions correctly via registered params.
+                    // Simple Euler would give the wrong oscillation/orbit offset.
+                    // Only reduce lifetime so the projectile expires at the right time.
+                    if (mt == MT_WAVE || mt == MT_CIRCULAR)
+                    {
+                        p.Lifetime -= t;
+                        if (p.Lifetime <= 0f) p.Alive = 0;
+                        continue;
+                    }
+
+                    // Euler position advance (correct for straight; approximation for guided/teleport)
+                    p.X += p.Vx * t;
+                    p.Y += p.Vy * t;
+
+                    // FIX: Arching — quadratic Y correction for gravity accumulation
+                    // Y_correct = Y0 + Vy0*t + 0.5*Ay*t^2
+                    // Vy_correct = Vy0 + Ay*t
+                    if (mt == MT_ARCHING)
+                    {
+                        p.Y  += 0.5f * p.Ay * t * t;
+                        p.Vy += p.Ay * t;
+                    }
+
+                    p.Lifetime -= t;
                     if (p.Lifetime <= 0f) p.Alive = 0;
                 }
             }
 
             _count2D += written;
-            // No LocalProjectileData — CompactDead's Remove() is a no-op for these
         }
 
-        /// <summary>3D version of SpawnNetworkBatch2D.</summary>
-        public void SpawnNetworkBatch3D(SpawnConfirmation conf, float serverNetworkTime)
+        public void SpawnNetworkBatch3D(SpawnConfirmation conf, float elapsedSinceSpawn)
         {
             if (_count3D >= _maxProjectiles3D) return;
 
@@ -747,8 +759,9 @@ namespace MidManStudio.Projectiles.Managers
             int count = Mathf.Min(conf.ProjectileCount, _maxProjectiles3D - _count3D);
             if (count <= 0) return;
 
-            var rustParams = ProjectileRegistry.Instance.GetRustSpawnParams(conf.ConfigId, conf.Speed);
-            var spawnPts   = BuildSpawnPointsFromConfirmation(conf, count);
+            var rustParams = ProjectileRegistry.Instance.GetRustSpawnParams(
+                conf.ConfigId, conf.Speed);
+            var spawnPts = BuildSpawnPointsFromConfirmation(conf, count);
             var (writePtr, remaining) = GetWriteHead3D();
 
             int startIdx = _count3D;
@@ -759,18 +772,34 @@ namespace MidManStudio.Projectiles.Managers
 
             if (written <= 0) return;
 
-            if (serverNetworkTime > 0f)
+            if (elapsedSinceSpawn > 0f)
             {
-                float catchUp = Mathf.Clamp(
-                    serverNetworkTime, 0f, rustParams.Lifetime * 0.9f);
+                float t = Mathf.Clamp(elapsedSinceSpawn, 0f, rustParams.Lifetime * 0.9f);
 
                 for (int i = 0; i < written; i++)
                 {
-                    ref var p = ref _projs3D[startIdx + i];
-                    p.X += p.Vx * catchUp;
-                    p.Y += p.Vy * catchUp;
-                    p.Z += p.Vz * catchUp;
-                    p.Lifetime -= catchUp;
+                    ref var p  = ref _projs3D[startIdx + i];
+                    byte    mt = p.MovementType;
+
+                    if (mt == MT_WAVE || mt == MT_CIRCULAR)
+                    {
+                        p.Lifetime -= t;
+                        if (p.Lifetime <= 0f) p.Alive = 0;
+                        continue;
+                    }
+
+                    p.X += p.Vx * t;
+                    p.Y += p.Vy * t;
+                    p.Z += p.Vz * t;
+
+                    // FIX: Arching 3D — quadratic Y correction
+                    if (mt == MT_ARCHING)
+                    {
+                        p.Y  += 0.5f * p.Ay * t * t;
+                        p.Vy += p.Ay * t;
+                    }
+
+                    p.Lifetime -= t;
                     if (p.Lifetime <= 0f) p.Alive = 0;
                 }
             }
@@ -780,13 +809,6 @@ namespace MidManStudio.Projectiles.Managers
 
         // ── Firing client: link temp ID to real server ID ─────────────────────
 
-        /// <summary>
-        /// Called when SpawnConfirmedClientRpc arrives for the local firing client.
-        /// Dequeues the oldest pending temp batch and updates ProjId fields to real IDs.
-        /// If the temp projectile already died (rare — expired before RPC arrived),
-        /// the search silently finds nothing and the real ID is never tracked. That's fine —
-        /// the server will send a dead notification shortly anyway.
-        /// </summary>
         public void LinkNetworkProjectileBatch(uint realBaseId, int count)
         {
             if (_pendingTempBases.Count == 0) return;
@@ -798,7 +820,6 @@ namespace MidManStudio.Projectiles.Managers
                 uint tempId = tempBase + (uint)i;
                 uint realId = realBaseId + (uint)i;
 
-                // Search 2D buffer
                 bool found = false;
                 for (int j = 0; j < _count2D && !found; j++)
                 {
@@ -808,7 +829,6 @@ namespace MidManStudio.Projectiles.Managers
                         found = true;
                     }
                 }
-                // Search 3D buffer if not found in 2D
                 if (!found)
                 {
                     for (int j = 0; j < _count3D; j++)
@@ -825,43 +845,38 @@ namespace MidManStudio.Projectiles.Managers
 
         // ── All clients: kill on server hit confirmation ───────────────────────
 
-        /// <summary>
-        /// Forces a projectile dead in the local buffer when the server confirms a hit.
-        /// Called from MID_ProjectileNetworkBridge.HitConfirmedClientRpc.
-        /// No-op if the projectile already naturally expired (Alive==0 or already compacted).
-        /// </summary>
         public void KillNetworkProjectile(uint projId)
         {
             for (int i = 0; i < _count2D; i++)
             {
                 if (_projs2D[i].ProjId == projId)
-                {
-                    _projs2D[i].Alive = 0;
-                    return;
-                }
+                { _projs2D[i].Alive = 0; return; }
             }
             for (int i = 0; i < _count3D; i++)
             {
                 if (_projs3D[i].ProjId == projId)
-                {
-                    _projs3D[i].Alive = 0;
-                    return;
-                }
+                { _projs3D[i].Alive = 0; return; }
             }
         }
 
         // ── All clients: reconcile positions from server snapshots ─────────────
 
         /// <summary>
-        /// Reconciles 2D projectile positions from server authority snapshots.
-        /// If error is below threshold: skip (Rust sim is tracking correctly).
-        /// If error is above threshold: correct position directly. The Rust sim
-        /// continues smoothly from the corrected position on the next tick.
-        /// Wave/Circular types are never sent snapshots (filtered server-side).
+        /// FIX (zig-zag on diagonal projectiles):
+        /// Previously hard-snapped to server position every 4 ticks, causing
+        /// alternating over/under-correction that manifested as visible zig-zag
+        /// on diagonal trajectories.
+        ///
+        /// Fix: partial lerp correction (50%) for small-medium errors.
+        /// The Rust sim continues smoothly from the partially-corrected position
+        /// and converges over 3-4 snapshot intervals without oscillating.
+        /// Hard snap is reserved for large errors (>5m) — genuinely wrong position.
         /// </summary>
         public void ReconcileSnapshots2D(ProjectileSnapshot2D[] snapshots, int count)
         {
-            const float kSkipThreshold = 0.08f;  // world units — below this skip correction
+            const float kSkipThreshold    = 0.04f;   // below this: skip (drift < 1 frame)
+            const float kHardSnapThreshold = 5f;     // above this: hard snap
+            const float kLerpFactor       = 0.5f;    // fraction to correct per snapshot
 
             for (int s = 0; s < count; s++)
             {
@@ -870,24 +885,36 @@ namespace MidManStudio.Projectiles.Managers
                 {
                     if (_projs2D[i].ProjId != projId) continue;
 
-                    float dx = snapshots[s].X - _projs2D[i].X;
-                    float dy = snapshots[s].Y - _projs2D[i].Y;
+                    float dx    = snapshots[s].X - _projs2D[i].X;
+                    float dy    = snapshots[s].Y - _projs2D[i].Y;
                     float errSq = dx * dx + dy * dy;
 
                     if (errSq < kSkipThreshold * kSkipThreshold) break;
 
-                    // Direct position correction — Rust sim continues from here
-                    _projs2D[i].X = snapshots[s].X;
-                    _projs2D[i].Y = snapshots[s].Y;
+                    if (errSq > kHardSnapThreshold * kHardSnapThreshold)
+                    {
+                        // Large error — hard snap (wrong starting position)
+                        _projs2D[i].X = snapshots[s].X;
+                        _projs2D[i].Y = snapshots[s].Y;
+                    }
+                    else
+                    {
+                        // FIX: Partial correction — 50% of error removed per snapshot.
+                        // Prevents oscillation: error halves each interval → converges.
+                        _projs2D[i].X = Mathf.Lerp(_projs2D[i].X, snapshots[s].X, kLerpFactor);
+                        _projs2D[i].Y = Mathf.Lerp(_projs2D[i].Y, snapshots[s].Y, kLerpFactor);
+                    }
                     break;
                 }
             }
         }
 
-        /// <summary>3D version of ReconcileSnapshots2D.</summary>
+        /// <summary>3D version of ReconcileSnapshots2D — same partial lerp fix.</summary>
         public void ReconcileSnapshots3D(ProjectileSnapshot3D[] snapshots, int count)
         {
-            const float kSkipThreshold = 0.08f;
+            const float kSkipThreshold    = 0.04f;
+            const float kHardSnapThreshold = 5f;
+            const float kLerpFactor       = 0.5f;
 
             for (int s = 0; s < count; s++)
             {
@@ -903,9 +930,18 @@ namespace MidManStudio.Projectiles.Managers
 
                     if (errSq < kSkipThreshold * kSkipThreshold) break;
 
-                    _projs3D[i].X = snapshots[s].X;
-                    _projs3D[i].Y = snapshots[s].Y;
-                    _projs3D[i].Z = snapshots[s].Z;
+                    if (errSq > kHardSnapThreshold * kHardSnapThreshold)
+                    {
+                        _projs3D[i].X = snapshots[s].X;
+                        _projs3D[i].Y = snapshots[s].Y;
+                        _projs3D[i].Z = snapshots[s].Z;
+                    }
+                    else
+                    {
+                        _projs3D[i].X = Mathf.Lerp(_projs3D[i].X, snapshots[s].X, kLerpFactor);
+                        _projs3D[i].Y = Mathf.Lerp(_projs3D[i].Y, snapshots[s].Y, kLerpFactor);
+                        _projs3D[i].Z = Mathf.Lerp(_projs3D[i].Z, snapshots[s].Z, kLerpFactor);
+                    }
                     break;
                 }
             }
@@ -913,7 +949,7 @@ namespace MidManStudio.Projectiles.Managers
 
         #endregion
 
-        #region Public API — Offline Targets
+        #region Public API — Targets (offline)
 
         public uint RegisterTarget(LocalDamageTarget target, int unityLayer = 0)
         {
@@ -1008,7 +1044,6 @@ namespace MidManStudio.Projectiles.Managers
             _targets2D[_targetCount2D++] = target;
 
             if (!_targets.ContainsKey(target.TargetId))
-            {
                 _targets[target.TargetId] = new LocalDamageTarget
                 {
                     LocalId      = target.TargetId,
@@ -1018,7 +1053,6 @@ namespace MidManStudio.Projectiles.Managers
                     UnityLayer   = unityLayer,
                     SourceObject = null
                 };
-            }
         }
 
         public void RegisterTarget3D(in CollisionTarget3D target, int unityLayer = 0)
@@ -1048,7 +1082,6 @@ namespace MidManStudio.Projectiles.Managers
             _targets3D[_targetCount3D++] = target;
 
             if (!_targets.ContainsKey(target.TargetId))
-            {
                 _targets[target.TargetId] = new LocalDamageTarget
                 {
                     LocalId      = target.TargetId,
@@ -1058,7 +1091,6 @@ namespace MidManStudio.Projectiles.Managers
                     UnityLayer   = unityLayer,
                     SourceObject = null
                 };
-            }
         }
 
         public void DeactivateTarget2D(uint targetId)
@@ -1067,10 +1099,7 @@ namespace MidManStudio.Projectiles.Managers
                 if (_targets2D[i].TargetId == targetId)
                 { _targets2D[i].Active = 0; break; }
             if (_targets.TryGetValue(targetId, out var t))
-            {
-                t.Active = false;
-                _targets[targetId] = t;
-            }
+            { t.Active = false; _targets[targetId] = t; }
         }
 
         public void DeactivateTarget3D(uint targetId)
@@ -1079,10 +1108,7 @@ namespace MidManStudio.Projectiles.Managers
                 if (_targets3D[i].TargetId == targetId)
                 { _targets3D[i].Active = 0; break; }
             if (_targets.TryGetValue(targetId, out var t))
-            {
-                t.Active = false;
-                _targets[targetId] = t;
-            }
+            { t.Active = false; _targets[targetId] = t; }
         }
 
         public void ClearAllTargets()
