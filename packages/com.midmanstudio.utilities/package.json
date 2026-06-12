@@ -10,8 +10,8 @@
   "licensesUrl": "",
   "dependencies": {
     "com.unity.burst": "1.8.9",
-    "com.unity.collections": "2.2.0",
-    "com.unity.mathematics": "1.2.6"
+    "com.unity.collections": "2.2.1",
+    "com.unity.mathematics": "1.3.1"
   },
   "keywords": [
     "utilities", "tick", "dispatcher", "delay", "logger",
@@ -22,5 +22,12 @@
     "name": "MidMan Studio",
     "email": "",
     "url": "https://github.com/MidManStudio/MidManStudio_Unity"
-  }
+  },
+  "samples": [
+    {
+      "displayName": "Setup Demo",
+      "description": "Manager prefab hierarchy and example scene wiring for the Tick Dispatcher, Pool System, Audio System, Library System, and UI State System. Follow Documentation~/scenesetup.md for step-by-step setup.",
+      "path": "Samples~/SetupDemo"
+    }
+  ]
 }
