@@ -64,6 +64,7 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Editor/ProjectileSystemBenchmarkWindow.cs">
       <Link>Tests/Editor/ProjectileSystemBenchmarkWindow.cs</Link>
     </Compile>
+    <Compile Include="..\packages\com.midmanstudio.utilities\Samples~\SetupDemo\NewMonoBehaviour.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Editor/MidManStudio.ProjectileSystem.Tests.Editor.asmdef">

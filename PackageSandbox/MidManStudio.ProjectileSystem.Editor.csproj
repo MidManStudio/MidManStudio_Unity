@@ -76,6 +76,7 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Editor/ProjectileConfigGenerator.cs">
       <Link>Editor/ProjectileConfigGenerator.cs</Link>
     </Compile>
+    <Compile Include="..\packages\com.midmanstudio.utilities\Samples~\SetupDemo\NewMonoBehaviour.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Editor/MidManStudio.ProjectileSystem.Editor.asmdef">
