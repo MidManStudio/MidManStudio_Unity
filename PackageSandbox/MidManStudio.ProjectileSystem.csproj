@@ -184,7 +184,6 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Config/Generator/ProjectileConfigProviderSO.cs">
       <Link>Runtime/Config/Generator/ProjectileConfigProviderSO.cs</Link>
     </Compile>
-    <Compile Include="..\packages\com.midmanstudio.utilities\Samples~\SetupDemo\NewMonoBehaviour.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Shaders/InstancedProjectile.shader">
