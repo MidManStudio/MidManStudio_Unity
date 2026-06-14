@@ -70,7 +70,7 @@ public class Test_VisualAndAudio : MonoBehaviour
     {
         if (GlobalFXManager.HasInstance)
         {
-            GlobalFXManager.Instance.TriggerEffect(EffectCategory.MuzzleFlash, EffectType.SmallMuzzle, position, position,20,-1);
+            GlobalFXManager.Instance.TriggerEffect(EffectCategory.MuzzleFlash, EffectType.SmallMuzzle, position, Vector3.zero, 20,-1);
             if (LocalObjectPool.HasInstance)
             {
                 var audio = LocalObjectPool.Instance.GetObject(PoolableObjectType.SpawnableAudio, position, Quaternion.identity);
@@ -83,7 +83,7 @@ public class Test_VisualAndAudio : MonoBehaviour
     {
         if (GlobalFXManager.HasInstance)
         {
-            GlobalFXManager.Instance.TriggerEffect(EffectCategory.Explosion, EffectType.SmallExplosion, position, position,80,-1);
+            GlobalFXManager.Instance.TriggerEffect(EffectCategory.Explosion, EffectType.SmallExplosion, position, Vector3.zero, 80,-1);
             if (MID_NativeAudioBridge.HasInstance)
             {    
                 MID_NativeAudioBridge.Instance.PlayClip(1);

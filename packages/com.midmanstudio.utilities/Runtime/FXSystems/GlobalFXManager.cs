@@ -81,7 +81,7 @@ namespace MidManStudio.Core.Audio
 
         /// <summary>Trigger an effect by category and type at the given world position.</summary>
         public void TriggerEffect(EffectCategory category, EffectType effectType,
-                                   Vector3 position, Vector3 normal,
+                                   Vector3 position, Vector3 normal ,
                                    int particleCount = -1, float audioVolume = 1f)
             => TriggerEffect((int)category, (int)effectType, position, normal, particleCount, audioVolume);
 
@@ -109,8 +109,11 @@ namespace MidManStudio.Core.Audio
             int count = particleCount >= 0 ? particleCount : entry.defaultParticleCount;
 
             _emitParams.position             = position;
-            _emitParams.rotation3D           = Quaternion.LookRotation(normal).eulerAngles;
-            _emitParams.applyShapeToPosition = false;
+            if (normal != Vector3.zero)
+            {
+                _emitParams.rotation3D = Quaternion.LookRotation(normal).eulerAngles;
+            }
+           _emitParams.applyShapeToPosition = true;
             entry.particleSystem.Emit(_emitParams, count);
 
             RecordEmission((EffectCategory)category, position);

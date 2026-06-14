@@ -15,14 +15,14 @@ MonoBehaviour:
   ConfigId: 1
   _is3D: 0
   _preferredSimMode: 1
-  _movementType: 2
+  _movementType: 0
   _minSpeed: 10
   _maxSpeed: 10
   _lifetime: 3
   _gravityScale: 0
   _maxRange: 50
-  _piercingType: 0
-  _maxCollisions: 1
+  _piercingType: 1
+  _maxCollisions: 2
   _hitLayers:
     serializedVersion: 2
     m_Bits: 320
@@ -59,11 +59,11 @@ MonoBehaviour:
   _critChance: 0
   _critMultiplier: 1.5
   _sprite: {fileID: 21300000, guid: aa71786292cdc4e62b9e6e705956df55, type: 3}
-  _useSprite: 1
-  _customShape: {fileID: 0}
+  _useSprite: 0
+  _customShape: {fileID: 11400000, guid: 7c99cd4d02d7d4ff998cdebcbe3f8592, type: 2}
   _hasTrail: 1
   _trailMaterial: {fileID: 2100000, guid: 8e2bd416c1769401bac71c1f8d976a94, type: 2}
-  _useGradientOverride: 0
+  _useGradientOverride: 1
   _trailGradient:
     serializedVersion: 2
     key0: {r: 0.6082635, g: 1, b: 0, a: 1}
