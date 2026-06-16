@@ -1,11 +1,20 @@
 {
-  "name": "MidManStudio.Utilities.Editor",
-  "rootNamespace": "MidManStudio.Core.Editor",
-  "references": [
-    "MidManStudio.Utilities"
-  ],
-  "includePlatforms": ["Editor"],
-  "excludePlatforms": [],
-  "allowUnsafeCode": false,
-  "autoReferenced": false
+    "name": "MidManStudio.Utilities.Editor",
+    "rootNamespace": "MidManStudio.Editor",
+    "references": [
+        "MidManStudio.Utilities",
+        "Unity.Burst",
+        "Unity.Collections"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
 }
