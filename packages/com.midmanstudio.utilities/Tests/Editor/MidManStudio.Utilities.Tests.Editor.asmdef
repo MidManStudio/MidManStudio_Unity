@@ -1,21 +1,24 @@
 {
     "name": "MidManStudio.Utilities.Tests.Editor",
-    "rootNamespace": "MidManStudio.Core.Benchmarks",
+    "rootNamespace": "MidManStudio.Tests.Editor",
     "references": [
         "MidManStudio.Utilities",
         "Unity.Burst",
-        "Unity.Collections",
-        "Unity.Mathematics"
+        "Unity.Collections"
     ],
     "includePlatforms": [
         "Editor"
     ],
     "excludePlatforms": [],
-    "allowUnsafeCode": true,
-    "overrideReferences": false,
-    "precompiledReferences": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
     "autoReferenced": false,
-    "defineConstraints": [],
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
     "versionDefines": [],
     "noEngineReferences": false
 }
