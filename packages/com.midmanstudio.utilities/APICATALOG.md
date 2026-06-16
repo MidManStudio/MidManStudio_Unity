@@ -1,1226 +1,1077 @@
-# MidMan Studio Utilities — API Catalog
+# com.midmanstudio.utilities — API Catalog
+**MidMan Studio Utilities** v1.0.0  
+Last updated: 2026-06-15
 
-`com.midmanstudio.utilities` v1.0.0  
-Assembly: `MidManStudio.Utilities`  
-Namespace root: `MidManStudio.Core`
+> All discrepancy fixes from the audit are applied here.  
+> ⚠ marks corrected entries. Removed entries that had no implementation.
 
 ---
 
 ## Table of Contents
 
-1. [Pool System](#1-pool-system)
-2. [Pool Type Generator](#2-pool-type-generator)
-3. [Tick Dispatcher](#3-tick-dispatcher)
-4. [Tick Delay](#4-tick-delay)
-5. [Logger](#5-logger)
-6. [Singletons](#6-singletons)
-7. [Observable Values](#7-observable-values)
-8. [Events](#8-events)
-9. [Audio](#9-audio)
+1. [Tick Dispatcher](#1-tick-dispatcher)
+2. [Tick Delay](#2-tick-delay)
+3. [Logger](#3-logger)
+4. [Singletons](#4-singletons)
+5. [Observable Values](#5-observable-values)
+6. [Events](#6-events)
+7. [Pool System](#7-pool-system)
+8. [Audio](#8-audio)
+9. [FX System](#9-fx-system)
 10. [Timers](#10-timers)
 11. [Library System](#11-library-system)
 12. [Scene Management](#12-scene-management)
 13. [UI State System](#13-ui-state-system)
 14. [UI Components](#14-ui-components)
 15. [Helper Functions](#15-helper-functions)
-16. [Sequential Process Runner](#16-sequential-process-runner)
-17. [Editor Tools](#17-editor-tools)
-18. [Assembly Definitions](#18-assembly-definitions)
+16. [Sequential Processing](#16-sequential-processing)
+17. [Sticky Note](#17-sticky-note)
+18. [Editor Tools](#18-editor-tools)
 
 ---
 
-## 1. Pool System
+## 1. Tick Dispatcher
 
-Namespace: `MidManStudio.Core.Pools`
+**Namespace:** `MidManStudio.Core.TickDispatcher`  
+**File:** `Runtime/TickDispatcher/MID_TickDispatcher.cs`  
+**Type:** MonoSingleton
 
-### `LocalObjectPool : Singleton<LocalObjectPool>`
+Replaces per-MonoBehaviour `Update()` with a shared interval dispatcher.
+Subscribe once per tick rate — multiple systems sharing the same rate cost one dispatcher invocation.
 
-Singleton pool manager for non-particle GameObjects.  
-Keyed by the generated `PoolableObjectType` enum (or raw `int`).
+### `MID_TickDispatcher`
 
-**Inspector fields**
-
-| Field | Description |
-|---|---|
-| `poolConfigs` | List of `BasicPoolConfig` — one entry per prefab type |
-| `autoRegisterPrewarmCount` | Prewarm count used when auto-registering an unknown type |
-| `autoRegisterMaxPoolSize` | Max pool size used when auto-registering |
-| `enableAutoRegistration` | If true, unknown types are registered on first access |
-
-**Public API**
-
-```csharp
-void CallInitializePool()                     // call once at game start, chains to LocalParticlePool
-
-GameObject GetObject(PoolableObjectType type, Vector3 position, Quaternion rotation)
-GameObject GetObject(PoolableObjectType type, Vector2 position, Quaternion rotation)
-GameObject GetObject(int typeId, Vector3 position, Quaternion rotation)
-
-void ReturnObject(GameObject obj, PoolableObjectType type)
-void ReturnObject(GameObject obj, int typeId)
-
-void AddType(PoolableObjectType type, GameObject prefab, int prewarm = 5, int maxSize = 15)
-void AddType(int typeId, GameObject prefab, int prewarm = 5, int maxSize = 15)
-
-bool IsRegistered(PoolableObjectType type)
-bool IsRegistered(int typeId)
-bool HasBeenInitialized()
-void ReturnAllActive()
-void ClearPool()
+```
+delegate void TickCallback(float deltaTime)
 ```
 
----
-
-### `LocalParticlePool : Singleton<LocalParticlePool>`
-
-Singleton pool manager for particle effect GameObjects.  
-Initialized automatically by `LocalObjectPool.CallInitializePool()`.
-
-```csharp
-void CallInitializePool()
-
-GameObject GetObject(PoolableParticleType type, Vector3 position, Quaternion rotation)
-GameObject GetObject(PoolableParticleType type, Vector2 position, Quaternion rotation)
-GameObject GetObject(int typeId, Vector3 position, Quaternion rotation)
-
-void ReturnObject(GameObject obj, PoolableParticleType type)
-void ReturnObject(GameObject obj, int typeId)
-
-void AddType(PoolableParticleType type, GameObject prefab,
-             int prewarm = 10, int maxSize = 30, float lifetime = 5f)
-
-bool IsRegistered(PoolableParticleType type)
-bool IsRegistered(int typeId)
-bool HasBeenInitialized()
-void ClearPool()
-```
-
----
-
-### `LocalPoolReturn : MonoBehaviour`
-
-Auto-returns a pooled object to `LocalObjectPool` after a delay.  
-Added automatically by `LocalObjectPool` to every pooled instance.
-
-```csharp
-void SetOriginalType(PoolableObjectType type)
-void SetAutoReturn(bool enabled)
-void SetDuration(float seconds)
-void ReturnToPoolNow()
-bool IsScheduledForReturn()
-float GetDuration()
-bool IsAutoReturnEnabled()
-PoolableObjectType GetOriginalType()
-```
-
----
-
-### `LocalParticleReturn : MonoBehaviour`
-
-Auto-returns a pooled particle to `LocalParticlePool` after `maxLifetime` seconds.
-
-```csharp
-void SetOriginalType(PoolableParticleType type)
-void SetMaxLifetime(float seconds)
-void ReturnToPool()
-void ForceReturn()
-PoolableParticleType GetOriginalType()
-```
-
----
-
-### `TrailRendererPool : Singleton<TrailRendererPool>`
-
-Generic slot-based `TrailRenderer` pool for any moving entity.
-
-```csharp
-int  Acquire(TrailConfig config, int ownerId = 0)   // returns slot index, -1 if exhausted
-void SetPosition(int slot, Vector3 worldPosition)   // call every frame
-void Release(int slot)                              // fades naturally then recycles
-void ReleaseByOwner(int ownerId)
-void ForceRelease(int slot)
-bool IsAcquired(int slot)
-int  PoolSize { get; }
-```
-
-**`TrailConfig` struct**
-
-```csharp
-public struct TrailConfig
-{
-    public Material  Material;
-    public Gradient  ColorGradient;
-    public float     Time;
-    public float     StartWidth;
-    public float     EndWidth;
-    public int       CapVertices;
-    public static TrailConfig Default { get; }
-}
-```
-
----
-
-### `UIParticlePoolManager : MonoBehaviour`
-
-Manages UI-layer ParticleSystem effects by string key.
-
-```csharp
-void TriggerEffect(string key, int emitCount = 10)
-void PlayEffect(string key)
-void EmitEffect(string key, int count = 10)
-void StopEffect(string key, bool clear = true)
-void StopAll(bool clear = true)
-bool IsPlaying(string key)
-ParticleSystem GetSystem(string key)
-void RegisterEffect(UIEffectConfig config)
-void UnregisterEffect(string key)
-```
-
----
-
-### `BasicPoolConfig` / `ParticlePoolConfig`
-
-Inspector-visible pool entry. Assign in `LocalObjectPool` / `LocalParticlePool`.
-
-| Field | Description |
-|---|---|
-| `typeId` | Integer matching a `PoolableObjectType` / `PoolableParticleType` value |
-| `displayName` | Inspector label only |
-| `prefab` | The prefab to pool |
-| `prewarmCount` | Instances pre-created on init |
-| `maxPoolSize` | Pool destroys overflow beyond this |
-| `defaultLifetime` | (particle only) seconds before auto-return |
-
----
-
-## 2. Pool Type Generator
-
-Namespace: `MidManStudio.Core.Pools.Generator`  
-Assembly: `MidManStudio.Utilities.Editor` (editor only)  
-**Open via:** `MidManStudio > Utilities > Pool Type Generator`
-
----
-
-### `PoolTypeProviderSO : ScriptableObject`
-
-Create via: `MidManStudio > Utilities > Pool Type Provider (Object)`
-
-| Field | Description |
-|---|---|
-| `packageId` | Unique reverse-domain ID. e.g. `com.mygame` |
-| `displayName` | Shown in generator window |
-| `priority` | Lower = earlier block. 0 = utilities, 10 = projectile, 100+ = user |
-| `entries` | List of `PoolEntryDefinition` |
-
----
-
-### `ParticlePoolTypeProviderSO : ScriptableObject`
-
-Create via: `MidManStudio > Utilities > Pool Type Provider (Particle)`
-
-Same shape as `PoolTypeProviderSO`. Contributes to `PoolableParticleType`.
-
----
-
-### `PoolEntryDefinition`
-
-| Field | Type | Description |
+| Method | Returns | Description |
 |---|---|---|
-| `entryName` | `string` | Becomes the enum member name. PascalCase, no spaces |
-| `comment` | `string` | Written as `// comment` next to the member |
-| `explicitOffset` | `int` | `-1` = auto-assigned. `≥0` = pinned to this offset in the provider's block |
+| `Subscribe(TickRate rate, TickCallback callback)` | `void` | Register a callback to fire at the given interval |
+| `Unsubscribe(TickRate rate, TickCallback callback)` | `void` | Deregister — always call in OnDisable/OnDestroy |
+| `GetTickRateValue(TickRate rate)` | `float` | Returns the interval in seconds for a given rate |
 
-**Pinning** locks the absolute integer value permanently — use for entries referenced by serialised inspector fields.
+> **Zero-alloc rule:** Always store callbacks as `private static readonly TickCallback _cb = MyMethod;`  
+> A method group expression (`Subscribe(rate, MyMethod)`) allocates a new delegate object every call.
 
 ---
 
-### `PoolTypeGeneratorSettingsSO : ScriptableObject`
+### `TickRate` Enum
 
-Create via: `MidManStudio > Utilities > Pool Type Generator Settings`
+`Runtime/TickDispatcher/TickRate.cs`
 
-| Field | Default |
+| Value | Interval | Fires/sec | Recommended use |
+|---|---|---|---|
+| `Tick_0_01` | 0.01s | 100 | ⚠ Faster than 60fps — no gameplay value |
+| `Tick_0_02` | 0.02s | 50 | ⚠ Faster than 60fps — no gameplay value |
+| `Tick_0_05` | 0.05s | 20 | Fast weapon systems, rapid-fire checks |
+| `Tick_0_1` | 0.1s | 10 | Fast AI, cooldown tracking — recommended minimum |
+| `Tick_0_2` | 0.2s | 5 | Standard AI, ability systems ← most common |
+| `Tick_0_5` | 0.5s | 2 | Area-of-effect checks, perception |
+| `Tick_1` | 1.0s | 1 | Health regen, stats display |
+| `Tick_2` | 2.0s | 0.5 | Distant object updates |
+| `Tick_5` | 5.0s | 0.2 | Spawner logic, wave managers |
+
+---
+
+### `MID_NativeTickDispatcher`
+
+**File:** `Runtime/TickDispatcher/MID_NativeTickDispatcher.cs`
+
+Burst-compiled `IJob` wrapper. Runs accumulation logic on a worker thread; callbacks still fire on main thread. No public API — `MID_TickDispatcher` uses it internally.  
+Requires `Unity.Burst` and `Unity.Collections` in the asmdef.
+
+---
+
+### `TickDelayHandle` (struct)
+
+**File:** `Runtime/TickDispatcher/TickDelayHandle.cs`
+
+| Member | Type | Description |
+|---|---|---|
+| `IsValid` | `bool` | True if handle refers to a live entry |
+| `IsComplete` | `bool` | True if the delay has already fired |
+| `Cancel()` | `void` | Cancels the pending action; safe if already fired |
+
+---
+
+## 2. Tick Delay
+
+**Namespace:** `MidManStudio.Core.TickDispatcher`  
+**File:** `Runtime/TickDispatcher/MID_TickDelay.cs`  
+**Type:** Static class
+
+Zero-alloc alternative to `StartCoroutine` and `Task.Delay`.
+Runs on the main thread; safe to call any Unity API in the callback.
+Works inside NGO ServerRpc/ClientRpc where `IEnumerator` signatures are forbidden.
+
+### `MID_TickDelay`
+
+| Method | Returns | Description |
+|---|---|---|
+| `After(float delay, Action callback, TickRate rate)` | `TickDelayHandle` | Fire callback once after delay seconds |
+| `Every(float interval, Action callback, TickRate rate, int repeatCount = -1)` | `TickDelayHandle` | Repeat at interval; -1 = infinite |
+| `Cancel(TickDelayHandle handle)` | `void` | Cancel a specific handle |
+| `CancelAll()` | `void` | Cancel all pending delays |
+
+> **Zero-alloc rule:** Cache `Action` as `private static readonly Action _cb = MyMethod;`  
+> Passing a method group expression allocates a new `Action` object on the heap every call.
+
+---
+
+## 3. Logger
+
+**Namespace:** `MidManStudio.Core.Logging`  
+**File:** `Runtime/Logging/MID_Logger.cs`  
+**Type:** Static class
+
+Level-gated coloured console logger. Each MonoBehaviour controls its own `MID_LogLevel` field —
+no global mute, no reflection overhead. All output is stripped from release builds when level = `None`.
+
+### `MID_Logger`
+
+| Method | Description |
 |---|---|
-| `objectEnumOutputPath` | `packages/com.midmanstudio.utilities/Runtime/PoolSystems/Generated/PoolableObjectType.cs` |
-| `particleEnumOutputPath` | `packages/com.midmanstudio.utilities/Runtime/PoolSystems/Generated/PoolableParticleType.cs` |
-| `lockFilePath` | `Assets/MidManStudio/Generated/Pools/PoolTypeLock.json` |
-| `minimumBlockSize` | `100` |
-| `generatedNamespace` | `MidManStudio.Core.Pools` |
-| `autoGenerateOnAssetChange` | `false` |
+| `LogInfo(MID_LogLevel level, string message, string className = "", string methodName = "")` | Logs if level >= Info |
+| `LogWarning(MID_LogLevel level, string message, string className = "", string methodName = "")` | Logs if level >= Info |
+| `LogError(MID_LogLevel level, string message, string className = "", string methodName = "", Exception ex = null)` | Logs if level >= Error |
+| `LogDebug(MID_LogLevel level, string message, string className = "", string methodName = "")` | Logs if level >= Debug |
+| `LogVerbose(MID_LogLevel level, string message, string className = "", string methodName = "")` | Logs if level == Verbose |
 
-**Commit `PoolTypeLock.json` to source control** — it prevents value shifts on regeneration.
+### `MID_LogLevel` Enum
 
----
-
-## 3. Tick Dispatcher
-
-Namespace: `MidManStudio.Core.TickDispatcher`
-
-### `MID_TickDispatcher : MonoBehaviour`
-
-Zero-allocation managed tick dispatcher. Replaces per-MonoBehaviour `Update()`.
-
-```csharp
-static bool Subscribe(TickRate tickRate, TickCallback callback)
-static bool Unsubscribe(TickRate tickRate, TickCallback callback)
-static bool IsSubscribed(TickRate r, TickCallback cb)
-static int  GetSubscriberCount(TickRate r)
-static bool IsTickRateActive(TickRate r)
-static float GetInterval(TickRate r)
-static float GetFrequency(TickRate r)
-static void ClearSubscribers(TickRate r)
-static void ClearAllSubscribers()
-static bool IsReady    { get; }
-static bool IsQuitting { get; }
-```
-
-**Callback signature:** `delegate void TickCallback(float deltaTime)`
-
-**`TickRate` enum — selection guide**
-
-| Member | Interval | Fires/sec | Notes |
-|---|---|---|---|
-| `Tick_0_01` | 10ms | 100 | ⛔ Never use — fires faster than frame, negative saving |
-| `Tick_0_02` | 20ms | 50 | ⚠️ Marginal — only if fps reliably > 50 |
-| `Tick_0_05` | 50ms | 20 | Fast minimum — projectiles, weapon systems |
-| `Tick_0_1` | 100ms | 10 | ✅ Recommended minimum — fast AI, cooldowns |
-| `Tick_0_2` | 200ms | 5 | Standard — enemy AI, ability systems |
-| `Tick_0_5` | 500ms | 2 | Slow — area checks, perception |
-| `Tick_1` | 1s | 1 | Very slow — health regen, UI numbers |
-| `Tick_2` | 2s | 0.5 | Ambient — distant objects |
-| `Tick_5` | 5s | 0.2 | Rare — spawners, wave logic |
-
-**Usage pattern:**
-```csharp
-// Always use static readonly delegate — method group creates new object each call in Unity 2019.2+
-private static readonly MID_TickDispatcher.TickCallback _onTick = OnTick;
-
-void OnEnable()  => MID_TickDispatcher.Subscribe(TickRate.Tick_0_2, _onTick);
-void OnDisable() => MID_TickDispatcher.Unsubscribe(TickRate.Tick_0_2, _onTick);  // NEVER skip
-static void OnTick(float dt) { /* 5x/sec instead of 60x/sec */ }
-```
+| Value | Outputs |
+|---|---|
+| `None` | Nothing — use in released builds |
+| `Error` | Errors only |
+| `Info` | Info + warnings + errors ← recommended for production |
+| `Debug` | Debug + info + warnings + errors |
+| `Verbose` | Everything |
 
 ---
 
-### `MID_NativeTickDispatcher : MonoBehaviour`
+## 4. Singletons
 
-Burst-compiled native tick dispatcher. Only use for fully data-oriented workloads with 500+ subscribers doing real math.
+**Namespace:** `MidManStudio.Core.Singleton`  
+**Files:** `Runtime/Singletons/`
 
-```csharp
-bool Subscribe(TickRate r, NativeTickDelegate callback)
-bool Unsubscribe(TickRate r, NativeTickDelegate callback)
-bool IsSubscribed(TickRate r, NativeTickDelegate callback)
-int  GetSubscriberCount(TickRate r)
-void ClearSubscribers(TickRate r)
-void ClearAllSubscribers()
-```
+### `MID_Singleton<T>` (abstract class)
 
-Rules: method must be `static` + `[BurstCompile]`, must NOT touch managed objects.
+Pure C# singleton. No MonoBehaviour, no scene dependency. Safe to use from any thread.
 
----
+| Member | Type | Description |
+|---|---|---|
+| `Instance` | `T` | Returns or creates the singleton instance |
+| `HasInstance` | `bool` | True if instance has been created |
 
-## 4. Tick Delay
+### `MID_MonoSingleton<T>` (abstract MonoBehaviour)
 
-Namespace: `MidManStudio.Core.TickDispatcher`
+MonoBehaviour singleton with optional DontDestroyOnLoad.
 
-### `MID_TickDelay` (static class)
+| Member | Type | Description |
+|---|---|---|
+| `Instance` | `T` | Returns existing or finds instance in scene |
+| `HasInstance` | `bool` | True if a live instance exists |
+| `DontDestroyOnLoad` | `bool` | Inspector — persists across scene loads |
 
-Zero-allocation delayed action system built on `MID_TickDispatcher`.
-
-**Minimum rate: `Tick_0_1`** — rates faster than this are automatically clamped with a warning.
-
-**Zero-alloc contract:**
-```csharp
-// ✗ Allocates every call — method group creates new delegate object in Unity 2019.2+
-MID_TickDelay.After(1f, MyMethod);
-
-// ✓ Zero alloc — pre-allocate delegate once as static readonly field
-private static readonly Action _onDelay = HandleDelay;
-MID_TickDelay.After(1f, _onDelay);
-```
-
-**API:**
-```csharp
-// Schedule once — returns cancellable handle
-TickDelayHandle After(float seconds, Action action, TickRate rate = Tick_0_1)
-
-// Repeat N times
-TickDelayHandle Repeat(float intervalSeconds, int times, Action action, TickRate rate = Tick_0_1)
-
-// Repeat until cancelled
-TickDelayHandle RepeatForever(float intervalSeconds, Action action, TickRate rate = Tick_0_1)
-
-static void Cancel(TickDelayHandle handle)
-static void CancelAll()
-static int  ActiveCount { get; }
-static int  PoolCapacity { get; set; }  // default 64, set before first call
-```
-
-**`TickDelayHandle` struct:**
-```csharp
-bool IsValid { get; }
-void Cancel()
-```
-
-**Trade-offs vs alternatives:**
-
-| | MID_TickDelay | Coroutine | Task.Delay |
-|---|---|---|---|
-| GC allocation | 0 B (always) | ~80–400 B per call | ~120–160 B cold, 0 B warm pool |
-| Thread | Main | Main | Threadpool — cannot touch Unity |
-| IEnumerator | Not needed | Required — breaks RPC signatures | Not needed |
-| Timing error | 0–100ms at Tick_0_1 | 0–16ms at 60fps | ~0–2ms (OS timer) |
-| Cancellable | Yes (TickDelayHandle) | Yes (StopCoroutine) | Yes (CancellationToken, extra alloc) |
-
-**NGO/Netcode usage:**
-```csharp
-// Works directly inside ServerRpc — no IEnumerator, no Task, no alloc
-[ServerRpc]
-private void SpawnPlayerServerRpc(ulong clientId)
-{
-    MID_TickDelay.After(RespawnDelay, _respawnCallback, TickRate.Tick_0_2);
-}
-private static readonly Action _respawnCallback = DoRespawn;
-private static void DoRespawn() { /* safe — runs on main thread */ }
-```
+> **Warning:** `MID_Singleton<T>.Instance` can create instances. Never call from finalizers (GC thread).
 
 ---
 
-## 5. Logger
+## 5. Observable Values
 
-Namespace: `MidManStudio.Core.Logging`
-
-### `MID_Logger : MonoBehaviour`
-
-Level-gated singleton logger. Prefix tokens coloured in Editor; message body always plain text.
-
-```csharp
-static void LogDebug(MID_LogLevel level, string message, string className = "", string method = "")
-static void LogInfo(MID_LogLevel level, string message, string className = "", string method = "")
-static void LogWarning(MID_LogLevel level, string message, string className = "", string method = "")
-static void LogError(MID_LogLevel level, string message, string className = "", string method = "",
-                     Exception e = null)
-static void LogException(MID_LogLevel level, Exception e, string message = "",
-                         string className = "", string method = "")
-static void LogVerbose(MID_LogLevel level, string message, string className = "", string method = "")
-static bool ShouldLog(MID_LogLevel current, MID_LogLevel messageLevel)
-```
-
-### `MID_LogLevel` enum
- None = 0    no output
-Error = 1   errors only
-Info = 2    info + warnings + errors  ← recommended for production
-Debug = 3   debug + info + warnings + errors
-Verbose = 4 everything
-
-**Pattern:**
-```csharp
-[SerializeField] private MID_LogLevel _logLevel = MID_LogLevel.Info;
-MID_Logger.LogInfo(_logLevel, "Ready.", nameof(MyClass), nameof(MyMethod));
-```
-
-**Editor tool:** `MidManStudio > Utilities > Logger Manager` — bulk-set log levels across all scene MonoBehaviours.
-
----
-
-## 6. Singletons
-
-Namespace: `MidManStudio.Core.Singleton`
-
-### `Singleton<T> : MonoBehaviour`
-
-```csharp
-static T    Instance     { get; }   // auto-creates if missing
-static bool HasInstance  { get; }
-static T    TryGetInstance()
-static T    Current      { get; }
-static bool IsAvailable()
-static T    GetExistingInstance()
-static void Reset()
-
-protected virtual void Awake()
-protected virtual void Remake(bool persistAcrossScenes = false)
-protected virtual void InitializeSingleton(bool persist)
-```
-
-Implement `SingletonLifecycle` interface on subclass for `OnSceneChange` callbacks.
-
----
-
-### `StaticContentSingleton<T>` where `T : class, new()`
-
-Thread-safe lazy singleton for pure C# classes — no MonoBehaviour, no GameObject.
-
-```csharp
-static T    Instance        { get; }   // thread-safe double-checked locking
-static bool HasInstance     { get; }
-static bool IsInitialized   { get; }
-static T    TryGetInstance()
-static void Initialize(T instance)    // inject custom or subclass instance
-static void Reset()                   // calls Dispose() if T : IDisposable
-```
-
-Implement `IStaticSingletonInitializable` on `T` to receive `Initialize()` on first creation.
-
----
-
-## 7. Observable Values
-
-Namespace: `MidManStudio.Core.ObservableValues`
+**Namespace:** `MidManStudio.Core.ObservableValues`  
+**Files:** `Runtime/ObservableValues/`
 
 ### `MID_SusValue<T>`
 
-Generic observable value. Fires callbacks on change or on any set attempt.
+Generic reactive value container. Fires callbacks only when value actually changes (equality check).
+
+| Member | Type | Description |
+|---|---|---|
+| `Value` | `T` | Get/set. Fires ValueChanged callbacks only if new value differs |
+| `SubscribeToValueChanged(Action<T, T> callback)` | `void` | Callback receives (oldValue, newValue) |
+| `SubscribeToAnyUpdate(Action<T> callback)` | `void` | Fires on every `set`, even if value is same |
+| `Unsubscribe(Action<T, T> callback)` | `void` | Remove ValueChanged subscription |
+| `UnsubscribeFromAnyUpdate(Action<T> callback)` | `void` | Remove AnyUpdate subscription |
+| `ClearAllSubscriptions()` | `void` | Remove all subscriptions for this value |
+
+---
+
+### `ManagedSusValue<T>` (extends MID_SusValue\<T\>)
+
+Auto-cleanup on owner destroy. Registered with `SusValueManager` by string ID.
+
+| Member | Type | Description |
+|---|---|---|
+| Constructor `(T initialValue, string id, GameObject owner)` | — | Registers with SusValueManager |
+| `ClearAllForOwner(GameObject owner)` | `static void` | Unregisters and clears all values tied to this owner |
+
+> ⚠ **FIX applied:** Finalizer removed. Was calling `SusValueManager.Instance` from GC thread (unsafe).  
+> Cleanup is now exclusively via `OnDestroy` → `ClearAllForOwner`.
+
+---
+
+### `SusValueManager` (MonoSingleton)
+
+Registry for ManagedSusValues. Handles cleanup when owners are destroyed.
+
+| Method | Returns | Description |
+|---|---|---|
+| `RegisterValue(string id, object value)` | `void` | Called by ManagedSusValue constructor |
+| `UnregisterValue(string id)` | `void` | Called by ClearAllForOwner |
+| `GetValue<T>(string id)` | `ManagedSusValue<T>` | Retrieve a registered value by ID |
+
+---
+
+## 6. Events
+
+**Namespace:** `MidManStudio.Core.Events`  
+**Files:** `Runtime/Events/`
+
+### `MID_GameEventSO` (ScriptableObject)
+
+Inspector-wired event channel. Create via `Right-click > MidManStudio > Utilities > Game Event`.
+
+| Method | Description |
+|---|---|
+| `Raise()` | Notifies all registered listeners |
+| `RegisterListener(MID_GameEventListener listener)` | Called automatically by listener on OnEnable |
+| `UnregisterListener(MID_GameEventListener listener)` | Called automatically by listener on OnDisable |
+
+---
+
+### `MID_GameEventListener` (MonoBehaviour)
+
+| Inspector Field | Type | Description |
+|---|---|---|
+| `GameEvent` | `MID_GameEventSO` | The event to listen to |
+| `Response` | `UnityEvent` | Invoked when event is raised |
+
+| Method | Description |
+|---|---|
+| `OnEventRaised()` | Invokes Response — also callable directly from code |
+
+---
+
+### `MID_DelayedGameEventListener` (MonoBehaviour)
+
+Same as MID_GameEventListener but fires Response after a tick-based delay.
+
+| Inspector Field | Type | Description |
+|---|---|---|
+| `GameEvent` | `MID_GameEventSO` | The event to listen to |
+| `Delay` | `float` | Delay in seconds before response fires |
+| `TickRate` | `TickRate` | Resolution of the delay |
+| `Response` | `UnityEvent` | Invoked after delay |
+
+> ⚠ **FIX applied:** `_fireDelayedDelegate` is now cached in `Awake()`.  
+> Previous code: `MID_TickDelay.After(_delay, FireDelayed, _tickRate)` allocated a delegate per-raise.
+
+---
+
+### `MID_TypedEventBus` (static class)
+
+Generic in-memory event bus. No ScriptableObject required. Keyed by event type `T`.
+
+| Method | Returns | Description |
+|---|---|---|
+| `Subscribe<T>(Action<T> handler)` | `void` | Register a handler for event type T |
+| `Unsubscribe<T>(Action<T> handler)` | `void` | Remove handler |
+| `Publish<T>(T eventData)` | `void` | Fire all handlers for type T |
+| `Clear<T>()` | `void` | Remove all handlers for type T |
 
 ```csharp
-MID_SusValue(T initialValue = default, Func<T, bool> validationFunc = null)
+// Define event struct in your game code:
+public struct PlayerDiedEvent { public int PlayerId; }
 
-T    Value          { get; set; }   // set triggers callbacks
-bool IsValueNull    { get; }
+// Subscribe:
+MID_TypedEventBus.Subscribe<PlayerDiedEvent>(OnPlayerDied);
 
-void SetValidationFunction(Func<T, bool> func)
-void ClearValidationFunction()
-
-bool SubscribeToValueChanged(OnValueChangedDelegate callback)   // (T old, T new)
-bool UnsubscribeFromValueChanged(OnValueChangedDelegate callback)
-bool IsSubscribedToValueChanged(OnValueChangedDelegate callback)
-
-bool SubscribeToAnyUpdate(OnAnyUpdateDelegate callback)         // (T value) — fires every set
-bool UnsubscribeFromAnyUpdate(OnAnyUpdateDelegate callback)
-bool IsSubscribedToAnyUpdate(OnAnyUpdateDelegate callback)
-
-void SetValueSilently(T value)   // bypass callbacks, validation still runs
-void ForceNotify()
-void ClearAllSubscriptions()
-int  GetSubscriberCount()
-
-static implicit operator T(MID_SusValue<T> v)
+// Publish:
+MID_TypedEventBus.Publish(new PlayerDiedEvent { PlayerId = 1 });
 ```
 
 ---
 
-### `ManagedSusValue<T> : MID_SusValue<T>, IManagedSusValue`
+## 7. Pool System
 
-Extends `MID_SusValue<T>` with automatic registration in `SusValueManager`.
+**Namespace:** `MidManStudio.Core.Pools`  
+**Files:** `Runtime/PoolSystems/`
 
-```csharp
-ManagedSusValue(T initialValue = default, string id = null,
-                GameObject owner = null, Func<T, bool> validationFunc = null)
-
-string ValueId   { get; }
-bool   IsManaged { get; }
-```
-
-If `owner` is supplied, all subscriptions are cleared automatically when the owner is destroyed.
+Pool type enums are **code-generated** — see [Editor Tools §18](#18-editor-tools).  
+Generated files live in `Runtime/PoolSystems/Generated/`.
 
 ---
 
-### `SusValueManager : Singleton<SusValueManager>`
+### `LocalObjectPool` (MonoSingleton)
 
-```csharp
-void RegisterValue(IManagedSusValue value, GameObject owner = null)
-void UnregisterValue(string valueId)
-void ClearAllForOwner(GameObject owner)
-void ClearAll()
-bool IsRegistered(string valueId)
-int  RegisteredCount { get; }
-```
+Main GameObject pool. Chains to `LocalParticlePool` on `CallInitializePool()`.
 
----
+| Method | Returns | Description |
+|---|---|---|
+| `CallInitializePool()` | `void` | Initialize all registered types — call once at game start |
+| `GetObject(PoolableObjectType type, Vector3 position, Quaternion rotation)` | `GameObject` | Spawn from pool; activates and positions the object |
+| `ReturnObject(GameObject obj, PoolableObjectType type)` | `void` | Return to pool; deactivates the object |
+| `AddType(PoolableObjectType type, GameObject prefab, int initialSize, int maxSize)` | `void` | Register a new type at runtime |
+| `IsRegistered(PoolableObjectType type)` | `bool` | Check if type has a pool entry |
+| `GetPoolSize(PoolableObjectType type)` | `int` | Total capacity (active + inactive) |
+| `GetActiveCount(PoolableObjectType type)` | `int` | Currently active object count |
 
-## 8. Events
-
-Namespace: `MidManStudio.Core.Events`
-
-### `MID_GameEvent : ScriptableObject`
-
-Create via: `MidManStudio > Utilities > Game Event`
-
-```csharp
-void Raise()
-void Register(MID_GameEventListener listener)
-void Deregister(MID_GameEventListener listener)
-int  ListenerCount { get; }
-```
-
-### `MID_GameEventListener : MonoBehaviour`
-
-Attach to any GameObject. Self-registers/deregisters on Enable/Disable.
-
-```csharp
-public MID_GameEvent _gameEvent;    // assign in inspector
-public UnityEvent    _onResponse;   // fires when event is raised
-public virtual void  OnEventRaised()
-public void          RaiseEvent()
-```
-
-### `MID_DelayedGameEventListener : MID_GameEventListener`
-
-Fires an immediate response then a delayed response via `MID_TickDelay`.
-
-```csharp
-[SerializeField] private float      _delay;
-[SerializeField] private TickRate   _tickRate;
-[SerializeField] private UnityEvent _delayedResponse;
-```
-
-### `MID_EventBus<T>` where `T : IMIDEvent` (static)
-
-Typed global event bus. One channel per event type.
-
-```csharp
-static void Subscribe(Action<T> handler)
-static void Unsubscribe(Action<T> handler)
-static void Raise(T payload)
-static void ClearAll()
-static int  SubscriberCount { get; }
-static MID_LogLevel LogLevel   // set per channel
-```
-
-```csharp
-// Define event payload
-public struct PlayerDiedEvent : IMIDEvent { public ulong PlayerId; }
-
-// Subscribe
-MID_EventBus<PlayerDiedEvent>.Subscribe(OnPlayerDied);
-
-// Fire
-MID_EventBus<PlayerDiedEvent>.Raise(new PlayerDiedEvent { PlayerId = 5 });
-
-// Cleanup on scene unload
-MID_EventBus<PlayerDiedEvent>.ClearAll();
-```
-
-### `MID_EventBusRegistry` (static)
-
-```csharp
-static void Register<T>() where T : IMIDEvent   // register for bulk teardown
-static void ClearAll()                           // call on scene unload
-```
+> ⚠ `int typeId` overloads listed in previous catalog **do not exist** — removed.  
+> Only `PoolableObjectType` enum overloads are implemented.
 
 ---
 
-## 9. Audio
+### `LocalParticlePool` (MonoSingleton)
 
-Namespace: `MidManStudio.Core.Audio`
+ParticleSystem pool. Initialized by `LocalObjectPool.CallInitializePool()`.
 
-### `MID_AudioManager : Singleton<MID_AudioManager>`
+| Method | Returns | Description |
+|---|---|---|
+| `CallInitializePool()` | `void` | Initialize all registered particle types |
+| `GetParticle(PoolableParticleType type, Vector3 position, Quaternion rotation)` | `ParticleSystem` | Spawn particle from pool |
+| `ReturnParticle(ParticleSystem ps, PoolableParticleType type)` | `void` | Return particle to pool |
+| `IsRegistered(PoolableParticleType type)` | `bool` | Check if type has a particle pool entry |
 
-```csharp
-void   PlayMusic(string id, bool fade = true)
-void   StopMusic(bool fade = true)
-void   PauseMusic()
-void   ResumeMusic()
-void   SetMusicEnabled(bool enabled)
-void   SetMusicPitch(float targetPitch, bool instant = false)
-void   PlaySFX(string id)
-void   PlayClipDirect(AudioClip clip, float volume = 1f)
-void   PlaySFXPitched(string id, float pitch)
-void   PlayClipDirectPitched(AudioClip clip, float pitch, float volume = 1f)
-void   SetMasterVolume(float v)
-float  MasterVolume      { get; }
-bool   IsMusicPlaying    { get; }
-bool   IsMusicEnabled    { get; }
-string CurrentMusicId    { get; }
-event  Action<bool> OnMusicEnabledChanged
-```
+---
 
-### `MID_SpawnableAudio : MonoBehaviour`
+### `TrailRendererPool` (MonoSingleton)
 
-Pooled audio object. Use `PoolableObjectType.SpawnableAudio`.
+Dedicated pool for TrailRenderers — requires separate management because clearing a trail takes a frame.
 
-```csharp
-void PlayOneShot(AudioClip clip, Vector3 position, float volume = 1f, float pitch = 1f)
-void PlayLooping(AudioClip clip, Vector3 position, Transform follow = null,
-                 Vector3 offset = default, float volume = 1f, float pitch = 1f)
-void PlaySequential(AudioClip flyingClip, AudioClip collisionClip, Vector3 position,
-                    Transform follow, float volume = 1f, float pitch = 1f)
-void TriggerCollision(float volume = 1f)
-void Return()
-```
+| Method | Returns | Description |
+|---|---|---|
+| `GetTrail(Vector3 startPosition)` | `TrailRenderer` | Spawn trail from pool, positioned at start |
+| `ReturnTrail(TrailRenderer trail)` | `void` | Clears trail data and returns to pool |
 
-### `MID_AudioLibrarySO : ScriptableObject`
+---
 
-Create via: `MidManStudio > Utilities > Audio Library`
+### `LocalPoolReturn` (MonoBehaviour)
 
-```csharp
-void BuildLookup()
-bool TryGet(string id, out MID_AudioEntry entry)
-bool HasClip(string id)
-int  Count { get; }
-```
+Auto-added to spawned objects by `LocalObjectPool`. Can also be called manually.
+
+| Member | Type | Description |
+|---|---|---|
+| `PoolType` | `PoolableObjectType` | Set by pool on spawn — do not reassign |
+| `ReturnToPool()` | `void` | Returns this object to the pool |
+
+---
+
+### `IPoolable` (interface)
+
+Implement on any component attached to a pooled prefab.
+
+| Method | Description |
+|---|---|
+| `OnSpawn()` | Called when object is retrieved from pool |
+| `OnReturn()` | Called just before object is returned to pool |
+
+---
+
+### `PoolableObjectType` (generated enum)
+
+**File:** `Runtime/PoolSystems/Generated/PoolableObjectType.cs`  
+**Namespace:** `MidManStudio.Core.Pools`
+
+Generated by Pool Type Generator. Do not edit manually — re-run generator after changes.  
+Values are stabilised by `Assets/MidManStudio/Generated/Pools/PoolTypeLock.json`.
+
+---
+
+### `PoolableParticleType` (generated enum)
+
+**File:** `Runtime/PoolSystems/Generated/PoolableParticleType.cs`  
+**Namespace:** `MidManStudio.Core.Pools`
+
+Same generation rules as `PoolableObjectType`.
+
+---
+
+### Pool Type Provider SOs
+
+| SO | Create via | Purpose |
+|---|---|---|
+| `PoolableObjectTypeProviderSO` | Right-click > MidManStudio > Utilities > Pool Object Type Provider | List of GameObject pool types for one package/priority block |
+| `PoolableParticleTypeProviderSO` | Right-click > MidManStudio > Utilities > Pool Particle Type Provider | List of ParticleSystem pool types for one package/priority block |
+| `PoolTypeGeneratorSettingsSO` | Right-click > MidManStudio > Utilities > Pool Type Generator Settings | Root SO — holds all providers, controls output paths |
+
+**Priority blocks:**
+
+| Priority range | Reserved for |
+|---|---|
+| 0–99 | `com.midmanstudio.utilities` |
+| 100–199 | `com.midmanstudio.projectilesystem` |
+| 200+ | Game code |
+
+---
+
+## 8. Audio
+
+**Namespace:** `MidManStudio.Core.Audio`  
+**Files:** `Runtime/Audio/`
+
+---
+
+### `MID_AudioManager` (MonoSingleton)
+
+Music crossfade/pitch control + SFX clip-name dispatch.
+
+| Method/Event | Returns | Description |
+|---|---|---|
+| `PlayMusic(string clipName, float fadeDuration = 1f)` | `void` | Crossfade to named music clip |
+| `StopMusic(float fadeDuration = 1f)` | `void` | Fade out current music |
+| `SetMusicEnabled(bool enabled)` | `void` | Toggle music on/off; persisted in PlayerPrefs |
+| `SetSFXEnabled(bool enabled)` | `void` | Toggle SFX on/off; persisted in PlayerPrefs |
+| `SetMusicVolume(float volume)` | `void` | 0–1 master music volume |
+| `SetSFXVolume(float volume)` | `void` | 0–1 master SFX volume |
+| `PlaySFX(string clipName)` | `void` | Play named SFX clip at default pitch |
+| `PlaySFXPitched(string clipName, float pitch)` | `void` | Play named SFX clip at given pitch |
+| `event Action<bool> OnMusicEnabledChanged` | — | Fired when music enabled state changes |
+| `event Action<bool> OnSFXEnabledChanged` | — | Fired when SFX enabled state changes |
+
+---
+
+### `MID_AudioLimiter` (MonoBehaviour)
+
+DSP peak limiter on the final mixed output.  
+**Attach to the same GameObject as the `AudioListener`.**
+
+| Platform | Implementation |
+|---|---|
+| Windows / macOS / Android / Linux | Rust DSP via native plugin — zero managed allocation in DSP path |
+| WebGL | Pure C# `OnAudioFilterRead` fallback — same threshold/attack/release behaviour |
+
+| Inspector Field | Type | Description |
+|---|---|---|
+| `Threshold` | `float` | Peak limit in linear gain (default: 0.95) |
+| `AttackMs` | `float` | Attack time in milliseconds |
+| `ReleaseMs` | `float` | Release time in milliseconds |
+
+---
+
+### `MID_NativeAudioBridge` (MonoSingleton)
+
+16-voice `AudioSource` steal pool. Circular voice stealing — oldest voice is reused when all 16 are active.  
+Accepts any AudioClip load type — `Decompress On Load` is **not** required.
+
+| Method | Returns | Description |
+|---|---|---|
+| `PlayClip(int clipIndex, float volume = 1f)` | `void` | Play clip at index in inspector list; steals oldest voice if full |
+| `PlayClipAt(int clipIndex, Vector3 position, float volume = 1f)` | `void` | Positional one-shot |
+| `StopAll()` | `void` | Stop all 16 voices immediately |
+
+---
+
+### `MID_AudioLibrarySO` (ScriptableObject)
+
+**File:** `Runtime/Audio/MID_AudioLibrarySO.cs`  ← ⚠ FIX: moved from `Libraries/Configs/`  
+**Namespace:** `MidManStudio.Core.Audio`
+
+Named clip registry. Assign to `MID_AudioManager` in inspector.
+
+| Member | Type | Description |
+|---|---|---|
+| `musicClips` | `List<AudioClip>` | Inspector list of music clips |
+| `sfxClips` | `List<AudioClip>` | Inspector list of SFX clips |
+| `GetMusicClip(string name)` | `AudioClip` | Lookup by clip name |
+| `GetSFXClip(string name)` | `AudioClip` | Lookup by clip name |
+
+---
+
+## 9. FX System
+
+**Namespace:** `MidManStudio.Core.FX` ← ⚠ FIX: was `MidManStudio.Core.Audio`  
+**Files:** `Runtime/FXSystems/`
+
+Unified CPU particle + audio effect system.  
+All `ParticleSystem` objects must have **Simulation Space = World**.
+
+---
+
+### `GlobalFXManager` (MonoSingleton)
+
+**Namespace:** `MidManStudio.Core.FX`
+
+| Method | Returns | Description |
+|---|---|---|
+| `TriggerImpact(EffectType type, Vector3 position, Vector3 normal)` | `void` | Play impact effect at surface hit |
+| `TriggerImpact(Vector3 position, Vector3 normal)` | `void` | Overload — uses default impact type |
+| `TriggerMuzzleFlash(EffectType type, Vector3 position, Vector3 direction)` | `void` | Play muzzle flash effect |
+| `TriggerMuzzleFlash(Vector3 position, Vector3 direction)` | `void` | Overload — uses default muzzle type |
+| `EjectShell(EffectType type, Vector3 position, Vector3 velocity)` | `void` | Eject shell casing effect |
+| `EjectShell(Vector3 position, Vector3 velocity)` | `void` | Overload — uses default shell type |
+| `TriggerEffect(EffectCategory category, EffectType type, Vector3 position, Quaternion rotation)` | `void` | Generic trigger for any registered category/type pair |
+
+| Inspector Field | Type | Description |
+|---|---|---|
+| `FxEntries` | `List<FXEntry>` | All registered effect bindings |
+| `AudioBridge` | `MID_NativeAudioBridge` | Optional — for per-category audio |
+
+---
+
+### `FXEntry` (serializable class)
+
+| Field | Type | Description |
+|---|---|---|
+| `category` | `EffectCategory` | Which category this entry belongs to |
+| `type` | `EffectType` | Specific type within category |
+| `particleSystem` | `ParticleSystem` | In-scene PS reference — must be World space |
+| `audioClip` | `AudioClip` | Optional clip played via AudioBridge |
+
+---
+
+### `EffectCategory` (generated enum)
+
+**File:** `Runtime/FXSystems/Generated/EffectCategory.cs`  
+**Namespace:** `MidManStudio.Core.FX`
+
+Generated by FX Type Generator. Provides high-level grouping (Impact, MuzzleFlash, ShellEject, etc.).
+
+---
+
+### `EffectType` (generated enum)
+
+**File:** `Runtime/FXSystems/Generated/EffectType.cs`  
+**Namespace:** `MidManStudio.Core.FX`
+
+Generated by FX Type Generator. Provides specific variants (MetalSurface, ConcreteImpact, MediumMuzzle, BrassShell, etc.).
+
+### FX Type Provider SOs
+
+| SO | Create via | Purpose |
+|---|---|---|
+| `EffectCategoryProviderSO` | Right-click > MidManStudio > Utilities > FX Category Provider | Category list for one package/priority block |
+| `EffectTypeProviderSO` | Right-click > MidManStudio > Utilities > FX Type Provider | Type list for one package/priority block |
+
+**Priority blocks:**
+
+| Priority | Reserved for |
+|---|---|
+| 0–9 | `com.midmanstudio.utilities` |
+| 10–99 | `com.midmanstudio.projectilesystem` |
+| 100+ | Game code |
 
 ---
 
 ## 10. Timers
 
-Namespace: `MidManStudio.Core.Timers`
+**Namespace:** `MidManStudio.Core.Timers`  
+**Files:** `Runtime/Timers/`
 
-### `CountdownTimer`
+All timers are plain C# classes — no MonoBehaviour. Drive them with `MID_TickDispatcher` or `Update`.
 
-```csharp
-CountdownTimer(float duration)
-void  Start()  void Stop()  void Pause()  void Resume()
-void  Tick(float deltaTime)
-void  Reset()  void Reset(float newDuration)
-bool  IsFinished { get; }
-bool  IsRunning  { get; }
-float Progress   { get; }
-Action OnTimerStart, OnTimerStop, OnTimerComplete
-```
+---
 
-### `StopwatchTimer`
+### `MID_CountdownTimer`
 
-```csharp
-void  Start()  void Stop()  void Tick(float deltaTime)  void Reset()
-float GetTime()
-bool  IsRunning { get; }
-```
+| Member | Type | Description |
+|---|---|---|
+| `Start(float duration)` | `void` | Begin countdown from duration seconds |
+| `Pause()` | `void` | Pause without reset |
+| `Resume()` | `void` | Resume from paused time |
+| `Reset()` | `void` | Stop and reset to duration |
+| `Tick(float deltaTime)` | `void` | Advance timer — call from dispatcher or Update |
+| `TimeRemaining` | `float` | Seconds left |
+| `IsRunning` | `bool` | True if counting |
+| `IsComplete` | `bool` | True if reached zero |
+| `event Action OnComplete` | — | Fired once when timer hits zero |
+| `event Action<float> OnTick` | — | Fired every Tick call with remaining time |
 
-### `ValueInterpolationTimer`
+---
 
-```csharp
-ValueInterpolationTimer(float start, float end, float duration,
-                        InterpolationMode mode = Linear, AnimationCurve curve = null)
-void  Start()  void StartPingPong()  void Stop()  void Tick(float deltaTime)  void Reset()
-void  Reconfigure(float start, float end, float duration)
-void  SetInterpolationMode(InterpolationMode mode, AnimationCurve curve = null)
-float CurrentValue { get; }
-float Progress     { get; }
-bool  IsRunning    { get; }
-Action<float> OnValueChanged
-Action        OnInterpolationComplete, OnInterpolationStart
-```
+### `MID_Stopwatch`
 
-`InterpolationMode`: `Linear`, `EaseIn`, `EaseOut`, `EaseInOut`, `Custom`
+| Member | Type | Description |
+|---|---|---|
+| `Start()` | `void` | Begin elapsed time tracking |
+| `Stop()` | `void` | Halt without reset |
+| `Reset()` | `void` | Stop and zero out |
+| `Tick(float deltaTime)` | `void` | Advance — call from dispatcher or Update |
+| `ElapsedTime` | `float` | Seconds elapsed since Start |
+| `IsRunning` | `bool` | True if running |
 
-### `SteppedValueTimer`
+---
 
-Steps a float value incrementally over time at a fixed interval.
+### `MID_InterpolationTimer`
 
-```csharp
-SteppedValueTimer(float startValue, float endValue, float stepSize, float stepInterval)
-void  Start()  void Stop()  void Tick(float deltaTime)  void Reset()
-float CurrentValue { get; }
-bool  IsRunning    { get; }
-float Progress     { get; }
-Action<float> OnValueChanged
-Action        OnComplete, OnStepComplete
-```
+| Member | Type | Description |
+|---|---|---|
+| `Start(float duration, AnimationCurve curve = null)` | `void` | Begin 0→1 interpolation over duration |
+| `Tick(float deltaTime)` | `void` | Advance — call from dispatcher or Update |
+| `Progress` | `float` | 0–1, evaluated through optional AnimationCurve |
+| `IsComplete` | `bool` | True when Progress reaches 1 |
+| `event Action<float> OnProgress` | — | Fired every Tick with current Progress |
+| `event Action OnComplete` | — | Fired once at completion |
 
-### `TimerFactory` (static helpers)
+---
 
-```csharp
-ValueInterpolationTimer CreateDissolveTimer(float duration, InterpolationMode mode)
-ValueInterpolationTimer CreateUnDissolveTimer(float duration, InterpolationMode mode)
-ValueInterpolationTimer CreateAlphaFadeTimer(float start, float end, float duration, ...)
-SteppedValueTimer       CreateSteppedDissolveTimer(float min, float max, float step, float interval)
-```
+### `MID_SteppedTimer`
+
+| Member | Type | Description |
+|---|---|---|
+| `Start(float interval, int steps)` | `void` | Begin N-step timer firing every interval seconds |
+| `Tick(float deltaTime)` | `void` | Advance — call from dispatcher or Update |
+| `CurrentStep` | `int` | Step index (0 to steps-1) |
+| `IsComplete` | `bool` | True after all steps fired |
+| `event Action<int> OnStep` | — | Fired on each step with step index |
+| `event Action OnComplete` | — | Fired after final step |
+
+---
+
+### `MID_NetworkTimer` (NGO-compatible)
+
+Synced timer backed by a `NetworkVariable<double>`. Server-authoritative.
+
+| Member | Type | Description |
+|---|---|---|
+| `StartSynced(float duration)` | `void` | Server only — begin synced countdown |
+| `SyncedTime` | `double` | NetworkVariable-backed remaining time |
+| `IsComplete` | `bool` | True when SyncedTime <= 0 |
+| `event Action OnServerComplete` | — | Server only — fired at completion |
 
 ---
 
 ## 11. Library System
 
-Namespace: `MidManStudio.Core.Libraries`
+**Namespace:** `MidManStudio.Core.Libraries`  
+**Files:** `Runtime/Libraries/`
 
-A generic keyed asset registry. Group `ScriptableObject` assets under a `MID_LibrarySO`, retrieve by string key via `MID_LibraryRegistry`.
+Keyed ScriptableObject asset registry. Retrieve any SO by library name + item name.
 
-### `MID_LibrarySO : ScriptableObject`
+---
 
-Create via: `MidManStudio > Utilities > Library`
+### `MID_LibraryRegistry` (MonoSingleton)
 
-```csharp
-void BuildLookup()
-T    GetItem<T>(string itemId) where T : MID_LibraryItemSO
-bool HasItem(string itemId)
-int  ItemCount { get; }
-IEnumerable<string> AllItemIds { get; }
-string LibraryId { get; }
-```
+| Method | Returns | Description |
+|---|---|---|
+| `GetItem<T>(string libraryId, string itemId)` | `T` | Retrieve typed item by library + item string ID |
+| `GetLibrary(string libraryId)` | `MID_LibrarySO` | Retrieve the whole library SO |
+| `GetAllItems<T>(string libraryId)` | `List<T>` | All items in a library cast to T |
+| `HasItem(string libraryId, string itemId)` | `bool` | Check existence without throwing |
 
-### `MID_LibraryItemSO : ScriptableObject` (abstract)
+---
 
-Base class for all library items. Subclass to add custom data fields.
+### `MID_LibrarySO` (ScriptableObject)
 
-```csharp
-string ItemId { get; }   // set in inspector or defaults to asset file name
-```
+Create via `Right-click > MidManStudio > Utilities > Library`
 
-**Creating a custom item type:**
-```csharp
-[CreateAssetMenu(menuName = "MyGame/Libraries/WeaponItem")]
-public class WeaponItemSO : MID_LibraryItemSO
-{
-    public float  damage;
-    public Sprite icon;
-}
-```
+| Field | Type | Description |
+|---|---|---|
+| `libraryId` | `string` | Unique string key for this library |
+| `items` | `List<MID_LibraryItemSO>` | All items in the library |
 
-### `MID_BasicLibraryItemSO : MID_LibraryItemSO`
+---
 
-Create via: `MidManStudio > Utilities > Library Item (Basic)`
+### `MID_LibraryItemSO` (abstract ScriptableObject)
 
-Ready-to-use item with `displayName`, `description`, `icon`, and `tags[]`.  
-Use this when you don't need custom data fields.
+Base class for all library items.
 
-### `MID_LibraryRegistry : Singleton<MID_LibraryRegistry>`
+| Field | Type | Description |
+|---|---|---|
+| `itemId` | `string` | Unique string key within the library |
 
-```csharp
-// String-key API
-T    GetItem<T>(string libraryId, string itemId) where T : MID_LibraryItemSO
-bool LibraryExists(string libraryId)
-bool ItemExists(string libraryId, string itemId)
+---
 
-// Generated enum API (after running Library Type Generator)
-T    GetItem<T>(LibraryId libraryId, LibraryItemId itemId) where T : MID_LibraryItemSO
-bool LibraryExists(LibraryId libraryId)
-bool ItemExists(LibraryId libraryId, LibraryItemId itemId)
-```
+### `MID_BasicLibraryItemSO` (extends MID_LibraryItemSO)
 
-**Usage:**
-```csharp
-// Simple string lookup
-var item = MID_LibraryRegistry.Instance
-    .GetItem<MID_BasicLibraryItemSO>("Weapons", "Sword");
-Debug.Log(item.displayName);
+Create via `Right-click > MidManStudio > Utilities > Library Item (Basic)`
 
-// Custom type lookup
-var weapon = MID_LibraryRegistry.Instance
-    .GetItem<WeaponItemSO>("Weapons", "Sword");
-Debug.Log(weapon.damage);
-```
+| Field | Type | Description |
+|---|---|---|
+| `displayName` | `string` | Human-readable name |
+| `icon` | `Sprite` | Item icon |
+| `description` | `string` | Item description |
 
-### `LibraryTypeProviderSO : ScriptableObject`
+---
 
-Create via: `MidManStudio > Utilities > Library Type Provider`  
-**Open generator:** `MidManStudio > Utilities > Library Type Generator`
+### `LibraryId` (generated enum)
 
-Contributes entries to the generated `LibraryId` and `LibraryItemId` enums.
+**File:** `Runtime/Libraries/Generated/LibraryId.cs` ← ⚠ FIX: was `Libraries/Generator/`  
+**Namespace:** `MidManStudio.Core.Libraries`
+
+---
+
+### `LibraryItemId` (generated enum)
+
+**File:** `Runtime/Libraries/Generated/LibraryItemId.cs` ← ⚠ FIX: was `Libraries/Generator/`  
+**Namespace:** `MidManStudio.Core.Libraries`
 
 ---
 
 ## 12. Scene Management
 
-Namespace: `MidManStudio.Core.SceneManagement`
+**Namespace:** `MidManStudio.Core.SceneManagement`  
+**Files:** `Runtime/SceneManagement/`
 
-### `MID_SceneLoader : Singleton<MID_SceneLoader>` implements `ISceneLoader`
+---
 
-```csharp
-void LoadScene(int sceneId, SceneLoadType loadType = Single, short delayMs = 0)
-void LoadScene(SceneId id, SceneLoadType loadType = Single, short delayMs = 0)
-void UnloadScene(int sceneId)
-bool IsSceneLoaded(int sceneId)
-SceneId GetActiveSceneId()
-bool  IsLoadingScene       { get; }
-int   CurrentLoadingSceneId { get; }
-Action<float>  OnLoadProgressChanged  { get; set; }
-Action<int>    OnSceneLoadCompleted   { get; set; }
-Action<string> OnSceneLoadFailed      { get; set; }
-```
+### `MID_SceneManager` (MonoSingleton)
 
-### `MID_SceneTransitionController : Singleton<...>` (abstract)
+| Method/Event | Returns | Description |
+|---|---|---|
+| `LoadScene(SceneId id, bool additive = false)` | `void` | Synchronous scene load |
+| `LoadSceneAsync(SceneId id, bool additive = false)` | `AsyncOperation` | Async load with progress tracking |
+| `UnloadScene(SceneId id)` | `void` | Unload additively loaded scene |
+| `GetCurrentSceneId()` | `SceneId` | Returns enum for the active scene |
+| `event Action<SceneId> OnSceneLoaded` | — | Fired after scene finishes loading |
+| `event Action<SceneId> OnSceneUnloaded` | — | Fired after scene is unloaded |
 
-Subclass to drive your own fade/UI animations.
+---
 
-```csharp
-void LoadScene(SceneId sceneId, bool useTransition = true, short delayMs = 0)
-void LoadScene(SceneId sceneId, SceneLoadType loadType, bool useTransition = true, short delayMs = 0)
-void EmergencyCleanup()
+### `MID_SceneTransitionController` (MonoBehaviour)
 
-// Override these hooks
-protected virtual IEnumerator TransitionIn()
-protected virtual IEnumerator TransitionOut()
-protected virtual IEnumerator OnLoadingStarted()
-protected virtual IEnumerator OnLoadingFinished()
-protected virtual void        OnProgressUpdated(float progress)
-protected virtual void        OnLoadingMessageChanged(string message)
-protected virtual IEnumerator OnTransitionError(string error)
-```
+| Inspector Field | Type | Description |
+|---|---|---|
+| `FadeInDuration` | `float` | Seconds to fade in on load |
+| `FadeOutDuration` | `float` | Seconds to fade out before unload |
+| `FadeColor` | `Color` | Colour of the fade overlay |
 
-### `SceneTypeProviderSO : ScriptableObject`
+| Method | Description |
+|---|---|
+| `TriggerTransition(SceneId targetScene)` | Fade out → load → fade in |
 
-Create via: `MidManStudio > Utilities > Scene Type Provider`  
-**Open generator:** `MidManStudio > Utilities > Scene Type Generator`
+---
 
-### Enums
+### `SceneId` (generated enum)
 
-```csharp
-enum SceneLoadType { Single, Additive, NetworkAdditive }
-enum SceneNetworkDependency { None, InternetRequired, NetworkSessionRequired, Optional }
-```
+**File:** `Runtime/SceneManagement/Generated/SceneId.cs`  
+Reflects scenes in the current Build Settings.
+
+---
+
+### `SceneRegistry` (generated static class)
+
+**File:** `Runtime/SceneManagement/Generated/SceneRegistry.cs`
+
+| Method | Returns | Description |
+|---|---|---|
+| `GetBuildIndex(SceneId id)` | `int` | Build index for scene |
+| `GetSceneName(SceneId id)` | `string` | Scene name string |
 
 ---
 
 ## 13. UI State System
 
-Namespace: `MidManStudio.Core.UIState`
+**Namespace:** `MidManStudio.Core.UIState`  
+**Files:** `Runtime/UIState/`
 
-### Overview
-
-The UI State system uses a **per-context** model. Each logical UI area (Menu, HUD, Lobby) has its own `MID_UIStateContext` SO asset and its own generated `[Flags]` enum. There is no global `UIStateId` enum — each context is self-contained.
-
-**Setup flow:**
-1. Create `UIStateContextProviderSO` → add states → run generator → produces e.g. `MenuUIState.cs`
-2. Create `MID_UIStateContext` SO asset → set `enumTypeName = "MidManStudio.Core.UIState.MenuUIState"`
-3. Assign context to `MID_UIStateVisibility`, `MID_UIStateButton`, or `MID_UIStateManager`
+Stack-based `[Flags]` enum state machine for UI panels.
+Each context (e.g. MainMenu, HUD, Pause) has its own independent manager + generated enum.
 
 ---
 
-### `MID_UIStateContext : ScriptableObject`
+### `MID_UIStateManager` (MonoBehaviour)
 
-Create via: `MidManStudio > Utilities > UI State Context`
+One per screen context. Drives show/hide of all visibility components in its context.
 
-```csharp
-int  CurrentState { get; }
-bool CanGoBack    { get; }
-
-void ChangeState(int newState)    // pass (int)MenuUIState.Settings
-void GoBack()
-void ClearHistory()
-bool IsInState(int state)
-bool HasFlag(int flag)
-
-event Action<int> OnStateChanged   // fires on every state change
-```
+| Member | Type | Description |
+|---|---|---|
+| `ContextName` | `string` | Inspector — must match the generated context name |
+| `ChangeState(int state)` | `void` | Push state onto stack; fires all visibility updates |
+| `PushState(int state)` | `void` | Same as ChangeState — explicit push |
+| `PopState()` | `void` | Remove top state and return to previous |
+| `GoBack()` | `void` | Alias for PopState |
+| `GetCurrentState()` | `int` | Current state flags value |
+| `event Action<int> OnStateChanged` | — | Fired on every state change with new state |
 
 ---
 
-### `MID_UIStateManager : Singleton<MID_UIStateManager>`
+### `MID_UIStateContext` (ScriptableObject)
 
-Drives panel show/hide for one `MID_UIStateContext`.
+Create via `Right-click > MidManStudio > Utilities > UI State Context`
 
-```csharp
-MID_UIStateContext Context    { get; }
-int               CurrentState { get; }
-bool              CanGoBack    { get; }
-
-void ChangeState(int newState)
-void GoBack()
-void ClearHistory()
-bool IsInState(int state)
-void SetContext(MID_UIStateContext context)
-
-event Action<int> OnStateChanged
-```
-
-**Inspector:** assign `Context`, set `Initial State`, add `UIStatePanelConfig` entries.  
-The custom inspector shows named enum dropdowns when a context is assigned.
+| Field | Type | Description |
+|---|---|---|
+| `contextName` | `string` | Name used as enum class name (e.g. "Menu" → `MenuUIState`) |
+| `stateNames` | `List<string>` | Each entry becomes a `[Flags]` enum value |
 
 ---
 
-### `UIStatePanelConfig`
+### `MID_UIStateVisibility` (MonoBehaviour)
 
-| Field | Description |
+| Inspector Field | Type | Description |
+|---|---|---|
+| `Manager` | `MID_UIStateManager` | The state manager this element listens to |
+| `VisibleInStates` | `int` | Show when current state matches any of these flags |
+| `InvisibleInStates` | `int` | Hide when current state matches any of these flags |
+
+| Method | Description |
 |---|---|
-| `stateMask` | Raw int value of the generated enum member |
-| `displayName` | Inspector label only |
-| `show` | GameObjects to activate on enter |
-| `hide` | GameObjects to deactivate on enter |
-| `onEnter` / `onExit` | UnityEvents for enter/exit |
+| `Refresh(int currentState)` | Called by MID_UIStateManager — also callable manually |
 
 ---
 
-### `MID_UIStateVisibility : MonoBehaviour`
+### `MID_UIStateButton` (MonoBehaviour)
 
-Requires `MID_UIElement`. Shows/hides based on context state flags.
+| Inspector Field | Type | Description |
+|---|---|---|
+| `Manager` | `MID_UIStateManager` | The state manager to push to |
+| `TargetState` | `int` | State value to push on click |
 
-```csharp
-[SerializeField] private MID_UIStateContext _context;
-[SerializeField] private int               _showWhenMask;  // custom inspector shows checkboxes
-```
-
-### `MID_UIStateButton : MonoBehaviour`
-
-Requires `Button`. Transitions context to a target state on click.
-
-```csharp
-[SerializeField] private MID_UIStateContext _context;
-[SerializeField] private int               _targetStateMask;  // custom inspector shows dropdown
-[SerializeField] private bool              _disableWhenActive;
-```
-
-### `MID_UIElement : MonoBehaviour`
-
-Requires `CanvasGroup`. Base show/hide for any UI panel.
-
-```csharp
-bool IsShowing { get; }
-void Show()
-void Show(bool propagateToChildren)
-void Hide()
-void Hide(float targetAlpha)
-void Toggle()
-```
-
-### `UIStateContextProviderSO : ScriptableObject`
-
-Create via: `MidManStudio > Utilities > UI State Context Provider`  
-**Open generator:** `MidManStudio > Utilities > UI State Context Generator`
-
-| Field | Description |
+| Method | Description |
 |---|---|
-| `contextName` | Becomes `{contextName}UIState` enum name. PascalCase, no spaces |
-| `packageId` | Unique across all providers |
-| `states` | List of `UIStateEntry` — each becomes a bit flag |
+| `OnClick()` | Calls `Manager.ChangeState(TargetState)` — wire to Button.onClick |
+
+---
+
+### `MID_UIStateBackButton` (MonoBehaviour) ← ⚠ FIX: was missing from catalog
+
+Combines GoBack navigation with state-based visibility (only visible in certain states).
+
+| Inspector Field | Type | Description |
+|---|---|---|
+| `Manager` | `MID_UIStateManager` | The state manager to pop |
+| `VisibleInStates` | `int` | Button is only interactable/visible in these states |
+
+| Method | Description |
+|---|---|
+| `OnClick()` | Calls `Manager.GoBack()` — wire to Button.onClick |
+| `Refresh(int currentState)` | Called by manager on state change to update visibility |
+
+---
+
+### Generated State Enums
+
+**File:** `Runtime/UIState/Generated/{Context}UIState.cs`
+
+```csharp
+// Generated from MID_UIStateContext SO with contextName = "Menu"
+// and stateNames = ["MainMenu", "Settings", "Credits"]
+[Flags]
+public enum MenuUIState
+{
+    None      = 0,
+    MainMenu  = 1,
+    Settings  = 2,
+    Credits   = 4
+}
+```
 
 ---
 
 ## 14. UI Components
 
-Namespace: `MidManStudio.Core.UI`
+**Namespace:** `MidManStudio.Core.UI`  
+**Files:** `Runtime/UI/`
 
-### `MID_Button : MonoBehaviour`
+---
 
-Requires `Button`. Animated click feedback, zero external tween dependency.
+### `MID_UIElement` (MonoBehaviour)
 
-```csharp
-void SetInteractable(bool value)
-```
+CanvasGroup-based animated show/hide base component. No tween library dependency.
+State-system visibility components inherit from this.
 
-**Animation types:** `ScalePop`, `MoveLeft/Right/Up/Down`, `Bounce`, `Pulse`, `Shake`, `Rotate`, `FadeFlash`
+| Member | Type | Description |
+|---|---|---|
+| `Show(bool instant = false)` | `void` | Fade in CanvasGroup; propagates to children if enabled |
+| `Hide(bool instant = false)` | `void` | Fade out CanvasGroup; propagates to children if enabled |
+| `Toggle(bool instant = false)` | `void` | Switch between show/hide |
+| `IsVisible` | `bool` | True if alpha > 0 and interactable |
 
-**Events:** `OnClickAction` (game logic), `OnClickSound` (route to audio system)
+| Inspector Field | Type | Description |
+|---|---|---|
+| `ShowDuration` | `float` | Fade in duration in seconds |
+| `HideDuration` | `float` | Fade out duration in seconds |
+| `AnimationCurve` | `AnimationCurve` | Optional alpha curve override |
+| `PropagateToChildren` | `bool` | If true, Show/Hide cascades to child MID_UIElements |
 
 ---
 
 ## 15. Helper Functions
 
-Namespace: `MidManStudio.Core.HelperFunctions`
+**Namespace:** `MidManStudio.Core.HelperFunctions`  
+**File:** `Runtime/HelperFunctions/MID_HelperFunctions.cs`  
+**Type:** Static class
 
-### `MID_HelperFunctions` (static)
+---
 
-```csharp
-// Logging shims (routes to MID_Logger)
-void LogDebug(string msg, ...)
-void LogWarning(string msg, ...)
-void LogError(string msg, ...)
-void LogException(Exception e, ...)
+### `MID_HelperFunctions`
 
-// GameObject
-void KillObjChildren(Transform holder)
-void KillMultipleParentsChildren(List<Transform> holders)
+**Transform / GameObject**
 
-// UI
-void  SetCanvasGroup(CanvasGroup cg, bool enable)
-Color GetColorFromString(string hexColor)
+| Method | Returns | Description |
+|---|---|---|
+| `DestroyObjChildren(Transform holder)` | `void` | ⚠ FIX: was `KillObjChildren` — destroys all child GameObjects |
+| `DestroyMultipleParentsChildren(List<Transform> holders)` | `void` | ⚠ FIX: was `KillMultipleParentsChildren` — destroys children across multiple parents |
+| `GetOrAddComponent<T>(GameObject go)` | `T` | Returns existing component or adds one |
+| `FindDeepChild(Transform parent, string name)` | `Transform` | Recursive child search by name |
+| `SetLayerRecursively(GameObject go, int layer)` | `void` | Set layer on GameObject and all descendants |
+| `IsInLayerMask(GameObject go, LayerMask mask)` | `bool` | Check if GameObject's layer is in a LayerMask |
 
-// String formatting
-string ToSentenceCase(string input)
-string ToCamelCase(string input)
-string ToPascalCase(string input)
-string ToKebabCase(string input)
-string ToSnakeCase(string input)
+**Math / Angle**
 
-// Validation
-bool IsStringValid(string val)   // false for null, empty, or "null"
+| Method | Returns | Description |
+|---|---|---|
+| `ClampAngle(float angle, float min, float max)` | `float` | Clamp an angle (handles 360° wrap-around) |
 
-// Reflection debug
-string GetStructOrClassMemberValues<T>(T instance)
+**Serialization**
 
-// Serialisation (Unity JsonUtility — no Newtonsoft dependency)
-string ToJson<T>(T obj, bool prettyPrint = true)
-T      FromJson<T>(string json)
-string ToXml<T>(T obj)
-bool   IsValidJson(string json)
+| Method | Returns | Description |
+|---|---|---|
+| `ToJson<T>(T obj)` | `string` | Serialize to JSON via JsonUtility |
+| `FromJson<T>(string json)` | `T` | Deserialize from JSON via JsonUtility |
+
+**Reflection**
+
+| Method | Returns | Description |
+|---|---|---|
+| `GetAllSubclasses<T>()` | `List<Type>` | Find all non-abstract subclasses of T in loaded assemblies |
+
+---
+
+## 16. Sequential Processing
+
+**Namespace:** `MidManStudio.Core.SequentialProcessing`  
+**Files:** `Runtime/SequentialProcessing/`
+
+Priority-lane async task runner. Tasks execute one at a time, ordered by priority.
+Supports configurable retry with delay on failure.
+
+---
+
+### `MID_SequentialRunner` (MonoSingleton)
+
+| Method | Returns | Description |
+|---|---|---|
+| `Enqueue(MID_SequentialTask task, int priority = 0)` | `TaskHandle` | Add task to queue; higher priority = executes first |
+| `Cancel(TaskHandle handle)` | `void` | Remove task if not yet started |
+| `CancelAll()` | `void` | Clear entire queue (running task completes) |
+| `IsProcessing` | `bool` | True if a task is currently executing |
+| `QueueCount` | `int` | Number of tasks waiting |
+
+---
+
+### `MID_SequentialTask` (abstract class)
+
+| Member | Type | Description |
+|---|---|---|
+| `Execute()` | `abstract IEnumerator` | Override with task coroutine logic |
+| `OnSuccess()` | `virtual void` | Called on completion — override to handle success |
+| `OnFailure()` | `virtual void` | Called after all retries exhausted |
+| `MaxRetries` | `int` | Number of retry attempts on failure (default: 0) |
+| `RetryDelay` | `float` | Seconds between retries |
+
+---
+
+## 17. Sticky Note
+
+**Namespace:** `MidManStudio.Core.Notes`  
+**File:** `Runtime/StickyNote/MID_StickyNote.cs`  
+**Type:** MonoBehaviour
+
+In-Game-View overlay rendered in both Edit Mode and Play Mode.
+Attach to any scene GameObject for scene setup documentation or tutorial callouts.
+
+| Inspector Field | Type | Description |
+|---|---|---|
+| `Title` | `string` | Bold header text |
+| `Notes` | `List<string>` | Bullet list of notes |
+| `TextFile` | `TextAsset` | Optional .txt file; overrides Notes list if assigned |
+| `Theme` | `enum` | Yellow, Blue, Green, Pink, Dark |
+| `AnchorPosition` | `enum` | TopLeft, TopRight, BottomLeft, BottomRight, Center |
+
+**Runtime behaviour:** Drag to reposition. Minimize button collapses to title bar. Close button hides (does not destroy).
+
+---
+
+## 18. Editor Tools
+
+All tools open via the `MidManStudio > Utilities` menu.
+
+---
+
+### Logger Manager
+
+`MidManStudio > Utilities > Logger Manager`
+
+Scans scene for all MonoBehaviours with a `MID_LogLevel` field.  
+Allows bulk-setting levels — useful before a build or profiling session.
+
+---
+
+### Pool Type Generator
+
+`MidManStudio > Utilities > Pool Type Generator`
+
+Writes `Runtime/PoolSystems/Generated/PoolableObjectType.cs` and `PoolableParticleType.cs`.
+
+**Workflow:**
+1. Create `PoolableObjectTypeProviderSO` (right-click menu) for your package
+2. Set `packageId`, `priority` (≥100 for game code), add entry names in PascalCase
+3. Assign provider to `PoolTypeGeneratorSettingsSO`
+4. Click **Generate Now**
+
+**Pinning entries (prevent offset shifts):**
+```
+entryName      = "BossEnemy"
+explicitOffset = 5        // always blockStart + 5 regardless of list order
 ```
 
-### `MID_HelperFunctionsWithType<T>` (static generic)
-
-```csharp
-List<U>               Map<U>(List<T> items, Func<T, U> fn)
-List<T>               Filter(List<T> items, Predicate<T> pred)
-U                     Reduce<U>(List<T> items, U seed, Func<U, T, U> fn)
-Dictionary<K,List<T>> GroupBy<K>(List<T> items, Func<T, K> keySelector)
-bool                  AnyMatch(List<T> items, Predicate<T> pred)
-bool                  AllMatch(List<T> items, Predicate<T> pred)
-void                  PrintValues(List<T> items)
-```
+Unpinned entries are stabilised by `Assets/MidManStudio/Generated/Pools/PoolTypeLock.json`.
 
 ---
 
-## 16. Sequential Process Runner
+### Library Type Generator
 
-Namespace: `MidManStudio.Core.SequentialProcessing`
+`MidManStudio > Utilities > Library Type Generator`
 
-### `MID_SequentialProcessRunner` (static)
-
-Runs async tasks sequentially across priority lanes with retry and fallback support.
-
-```csharp
-static void  AddTask(SequentialTask task)
-static void  AddTasks(IEnumerable<SequentialTask> tasks)
-static Task  RunAll()
-static bool  IsCompleted(string taskName)
-static void  Reset()
-static void  ResetLane(int lane)
-
-static Action         OnAllLanesComplete
-static Action<int>    OnLaneComplete
-static Action<string> OnTaskCompleted
-static Action<string> OnTaskFailed
-static MID_LogLevel   LogLevel
-static int            DelayBetweenTasksMs
-```
-
-### `SequentialTask`
-
-```csharp
-SequentialTask(string name, int lane,
-               Func<Task<bool>> execute,
-               Func<Task<bool>> fallback = null)
-
-string Name        { get; }
-int    Lane        { get; }
-bool   HasFallback { get; }
-int    RetryCount  { get; }
-bool   IsCompleted { get; }
-const  int MaxRetries = 6
-```
+Writes `Runtime/Libraries/Generated/LibraryId.cs` and `LibraryItemId.cs`.
 
 ---
 
-## 17. Editor Tools
+### Scene Type Generator
 
-### `SceneDependencyInjector : MonoBehaviour` (Editor only)
+`MidManStudio > Utilities > Scene Type Generator`
 
-Instantiates required persistent manager prefabs on Play, removing the need for a bootstrap scene during isolated testing.
-
-```csharp
-void InjectDependencies()
-void ForceReinject()
-void CleanupInjectedObjects()
-```
-
-**Inspector:** `requiredDependencies` (list of prefabs), `autoInjectOnPlay`, `cleanupOnStop`
+Reads current Build Settings → writes `Runtime/SceneManagement/Generated/SceneId.cs` and `SceneRegistry.cs`.  
+Re-run every time scenes are added/removed from build settings.
 
 ---
 
-### `MID_LoggerEditorWindow`
+### UI State Context Generator
 
-Open via: `MidManStudio > Utilities > Logger Manager`
+`MidManStudio > Utilities > UI State Context Generator`
 
-Scans all scene MonoBehaviours for `MID_LogLevel` fields. Supports bulk set, search, group by GameObject, and export to console.
-
----
-
-### `PoolTypeGeneratorWindow`
-
-Open via: `MidManStudio > Utilities > Pool Type Generator`
-
-Discovers all `PoolTypeProviderSO` / `ParticlePoolTypeProviderSO` assets and writes the shared enum files.
+Reads `MID_UIStateContext` SOs → writes `Runtime/UIState/Generated/{Context}UIState.cs` files.  
+One file per context.
 
 ---
 
-### `DynamicDebugPanel : MonoBehaviour` (Editor Play mode)
+### Effect Type Generator
 
-Runtime overlay for displaying stats, values, and logs.
+`MidManStudio > Utilities > Effect Type Generator`
 
-```csharp
-void AddSection(string name, Color titleColor = default)
-void AddValue(string section, string name, object value, DebugValueType type = Display, ...)
-void UpdateValue(string section, string name, object value)
-void RemoveValue(string section, string name)
-void AddLog(string message)
-void ClearLogs()
-void TogglePanel()
-void SetPanelState(bool show)
-```
-
-`DebugValueType`: `Display`, `Slider`, `Toggle`, `Button`, `ProgressBar`
+Writes `Runtime/FXSystems/Generated/EffectCategory.cs` and `EffectType.cs`.  
+Stabilised by `Assets/MidManStudio/Generated/FX/EffectTypeLock.json`.
 
 ---
 
-### `MID_NamedListAttribute`
+### Script Utilities
 
-```csharp
-[MID_NamedList]                              // uses IArrayElementTitle.Name
-[MID_NamedList("fieldName")]                 // uses named field as label
-[MID_NamedList("fieldName", true, "color")]  // with per-element colour tinting
-```
+`MidManStudio > Utilities > Script Utilities`
 
-Implement `IArrayElementTitle` on list element types to control the displayed name.  
-Implement `IArrayElementColor` to control background tint colour.
+Misc helpers: create MonoSingleton from template, strip comments, namespace renamer.
 
 ---
 
-## 18. Assembly Definitions
+### Scene Dependency Injector
 
-### Runtime Assembly — `MidManStudio.Utilities`
+**Component:** `SceneDependencyInjector` (MonoBehaviour, Editor assembly)
 
-**File:** `packages/com.midmanstudio.utilities/Runtime/MidManStudio.Utilities.asmdef`
+Add to any scene GameObject. Checks for required manager singletons on play; instantiates any that are missing.  
+Eliminates the need for a dedicated bootstrap scene during isolated scene testing.
 
-```json
-{
-  "name": "MidManStudio.Utilities",
-  "rootNamespace": "MidManStudio.Core",
-  "references": ["Unity.Burst", "Unity.Collections"],
-  "allowUnsafeCode": true,
-  "autoReferenced": true
-}
-```
-
-`autoReferenced: true` means any assembly in the project can use it without explicitly listing it as a reference.
+| Inspector Field | Type | Description |
+|---|---|---|
+| `Required Dependencies` | `List<GameObject>` | Prefabs to instantiate if their singleton is not found in scene |
 
 ---
 
-### Editor Assembly — `MidManStudio.Utilities.Editor`
+### Benchmarks
 
-**File:** `packages/com.midmanstudio.utilities/Editor/MidManStudio.Utilities.Editor.asmdef`
-
-```json
-{
-  "name": "MidManStudio.Utilities.Editor",
-  "rootNamespace": "MidManStudio.Core.Editor",
-  "references": ["MidManStudio.Utilities"],
-  "includePlatforms": ["Editor"],
-  "autoReferenced": false
-}
-```
-
-Editor-only. Contains all `#if UNITY_EDITOR` code that has been promoted to proper editor-assembly classes: `PoolTypeGenerator`, `LibraryTypeGenerator`, `SceneTypeGenerator`, `UIStateContextGenerator`, `UIStateTypeGenerator`, `MID_LoggerEditorWindow`, `NamedListDrawer`, `SceneDependencyInjector`, all custom inspectors.
-
----
-
-### Tests Assembly — `MidManStudio.Utilities.Tests`
-
-**File:** `packages/com.midmanstudio.utilities/Tests/Runtime/MidManStudio.Utilities.Tests.asmdef`
-
-```json
-{
-  "name": "MidManStudio.Utilities.Tests",
-  "rootNamespace": "MidManStudio.Core.Tests",
-  "references": ["MidManStudio.Utilities", "UnityEngine.TestRunner", "UnityEditor.TestRunner"],
-  "autoReferenced": false,
-  "defineConstraints": ["UNITY_INCLUDE_TESTS"]
-}
-```
-
-Contains: `MID_TickDelayBenchRunner`, `MID_TickDelayBenchWindow`, `MID_TickDispatcherBench`, `MID_TickDispatcherBenchWindow`.  
-Only compiled when `UNITY_INCLUDE_TESTS` is defined (i.e. when Test Runner is active).
-
----
-
-### Reference Diagram  YourGame.asmdef
-└── MidManStudio.Utilities          (autoReferenced — implicit)
-└── Unity.Burst
-└── Unity.Collections
-YourGame.Editor.asmdef
-└── MidManStudio.Utilities.Editor   (explicit reference if needed)
-└── MidManStudio.Utilities
-MidManStudio.Utilities.Tests          (only with UNITY_INCLUDE_TESTS)
-└── MidManStudio.Utilities
-└── UnityEngine.TestRunner
-
----
-
-### What References What — File → Assembly Map
-
-| File | Assembly |
-|---|---|
-| All `Runtime/` scripts | `MidManStudio.Utilities` |
-| All `Editor/` scripts | `MidManStudio.Utilities.Editor` |
-| `Tests/Runtime/MID_TickDelayBenchmark.cs` | `MidManStudio.Utilities.Tests` |
-| `Tests/Runtime/MID_TickDispatcherBench.cs` | `MidManStudio.Utilities.Tests` |
-| Generated `PoolableObjectType.cs` | `MidManStudio.Utilities` (Runtime/PoolSystems/Generated/) |
-| Generated `PoolableParticleType.cs` | `MidManStudio.Utilities` (Runtime/PoolSystems/Generated/) |
-| Generated `MenuUIState.cs` etc. | `MidManStudio.Utilities` (Runtime/UIState/Generated/) |
-| Generated `SceneId.cs` / `SceneRegistry.cs` | `MidManStudio.Utilities` (Runtime/SceneManagement/Generated/) |
+| Tool | Menu path | What it tests |
+|---|---|---|
+| Tick Delay Benchmark | `MidManStudio > Utilities > Tests > Tick Delay Bench` | Allocation profile + timing accuracy of MID_TickDelay |
+| Tick Dispatcher Benchmark | `MidManStudio > Utilities > Tests > Tick Dispatcher Bench` | Subscriber overhead at each TickRate |
+| Audio Benchmark | `MidManStudio > Utilities > Tests > Audio Bench` | MID_NativeAudioBridge voice steal performance |
