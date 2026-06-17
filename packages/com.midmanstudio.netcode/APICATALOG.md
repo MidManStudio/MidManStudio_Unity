@@ -2,8 +2,8 @@
 
 `com.midmanstudio.netcode` v1.0.0  
 Assembly: `MidManStudio.Netcode`  
-Namespace root: `MidManStudio.Core.Netcode`  
-Requires: `com.midmanstudio.utilities`, `com.unity.netcode.gameobjects 1.7.1+`
+Namespace root: `MidManStudio.Netcode`  
+Requires: `com.midmanstudio.utilities 1.0.0`, `com.unity.netcode.gameobjects 1.7.1+`, `com.unity.collections 2.2.1+`
 
 ---
 
@@ -24,36 +24,41 @@ Requires: `com.midmanstudio.utilities`, `com.unity.netcode.gameobjects 1.7.1+`
 
 ### `NetworkSingleton<T> : NetworkBehaviour`
 
-NGO-aware singleton. Instance set in `Awake`, network features active after
-`OnNetworkSpawn`. Subclass when your manager is always spawned by NGO.
+**Namespace:** `MidManStudio.Netcode`  
+**File:** `Runtime/Singleton/NetworkSingleton.cs`
+
+NGO-aware singleton. Instance is set in `Awake`; network features (RPCs, ownership, IsServer etc.) are only valid after `OnNetworkSpawn`. Use when the manager is always spawned by NGO.
 
 ```csharp
-public class MyManager : NetworkSingleton<MyManager>, INetworkSingletonLifecycle
+public class MyNetworkManager : NetworkSingleton<MyNetworkManager>,
+                                INetworkSingletonLifecycle
 {
     public override void OnNetworkSpawn()
     {
         base.OnNetworkSpawn();
-        if (IsServer) InitServer();
+        if (IsServer) InitializeServerState();
     }
+
     public void OnNetworkSpawned(bool isServer, bool isHost, bool isClient, bool isOwner) { }
     public void OnNetworkDespawned() { }
     public void OnNetworkSceneChange(string prev, string curr) { }
 }
 
-MyManager.Instance.DoSomething();
-bool active = MyManager.IsNetworkActive();
+MyNetworkManager.Instance.DoSomething();
+bool ready = MyNetworkManager.IsNetworkActive();
 ```
 
 **Static API**
 
-| Member | Description |
-|---|---|
-| `Instance` | Auto-creates if missing |
-| `HasInstance` | Null-safe existence check |
-| `TryGetInstance()` | Returns null if not found |
-| `IsNetworkActive()` | True when spawned AND network is listening |
-| `IsServerAuthority()` | True when `NetworkObject.IsOwnedByServer` |
-| `Reset()` | Destroy + clear static refs |
+| Member | Type | Description |
+|---|---|---|
+| `Instance` | `T` | Returns or finds existing instance; creates a new GO if none found |
+| `HasInstance` | `bool` | Null-safe existence check |
+| `TryGetInstance()` | `T` | Returns null if not found |
+| `Current` | `T` | Alias for Instance |
+| `IsNetworkActive()` | `bool` | True when spawned AND NetworkManager is listening |
+| `IsServerAuthority()` | `bool` | True when `NetworkObject.IsOwnedByServer` |
+| `Reset()` | `void` | Destroy + clear static refs |
 
 **`INetworkSingletonLifecycle`**
 
@@ -67,9 +72,10 @@ void OnNetworkSceneChange(string previousScene, string currentScene);
 
 ### `HybridNetworkSingleton<T> : NetworkBehaviour`
 
-Instance available immediately in `Awake` — before any NGO spawn.
-Network features layer on top when spawned. Works offline too.
-Use for managers that need to function in both online and offline contexts.
+**Namespace:** `MidManStudio.Netcode`  
+**File:** `Runtime/Singleton/HybridNetworkSingleton.cs`
+
+Instance is available immediately in `Awake` — before any NGO spawn. Network features layer on top when spawned. Persists across scenes by default. Use for managers that must function in both online and offline contexts.
 
 ```csharp
 public class GameStateManager : HybridNetworkSingleton<GameStateManager>
@@ -77,29 +83,44 @@ public class GameStateManager : HybridNetworkSingleton<GameStateManager>
     protected override void Awake()
     {
         base.Awake();
-        LoadLocalData(); // safe — instance ready now
+        LoadLocalData(); // safe — instance is ready; network is NOT required yet
     }
 
     public override void OnNetworkSpawn()
     {
         base.OnNetworkSpawn();
-        // Network features now active
+        // network features now active
     }
 }
 
-GameStateManager.Instance.DoWork();     // always safe
+GameStateManager.Instance.DoWork();
 bool online  = GameStateManager.IsNetworkReady();
-bool offline = GameStateManager.IsAvailable();
+bool exists  = GameStateManager.IsAvailable();
 ```
 
-**Differences from `NetworkSingleton<T>`**
+**Static API**
+
+| Member | Type | Description |
+|---|---|---|
+| `Instance` | `T` | Always returns an instance; creates GO if none exists |
+| `HasInstance` | `bool` | Null-safe existence check |
+| `TryGetInstance()` | `T` | Returns null if not found |
+| `Current` | `T` | Alias for Instance |
+| `IsAvailable()` | `bool` | True if instance exists (online or offline) |
+| `IsNetworkReady()` | `bool` | True when spawned AND NetworkManager is listening |
+| `IsNetworkSpawned()` | `bool` | True when NGO has spawned this object |
+| `IsServerAuthority()` | `bool` | True when `NetworkObject.IsOwnedByServer` |
+| `GetExistingInstance()` | `T` | Find in scene without creating |
+| `Reset()` | `void` | Destroy + clear static refs |
+
+**Comparison with `NetworkSingleton<T>`**
 
 | Feature | NetworkSingleton | HybridNetworkSingleton |
 |---|---|---|
 | Instance in Awake | ✓ | ✓ |
 | Works offline | ✗ | ✓ |
+| Persists across scenes by default | No | Yes |
 | Auto-creates GO if missing | ✓ | ✓ |
-| Persists by default | No | Yes |
 
 **`IHybridNetworkSingletonLifecycle`**
 
@@ -116,21 +137,20 @@ void OnSceneChange(string sceneName); // non-NGO scene loads
 
 ### `MID_NetworkObjectPool : NetworkBehaviour`
 
-Generic NGO-managed object pool. Uses `INetworkPrefabInstanceHandler` so NGO
-calls the pool's `Instantiate`/`Destroy` internally — no extra spawn code needed.
+**Namespace:** `MidManStudio.Netcode.Pools`  
+**File:** `Runtime/PoolSystems/MID_NetworkObjectPool.cs`
+
+Generic NGO-managed object pool. Uses `INetworkPrefabInstanceHandler` so NGO's own `Spawn`/`Despawn` path calls into the pool — no extra spawn code needed. **Auto-initializes in `OnNetworkSpawn`**; `InitializePool()` is idempotent if called manually.
 
 **Setup**
 
-1. Add component to a persistent NetworkBehaviour in your scene.
+1. Add component to a persistent `NetworkBehaviour` in your scene.
 2. Fill `pooledPrefabsList` in inspector. Each prefab needs a `NetworkObject`.
-3. Optionally add a component implementing `IPoolableNetworkObject` for reset/retrieve hooks.
-4. Call `InitializePool()` before any spawning (server-side).
+3. Optionally add a component implementing `IPoolableNetworkObject` to each prefab for reset/retrieve hooks.
 
-**Usage (server only)**
+**Usage (server-side only)**
 
 ```csharp
-MID_NetworkObjectPool.Singleton.InitializePool();
-
 // Spawn
 var netObj = MID_NetworkObjectPool.Singleton
     .GetNetworkObject(PoolableNetworkObjectType.MyWeapon, pos, rot);
@@ -143,37 +163,38 @@ MID_NetworkObjectPool.Singleton
 
 **Public API**
 
-```csharp
-void          InitializePool()
-NetworkObject GetNetworkObject(PoolableNetworkObjectType type, Vector3 pos, Quaternion rot)
-NetworkObject GetNetworkObject(int typeId, Vector3 pos, Quaternion rot)
-void          ReturnNetworkObject(NetworkObject netObj, PoolableNetworkObjectType type)
-void          ReturnNetworkObject(NetworkObject netObj, int typeId)
-bool          IsRegistered(PoolableNetworkObjectType type)
-bool          IsRegistered(int typeId)
-void          ClearPool()
-static MID_NetworkObjectPool Singleton { get; }
-```
+| Member | Returns | Description |
+|---|---|---|
+| `InitializePool()` | `void` | Idempotent — called automatically in `OnNetworkSpawn` |
+| `GetNetworkObject(PoolableNetworkObjectType type, Vector3 pos, Quaternion rot)` | `NetworkObject` | Retrieve from pool; creates new instance if pool is empty |
+| `GetNetworkObject(PoolableNetworkObjectType type)` | `NetworkObject` | Overload at `Vector3.zero / Quaternion.identity` |
+| `ReturnNetworkObject(NetworkObject netObj, PoolableNetworkObjectType type)` | `void` | Reset and return to pool; call BEFORE `Despawn` |
+| `IsRegistered(PoolableNetworkObjectType type)` | `bool` | Check if type has a pool entry |
+| `ClearPool()` | `void` | Remove all handlers and empty all queues |
+| `Singleton` | `MID_NetworkObjectPool` | Static instance reference |
 
 ---
 
 ### `IPoolableNetworkObject`
 
-Implement on any `NetworkBehaviour` on a pooled prefab.
+**Namespace:** `MidManStudio.Netcode.Pools`  
+**File:** `Runtime/PoolSystems/IPoolableNetworkObject.cs`
+
+Implement on any `NetworkBehaviour` component on a pooled prefab.
 
 ```csharp
 public class MyWeapon : NetworkBehaviour, IPoolableNetworkObject
 {
     public void OnPoolReset()
     {
-        // Called when returned to pool — disable visuals, clear state
+        // Called on return: disable visuals, stop effects, clear references
         _spriteRenderer.enabled = false;
         _owner = null;
     }
 
     public void OnPoolRetrieve()
     {
-        // Called just before handing to caller — apply spawn config
+        // Called just before handing to caller: apply spawn config
         _spriteRenderer.enabled = true;
     }
 }
@@ -183,30 +204,51 @@ public class MyWeapon : NetworkBehaviour, IPoolableNetworkObject
 
 ### `NetworkPoolTypeProviderSO : ScriptableObject`
 
-Create via: `MidManStudio > Pool Type Provider (Network Object)`
+**Namespace:** `MidManStudio.Netcode.Generator`  
+**File:** `Runtime/PoolSystems/Config/NetworkPoolTypeProviderSO.cs`  
+**Create via:** `MidManStudio > Netcode > Pool Type Provider (Network Object)`
 
 Contributes entries to the generated `PoolableNetworkObjectType` enum.
-Use the Pool Type Generator to rebuild after adding entries.
 
-| Field | Description |
-|---|---|
-| `packageId` | Unique reverse-domain ID |
-| `displayName` | Generator window label |
-| `priority` | 0 = netcode reserved, 100+ = user game code |
-| `entries` | List of `PoolEntryDefinition` |
+| Field | Type | Description |
+|---|---|---|
+| `packageId` | `string` | Unique reverse-domain ID (e.g. `com.mygame`) |
+| `displayName` | `string` | Generator window label |
+| `priority` | `int` | 0 = netcode reserved, 10 = projectile system, 100+ = game code |
+| `entries` | `List<PoolEntryDefinition>` | Pool type entries |
+
+Run `MidManStudio > Utilities > Pool Type Generator > Generate Now` after adding entries.
 
 ---
 
 ### `NetworkPoolConfig`
 
-Inspector pool entry for `MID_NetworkObjectPool`.
+**Namespace:** `MidManStudio.Netcode.Pools`
 
-| Field | Description |
-|---|---|
-| `typeId` | Matches a `PoolableNetworkObjectType` value |
-| `displayName` | Inspector label |
-| `prefab` | Prefab with NetworkObject component |
-| `prewarmCount` | Pre-instantiated instances on init |
+Inspector entry for `MID_NetworkObjectPool.pooledPrefabsList`.
+
+| Field | Type | Description |
+|---|---|---|
+| `networkType` | `PoolableNetworkObjectType` | Matches a generated enum value |
+| `displayName` | `string` | Inspector label (optional) |
+| `prefab` | `GameObject` | Prefab with `NetworkObject` component |
+| `prewarmCount` | `int` | Pre-instantiated instances on init |
+
+---
+
+### `PoolableNetworkObjectType` (generated enum)
+
+**Namespace:** `MidManStudio.Core.Pools`  
+**File:** `Runtime/PoolSystems/PoolableNetworkObjectType.cs`  
+**Auto-generated** — do not edit manually. Regenerate via `MidManStudio > Utilities > Pool Type Generator`.
+
+**Priority blocks:**
+
+| Priority | Block | Reserved for |
+|---|---|---|
+| 0 | 0–99 | `com.midmanstudio.netcode` (no entries by default) |
+| 10 | 100–199 | `com.midmanstudio.projectilesystem` |
+| 100+ | 200+ | Your game |
 
 ---
 
@@ -214,8 +256,10 @@ Inspector pool entry for `MID_NetworkObjectPool`.
 
 ### `MID_NetworkConnectionManager : Singleton<MID_NetworkConnectionManager>`
 
-Background internet connectivity monitor. Fires events on state change.
-No game-specific dependencies.
+**Namespace:** `MidManStudio.Netcode`  
+**File:** `Runtime/Connection/MID_NetworkConnectionManager.cs`
+
+Background internet connectivity monitor. Fires events on state change. No game-specific dependencies.
 
 ```csharp
 MID_NetworkConnectionManager.StartContinuousCheck();
@@ -226,13 +270,15 @@ void OnConnChanged(bool connected)
     if (!connected) ShowNoInternetPopup();
 }
 
-// Slow down polling while showing error (3× normal interval)
+// Slow polling while showing error (3× normal interval)
 MID_NetworkConnectionManager.SetIntervalMultiplier(3f);
+// Restore
+MID_NetworkConnectionManager.SetIntervalMultiplier(1f);
 
-// One-off check
+// One-off async check
 bool ok = await MID_NetworkConnectionManager.ConfirmConnectionAsync();
 
-// Synchronous fallback (blocks ~3s max)
+// Synchronous fallback — blocks caller up to ~3 seconds
 bool quick = MID_NetworkConnectionManager.CheckSynchronous();
 
 MID_NetworkConnectionManager.StopContinuousCheck();
@@ -240,28 +286,32 @@ MID_NetworkConnectionManager.StopContinuousCheck();
 
 **Static API**
 
-```csharp
-static void   StartContinuousCheck()
-static void   StopContinuousCheck()
-static Task<bool> ConfirmConnectionAsync()
-static bool   CheckSynchronous()
-static void   SetIntervalMultiplier(float multiplier) // 1.0 = default
-static void   SetCheckMethod(ConnectionCheckMethod method)
-static bool   IsConnected { get; }
-static bool   IsChecking  { get; }
-static event  Action<bool> onConnectionStatusChanged
-static event  Action<bool> onCheckCompleted
-```
+| Member | Returns | Description |
+|---|---|---|
+| `StartContinuousCheck()` | `void` | Begin background polling loop |
+| `StopContinuousCheck()` | `void` | Stop background polling loop |
+| `ConfirmConnectionAsync()` | `Task<bool>` | One-off async check |
+| `CheckSynchronous()` | `bool` | Blocking TCP check; max ~3s |
+| `SetIntervalMultiplier(float multiplier)` | `void` | Scale polling interval; 1.0 = default |
+| `SetCheckMethod(ConnectionCheckMethod method)` | `void` | Change check method at runtime |
+| `IsConnected` | `bool` | Last known connection state |
+| `IsChecking` | `bool` | True while background loop is running |
+| `onConnectionStatusChanged` | `event Action<bool>` | Fires on the main thread when state changes |
+| `onCheckCompleted` | `event Action<bool>` | Fires after every check (connected or not) |
 
-**`ConnectionCheckMethod` enum**
+---
 
-```csharp
-Ping          // ICMP to 1.1.1.1 (default)
-HttpRequest   // GET unity3d.com
-DnsLookup     // DNS resolution for cloudflare.com
-TcpConnection // TCP port 443 to cloudflare.com
-HttpPing      // HTTP GET speed.cloudflare.com
-```
+### `ConnectionCheckMethod` (enum)
+
+**Namespace:** `MidManStudio.Netcode`
+
+| Value | Method | Target |
+|---|---|---|
+| `Ping` | ICMP ping | `1.1.1.1` (default) |
+| `HttpRequest` | UnityWebRequest GET | `unity3d.com` |
+| `DnsLookup` | `Dns.GetHostEntryAsync` | `cloudflare.com` |
+| `TcpConnection` | TCP connect | `cloudflare.com:443` |
+| `HttpPing` | `HttpClient` GET | `speed.cloudflare.com` |
 
 ---
 
@@ -269,13 +319,13 @@ HttpPing      // HTTP GET speed.cloudflare.com
 
 ### `MID_NetworkRPCQueue : NetworkBehaviour`
 
-Batches NGO RPC payloads into one send per network tick.
-Reduces packet overhead when many small state updates fire in one frame.
+**Namespace:** `MidManStudio.Netcode`  
+**File:** `Runtime/RPCQueue/MID_NetworkRPCQueue.cs`
 
-Payload types must implement both `IMIDRPCPayload` and `INetworkSerializable`.
+Batches NGO RPC payloads into one send per flush tick. Reduces packet overhead when many small state updates fire in the same frame. Payload type T must implement both `IMIDRPCPayload` and `INetworkSerializable`.
 
 ```csharp
-// Define a payload
+// 1. Define payload
 public struct HitEvent : IMIDRPCPayload, INetworkSerializable
 {
     public ulong TargetId;
@@ -289,36 +339,43 @@ public struct HitEvent : IMIDRPCPayload, INetworkSerializable
     }
 }
 
-// Register flush handler (in OnNetworkSpawn)
+// 2. Register flush handler (in OnNetworkSpawn)
 MID_NetworkRPCQueue.Instance.RegisterChannel<HitEvent>(FlushHits);
 
-// Enqueue from any system — batched automatically
+// 3. Enqueue — batched automatically each tick
 MID_NetworkRPCQueue.Instance.Enqueue(new HitEvent { TargetId = id, Damage = 10f });
 
-// Flush handler receives the whole batch as one call
+// 4. Flush handler receives the full batch as one call
 void FlushHits(List<HitEvent> batch) =>
     SendHitBatchClientRpc(batch.ToArray());
+
+// 5. Cleanup (in OnNetworkDespawn)
+MID_NetworkRPCQueue.Instance.UnregisterChannel<HitEvent>();
 ```
 
 **`IMIDRPCPayload`**
 
 ```csharp
 string CollapseKey { get; }
-// Non-null same key in one flush window → last-write-wins deduplication
-// Null → all payloads kept (ordered)
+// Non-null same key → last-write-wins within one flush window
+// Null → all payloads kept in order
 ```
 
-**Static API**
+**Public API**
 
-```csharp
-void RegisterChannel<T>(Action<List<T>> flushHandler)
-void Enqueue<T>(T payload)
-void UnregisterChannel<T>()
-int  TotalFlushes { get; }
-int  TotalPending()
-static MID_NetworkRPCQueue Instance   { get; }
-static bool                HasInstance { get; }
-```
+| Member | Returns | Description |
+|---|---|---|
+| `RegisterChannel<T>(Action<List<T>> flushHandler)` | `void` | Register flush handler for type T; overwrites if already registered |
+| `Enqueue<T>(T payload)` | `void` | Add payload to T's channel; deduplicates if `CollapseKey` is non-null |
+| `UnregisterChannel<T>()` | `void` | Remove channel for type T |
+| `TotalFlushes` | `int` | Total flush cycles since startup |
+| `TotalPending()` | `int` | Payloads pending across all channels |
+| `Instance` | `MID_NetworkRPCQueue` | Static instance reference |
+| `HasInstance` | `bool` | Null-safe existence check |
+
+| Inspector Field | Type | Description |
+|---|---|---|
+| `_flushRate` | `float` | Flush cycles per second (default: 20) |
 
 ---
 
@@ -326,54 +383,54 @@ static bool                HasInstance { get; }
 
 ### `LocalLobbyManager : NetworkBehaviour`
 
-LAN / WiFi offline lobby manager. Zero game-specific dependencies.
-Broadcasts / receives UDP discovery, manages player list, fires events.
+**Namespace:** `MidManStudio.Netcode.LocalMultiplayer`  
+**File:** `Runtime/LocalMultiplayer/LocalLobbyManager.cs`
+
+LAN/WiFi offline lobby manager using UDP broadcast discovery. Zero game-specific dependencies. Inject team logic via `SetTeamProvider`.
 
 **Setup**
-
-1. Add to a persistent `NetworkBehaviour` with a `NetworkObject`.
+1. Add to a persistent `NetworkBehaviour` GameObject with a `NetworkObject` component.
 2. Assign `NetworkManager` and `UnityTransport` in inspector.
 3. Subscribe to events before calling any `Start*/Join*` methods.
 4. Optionally call `SetTeamProvider(provider)` with your team logic.
 
+> **Discovery interval note:** Default `_discoveryInterval` is 2 seconds. Do not lower it to 1 second on same-machine testing — at 1s with loopback + broadcast both firing, Unity Transport's default 128-packet receive queue fills up. Also increase `UnityTransport.MaxPacketQueueSize` to 256+ in the inspector if testing on one machine.
+
 **Hosting & Joining**
 
 ```csharp
+_lobbyManager.OnHostResult += ok => { if (ok) ShowLobbyPanel(); };
 _lobbyManager.StartHosting(new LocalLobbyConfig
 {
     LobbyName  = "My Game",
     MaxPlayers = 4,
-    GameMode   = "TeamDeathmatch",
-    GameMap    = "GrassyLand",
+    GameMode   = "Deathmatch",
     ServerPort = 7777
 });
-
-_lobbyManager.OnHostResult += ok => { if (ok) ShowLobbyPanel(); };
 
 // Client
 _lobbyManager.StartSearching();
 _lobbyManager.OnLobbyDiscovered += lobby => AddLobbyRow(lobby);
-_lobbyManager.JoinLobby(selectedLobby);
 _lobbyManager.OnJoinResult += ok => { if (ok) ShowLobbyPanel(); };
+_lobbyManager.JoinLobby(selectedLobby);
 ```
 
 **Player management**
 
 ```csharp
 _lobbyManager.SetPlayerName("Hamid");
-_lobbyManager.SetPlayerReady(clientId, true);
+_lobbyManager.SetPlayerReady(localClientId, true);
 bool allReady = _lobbyManager.AreAllPlayersReady();
 _lobbyManager.SetFillWithBots(true);
 List<LocalLobbyPlayer> players = _lobbyManager.GetPlayers();
+int realCount = _lobbyManager.RealPlayerCount; // excludes bots
 ```
 
-**Game start**
+**Game start (host only)**
 
 ```csharp
-// Host only — validates all ready, calls team provider, fires on all clients
-_lobbyManager.RequestGameStart();
+_lobbyManager.RequestGameStart(); // validates all ready, calls team provider, fires on all clients
 
-// All clients (including host)
 _lobbyManager.OnGameStartReceived += snapshot =>
 {
     // snapshot.Players has final team assignments
@@ -381,168 +438,356 @@ _lobbyManager.OnGameStartReceived += snapshot =>
 };
 ```
 
+**Team change**
+
+```csharp
+bool ok = _lobbyManager.TryChangeTeam(clientId, targetTeamId);
+// Client: fires ServerRpc and returns true (optimistic); listen to sync events for result
+// Server: calls provider.TryChangeTeam() and returns actual result
+```
+
 **Events**
 
 | Event | Signature | Description |
 |---|---|---|
 | `OnLobbyDiscovered` | `Action<LocalLobbyData>` | New UDP broadcast found |
-| `OnLobbyRemoved` | `Action<string>` | Discovery timed out |
-| `OnPlayerJoined` | `Action<LocalLobbyPlayer>` | Player joined |
-| `OnPlayerLeft` | `Action<ulong>` | Player disconnected |
+| `OnLobbyRemoved` | `Action<string>` | Discovery timed out (key = `"ip:port"`) |
+| `OnPlayerJoined` | `Action<LocalLobbyPlayer>` | Player joined (including bots) |
+| `OnPlayerLeft` | `Action<ulong>` | Player disconnected or bot removed |
 | `OnPlayerReadyStatusChanged` | `Action<LocalLobbyPlayer>` | Ready toggled |
-| `OnHostResult` | `Action<bool>` | StartHosting completed |
-| `OnJoinResult` | `Action<bool>` | JoinLobby completed |
-| `OnLobbyDisbanded` | `Action` | Host left, client received disconnect |
-| `OnNetworkStatusChanged` | `Action<string>` | WiFi/hotspot status change |
-| `OnGameStartReceived` | `Action<LocalLobbySnapshot>` | Game is starting |
+| `OnHostResult` | `Action<bool>` | `StartHosting()` completed |
+| `OnJoinResult` | `Action<bool>` | `JoinLobby()` completed |
+| `OnLobbyDisbanded` | `Action` | Host left; client received disconnect |
+| `OnNetworkStatusChanged` | `Action<string>` | WiFi/hotspot status change string |
+| `OnGameStartReceived` | `Action<LocalLobbySnapshot>` | Game is starting — load scene here |
+| `OnInitialized` | `Action` | Async init complete (after 0.1s delay) |
+
+**Public API**
+
+| Member | Returns | Description |
+|---|---|---|
+| `Instance` | `LocalLobbyManager` | Static accessor (FindAnyObjectByType fallback) |
+| `HasInstance` | `bool` | Null-safe existence check |
+| `IsHosting` | `bool` | True when this device is the NGO host |
+| `IsSearching` | `bool` | True while UDP discovery client is running |
+| `IsInLobby` | `bool` | True when connected as host or client |
+| `IsInitialized` | `bool` | True after async init completes |
+| `PlayerName` | `string` | Current local player name |
+| `RealPlayerCount` | `int` | Player count excluding bots |
+| `SetTeamProvider(ILocalLobbyTeamProvider)` | `void` | Inject custom team logic |
+| `StartHosting(LocalLobbyConfig config = null)` | `void` | Begin hosting; fires `OnHostResult` |
+| `StopHosting()` | `void` | Disconnect all clients and stop |
+| `JoinLobby(LocalLobbyData lobby)` | `void` | Connect to discovered lobby; fires `OnJoinResult` |
+| `LeaveLobby()` | `void` | Disconnect and clear state |
+| `StartSearching()` | `void` | Begin UDP discovery client |
+| `StopSearching()` | `void` | Stop UDP discovery client |
+| `GetDiscoveredLobbies()` | `IReadOnlyDictionary<string, LocalLobbyData>` | Current discovery results |
+| `SetPlayerName(string name)` | `void` | Set local player name (persisted to PlayerPrefs) |
+| `SetPlayerIconId(string iconId)` | `void` | Set local player icon key |
+| `SetPlayerReady(ulong clientId, bool ready)` | `void` | Toggle ready state; synced to all clients |
+| `AreAllPlayersReady()` | `bool` | True when all real players are ready |
+| `SetFillWithBots(bool fill)` | `void` | Toggle bot fill (host only) |
+| `GetPlayers()` | `List<LocalLobbyPlayer>` | Snapshot of current player list |
+| `GetCurrentLobby()` | `LocalLobbyData` | Current lobby descriptor or null |
+| `RequestGameStart()` | `void` | Host only — validates ready, fires snapshot on all clients |
+| `TryChangeTeam(ulong clientId, int targetTeamId)` | `bool` | Request team change (routed via ServerRpc on client) |
+| `OpenHotspotSettings()` | `void` | Opens device hotspot settings (Android/iOS) |
+| `OpenWiFiSettings()` | `void` | Opens device WiFi settings (Android/iOS) |
+
+---
+
+### `LocalLobbyConfig`
+
+**Namespace:** `MidManStudio.Netcode.LocalMultiplayer`  
+**File:** `Runtime/LocalMultiplayer/LocalLobbyManager.cs`
+
+```csharp
+public class LocalLobbyConfig
+{
+    public string LobbyName     = "Local Game";
+    public int    MaxPlayers    = 4;
+    public string GameMode      = "";   // opaque — lobby system carries verbatim
+    public string GameMap       = "";   // opaque — lobby system carries verbatim
+    public string CustomData    = "";   // free-form JSON for game-specific fields
+    public int    ServerPort    = 7777;
+    public int    BroadcastPort = 7778;
+}
+```
 
 ---
 
 ### `ILocalLobbyTeamProvider`
 
+**Namespace:** `MidManStudio.Netcode.LocalMultiplayer`  
+**File:** `Runtime/LocalMultiplayer/ILocalLobbyTeamProvider.cs`
+
 Inject custom team logic without creating a package dependency.
 
 ```csharp
-int  OnPlayerJoined(ulong clientId, bool isHost);
-void OnPlayerLeft(ulong clientId);
-bool TryChangeTeam(ulong clientId, int targetTeamId);
-int  GetTeamId(ulong clientId);
-void OnPrepareGameStart(List<LocalLobbyPlayer> allPlayers);
-string SerializeState();
-void   DeserializeState(string data);
-```
-
----
-
-### `LocalLobbyUIManager : MonoBehaviour` (abstract)
-
-Base class for lobby UI. Connects to `LocalLobbyManager` events and uses a
-`MID_UIStateContext` (from `com.midmanstudio.utilities`) for panel state.
-
-**Setup**
-
-1. Create a `MID_UIStateContext` SO with `contextName = "Lobby"` and states:
-   `NetworkCheck`, `Browse`, `Hosting`, `Joining`, `Loading`
-2. Run: `MidManStudio > Utilities > UI State Context Generator` → produces `LobbyUIState.cs`
-3. Assign the context SO to `LobbyContext` in inspector
-4. Subclass and override the `On*` virtual hooks
-
-```csharp
-public class MyLobbyUI : LocalLobbyUIManager
-{
-    [SerializeField] private GameObject _browsePanel;
-    [SerializeField] private GameObject _hostPanel;
-
-    protected override void OnHostResult(bool success)
-    {
-        if (!success) ShowError("Failed to host.");
-    }
-
-    protected override void OnGameStartReceived(LocalLobbySnapshot snapshot)
-    {
-        SceneManager.LoadScene("GameScene");
-    }
-
-    // Buttons in your UI call these:
-    public void OnHostButtonClicked() =>
-        RequestHost(new LocalLobbyConfig { LobbyName = "My Lobby" });
-
-    public void OnLeaveButtonClicked() =>
-        RequestLeave();
-}
-```
-
-**State navigation (protected)**
-
-```csharp
-void GoToNetworkCheck()
-void GoToBrowse()
-void GoToHosting()
-void GoToJoining()
-void GoToLoading()
-void GoBack()
-void ChangeState(int rawState)  // use (int)LobbyUIState.Browse directly
+int    OnPlayerJoined(ulong clientId, bool isHost);          // server — returns assigned team ID
+void   OnPlayerLeft(ulong clientId);                         // server
+bool   TryChangeTeam(ulong clientId, int targetTeamId);      // server — return false if invalid/full
+int    GetTeamId(ulong clientId);                            // -1 if unassigned
+void   OnPrepareGameStart(List<LocalLobbyPlayer> allPlayers); // server — balance bots here
+string SerializeState();                                     // for client sync RPC
+void   DeserializeState(string data);                        // apply server state on client
 ```
 
 ---
 
 ### `LocalLobbyData`
 
+**Namespace:** `MidManStudio.Netcode.LocalMultiplayer`  
+**File:** `Runtime/LocalMultiplayer/LocalLobbyData.cs`
+
 Discovered lobby descriptor. Carried by UDP and passed to UI events.
 
 | Field | Type | Description |
 |---|---|---|
-| `LobbyName` | string | |
-| `HostName` | string | |
-| `HostAddress` | string | IP of host device |
-| `Port` | int | |
-| `CurrentPlayers` | int | |
-| `MaxPlayers` | int | |
-| `GameMode` | string | Opaque game-defined string |
-| `GameMap` | string | Opaque game-defined string |
-| `CustomData` | string | Free-form JSON for game-specific fields |
-| `IsFull` | bool | `CurrentPlayers >= MaxPlayers` |
-| `Key` | string | `"ip:port"` — unique lobby identifier |
+| `LobbyName` | `string` | |
+| `HostName` | `string` | |
+| `HostAddress` | `string` | IP of host device |
+| `Port` | `int` | |
+| `CurrentPlayers` | `int` | |
+| `MaxPlayers` | `int` | |
+| `GameMode` | `string` | Opaque game-defined string |
+| `GameMap` | `string` | Opaque game-defined string |
+| `CustomData` | `string` | Free-form JSON; lobby system carries verbatim |
+| `IsFull` | `bool` | `CurrentPlayers >= MaxPlayers` |
+| `Key` | `string` | `"ip:port"` — unique lobby identifier |
 
 ---
 
 ### `LocalLobbyPlayer`
 
-Player representation inside a lobby session.
+**Namespace:** `MidManStudio.Netcode.LocalMultiplayer`  
+**File:** `Runtime/LocalMultiplayer/LocalLobbyPlayer.cs`
 
-| Field | Type | Description |
-|---|---|---|
-| `ClientId` | ulong | NGO client ID (or >10000 for bots) |
-| `PlayerName` | string | |
-| `PlayerIconId` | string | Game-defined icon key |
-| `IsReady` | bool | |
-| `IsHost` | bool | |
-| `IsBot` | bool | |
-| `TeamId` | int | -1 = unassigned |
+```csharp
+public class LocalLobbyPlayer
+{
+    public ulong  ClientId;
+    public string PlayerName;
+    public string PlayerIconId;
+    public bool   IsReady;
+    public bool   IsHost;
+    public bool   IsBot;
+    public int    TeamId = -1; // -1 = unassigned; meaning defined by game
+
+    public LocalLobbyPlayer(ulong clientId, string playerName,
+                            bool isHost = false, bool isBot = false);
+}
+```
+
+---
+
+### `NetworkLobbyPlayerData` (struct)
+
+**Namespace:** `MidManStudio.Netcode.LocalMultiplayer`  
+**File:** `Runtime/LocalMultiplayer/LocalLobbyPlayer.cs`
+
+NGO `NetworkList` wire format. `IsBot` is NOT in the wire format — bots are local to the host.
+
+```csharp
+public struct NetworkLobbyPlayerData : INetworkSerializable, IEquatable<NetworkLobbyPlayerData>
+{
+    public ulong              ClientId;
+    public FixedString128Bytes PlayerName;
+    public FixedString64Bytes  PlayerIconId;
+    public bool               IsReady;
+    public bool               IsHost;
+    public int                TeamId;
+}
+```
 
 ---
 
 ### `LocalLobbySnapshot`
 
-Passed to `OnGameStartReceived`. Contains the final state at game start.
+**Namespace:** `MidManStudio.Netcode.LocalMultiplayer`  
+**File:** `Runtime/LocalMultiplayer/LocalLobbyPlayer.cs`
+
+Passed to `OnGameStartReceived`. Contains the final state at game-start time.
 
 ```csharp
-LocalLobbyData              LobbyData  // config at game start
-List<LocalLobbyPlayer>      Players    // final player list with team IDs
+public class LocalLobbySnapshot
+{
+    public LocalLobbyData         LobbyData; // config at game start
+    public List<LocalLobbyPlayer> Players;   // final player list with team IDs
+}
 ```
+
+---
+
+### `LocalLobbyUIManager : MonoBehaviour` (abstract)
+
+**Namespace:** `MidManStudio.Netcode.UI`  
+**File:** `Runtime/LocalMultiplayer/LocalLobbyUIManager.cs`
+
+Base class for lobby UI. Connects to `LocalLobbyManager` events and drives panel state via a `MID_UIStateContext` SO from `com.midmanstudio.utilities`.
+
+**Setup**
+1. Create a `MID_UIStateContext` SO with `contextName = "ProjLobby"` and states: `Main`, `Searching`, `InLobby`, `Loading`, `NetworkCheck`
+2. Run `MidManStudio > Utilities > UI State Context Generator` → produces `ProjLobbyUIState.cs`
+3. Assign the SO to `LobbyContext` in the inspector
+4. Subclass and override virtual hooks
+
+```csharp
+[RequireComponent(typeof(Canvas))]
+public class MyLobbyUI : LocalLobbyUIManager
+{
+    // Buttons call the protected helpers
+    public void OnHostClicked()   => RequestHost(new LocalLobbyConfig { LobbyName = "My Game" });
+    public void OnSearchClicked() => RequestGoToSearching();
+    public void OnJoinClicked(LocalLobbyData lobby) => RequestJoin(lobby);
+    public void OnLeaveClicked()  => RequestLeave();
+    public void OnReadyClicked()  => RequestSetReady(localClientId, !isReady);
+    public void OnStartClicked()  => RequestGameStart();
+
+    protected override void OnSearchStarted()
+    {
+        // Clear stale lobby cards, show spinner
+    }
+
+    protected override void OnLobbyDiscovered(LocalLobbyData lobby)
+    {
+        // Add lobby card to list
+    }
+
+    protected override void OnHostResult(bool success)
+    {
+        // On success: already navigated to InLobby
+        // On failure: already navigated back to Main
+        if (!success) ShowError("Failed to host.");
+    }
+
+    protected override void OnGameStartReceived(LocalLobbySnapshot snapshot)
+    {
+        // Already navigated to Loading
+        SceneManager.LoadScene("GameScene");
+    }
+}
+```
+
+**State machine**
+
+| State | Bit | Description |
+|---|---|---|
+| `Main` | 1 | Player name field, Host button, Look for Lobbies button |
+| `Searching` | 2 | Lobby list panel |
+| `InLobby` | 4 | Lobby room (shared by host and joining client) |
+| `Loading` | 8 | Connecting / loading overlay |
+| `NetworkCheck` | 16 | No-network warning panel |
+
+> `GoToBrowse()`, `GoToHosting()`, `GoToJoining()` are backward-compatible aliases for `GoToMain()` and `GoToInLobby()` respectively.
+
+**Public properties**
+
+| Member | Type | Description |
+|---|---|---|
+| `CurrentState` | `int` | Raw current state value from context |
+| `CanGoBack` | `bool` | True if back navigation is available |
+
+**Protected state navigation**
+
+| Method | Description |
+|---|---|
+| `ChangeState(int newState)` | Transition by raw state int (from generated enum) |
+| `GoBack()` | Pop context history one level |
+| `GoToMain()` | Main screen (bit 1) |
+| `GoToSearching()` | Lobby list screen (bit 2) |
+| `GoToInLobby()` | In-lobby room (bit 4) |
+| `GoToLoading()` | Loading overlay (bit 8) |
+| `GoToNetworkCheck()` | Network warning panel (bit 16) |
+| `GoToBrowse()` | Alias for `GoToMain()` |
+| `GoToHosting()` | Alias for `GoToInLobby()` |
+| `GoToJoining()` | Alias for `GoToInLobby()` |
+
+**Protected action helpers**
+
+| Method | Description |
+|---|---|
+| `RequestGoToSearching()` | Stop current search → `GoToSearching()` → start fresh search → `OnSearchStarted()` |
+| `RequestHost(LocalLobbyConfig config)` | `GoToLoading()` + `StartHosting()` |
+| `RequestJoin(LocalLobbyData lobby)` | `GoToLoading()` + `JoinLobby()` |
+| `RequestLeave()` | `LeaveLobby()` + `GoToMain()` |
+| `RequestStopHosting()` | `StopHosting()` + `GoToMain()` |
+| `RequestStartSearch()` | `StartSearching()` |
+| `RequestStopSearch()` | `StopSearching()` |
+| `RequestSetReady(ulong clientId, bool ready)` | `SetPlayerReady()` passthrough |
+| `RequestGameStart()` | `RequestGameStart()` passthrough |
+| `RequestPlayerName(string name)` | `SetPlayerName()` passthrough |
+| `CanHost()` | `MobileNetworkStatusMonitor.CanHost()` (true if monitor absent) |
+| `CanJoin()` | `MobileNetworkStatusMonitor.CanJoin()` (true if monitor absent) |
+| `GetDiscoveredLobbies()` | `IReadOnlyDictionary<string, LocalLobbyData>` |
+| `GetPlayers()` | `List<LocalLobbyPlayer>` |
+| `AreAllReady()` | `bool` |
+
+**Virtual hooks**
+
+| Method | When called | State already navigated |
+|---|---|---|
+| `OnLobbyDiscovered(LocalLobbyData lobby)` | New lobby found in scan | No |
+| `OnLobbyRemoved(string lobbyKey)` | Discovered lobby timed out | No |
+| `OnPlayerJoined(LocalLobbyPlayer player)` | Player joined | No |
+| `OnPlayerLeft(ulong clientId)` | Player disconnected | No |
+| `OnPlayerReadyChanged(LocalLobbyPlayer player)` | Ready toggled | No |
+| `OnHostResult(bool success)` | `StartHosting` completed | InLobby (ok) / Main (fail) |
+| `OnJoinResult(bool success)` | `JoinLobby` completed | InLobby (ok) / Main (fail) |
+| `OnLobbyDisbanded()` | Host left | Main |
+| `OnNetworkStatusChanged(string status)` | WiFi/hotspot status changed | No |
+| `OnGameStartReceived(LocalLobbySnapshot snapshot)` | Game starting | Loading |
+| `OnSearchStarted()` | After `RequestGoToSearching()` | Searching |
 
 ---
 
 ### `MobileNetworkStatusMonitor : MonoBehaviour`
 
-Monitors WiFi / hotspot / mobile-data status on mobile devices.
+**Namespace:** `MidManStudio.Netcode.LocalMultiplayer`  
+**File:** `Runtime/LocalMultiplayer/MobileNetworkStatusMonitor.cs`
+
+Monitors WiFi / hotspot / mobile-data status on mobile devices. Polls on an interval; fires events on state change.
 
 ```csharp
 _monitor.OnNetworkStatusChanged += status =>
 {
-    bool canHost = status is "WIFI_CONNECTED" or "HOTSPOT";
-    bool canJoin = status == "WIFI_CONNECTED";
-    hostButton.interactable = canHost;
-    joinButton.interactable = canJoin;
+    hostButton.interactable = _monitor.CanHost();
+    joinButton.interactable = _monitor.CanJoin();
+    statusLabel.text = _monitor.GetStatusMessage();
 };
-
-string msg = _monitor.GetStatusMessage();  // human-readable
 ```
+
+| Member | Returns | Description |
+|---|---|---|
+| `StartMonitoring()` | `void` | Begin polling (called automatically on `OnEnable`) |
+| `StopMonitoring()` | `void` | Stop polling (called automatically on `OnDisable`) |
+| `ForceCheck()` | `void` | Immediate check and fire event if changed |
+| `GetCurrentStatus()` | `string` | Current status string |
+| `GetStatusMessage()` | `string` | Human-readable description |
+| `CanHost()` | `bool` | True when status is `WIFI_CONNECTED` or `HOTSPOT` |
+| `CanJoin()` | `bool` | True when status is `WIFI_CONNECTED` |
+| `HasNetwork` | `bool` | True unless `NotReachable` |
+| `OnNetworkStatusChanged` | `event Action<string>` | Fires when status string changes |
 
 **Status values**
 
-| Value | Host | Join | Description |
+| Value | `CanHost()` | `CanJoin()` | Description |
 |---|---|---|---|
 | `WIFI_CONNECTED` | ✓ | ✓ | Standard WiFi |
-| `HOTSPOT` | ✓ | ✗ | Device is the hotspot |
+| `HOTSPOT` | ✓ | ✗ | Device is running a hotspot |
 | `MOBILE_DATA` | ✗ | ✗ | Cellular only |
 | `NO_NETWORK` | ✗ | ✗ | No connectivity |
+
+> In Editor, always returns `WIFI_CONNECTED`.
 
 ---
 
 ### `PlayerOfflineIdentity : Singleton<PlayerOfflineIdentity>`
 
-Persistent offline player identity. Saved to `PlayerPrefs`.
+**Namespace:** `MidManStudio.Netcode.LocalMultiplayer`  
+**File:** `Runtime/LocalMultiplayer/PlayerOfflineIdentity.cs`
+
+Persistent offline player identity. Survives scene loads via `DontDestroyOnLoad`. Saved to `PlayerPrefs`. `LocalLobbyManager` reads this automatically on `Awake` if an instance exists.
 
 ```csharp
 PlayerOfflineIdentity.Instance.SetPlayerName("Hamid");
@@ -551,40 +796,77 @@ PlayerOfflineIdentity.Instance.SetPlayerIconId("warrior");
 string name   = PlayerOfflineIdentity.Instance.PlayerName;
 string iconId = PlayerOfflineIdentity.Instance.PlayerIconId;
 
-// Export for online account migration
+// Export for online account migration — do not persist the snapshot itself
 var snapshot = PlayerOfflineIdentity.Instance.ExportForOnlineAccount();
+// snapshot.PlayerName, snapshot.PlayerIconId, snapshot.ExportedAtUtc
 ```
+
+| Member | Returns | Description |
+|---|---|---|
+| `PlayerName` | `string` | Current player name |
+| `PlayerIconId` | `string` | Current player icon key |
+| `SetPlayerName(string name)` | `void` | Update name; persisted to PlayerPrefs; fires `OnPlayerNameChanged` |
+| `SetPlayerIconId(string iconId)` | `void` | Update icon; persisted to PlayerPrefs; fires `OnPlayerIconIdChanged` |
+| `ExportForOnlineAccount()` | `OfflineIdentitySnapshot` | Snapshot for online migration |
+| `OnPlayerNameChanged` | `event Action<string>` | Fires when name changes |
+| `OnPlayerIconIdChanged` | `event Action<string>` | Fires when icon changes |
 
 ---
 
 ## 6. Network Scene Loader
 
-### `MID_NetworkSceneLoader : HybridNetworkSingleton<...>` implements `ISceneLoader`
+### `MID_NetworkSceneLoader : HybridNetworkSingleton<MID_NetworkSceneLoader>` implements `ISceneLoader`
 
-NGO-managed additive scene loader. Host/server triggers load, all clients receive
-it automatically via NGO's scene manager.
+**Namespace:** `MidManStudio.Netcode.SceneManagement`  
+**File:** `Runtime/SceneManagement/MID_NetworkSceneLoader.cs`
+
+NGO-managed additive scene loader. Implements `ISceneLoader` from `com.midmanstudio.utilities`. Host/server triggers loads; all clients receive scene events automatically via NGO's scene manager.
+
+**Setup**
+1. Add to a persistent `NetworkBehaviour` GameObject with a `NetworkObject` component.
+2. Wire into the utilities scene controller: `MID_SceneTransitionController.Instance.SetNetworkLoader(MID_NetworkSceneLoader.Instance)`.
+3. Only the host/server calls `LoadScene` — clients are synced automatically.
 
 ```csharp
-// Wire into MID_SceneTransitionController
-MID_SceneTransitionController.Instance.SetNetworkLoader(
-    MID_NetworkSceneLoader.Instance);
-
 // Load (host only)
 MID_NetworkSceneLoader.Instance.LoadScene(
     (int)SceneId.GameplayMap, SceneLoadType.NetworkAdditive);
+
+// Unload (host only)
+MID_NetworkSceneLoader.Instance.UnloadScene((int)SceneId.GameplayMap);
+
+// Track load progress
+MID_NetworkSceneLoader.Instance.OnLoadProgressChanged += progress =>
+    loadBar.value = progress; // 0..1 as clients report load complete
+
+MID_NetworkSceneLoader.Instance.OnSceneLoadCompleted += sceneId =>
+    Debug.Log($"Scene {sceneId} loaded on all clients.");
 ```
 
-**Additional API beyond ISceneLoader**
+**ISceneLoader members**
 
-```csharp
-void SetPlayerReady(ulong clientId, bool ready)
-bool IsPlayerReady(ulong clientId)
-bool AreAllPlayersReady()
-int  GetCurrentActiveSceneId()
-bool IsTransitionInProgress()
-event Action<ulong, bool>              OnPlayerReadinessChanged
-event Action<SceneEventProgressStatus> OnSceneEventProgressUpdate
-```
+| Member | Type | Description |
+|---|---|---|
+| `IsLoadingScene` | `bool` | True during NGO scene load |
+| `CurrentLoadingSceneId` | `int` | Build index of scene being loaded; -1 if none |
+| `OnLoadProgressChanged` | `Action<float>` | Progress 0..1 as clients complete load |
+| `OnSceneLoadCompleted` | `Action<int>` | Fired when all clients finish loading |
+| `OnSceneLoadFailed` | `Action<string>` | Fired on load error with error message |
+| `LoadScene(int sceneId, SceneLoadType loadType, short delayMs)` | `void` | Host/server only |
+| `UnloadScene(int sceneId)` | `void` | Host/server only |
+| `IsSceneLoaded(int sceneId)` | `bool` | Check Unity scene manager |
+
+**Additional API**
+
+| Member | Returns | Description |
+|---|---|---|
+| `SetPlayerReady(ulong clientId, bool ready)` | `void` | Mark a client as ready for the next phase |
+| `IsPlayerReady(ulong clientId)` | `bool` | Check one client's readiness |
+| `AreAllPlayersReady()` | `bool` | True when all connected clients are marked ready |
+| `GetCurrentActiveSceneId()` | `int` | Build index of last successfully loaded gameplay scene |
+| `IsTransitionInProgress()` | `bool` | True during a load sequence |
+| `OnPlayerReadinessChanged` | `event Action<ulong, bool>` | Fires when a client's readiness changes |
+| `OnSceneEventProgressUpdate` | `event Action<SceneEventProgressStatus>` | Fires on NGO scene event milestones |
 
 ---
 
@@ -592,7 +874,10 @@ event Action<SceneEventProgressStatus> OnSceneEventProgressUpdate
 
 ### `NetworkTimer`
 
-Lightweight fixed-interval tick timer for server/client loops.
+**Namespace:** `MidManStudio.Netcode`  
+**File:** `Runtime/Timer/NetworkTimer.cs`
+
+Lightweight fixed-interval tick timer for server/client loops. Plain C# class — no MonoBehaviour.
 
 ```csharp
 var timer = new NetworkTimer(serverTickRate: 60f);
@@ -604,20 +889,20 @@ void Update()
         RunServerTick(timer.CurrentTick);
 }
 
-// Client interpolation
-float alpha = timer.LerpFraction; // 0..1 between ticks
+// Client interpolation between ticks
+float alpha = timer.LerpFraction; // 0..1
 ```
 
-```csharp
-NetworkTimer(float serverTickRate)
-void  Update(float deltaTime)
-bool  ShouldTick()
-void  Reset()
-void  SetTickRate(float tickRate)
-float MinTimeBetweenTicks { get; }
-int   CurrentTick         { get; }
-float LerpFraction        { get; }
-```
+| Member | Type | Description |
+|---|---|---|
+| `NetworkTimer(float serverTickRate)` | — | Constructor; sets `MinTimeBetweenTicks = 1 / tickRate` |
+| `Update(float deltaTime)` | `void` | Advance accumulator; call once per `Update` or `FixedUpdate` |
+| `ShouldTick()` | `bool` | Returns true and increments `CurrentTick` if enough time has elapsed; call in a `while` loop |
+| `Reset()` | `void` | Zero accumulator and tick counter |
+| `SetTickRate(float tickRate)` | `void` | Change tick rate at runtime; resets accumulator |
+| `MinTimeBetweenTicks` | `float` | Seconds between ticks (1 / tickRate) |
+| `CurrentTick` | `int` | Total ticks fired since creation or last `Reset()` |
+| `LerpFraction` | `float` | Fractional progress toward next tick (0..1); use for client interpolation |
 
 ---
 
@@ -630,9 +915,20 @@ float LerpFraction        { get; }
 ```json
 {
   "name": "MidManStudio.Netcode",
-  "rootNamespace": "MidManStudio.Core.Netcode",
-  "references": ["MidManStudio.Utilities", "Unity.Netcode.Runtime"],
-  "autoReferenced": true
+  "rootNamespace": "MidManStudio.Netcode",
+  "references": [
+    "MidManStudio.Utilities",
+    "Unity.Netcode.Runtime",
+    "Unity.Collections"
+  ],
+  "autoReferenced": true,
+  "versionDefines": [
+    {
+      "name": "com.unity.netcode.gameobjects",
+      "expression": "1.0.0",
+      "define": "MIDMAN_NGO"
+    }
+  ]
 }
 ```
 
@@ -643,7 +939,7 @@ float LerpFraction        { get; }
 ```json
 {
   "name": "MidManStudio.Netcode.Editor",
-  "rootNamespace": "MidManStudio.Core.Netcode.Editor",
+  "rootNamespace": "MidManStudio.Netcode.Editor",
   "references": [
     "MidManStudio.Utilities",
     "MidManStudio.Utilities.Editor",
@@ -661,9 +957,15 @@ float LerpFraction        { get; }
 YourGame.asmdef
 ├── MidManStudio.Utilities      (autoReferenced — implicit)
 └── MidManStudio.Netcode        (autoReferenced — implicit)
-    └── Unity.Netcode.Runtime
+    ├── MidManStudio.Utilities
+    ├── Unity.Netcode.Runtime
+    └── Unity.Collections
 
 YourGame.Editor.asmdef
 ├── MidManStudio.Utilities.Editor
 └── MidManStudio.Netcode.Editor
+    ├── MidManStudio.Utilities
+    ├── MidManStudio.Utilities.Editor
+    ├── MidManStudio.Netcode
+    └── Unity.Netcode.Runtime
 ```
