@@ -64,6 +64,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/MID_PackageUpdateChecker.cs">
       <Link>Editor/Helpers/MID_PackageUpdateChecker.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/StickyNote/MID_StickyNoteEditor.cs">
+      <Link>Editor/StickyNote/MID_StickyNoteEditor.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/MID_SpriteToTilemapConverter.cs">
       <Link>Editor/Helpers/MID_SpriteToTilemapConverter.cs</Link>
     </Compile>

@@ -274,6 +274,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Ui/MID_Button.cs">
       <Link>Runtime/Ui/MID_Button.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/StickyNote/MID_StickyNote.cs">
+      <Link>Runtime/StickyNote/MID_StickyNote.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Timers/PerformanceBenchmarkTimer.cs">
       <Link>Runtime/Timers/PerformanceBenchmarkTimer.cs</Link>
     </Compile>
