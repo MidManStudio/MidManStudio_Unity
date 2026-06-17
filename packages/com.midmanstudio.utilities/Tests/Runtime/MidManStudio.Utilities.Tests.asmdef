@@ -1,20 +1,22 @@
 {
     "name": "MidManStudio.Utilities.Tests",
-    "rootNamespace": "MidManStudio.Core.Tests",
+    "rootNamespace": "MidManStudio.Tests",
     "references": [
         "MidManStudio.Utilities",
         "UnityEngine.TestRunner",
-        "UnityEditor.TestRunner",
-        "Unity.Burst",
-        "Unity.Mathematics"
+        "UnityEditor.TestRunner"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
-    "overrideReferences": false,
-    "precompiledReferences": [],
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
     "autoReferenced": false,
-    "defineConstraints": [],
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
     "versionDefines": [],
     "noEngineReferences": false
 }

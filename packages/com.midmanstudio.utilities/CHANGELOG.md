@@ -1,219 +1,281 @@
-# Changelog — com.midmanstudio.utilities
+# com.midmanstudio.utilities — Package Catalog
+**MidMan Studio Utilities** v1.0.0 | Unity 2022.3+  
+Last updated: 2026-06-15
 
-All notable changes documented here.  
-Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
+> ⚠ **Discrepancy fixes applied in this catalog are marked with ⚠ FIX.**  
+> 🗑 Items marked **DELETE** are empty or misplaced and should be removed.  
+> ✅ Items marked **CORRECT** were already right.
 
 ---
 
-## [1.0.0] — Initial Release
+## Full Folder Tree
 
-### Core Systems
+```
+com.midmanstudio.utilities/
+│
+├── package.json
+├── CHANGELOG.md
+├── LICENSE.md
+├── README.md
+│
+├── Runtime/                                         ← MidManStudio.Utilities.asmdef
+│   ├── MidManStudio.Utilities.asmdef                ← ⚠ FIX: add Burst + Collections + Mathematics refs
+│   │
+│   ├── TickDispatcher/
+│   │   ├── MID_TickDispatcher.cs                    ← Main dispatcher (MonoSingleton)
+│   │   ├── MID_NativeTickDispatcher.cs              ← Burst IJob wrapper
+│   │   ├── MID_TickDelay.cs                         ← Zero-alloc delay/repeat scheduler
+│   │   ├── TickDelayHandle.cs                       ← Cancellation token struct
+│   │   └── TickRate.cs                              ← Enum: Tick_0_01 → Tick_5
+│   │
+│   ├── Logging/
+│   │   ├── MID_Logger.cs                            ← Static level-gated coloured logger
+│   │   └── MID_LogLevel.cs                          ← Enum: None, Error, Info, Debug, Verbose
+│   │
+│   ├── Singletons/
+│   │   ├── MID_Singleton.cs                         ← Pure C# singleton base
+│   │   └── MID_MonoSingleton.cs                     ← MonoBehaviour singleton base
+│   │
+│   ├── ObservableValues/
+│   │   ├── MID_SusValue.cs                          ← Generic reactive value container
+│   │   ├── ManagedSusValue.cs                       ← ⚠ FIX: remove unsafe finalizer (see notes)
+│   │   └── SusValueManager.cs                       ← Registry for managed values (MonoSingleton)
+│   │
+│   ├── Events/
+│   │   ├── MID_GameEventSO.cs                       ← ScriptableObject event channel
+│   │   ├── MID_GameEventListener.cs                 ← MonoBehaviour listener with UnityEvent response
+│   │   ├── MID_DelayedGameEventListener.cs          ← ⚠ FIX: cache delegate to avoid alloc per-fire
+│   │   └── MID_TypedEventBus.cs                     ← Static generic event bus (no SO dependency)
+│   │
+│   ├── PoolSystems/
+│   │   ├── LocalObjectPool.cs                       ← GameObject pool (MonoSingleton)
+│   │   ├── LocalParticlePool.cs                     ← ParticleSystem pool (MonoSingleton)
+│   │   ├── TrailRendererPool.cs                     ← TrailRenderer pool (MonoSingleton)
+│   │   ├── LocalPoolReturn.cs                       ← Auto-return component (added by pool on spawn)
+│   │   ├── IPoolable.cs                             ← OnSpawn / OnReturn interface
+│   │   ├── PoolTypeSettings/
+│   │   │   ├── PoolTypeGeneratorSettingsSO.cs       ← Root generator SO (holds all providers)
+│   │   │   ├── PoolableObjectTypeProviderSO.cs      ← Per-package object type list
+│   │   │   └── PoolableParticleTypeProviderSO.cs    ← Per-package particle type list
+│   │   └── Generated/                               ← ⚠ FIX: moved here from PoolSystems/ root
+│   │       ├── PoolableObjectType.cs                ← Generated enum (was: PoolSystems/Generated/)
+│   │       └── PoolableParticleType.cs              ← Generated enum (was: PoolSystems/Generated/)
+│   │
+│   ├── Audio/
+│   │   ├── MID_AudioManager.cs                      ← Music crossfade/pitch + SFX pool (MonoSingleton)
+│   │   ├── MID_AudioLimiter.cs                      ← DSP peak limiter; Rust on desktop, C# on WebGL
+│   │   ├── MID_NativeAudioBridge.cs                 ← 16-voice AudioSource steal pool (MonoSingleton)
+│   │   ├── MID_AudioLibrarySO.cs                    ← ⚠ FIX: moved here from Libraries/Configs/
+│   │   └── Plugins/
+│   │       ├── Windows/
+│   │       │   └── mid_audio_limiter.dll
+│   │       ├── macOS/
+│   │       │   └── mid_audio_limiter.bundle
+│   │       ├── Android/
+│   │       │   └── libmid_audio_limiter.so
+│   │       └── Linux/
+│   │           └── mid_audio_limiter.so
+│   │       (WebGL: no plugin — C# fallback in MID_AudioLimiter.cs used automatically)
+│   │
+│   ├── FXSystems/
+│   │   ├── GlobalFXManager.cs                       ← ⚠ FIX: namespace MidManStudio.Core.FX (not .Audio)
+│   │   ├── FXEntry.cs                               ← (Category, Type) → ParticleSystem + AudioClip binding
+│   │   ├── FXTypeSettings/
+│   │   │   ├── EffectCategoryProviderSO.cs          ← Per-package category list
+│   │   │   └── EffectTypeProviderSO.cs              ← Per-package type list
+│   │   └── Generated/
+│   │       ├── EffectCategory.cs                    ← Generated enum ✅ (already in Generated/)
+│   │       └── EffectType.cs                        ← Generated enum ✅ (already in Generated/)
+│   │
+│   ├── Timers/
+│   │   ├── MID_CountdownTimer.cs                    ← Countdown with pause/resume + events
+│   │   ├── MID_Stopwatch.cs                         ← Elapsed time tracker
+│   │   ├── MID_InterpolationTimer.cs                ← AnimationCurve-evaluated 0→1 progress
+│   │   ├── MID_SteppedTimer.cs                      ← N-step interval timer
+│   │   └── MID_NetworkTimer.cs                      ← NGO NetworkVariable-backed synced timer
+│   │
+│   ├── Libraries/
+│   │   ├── MID_LibraryRegistry.cs                   ← Keyed SO asset registry (MonoSingleton)
+│   │   ├── MID_LibrarySO.cs                         ← Library ScriptableObject
+│   │   ├── MID_LibraryItemSO.cs                     ← Abstract item base ScriptableObject
+│   │   ├── MID_BasicLibraryItemSO.cs                ← Concrete: displayName + icon + description
+│   │   ├── LibraryTypeSettings/
+│   │   │   └── LibraryTypeGeneratorSettingsSO.cs    ← Root generator SO
+│   │   └── Generated/                               ← ⚠ FIX: moved here from Libraries/Generator/
+│   │       ├── LibraryId.cs                         ← Generated enum (was: Libraries/Generator/)
+│   │       └── LibraryItemId.cs                     ← Generated enum (was: Libraries/Generator/)
+│   │
+│   ├── SceneManagement/
+│   │   ├── MID_SceneManager.cs                      ← Async scene loader (MonoSingleton)
+│   │   ├── MID_SceneTransitionController.cs         ← Fade in/out transition controller
+│   │   ├── SceneTypeSettings/
+│   │   │   └── SceneTypeGeneratorSettingsSO.cs      ← Root generator SO
+│   │   └── Generated/
+│   │       ├── SceneId.cs                           ← Generated enum ✅
+│   │       └── SceneRegistry.cs                     ← Generated static metadata class ✅
+│   │
+│   ├── UIState/
+│   │   ├── MID_UIStateManager.cs                    ← Stack-based [Flags] state machine driver
+│   │   ├── MID_UIStateContext.cs                    ← SO: contextName + stateNames list
+│   │   ├── MID_UIStateVisibility.cs                 ← Show/hide based on state flags match
+│   │   ├── MID_UIStateButton.cs                     ← Transitions to target state on click
+│   │   ├── MID_UIStateBackButton.cs                 ← ⚠ FIX: add to APICATALOG (was missing)
+│   │   └── Generated/                               ← Context-specific [Flags] enums written here
+│   │       └── (e.g. MenuUIState.cs, HUDUIState.cs)
+│   │   🗑 DELETE: UIState/Generator/               ← Empty folder — context provider merged into
+│   │                                                   MID_UIStateContext.cs; Generator/ serves no purpose
+│   │
+│   ├── UI/
+│   │   └── MID_UIElement.cs                         ← CanvasGroup animated show/hide base component
+│   │
+│   ├── HelperFunctions/
+│   │   └── MID_HelperFunctions.cs                   ← ⚠ FIX: rename Kill→Destroy methods (see APICATALOG)
+│   │
+│   ├── SequentialProcessing/
+│   │   ├── MID_SequentialRunner.cs                  ← Priority lane async task runner (MonoSingleton)
+│   │   └── MID_SequentialTask.cs                    ← Abstract task base with retry logic
+│   │
+│   └── StickyNote/
+│       └── MID_StickyNote.cs                        ← In-Game-View overlay (Edit + Play Mode)
+│
+├── Editor/                                          ← MidManStudio.Utilities.Editor.asmdef
+│   ├── MidManStudio.Utilities.Editor.asmdef
+│   ├── LoggerManager/
+│   │   └── MID_LoggerManagerWindow.cs               ← Bulk log level editor across scene objects
+│   ├── PoolTypeGenerator/
+│   │   └── MID_PoolTypeGeneratorWindow.cs           ← Writes PoolSystems/Generated/ files
+│   ├── LibraryTypeGenerator/
+│   │   └── MID_LibraryTypeGeneratorWindow.cs        ← Writes Libraries/Generated/ files
+│   ├── SceneTypeGenerator/
+│   │   └── MID_SceneTypeGeneratorWindow.cs          ← Writes SceneManagement/Generated/ files
+│   ├── UIStateGenerator/
+│   │   └── MID_UIStateContextGeneratorWindow.cs     ← Writes UIState/Generated/ files
+│   ├── FXTypeGenerator/
+│   │   └── MID_FXTypeGeneratorWindow.cs             ← Writes FXSystems/Generated/ files
+│   ├── ScriptUtilities/
+│   │   └── MID_ScriptUtilitiesWindow.cs             ← Misc editor script helpers
+│   └── SceneDependencyInjector/
+│       └── SceneDependencyInjector.cs               ← MonoBehaviour: auto-spawn missing managers
+│
+├── Tests/
+│   ├── Runtime/
+│   │   ├── MidManStudio.Utilities.Tests.asmdef
+│   │   ├── TickDispatcher/
+│   │   │   └── MID_TickDispatcherTests.cs
+│   │   └── TickDelay/
+│   │       └── MID_TickDelayTests.cs
+│   └── Editor/
+│       ├── MidManStudio.Utilities.Tests.Editor.asmdef
+│       ├── Audio/
+│       │   └── MID_AudioBenchmark.cs
+│       ├── TickDispatcher/
+│       │   └── MID_TickDispatcherBenchmark.cs
+│       └── TickDelay/
+│           └── MID_TickDelayBenchmark.cs
+│
+└── Samples~/
+    └── SetupDemo/
+        ├── SetupDemo.unity
+        ├── Managers.prefab                          ← Pre-wired persistent manager hierarchy
+        └── README.md
+```
 
-#### Tick Dispatcher (`MidManStudio.Core.TickDispatcher`)
-- `MID_TickDispatcher` — zero-allocation, subscriber-based interval tick system.
-  Replaces per-MonoBehaviour `Update()`. Single `Update()` dispatches to all subscribers
-  at their configured rate. Empty buckets cost nothing.
-- `MID_NativeTickDispatcher` — Burst-compiled native tick dispatcher for fully
-  data-oriented workloads with 500+ subscribers doing real math.
-- `TickRate` enum with 9 rates from `Tick_0_01` (100/sec) to `Tick_5` (0.2/sec).
-  Rates below `Tick_0_1` documented as danger zone — fire faster than a typical frame.
-- Death spiral protection with configurable max-ticks-per-frame guard.
-- Editor-only live bucket monitor in the Inspector during Play mode.
+---
 
-#### Tick Delay (`MidManStudio.Core.TickDispatcher`)
-- `MID_TickDelay` — zero-allocation delayed action system built on `MID_TickDispatcher`.
-- Pool-based slot allocation — no heap allocation on hot path after initialisation.
-- Minimum rate enforcement: rates faster than `Tick_0_1` are clamped with a warning.
-  Fast rates fire faster than a frame — dispatcher overhead exceeds any benefit.
-- `TickDelayHandle` — generation-stamped cancellable handle. Stale handles are safe.
-- `After()`, `Repeat()`, `RepeatForever()` — all cancellable, all zero-alloc when
-  called with a pre-allocated `static readonly Action` delegate.
-- Designed for Netcode for GameObjects: no `IEnumerator`, main-thread execution,
-  works directly inside `ServerRpc`/`ClientRpc` method bodies.
-- Zero-alloc contract: `static readonly Action _cb = MyMethod; MID_TickDelay.After(1f, _cb);`
-- Configurable pool capacity via `MID_TickDelay.PoolCapacity` before first call.
+## Project-Level Files (NOT inside the package)
 
-#### Logger (`MidManStudio.Core.Logging`)
-- `MID_Logger` — level-gated singleton logger. Prefix token coloured in Editor;
-  message body always plain text so log files and console detail pane are readable.
-- `MID_LogLevel` enum: `None`, `Error`, `Info`, `Debug`, `Verbose`.
-- `MID_LoggerSettings` — ScriptableObject for project-wide default level.
-- `MID_LoggerEditorWindow` — bulk manage log levels across all scene MonoBehaviours.
-  Supports search, group by GameObject, bulk set, and export to console.
+These live in the consuming Unity project under `Assets/`, not inside the UPM package:
 
-#### Singletons (`MidManStudio.Core.Singleton`)
-- `Singleton<T>` — MonoBehaviour singleton base with optional `DontDestroyOnLoad`.
-  Auto-creates if not found. Handles duplicates. `SingletonLifecycle` interface for
-  `OnSceneChange` callbacks.
-- `StaticContentSingleton<T>` — thread-safe double-checked-locking singleton for
-  plain C# classes. Supports `IStaticSingletonInitializable` and `IDisposable`.
+```
+Assets/MidManStudio/Generated/
+├── Pools/
+│   └── PoolTypeLock.json          ← Stabilises enum offsets across regenerations
+└── FX/
+    └── EffectTypeLock.json        ← Stabilises FX enum offsets
+```
 
-#### Observable Values (`MidManStudio.Core.ObservableValues`)
-- `MID_SusValue<T>` — generic observable value. Two subscription types:
-  `OnValueChanged` (fires only on actual change) and `OnAnyUpdate` (fires every set).
-  Duplicate-safe via `HashSet`. Optional validation predicate. Implicit conversion to `T`.
-- `ManagedSusValue<T>` — extends `MID_SusValue<T>`. Auto-registers with
-  `SusValueManager`. Subscriptions cleared automatically when owner `GameObject` is destroyed.
-- `SusValueManager : Singleton` — tracks all managed values. Bulk-clear by owner
-  or clear all. `SusValueOwnerWatcher` internal MonoBehaviour watches for owner destruction.
+> **Always commit both lock files to source control.**  
+> Deleting them allows enum values to shift, breaking saved scene references.
 
-#### Events (`MidManStudio.Core.Events`)
-- `MID_GameEvent : ScriptableObject` — decoupled SO event channel. Zero coupling
-  between sender and receiver. Snapshot-based invocation list (safe to unsubscribe during raise).
-- `MID_GameEventListener : MonoBehaviour` — self-registers on Enable, deregisters on Disable.
-  Fires a `UnityEvent` response.
-- `MID_DelayedGameEventListener` — extends `MID_GameEventListener`. Fires immediate
-  response then a delayed response via `MID_TickDelay`. Zero allocation.
-- `MID_EventBus<T>` — typed static event bus. One channel per `IMIDEvent` type.
-  Thread-safe subscribe/unsubscribe. Exceptions in handlers caught and logged — other
-  handlers still fire. Per-channel log level control.
-- `MID_EventBusRegistry` — bulk-clear all registered channels on scene unload.
-- `MID_EventUtilities` — duplicate-safe subscribe/unsubscribe helpers for plain `Action` fields.
+---
 
-### Pool Systems
+## Generated File Summary
 
-#### Object Pools (`MidManStudio.Core.Pools`)
-- `LocalObjectPool : Singleton` — pool manager for non-particle GameObjects.
-  Keyed by generated `PoolableObjectType` enum (raw `int` internally).
-  Auto-registration for unknown types. Prefab-to-type collision detection on init.
-  Auto-chains to `LocalParticlePool` on `CallInitializePool()`.
-- `LocalParticlePool : Singleton` — pool manager for particle GameObjects.
-  Stops and clears all particle systems on return. Config validation on init.
-- `LocalPoolReturn : MonoBehaviour` — auto-returns to `LocalObjectPool` after delay.
-  Added automatically to every pooled instance. Resets `AudioSource`, `Animator`,
-  and `TrailRenderer` on return.
-- `LocalParticleReturn : MonoBehaviour` — auto-returns to `LocalParticlePool` after
-  `maxLifetime` seconds via coroutine.
-- `TrailRendererPool : Singleton` — generic slot-based `TrailRenderer` pool.
-  Any moving entity can acquire a slot. Two-pass eviction: free slots first,
-  then LRU from fading slots. Natural fade-out on `Release()`.
-- `UIParticlePoolManager : MonoBehaviour` — manages UI-layer `ParticleSystem`
-  effects by string key. Supports Play and Emit modes. Runtime registration.
-- `BasicPoolConfig` / `ParticlePoolConfig` — inspector-visible pool entry configs.
+| Generator | Writes to | Files produced |
+|---|---|---|
+| Pool Type Generator | `Runtime/PoolSystems/Generated/` | `PoolableObjectType.cs`, `PoolableParticleType.cs` |
+| FX Type Generator | `Runtime/FXSystems/Generated/` | `EffectCategory.cs`, `EffectType.cs` |
+| Library Type Generator | `Runtime/Libraries/Generated/` | `LibraryId.cs`, `LibraryItemId.cs` |
+| Scene Type Generator | `Runtime/SceneManagement/Generated/` | `SceneId.cs`, `SceneRegistry.cs` |
+| UI State Generator | `Runtime/UIState/Generated/` | `{Context}UIState.cs` (one per context) |
 
-#### Pool Type Generator (Editor)
-- `PoolTypeGeneratorCore` — reads all `PoolTypeProviderSO` /
-  `ParticlePoolTypeProviderSO` assets and writes three generated enum files.
-  Lock file prevents value shifts on regeneration. Pinned offsets always win.
-- `PoolTypeProviderSO` / `ParticlePoolTypeProviderSO` — one asset per package.
-  Priority-based block assignment. Min block size configurable. Overflow detection.
-- `PoolTypeGeneratorSettingsSO` — output paths, lock file path, namespace, block size,
-  auto-generate on asset change.
-- `PoolTypeGeneratorWindow` — editor window with provider discovery, settings UI,
-  and per-provider ping. Shows object, particle, and network provider groups.
-- `PoolTypeAssetPostprocessor` — auto-regenerates when provider assets change
-  (if `autoGenerateOnAssetChange` is enabled in settings).
-- `PackagePoolProviderBootstrapper` — `[InitializeOnLoad]` creates default provider
-  assets for the utilities package on first import.
+---
 
-### Audio
+## Namespace Map
 
-#### Audio System (`MidManStudio.Core.Audio`)
-- `MID_AudioManager : Singleton` — music (crossfade, pitch glide) + SFX
-  (one-shot, pitched). Routes through `AudioMixerGroup` when assigned.
-  `SetMusicEnabled(bool)` with crossfade. `OnMusicEnabledChanged` event.
-  No game-specific dependencies.
-- `MID_SpawnableAudio : MonoBehaviour` — pooled audio object. Supports one-shot,
-  looping-follow (no parenting), and sequential (flight→collision) modes.
-- `MID_AudioLibrarySO : ScriptableObject` — string-keyed clip registry.
-  Case-insensitive lookup. Lazy build on first access. Invalidates on domain reload.
+| Folder | Namespace |
+|---|---|
+| TickDispatcher/ | `MidManStudio.Core.TickDispatcher` |
+| Logging/ | `MidManStudio.Core.Logging` |
+| Singletons/ | `MidManStudio.Core.Singleton` |
+| ObservableValues/ | `MidManStudio.Core.ObservableValues` |
+| Events/ | `MidManStudio.Core.Events` |
+| PoolSystems/ | `MidManStudio.Core.Pools` |
+| PoolSystems/Generated/ | `MidManStudio.Core.Pools` |
+| Audio/ | `MidManStudio.Core.Audio` |
+| FXSystems/ | `MidManStudio.Core.FX` ← ⚠ FIX (was .Audio) |
+| FXSystems/Generated/ | `MidManStudio.Core.FX` |
+| Timers/ | `MidManStudio.Core.Timers` |
+| Libraries/ | `MidManStudio.Core.Libraries` |
+| Libraries/Generated/ | `MidManStudio.Core.Libraries` |
+| SceneManagement/ | `MidManStudio.Core.SceneManagement` |
+| UIState/ | `MidManStudio.Core.UIState` |
+| UI/ | `MidManStudio.Core.UI` |
+| HelperFunctions/ | `MidManStudio.Core.HelperFunctions` |
+| SequentialProcessing/ | `MidManStudio.Core.SequentialProcessing` |
+| StickyNote/ | `MidManStudio.Core.Notes` |
+| Editor/ | `MidManStudio.Editor` |
 
-### Timers (`MidManStudio.Core.Timers`)
-- `CountdownTimer` — counts down, fires `OnTimerComplete`.
-- `StopwatchTimer` — counts up.
-- `ValueInterpolationTimer` — interpolates a float from start to end.
-  Modes: `Linear`, `EaseIn`, `EaseOut`, `EaseInOut`, `Custom` (AnimationCurve).
-  Supports ping-pong.
-- `SteppedValueTimer` — moves a float in discrete steps at a fixed interval.
-- `TimerFactory` — static helpers for dissolve, alpha fade, and ping-pong timers.
-- `PerformanceBenchmarkTimer` — microbenchmark utility with warmup, GC collection,
-  per-iteration timing, and standard deviation. `CompareMethods` for A/B comparison.
-- `PerformanceBenchmarkRunner : MonoBehaviour` — scene wrapper for benchmarks.
+---
 
-### Library System (`MidManStudio.Core.Libraries`)
-- `MID_LibrarySO : ScriptableObject` — named collection of `MID_LibraryItemSO` assets.
-  Case-insensitive string-keyed lookup. Lazy build. Domain-reload safe.
-- `MID_LibraryItemSO : ScriptableObject` (abstract) — base for all library items.
-  `ItemId` defaults to asset file name if blank. Subclass to add custom fields.
-- `MID_BasicLibraryItemSO : MID_LibraryItemSO` — concrete ready-to-use item with
-  `displayName`, `description`, `icon`, and `tags[]`. Create via
-  `MidManStudio > Utilities > Library Item (Basic)`.
-- `MID_LibraryRegistry : Singleton` — registers libraries, retrieves items by
-  string key or generated enum keys (`LibraryId`, `LibraryItemId`).
-- `LibraryTypeProviderSO` — contributes to generated `LibraryId` / `LibraryItemId` enums.
-- `LibraryTypeGeneratorCore` + `LibraryTypeGeneratorWindow` — editor tool.
-  Validates duplicate names, duplicate IDs, invalid C# identifiers.
+## Assembly Structure
 
-### Scene Management (`MidManStudio.Core.SceneManagement`)
-- `ISceneLoader` — common interface for regular and network loaders.
-- `MID_SceneLoader : Singleton` — async single and additive loading with progress.
-  Internet check for `InternetRequired` scenes via reflection (no hard netcode dep).
-- `MID_SceneTransitionController` (abstract) — subclass to drive fade/UI animations.
-  Override `TransitionIn`, `TransitionOut`, `OnLoadingStarted`, etc.
-- `SceneTypeProviderSO` — contributes to generated `SceneId` enum and `SceneRegistry`.
-- `SceneTypeGeneratorCore` + `SceneTypeGeneratorWindow` — editor tool.
-  Validates duplicate build indices, duplicate enum names.
-- `SceneRegistry` (generated static) — `GetName(SceneId)`, `GetDependency(SceneId)`.
-- `SceneLoadType` enum: `Single`, `Additive`, `NetworkAdditive`.
-- `SceneNetworkDependency` enum: `None`, `InternetRequired`, `NetworkSessionRequired`, `Optional`.
-- `MID_SequentialProcessRunner` — async task runner with priority lanes, retry (max 6),
-  and optional fallback for each task. `OnAllLanesComplete`, `OnTaskCompleted`, `OnTaskFailed`.
+```
+MidManStudio.Utilities                    autoReferenced: true  | allowUnsafeCode: true
+├── Unity.Burst          (⚠ FIX: was missing)
+├── Unity.Collections    (⚠ FIX: was missing)
+└── Unity.Mathematics    (⚠ FIX: was missing)
 
-### UI State System (`MidManStudio.Core.UIState`)
-- **Per-context model** — each logical UI area has its own `MID_UIStateContext` SO and
-  generated `[Flags]` enum. No global flat enum.
-- `MID_UIStateContext : ScriptableObject` — state machine for one UI context.
-  History stack for back navigation. `ChangeState(int)`, `GoBack()`, `HasFlag(int)`.
-  Persists state across scene loads (SO stays in memory).
-- `MID_UIStateManager : Singleton` — drives panel show/hide for one context.
-  `UIStatePanelConfig` with show/hide arrays and enter/exit `UnityEvent`s.
-  Custom inspector shows named enum dropdowns when context is assigned.
-- `MID_UIStateVisibility : MonoBehaviour` — shows element when context state
-  contains any of the selected flags. Custom inspector shows checkboxes.
-- `MID_UIStateButton : MonoBehaviour` — transitions context to target state on click.
-  Custom inspector shows single-state dropdown.
-- `MID_UIElement : MonoBehaviour` — base show/hide via `CanvasGroup`.
-  Propagates visibility events to direct children.
-- `UIStateContextProviderSO` — defines one context and its states.
-  Generator produces one `[Flags]` enum per context.
-- `UIStateContextGeneratorCore` + `UIStateContextGeneratorWindow` — editor tool.
-  Validates duplicate context names, invalid identifiers, bit overflow (max 30 states).
-- Custom inspectors for all UI state components in `MidManStudio.Utilities.Editor`.
+MidManStudio.Utilities.Editor             autoReferenced: false | Editor only
+├── MidManStudio.Utilities
+├── Unity.Burst
+└── Unity.Collections
 
-### UI Components (`MidManStudio.Core.UI`)
-- `MID_Button : MonoBehaviour` — animated click feedback with coroutine-based animations.
-  No external tween library required. Rate-limited to prevent double-click spam.
-  Animation types: `ScalePop`, `MoveLeft/Right/Up/Down`, `Bounce`, `Pulse`,
-  `Shake`, `Rotate`, `FadeFlash`. Layout group aware.
+MidManStudio.Utilities.Tests              autoReferenced: false | UNITY_INCLUDE_TESTS
+├── MidManStudio.Utilities
+├── UnityEngine.TestRunner
+└── UnityEditor.TestRunner
 
-### Helper Functions (`MidManStudio.Core.HelperFunctions`)
-- `MID_HelperFunctions` — static utilities: GameObject child management, CanvasGroup,
-  colour parsing, string formatting (sentence/camel/pascal/kebab/snake case),
-  string validation, reflection debug dump, JSON/XML serialisation (Unity JsonUtility,
-  no Newtonsoft dependency).
-- `MID_HelperFunctionsWithType<T>` — generic functional helpers: `Map`, `Filter`,
-  `Reduce`, `GroupBy`, `AnyMatch`, `AllMatch`, `PrintValues`.
-- `MID_NamedListAttribute` + `IArrayElementTitle` + `IArrayElementColor` — inspector
-  list element naming and colour tinting.
-- `NamedListDrawer` — custom `PropertyDrawer` for `MID_NamedListAttribute`.
-  Supports colour backgrounds with left border accent.
+MidManStudio.Utilities.Tests.Editor      autoReferenced: false | UNITY_INCLUDE_TESTS | Editor only
+├── MidManStudio.Utilities
+├── Unity.Burst
+└── Unity.Collections
+```
 
-### Editor Tools
-- `SceneDependencyInjector : MonoBehaviour` — editor-only. Instantiates persistent
-  manager prefabs on Play. Removes need for bootstrap scene during isolated testing.
-  Custom inspector with dependency list, force-reinject, and cleanup buttons.
-- `MID_ScriptUtilitiesWindow` — editor utility window with two tabs:
-  - **Script Reader**: browse and read any project script without leaving Unity.
-    Parses and highlights XML doc `<summary>` / `<param>` / `<returns>` blocks.
-    Search across all scripts. Syntax-aware display with monospace rendering.
-  - **Window Priority Visualizer**: reflects all `EditorWindow` subclasses in loaded
-    assemblies, extracts `[MenuItem]` priorities, displays sorted list.
-    Filter by namespace. Shows menu path and priority for each window.
+---
 
-### Assembly Definitions
-- `MidManStudio.Utilities` — runtime assembly. References `Unity.Burst`, `Unity.Collections`.
-  `autoReferenced: true`. `allowUnsafeCode: true`.
-- `MidManStudio.Utilities.Editor` — editor-only assembly. References `MidManStudio.Utilities`.
-  `autoReferenced: false`. `includePlatforms: ["Editor"]`.
-- `MidManStudio.Utilities.Tests` — test assembly. References runtime + test runners.
-  `autoReferenced: false`. `defineConstraints: ["UNITY_INCLUDE_TESTS"]`.
+## Discrepancy Fix Summary
+
+| # | Location | Issue | Fix |
+|---|---|---|---|
+| 1 | `PoolSystems/` root | Generated files at root level | Move to `PoolSystems/Generated/` |
+| 2 | `Libraries/Generator/` | Generated files in wrong subfolder | Move to `Libraries/Generated/` |
+| 3 | `MID_HelperFunctions.cs` | Methods named `KillObjChildren` / `KillMultipleParentsChildren` | Rename to `DestroyObjChildren` / `DestroyMultipleParentsChildren` |
+| 4 | `MidManStudio.Utilities.asmdef` | `references: []` — Burst/Collections/Mathematics missing | Add all three |
+| 5 | `GlobalFXManager.cs` | Namespace `MidManStudio.Core.Audio` | Change to `MidManStudio.Core.FX` |
+| 6 | `Libraries/Configs/MID_AudioLibrarySO.cs` | Wrong folder for an Audio-namespace file | Move to `Audio/` |
+| 7 | `MID_DelayedGameEventListener.cs` | Method group delegate allocated per-fire | Cache `Action _fireDelayedDelegate` in Awake |
+| 8 | `ManagedSusValue.cs` | Finalizer calls Unity singleton from GC thread | Remove finalizer; rely on OnDestroy/ClearAllForOwner |
+| 9 | `UIState/Generator/` | Empty folder | Delete it |
+| 10 | APICATALOG | `MID_UIStateBackButton` undocumented | Added to Section 13 |
+| 11 | APICATALOG | `int typeId` pool overloads listed but don't exist | Removed from catalog |
