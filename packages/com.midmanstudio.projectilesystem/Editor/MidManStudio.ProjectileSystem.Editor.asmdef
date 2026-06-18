@@ -5,10 +5,16 @@
     "MidManStudio.ProjectileSystem",
     "MidManStudio.Utilities",
     "MidManStudio.Utilities.Editor",
-    "MidManStudio.Netcode"
+    "MidManStudio.Netcode",
+    "Unity.Netcode.Runtime"
   ],
   "includePlatforms": ["Editor"],
   "excludePlatforms": [],
   "allowUnsafeCode": false,
-  "autoReferenced": false
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": false,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
 }
