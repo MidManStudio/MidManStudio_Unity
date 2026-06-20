@@ -1,37 +1,49 @@
 // MID_StickyNote.cs
-// Sticky note overlay component for the Game View.
-// Attach to any GameObject in a scene to show instructions, setup notes,
-// or tutorial content. Supports a text list, .txt file import, themes,
-// drag-to-reposition, minimize, and close.
+// UGUI-based sticky note overlay. Builds its own self-contained Canvas at
+// runtime AND in the editor ([ExecuteAlways]) so it appears correctly in the
+// Game View both in and out of Play Mode.
 //
-// Works in Play Mode (Game View) and in Edit Mode (Game View tab must be open).
-// [ExecuteAlways] ensures OnGUI fires outside of play mode too.
+// WHY THIS IS UGUI, NOT IMGUI (OnGUI):
+//   OnGUI() simply does not run in the Game View outside Play Mode — even
+//   with [ExecuteAlways]. That attribute enables Update()/OnEnable() in edit
+//   mode, but never the IMGUI render pass. RectTransform-driven UI has no
+//   such limitation: it renders through the normal Canvas pipeline, which
+//   the Game View draws regardless of Play state.
+//
+//   OnGUI also mixes Screen.width/height (physical pixels) with
+//   Event.current.mousePosition (scaled by EditorGUIUtility.pixelsPerPoint
+//   on HiDPI/Retina displays) — a classic cause of "position drifts and
+//   doesn't land where it should." RectTransform anchoring has no such
+//   mismatch.
+//
+// DRAG / CLICK LIMITATION (expected, not a bug):
+//   Dragging, minimizing, and closing go through the standard UGUI
+//   EventSystem (IBeginDragHandler/IDragHandler), which only processes
+//   input during Play Mode — exactly like every Button in your project.
+//   Position and appearance preview correctly in edit mode; interaction
+//   requires Play Mode.
 
 using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
-using MidManStudio.Core.EditorUtils;
+using UnityEngine.UI;
+using UnityEngine.EventSystems;
 
 namespace MidManStudio.Core.Notes
 {
     [AddComponentMenu("MidManStudio/Utilities/Sticky Note")]
     [ExecuteAlways]
+    [DisallowMultipleComponent]
     public class MID_StickyNote : MonoBehaviour
     {
-        // ── Enums ─────────────────────────────────────────────────────────────
+        public enum NoteTheme  { Yellow, Blue, Green, Pink, Dark }
+        public enum NoteAnchor { TopLeft, TopRight, BottomLeft, BottomRight, Center, Free }
 
-        public enum NoteTheme { Yellow, Blue, Green, Pink, Dark }
-
-        public enum NoteAnchor { TopLeft, TopRight, BottomLeft, BottomRight, Free }
-
-        // ── Inspector ─────────────────────────────────────────────────────────
+        // ── Inspector — Content ──────────────────────────────────────────────
 
         [Header("Content")]
-        [Tooltip("Title shown in the header bar.")]
         [SerializeField] private string _title = "Scene Notes";
 
-        [Tooltip("Text entries shown in the note body. Each entry is a separate line.")]
-        [MID_NamedList("")]
         [SerializeField] private List<string> _notes = new List<string>
         {
             "Welcome to this scene!",
@@ -42,72 +54,97 @@ namespace MidManStudio.Core.Notes
         [Tooltip("Optional .txt file. Content is appended after the notes list.")]
         [SerializeField] private TextAsset _textFile;
 
+        // ── Inspector — Appearance ───────────────────────────────────────────
+
         [Header("Appearance")]
-        [SerializeField] private NoteTheme _theme         = NoteTheme.Yellow;
-        [SerializeField] [Range(9, 20)] private int _fontSize = 12;
-        [SerializeField] [Range(160f, 600f)] private float _width    = 300f;
-        [SerializeField] [Range(80f,  800f)] private float _maxBodyHeight = 380f;
+        [SerializeField] private NoteTheme _theme = NoteTheme.Yellow;
+        [SerializeField] [Range(9, 28)] private int _fontSize = 14;
+
+        [Tooltip("Override the theme's default body text color.")]
+        [SerializeField] private bool  _useCustomTextColor = false;
+        [SerializeField] private Color _customTextColor    = Color.black;
+
+        [SerializeField] [Range(160f, 700f)] private float _width         = 320f;
+        [SerializeField] [Range(80f,  900f)] private float _maxBodyHeight = 360f;
+        [Tooltip("Inner padding added above/below the note text.")]
+        [SerializeField] [Range(2f, 24f)]    private float _cornerPadding = 8f;
+
+        // ── Inspector — Layout / Position ────────────────────────────────────
 
         [Header("Position")]
-        [Tooltip("Initial screen corner. Once dragged, the note is free-floating.")]
-        [SerializeField] private NoteAnchor _anchor  = NoteAnchor.TopLeft;
-        [SerializeField] private Vector2    _margin  = new Vector2(16f, 16f);
+        [SerializeField] private NoteAnchor _anchor    = NoteAnchor.TopLeft;
+        [SerializeField] private Vector2    _margin    = new Vector2(16f, 16f);
+        [Tooltip("Drag the header to reposition. Only works in Play Mode — " +
+                 "same limitation as any other UI element in Unity.")]
         [SerializeField] private bool       _draggable = true;
 
+        [Tooltip("Sorting order of the auto-created Canvas. Higher draws on top of other UI.")]
+        [SerializeField] private int _sortingOrder = 500;
+
+        // ── Inspector — Behaviour ─────────────────────────────────────────────
+
         [Header("Behaviour")]
-        [SerializeField] private bool _startVisible  = true;
-        [SerializeField] private bool _showInEditMode = true;
+        [SerializeField] private bool _startVisible    = true;
+        [Tooltip("Build and preview the note in the Game View while not in Play Mode. " +
+                 "Dragging/closing still require Play Mode either way.")]
+        [SerializeField] private bool _buildInEditMode = true;
 
         // ── Theme palette ─────────────────────────────────────────────────────
-        // Indices match NoteTheme enum: 0=Yellow 1=Blue 2=Green 3=Pink 4=Dark
 
         private static readonly Color[] s_CHead = {
-            new Color(0.94f, 0.82f, 0.08f, 1f),   // Yellow
-            new Color(0.18f, 0.42f, 0.80f, 1f),   // Blue
-            new Color(0.14f, 0.60f, 0.22f, 1f),   // Green
-            new Color(0.82f, 0.22f, 0.50f, 1f),   // Pink
-            new Color(0.10f, 0.10f, 0.14f, 1f),   // Dark
+            new Color(0.95f, 0.80f, 0.10f, 1f),
+            new Color(0.20f, 0.45f, 0.82f, 1f),
+            new Color(0.16f, 0.62f, 0.24f, 1f),
+            new Color(0.84f, 0.24f, 0.52f, 1f),
+            new Color(0.12f, 0.12f, 0.16f, 1f),
         };
-
         private static readonly Color[] s_CBody = {
-            new Color(0.99f, 0.96f, 0.57f, 0.96f),
-            new Color(0.73f, 0.84f, 0.97f, 0.96f),
-            new Color(0.72f, 0.94f, 0.73f, 0.96f),
-            new Color(0.97f, 0.76f, 0.84f, 0.96f),
-            new Color(0.17f, 0.17f, 0.21f, 0.97f),
+            new Color(0.99f, 0.96f, 0.60f, 1f),
+            new Color(0.78f, 0.87f, 0.98f, 1f),
+            new Color(0.76f, 0.95f, 0.77f, 1f),
+            new Color(0.97f, 0.78f, 0.86f, 1f),
+            new Color(0.18f, 0.18f, 0.22f, 1f),
         };
-
         private static readonly Color[] s_CText = {
-            new Color(0.12f, 0.08f, 0.01f, 1f),
-            new Color(0.06f, 0.09f, 0.22f, 1f),
-            new Color(0.04f, 0.16f, 0.06f, 1f),
-            new Color(0.20f, 0.04f, 0.10f, 1f),
-            new Color(0.88f, 0.88f, 0.90f, 1f),
+            new Color(0.14f, 0.10f, 0.02f, 1f),
+            new Color(0.07f, 0.10f, 0.24f, 1f),
+            new Color(0.05f, 0.18f, 0.07f, 1f),
+            new Color(0.22f, 0.05f, 0.11f, 1f),
+            new Color(0.90f, 0.90f, 0.92f, 1f),
+        };
+        private static readonly Color[] s_CHeadText = {
+            new Color(0.18f, 0.12f, 0.0f, 1f),
+            Color.white, Color.white, Color.white, Color.white,
         };
 
-        private static readonly Color s_CShadow = new Color(0f, 0f, 0f, 0.18f);
+        private const float HeaderHeight = 30f;
 
-        // ── Runtime state ─────────────────────────────────────────────────────
+        // ── Built hierarchy refs ──────────────────────────────────────────────
 
-        private bool    _visible;
-        private bool    _minimized;
-        private Rect    _rect;
-        private Vector2 _scroll;
-        private bool    _dirty      = true;
-        private string  _cachedBody = "";
-        private bool    _anchored   = true;  // true until first drag
+        private Canvas        _canvas;
+        private CanvasScaler  _scaler;
+        private RectTransform _panel;
+        private RectTransform _header;
+        private Image          _headerImg;
+        private Text            _titleText;
+        private Button           _minBtn;
+        private Button           _closeBtn;
+        private RectTransform _body;
+        private Image           _bodyImg;
+        private ScrollRect       _scrollRect;
+        private RectTransform _content;
+        private Text             _bodyText;
 
-        // Drag state
-        private bool    _dragging;
-        private Vector2 _dragStart;
-        private Vector2 _rectStart;
+        private RectTransform _pinButton;
+        private Button          _pinBtnComp;
 
-        // Styles — built lazily inside OnGUI
-        private GUIStyle _sTitle;
-        private GUIStyle _sBody;
-        private GUIStyle _sBtn;
-        private GUIStyle _sTab;
-        private bool     _stylesReady;
+        private bool _visible;
+        private bool _minimized;
+        private bool _built;
+        private bool _contentDirty = true;
+        private string _cachedBody = "";
+
+        private const string CanvasNamePrefix = "StickyNoteCanvas_";
 
         // ── Lifecycle ─────────────────────────────────────────────────────────
 
@@ -115,53 +152,356 @@ namespace MidManStudio.Core.Notes
         {
             _visible      = _startVisible;
             _minimized    = false;
-            _dirty        = true;
-            _stylesReady  = false;
-            _anchored     = true;
-            ResetPosition();
+            _contentDirty = true;
+            if (ShouldBeBuilt()) Rebuild();
         }
+
+        private void OnDisable() => DestroyBuiltHierarchy();
+        private void OnDestroy() => DestroyBuiltHierarchy();
 
         private void OnValidate()
         {
-            _dirty       = true;
-            _stylesReady = false;
-            if (_anchored) ResetPosition();
+            _contentDirty = true;
+            if (!_built) return;
+            ApplyAnchor();
+            ApplyTheme();
+            ApplyLayoutSettings();
+            RefreshBodyText();
         }
 
-        private void ResetPosition()
+        private void Update()
         {
-            float sw = Screen.width  > 0 ? Screen.width  : 1920f;
-            float sh = Screen.height > 0 ? Screen.height : 1080f;
-            float x, y;
-
-            switch (_anchor)
+            bool should = ShouldBeBuilt();
+            if (!should)
             {
-                case NoteAnchor.TopRight:
-                    x = sw - _width - _margin.x; y = _margin.y; break;
-                case NoteAnchor.BottomLeft:
-                    x = _margin.x; y = sh - _maxBodyHeight - 60f - _margin.y; break;
-                case NoteAnchor.BottomRight:
-                    x = sw - _width - _margin.x; y = sh - _maxBodyHeight - 60f - _margin.y; break;
-                default: // TopLeft / Free
-                    x = _margin.x; y = _margin.y; break;
+                if (_built) DestroyBuiltHierarchy();
+                return;
+            }
+            if (!_built) { Rebuild(); return; }
+            if (_contentDirty) RefreshBodyText();
+        }
+
+        private bool ShouldBeBuilt() =>
+            (Application.isPlaying || _buildInEditMode) && gameObject.scene.IsValid();
+
+        // ── Build ─────────────────────────────────────────────────────────────
+
+        private void Rebuild()
+        {
+            DestroyBuiltHierarchy();
+            BuildCanvas();
+            BuildPanel();
+            BuildHeader();
+            BuildBody();
+            BuildPinButton();
+
+            ApplyAnchor();          // fix panel anchors to a point BEFORE sizing
+            ApplyTheme();
+            ApplyLayoutSettings();  // sizeDelta now actually has effect
+            RefreshBodyText();
+            ApplyVisibilityState();
+
+            _built = true;
+        }
+
+        /// <summary>Manually force a full rebuild — exposed for the inspector's "Rebuild" button.</summary>
+        public void RebuildNow() => Rebuild();
+
+        private void DestroyBuiltHierarchy()
+        {
+            if (_canvas != null)
+            {
+                if (Application.isPlaying) Destroy(_canvas.gameObject);
+                else                        DestroyImmediate(_canvas.gameObject);
+            }
+            _canvas = null; _panel = null; _header = null; _body = null;
+            _content = null; _pinButton = null;
+            _built = false;
+        }
+
+        private void BuildCanvas()
+        {
+            var go = new GameObject(CanvasNamePrefix + GetInstanceID(), typeof(RectTransform));
+            go.transform.SetParent(transform, false);
+            go.hideFlags = HideFlags.DontSave; // never written into the scene file
+
+            _canvas = go.AddComponent<Canvas>();
+            _canvas.renderMode   = RenderMode.ScreenSpaceOverlay;
+            _canvas.sortingOrder = _sortingOrder;
+
+            _scaler = go.AddComponent<CanvasScaler>();
+            _scaler.uiScaleMode = CanvasScaler.ScaleMode.ConstantPixelSize;
+
+            go.AddComponent<GraphicRaycaster>();
+
+            EnsureEventSystem();
+        }
+
+        // If your project uses the new Input System exclusively, place your own
+        // EventSystem + InputSystemUIInputModule in the scene ahead of time —
+        // we detect and reuse any existing EventSystem instead of creating one.
+        private static void EnsureEventSystem()
+        {
+            if (EventSystem.current != null) return;
+            if (FindAnyObjectByType<EventSystem>() != null) return;
+
+            var go = new GameObject("EventSystem", typeof(EventSystem), typeof(StandaloneInputModule));
+            go.hideFlags = HideFlags.DontSave;
+        }
+
+        private void BuildPanel()
+        {
+            _panel = CreateRect("NotePanel", _canvas.transform);
+            _panel.gameObject.AddComponent<CanvasGroup>();
+        }
+
+        private void BuildHeader()
+        {
+            _header = CreateRect("Header", _panel);
+            _header.anchorMin = new Vector2(0f, 1f);
+            _header.anchorMax = new Vector2(1f, 1f);
+            _header.pivot     = new Vector2(0.5f, 1f);
+            _header.anchoredPosition = Vector2.zero;
+            _header.sizeDelta = new Vector2(0f, HeaderHeight);
+
+            _headerImg = _header.gameObject.AddComponent<Image>();
+
+            // Dragging the header moves the panel — only fires while EventSystem
+            // is processing input, i.e. Play Mode.
+            var drag = _header.gameObject.AddComponent<MID_StickyNoteDragHandler>();
+            drag.Target    = _panel;
+            drag.Canvas    = _canvas;
+            drag.IsEnabled = () => _draggable;
+            drag.OnDragged += () => { _anchor = NoteAnchor.Free; };
+
+            var titleRect = CreateRect("Title", _header);
+            titleRect.anchorMin = new Vector2(0f, 0f);
+            titleRect.anchorMax = new Vector2(1f, 1f);
+            titleRect.offsetMin = new Vector2(10f, 0f);
+            titleRect.offsetMax = new Vector2(-58f, 0f);
+            _titleText = titleRect.gameObject.AddComponent<Text>();
+            _titleText.font      = GetDefaultFont();
+            _titleText.alignment = TextAnchor.MiddleLeft;
+            _titleText.fontStyle = FontStyle.Bold;
+            _titleText.raycastTarget = false;
+
+            _minBtn = CreateHeaderButton("MinBtn", "–", new Vector2(-50f, 0f));
+            _minBtn.onClick.AddListener(() => SetMinimized(!_minimized));
+
+            _closeBtn = CreateHeaderButton("CloseBtn", "×", new Vector2(-26f, 0f));
+            _closeBtn.onClick.AddListener(Hide);
+        }
+
+        private Button CreateHeaderButton(string name, string label, Vector2 anchoredOffsetFromRight)
+        {
+            var rect = CreateRect(name, _header);
+            rect.anchorMin = new Vector2(1f, 0.5f);
+            rect.anchorMax = new Vector2(1f, 0.5f);
+            rect.pivot     = new Vector2(1f, 0.5f);
+            rect.sizeDelta = new Vector2(22f, 22f);
+            rect.anchoredPosition = anchoredOffsetFromRight;
+
+            var img = rect.gameObject.AddComponent<Image>();
+            img.color = new Color(1f, 1f, 1f, 0.18f);
+
+            var btn = rect.gameObject.AddComponent<Button>();
+            btn.targetGraphic = img;
+            var colors = btn.colors;
+            colors.highlightedColor = new Color(1f, 1f, 1f, 0.32f);
+            colors.pressedColor     = new Color(1f, 1f, 1f, 0.45f);
+            btn.colors = colors;
+
+            var lblRect = CreateRect("Label", rect);
+            lblRect.anchorMin = Vector2.zero;
+            lblRect.anchorMax = Vector2.one;
+            var lbl = lblRect.gameObject.AddComponent<Text>();
+            lbl.font      = GetDefaultFont();
+            lbl.text      = label;
+            lbl.alignment = TextAnchor.MiddleCenter;
+            lbl.fontStyle = FontStyle.Bold;
+            lbl.color     = Color.white;
+            lbl.raycastTarget = false;
+
+            return btn;
+        }
+
+        private void BuildBody()
+        {
+            _body = CreateRect("Body", _panel);
+            _body.anchorMin = Vector2.zero;
+            _body.anchorMax = Vector2.one;
+            _body.offsetMax = new Vector2(0f, -HeaderHeight); // sits below header
+
+            _bodyImg = _body.gameObject.AddComponent<Image>();
+
+            _scrollRect = _body.gameObject.AddComponent<ScrollRect>();
+            _scrollRect.horizontal        = false;
+            _scrollRect.vertical          = true;
+            _scrollRect.movementType      = ScrollRect.MovementType.Clamped;
+            _scrollRect.scrollSensitivity = 25f;
+
+            var viewport = CreateRect("Viewport", _body);
+            viewport.anchorMin = Vector2.zero;
+            viewport.anchorMax = Vector2.one;
+            viewport.offsetMin = new Vector2(4f, 4f);
+            viewport.offsetMax = new Vector2(-4f, -4f);
+            viewport.gameObject.AddComponent<RectMask2D>();
+
+            _content = CreateRect("Content", viewport);
+            _content.anchorMin = new Vector2(0f, 1f);
+            _content.anchorMax = new Vector2(1f, 1f);
+            _content.pivot     = new Vector2(0.5f, 1f);
+            _content.anchoredPosition = Vector2.zero;
+
+            var fitter = _content.gameObject.AddComponent<ContentSizeFitter>();
+            fitter.verticalFit   = ContentSizeFitter.FitMode.PreferredSize;
+            fitter.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
+
+            _bodyText = _content.gameObject.AddComponent<Text>();
+            _bodyText.font               = GetDefaultFont();
+            _bodyText.alignment          = TextAnchor.UpperLeft;
+            _bodyText.horizontalOverflow = HorizontalWrapMode.Wrap;
+            _bodyText.verticalOverflow   = VerticalWrapMode.Overflow;
+            _bodyText.raycastTarget      = false;
+
+            _scrollRect.viewport = viewport;
+            _scrollRect.content  = _content;
+        }
+
+        private void BuildPinButton()
+        {
+            _pinButton = CreateRect("PinButton", _canvas.transform);
+            _pinButton.sizeDelta = new Vector2(30f, 30f);
+
+            var img = _pinButton.gameObject.AddComponent<Image>();
+            _pinBtnComp = _pinButton.gameObject.AddComponent<Button>();
+            _pinBtnComp.targetGraphic = img;
+            _pinBtnComp.onClick.AddListener(Show);
+
+            var lblRect = CreateRect("Label", _pinButton);
+            lblRect.anchorMin = Vector2.zero;
+            lblRect.anchorMax = Vector2.one;
+            var lbl = lblRect.gameObject.AddComponent<Text>();
+            lbl.font      = GetDefaultFont();
+            lbl.text      = "📌";
+            lbl.alignment = TextAnchor.MiddleCenter;
+            lbl.fontSize  = 16;
+            lbl.color     = Color.white;
+            lbl.raycastTarget = false;
+
+            var pinAnchor = _anchor == NoteAnchor.Free ? NoteAnchor.TopLeft : _anchor;
+            ApplyAnchorTo(_pinButton, pinAnchor, _margin);
+        }
+
+        private static RectTransform CreateRect(string name, Transform parent)
+        {
+            var go = new GameObject(name, typeof(RectTransform));
+            go.transform.SetParent(parent, false);
+            var rt = (RectTransform)go.transform;
+            rt.anchorMin = Vector2.zero;
+            rt.anchorMax = Vector2.one;
+            rt.offsetMin = Vector2.zero;
+            rt.offsetMax = Vector2.zero;
+            return rt;
+        }
+
+        private static Font GetDefaultFont() =>
+            Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf") ??
+            Font.CreateDynamicFontFromOSFont("Arial", 14);
+
+        // ── Theme / layout application ───────────────────────────────────────
+
+        private void ApplyTheme()
+        {
+            int t = (int)_theme;
+            if (_headerImg != null) _headerImg.color = s_CHead[t];
+            if (_bodyImg   != null) _bodyImg.color   = s_CBody[t];
+
+            if (_titleText != null)
+            {
+                _titleText.color    = s_CHeadText[t];
+                _titleText.fontSize = _fontSize + 2;
+                _titleText.text     = _title;
             }
 
-            _rect = new Rect(x, y, _width, 0f);
+            if (_bodyText != null)
+            {
+                _bodyText.color    = _useCustomTextColor ? _customTextColor : s_CText[t];
+                _bodyText.fontSize = _fontSize;
+            }
+
+            if (_pinButton != null)
+            {
+                var img = _pinButton.GetComponent<Image>();
+                if (img != null) img.color = s_CHead[t];
+            }
+        }
+
+        private void ApplyLayoutSettings()
+        {
+            if (_panel == null) return;
+
+            float bodyContentHeight = _bodyText != null
+                ? _bodyText.preferredHeight + (_cornerPadding * 2f)
+                : 40f;
+
+            float clampedBodyHeight = Mathf.Clamp(bodyContentHeight, 40f, _maxBodyHeight);
+            _panel.sizeDelta = new Vector2(_width, HeaderHeight + clampedBodyHeight);
+        }
+
+        // ── Anchoring ─────────────────────────────────────────────────────────
+
+        private void ApplyAnchor()
+        {
+            if (_panel != null) ApplyAnchorTo(_panel, _anchor, _margin);
+        }
+
+        private static void ApplyAnchorTo(RectTransform rt, NoteAnchor anchor, Vector2 margin)
+        {
+            switch (anchor)
+            {
+                case NoteAnchor.TopLeft:
+                    rt.anchorMin = rt.anchorMax = new Vector2(0f, 1f);
+                    rt.pivot = new Vector2(0f, 1f);
+                    rt.anchoredPosition = new Vector2(margin.x, -margin.y);
+                    break;
+                case NoteAnchor.TopRight:
+                    rt.anchorMin = rt.anchorMax = new Vector2(1f, 1f);
+                    rt.pivot = new Vector2(1f, 1f);
+                    rt.anchoredPosition = new Vector2(-margin.x, -margin.y);
+                    break;
+                case NoteAnchor.BottomLeft:
+                    rt.anchorMin = rt.anchorMax = new Vector2(0f, 0f);
+                    rt.pivot = new Vector2(0f, 0f);
+                    rt.anchoredPosition = new Vector2(margin.x, margin.y);
+                    break;
+                case NoteAnchor.BottomRight:
+                    rt.anchorMin = rt.anchorMax = new Vector2(1f, 0f);
+                    rt.pivot = new Vector2(1f, 0f);
+                    rt.anchoredPosition = new Vector2(-margin.x, margin.y);
+                    break;
+                case NoteAnchor.Center:
+                    rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+                    rt.pivot = new Vector2(0.5f, 0.5f);
+                    rt.anchoredPosition = Vector2.zero;
+                    break;
+                case NoteAnchor.Free:
+                    // Leave anchors/pivot/position exactly as the user left them after dragging.
+                    break;
+            }
         }
 
         // ── Body text ─────────────────────────────────────────────────────────
 
-        private void RebuildBody()
+        private void RefreshBodyText()
         {
-            if (!_dirty) return;
-            _dirty = false;
+            _contentDirty = false;
+            if (_bodyText == null) return;
 
             var sb = new StringBuilder();
             if (_notes != null)
-            {
                 foreach (var n in _notes)
                     if (!string.IsNullOrEmpty(n)) sb.AppendLine(n);
-            }
 
             if (_textFile != null)
             {
@@ -169,180 +509,24 @@ namespace MidManStudio.Core.Notes
                 sb.Append(_textFile.text);
             }
 
-            _cachedBody = sb.ToString().TrimEnd('\r', '\n');
+            _cachedBody    = sb.ToString().TrimEnd('\r', '\n');
+            _bodyText.text = string.IsNullOrEmpty(_cachedBody) ? "(no notes)" : _cachedBody;
+
+            if (_content != null)
+                LayoutRebuilder.ForceRebuildLayoutImmediate(_content);
+
+            ApplyLayoutSettings();
         }
 
-        // ── IMGUI ─────────────────────────────────────────────────────────────
+        // ── Visibility / minimize ─────────────────────────────────────────────
 
-        private void OnGUI()
+        private void ApplyVisibilityState()
         {
-            bool inPlay = Application.isPlaying;
-            if (!inPlay && !_showInEditMode) return;
+            if (_panel != null)      _panel.gameObject.SetActive(_visible);
+            if (_pinButton != null)  _pinButton.gameObject.SetActive(!_visible);
+            if (_body != null)       _body.gameObject.SetActive(_visible && !_minimized);
 
-            EnsureStyles();
-            RebuildBody();
-
-            int t = (int)_theme;
-            Event e = Event.current;
-
-            // ── HIDDEN — show a small pin icon to reopen ──────────────────────
-            if (!_visible)
-            {
-                float px = Mathf.Clamp(_rect.x, 0f, Screen.width  - 28f);
-                float py = Mathf.Clamp(_rect.y, 0f, Screen.height - 28f);
-                Rect pin = new Rect(px, py, 28f, 28f);
-                FillRect(pin, s_CHead[t]);
-                GUI.color = Color.white;
-                if (GUI.Button(pin, "📌", _sBtn)) _visible = true;
-                GUI.color = Color.white;
-                return;
-            }
-
-            // ── MINIMIZED — show title bar only ───────────────────────────────
-            if (_minimized)
-            {
-                float tx = Mathf.Clamp(_rect.x, 0f, Screen.width  - _width);
-                float ty = Mathf.Clamp(_rect.y, 0f, Screen.height - 28f);
-                Rect  tb = new Rect(tx, ty, _width, 28f);
-                FillRect(new Rect(tx + 3f, ty + 3f, _width, 28f), s_CShadow);
-                FillRect(tb, s_CHead[t]);
-                GUI.contentColor = Color.white;
-                GUI.Label(new Rect(tx + 8f, ty + 5f, _width - 50f, 18f),
-                    $"📌 {_title}", _sTab);
-                if (GUI.Button(new Rect(tb.xMax - 23f, ty + 4f, 20f, 20f), "▲", _sBtn))
-                    _minimized = false;
-                GUI.contentColor = Color.white;
-
-                // Drag minimized bar
-                if (_draggable)
-                {
-                    if (e.type == EventType.MouseDown && tb.Contains(e.mousePosition))
-                    { _dragging = true; _dragStart = e.mousePosition; _rectStart = new Vector2(tx, ty); e.Use(); }
-                }
-                if (e.type == EventType.MouseUp) _dragging = false;
-                if (_dragging && e.type == EventType.MouseDrag)
-                { _rect.position = _rectStart + ((Vector2)e.mousePosition - _dragStart); e.Use(); }
-                return;
-            }
-
-            // ── FULL NOTE ─────────────────────────────────────────────────────
-
-            // Calculate heights
-            var content   = new GUIContent(_cachedBody);
-            float innerW  = _width - 12f;
-            float textH   = string.IsNullOrEmpty(_cachedBody)
-                ? _sBody.lineHeight
-                : _sBody.CalcHeight(content, innerW);
-            bool  doScroll = textH > _maxBodyHeight;
-            float bodyH    = doScroll ? _maxBodyHeight : textH + 8f;
-            float totalH   = 28f + bodyH + 8f;
-
-            _rect.width  = _width;
-            _rect.height = totalH;
-            _rect.x      = Mathf.Clamp(_rect.x, 0f, Mathf.Max(0f, Screen.width  - _width));
-            _rect.y      = Mathf.Clamp(_rect.y, 0f, Mathf.Max(0f, Screen.height - totalH));
-
-            Rect header  = new Rect(_rect.x, _rect.y, _width, 28f);
-            Rect bodyBg  = new Rect(_rect.x, _rect.y + 28f, _width, bodyH + 8f);
-
-            // Shadow
-            FillRect(new Rect(_rect.x + 4f, _rect.y + 4f, _width, totalH), s_CShadow);
-
-            // Header
-            FillRect(header, s_CHead[t]);
-            GUI.contentColor = Color.white;
-            GUI.Label(new Rect(header.x + 8f, header.y + 5f, _width - 54f, 18f),
-                _title, _sTitle);
-
-            // Minimize / Close
-            if (GUI.Button(new Rect(header.xMax - 46f, header.y + 4f, 20f, 20f), "–", _sBtn))
-                _minimized = true;
-            if (GUI.Button(new Rect(header.xMax - 23f, header.y + 4f, 20f, 20f), "✕", _sBtn))
-                _visible = false;
-
-            GUI.contentColor = Color.white;
-
-            // Body background
-            FillRect(bodyBg, s_CBody[t]);
-
-            // Scrollable body content
-            Rect scrollView   = new Rect(_rect.x + 4f, _rect.y + 32f, _width - 8f, bodyH);
-            Rect scrollContent = new Rect(0f, 0f, innerW - (doScroll ? 16f : 0f), textH + 8f);
-
-            _scroll = GUI.BeginScrollView(scrollView, _scroll, scrollContent, false, doScroll);
-            GUI.contentColor = s_CText[t];
-            GUI.Label(new Rect(4f, 4f, scrollContent.width - 4f, textH), content, _sBody);
-            GUI.contentColor = Color.white;
-            GUI.EndScrollView();
-
-            // ── Drag header ───────────────────────────────────────────────────
-
-            if (_draggable)
-            {
-                Rect dragZone = new Rect(header.x, header.y, _width - 50f, 28f);
-                if (e.type == EventType.MouseDown && dragZone.Contains(e.mousePosition))
-                {
-                    _dragging   = true;
-                    _anchored   = false;
-                    _dragStart  = e.mousePosition;
-                    _rectStart  = _rect.position;
-                    e.Use();
-                }
-            }
-
-            if (e.type == EventType.MouseUp)   _dragging = false;
-            if (_dragging && e.type == EventType.MouseDrag)
-            {
-                _rect.position = _rectStart + ((Vector2)e.mousePosition - _dragStart);
-                e.Use();
-            }
-        }
-
-        // ── Style builder ─────────────────────────────────────────────────────
-
-        private void EnsureStyles()
-        {
-            if (_stylesReady) return;
-            _stylesReady = true;
-            int sz = Mathf.Max(9, _fontSize);
-
-            _sTitle = new GUIStyle(GUI.skin.label)
-            {
-                fontSize  = sz + 1,
-                fontStyle = FontStyle.Bold,
-            };
-            _sTitle.normal.textColor = Color.white;
-
-            _sBody = new GUIStyle(GUI.skin.label)
-            {
-                fontSize = sz,
-                wordWrap = true,
-                richText = true,
-            };
-            _sBody.normal.textColor = Color.black;
-
-            _sBtn = new GUIStyle(GUI.skin.button)
-            {
-                fontSize = sz,
-                padding  = new RectOffset(2, 2, 1, 1),
-            };
-
-            _sTab = new GUIStyle(GUI.skin.label)
-            {
-                fontSize  = sz,
-                fontStyle = FontStyle.Bold,
-            };
-            _sTab.normal.textColor = Color.white;
-        }
-
-        // ── Helpers ───────────────────────────────────────────────────────────
-
-        private static void FillRect(Rect r, Color c)
-        {
-            Color prev = GUI.color;
-            GUI.color  = c;
-            GUI.DrawTexture(r, Texture2D.whiteTexture);
-            GUI.color  = prev;
+            if (_visible && !_minimized) ApplyLayoutSettings();
         }
 
         // ── Public API ────────────────────────────────────────────────────────
@@ -350,47 +534,94 @@ namespace MidManStudio.Core.Notes
         public bool IsVisible   => _visible;
         public bool IsMinimized => _minimized;
 
-        public void Show()     { _visible = true;  _minimized = false; }
-        public void Hide()     { _visible = false; }
-        public void Toggle()   { _visible = !_visible; }
-        public void Minimize() { _minimized = true; }
-        public void Restore()  { _minimized = false; }
+        public void Show()   { _visible = true;  ApplyVisibilityState(); }
+        public void Hide()   { _visible = false; ApplyVisibilityState(); }
+        public void Toggle() { if (_visible) Hide(); else Show(); }
+
+        public void SetMinimized(bool minimized) { _minimized = minimized; ApplyVisibilityState(); }
+        public void Minimize() => SetMinimized(true);
+        public void Restore()  => SetMinimized(false);
 
         public void SetTitle(string title)
         {
             _title = title;
+            if (_titleText != null) _titleText.text = title;
         }
 
         public void SetNotes(List<string> notes)
         {
             _notes = new List<string>(notes ?? new List<string>());
-            _dirty = true;
+            _contentDirty = true;
         }
 
         public void AddNote(string note)
         {
             _notes ??= new List<string>();
             _notes.Add(note);
-            _dirty = true;
+            _contentDirty = true;
         }
 
         public void ClearNotes()
         {
             _notes?.Clear();
-            _dirty = true;
+            _contentDirty = true;
         }
 
         public void SetTextFile(TextAsset file)
         {
             _textFile = file;
-            _dirty    = true;
+            _contentDirty = true;
         }
 
-        // Editor-only: expose theme data so the custom inspector can preview colours
+        public void SetTextColor(Color c)
+        {
+            _useCustomTextColor = true;
+            _customTextColor    = c;
+            if (_bodyText != null) _bodyText.color = c;
+        }
+
+        public void UseThemeTextColor()
+        {
+            _useCustomTextColor = false;
+            ApplyTheme();
+        }
+
+        public void ResetToAnchor() => ApplyAnchor();
+
 #if UNITY_EDITOR
         public static Color GetHeaderColor(NoteTheme t) => s_CHead[(int)t];
         public static Color GetBodyColor(NoteTheme t)   => s_CBody[(int)t];
         public static Color GetTextColor(NoteTheme t)   => s_CText[(int)t];
 #endif
+    }
+
+    // ── Drag handler ──────────────────────────────────────────────────────────
+    // Lives on the header. Moves Target's anchoredPosition by the pointer delta,
+    // compensated for Canvas scale factor so dragging feels 1:1 regardless of
+    // CanvasScaler settings. Only active while EventSystem processes input
+    // (Play Mode) — same as every other draggable UI element in Unity.
+
+    [AddComponentMenu("")]
+    public class MID_StickyNoteDragHandler : MonoBehaviour,
+        IBeginDragHandler, IDragHandler, IEndDragHandler
+    {
+        public RectTransform Target;
+        public Canvas        Canvas;
+        public System.Action OnDragged;
+        public System.Func<bool> IsEnabled;
+
+        public void OnBeginDrag(PointerEventData eventData) { }
+
+        public void OnDrag(PointerEventData eventData)
+        {
+            if (Target == null) return;
+            if (IsEnabled != null && !IsEnabled()) return;
+
+            float scale = Canvas != null && Canvas.scaleFactor > 0f ? Canvas.scaleFactor : 1f;
+            Target.anchoredPosition += eventData.delta / scale;
+            OnDragged?.Invoke();
+        }
+
+        public void OnEndDrag(PointerEventData eventData) { }
     }
 }
