@@ -6,7 +6,8 @@
       "source": "local",
       "dependencies": {
         "com.midmanstudio.utilities": "1.0.0",
-        "com.unity.netcode.gameobjects": "1.7.1"
+        "com.unity.netcode.gameobjects": "1.7.1",
+        "com.unity.collections": "2.2.1"
       }
     },
     "com.midmanstudio.projectilesystem": {

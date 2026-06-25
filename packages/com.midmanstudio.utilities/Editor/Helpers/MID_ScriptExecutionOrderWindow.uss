@@ -1,5 +1,3 @@
-/* MID_ScriptExecutionOrderWindow.uss  —  UI Toolkit style sheet.
-   Requires Unity 2022.3+ (USS custom properties supported since 2021.2). */
 
 /* ─── Palette variables ─────────────────────────────────────────────────── */
 :root {

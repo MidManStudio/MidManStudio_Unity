@@ -1,4 +1,3 @@
-
 // Custom editor for MID_BaseSO. Applies the resolved icon to the asset in
 // the Project window whenever the SO is selected or the icon field changes.
 //

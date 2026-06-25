@@ -1,4 +1,3 @@
-// MID_ScriptUtilitiesWindow.cs  —  UI Toolkit rewrite (v2)
 // Two-tab editor utility:
 //   Tab 0 — Script Reader:   browse, search, and read any project C# script.
 //   Tab 1 — Window Priority: reflect all EditorWindow MenuItem priorities.

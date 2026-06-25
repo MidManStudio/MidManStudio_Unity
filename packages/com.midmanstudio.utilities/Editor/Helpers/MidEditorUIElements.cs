@@ -1,4 +1,3 @@
-// MidEditorUIElements.cs
 // Shared custom VisualElements and utilities for MidManStudio editor windows.
 // — GradientBannerElement : draws a four-corner gradient header (no SVG package needed)
 // — OrderBarElement       : draws the execution-order pip visualiser

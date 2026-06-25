@@ -1,4 +1,3 @@
-// PackageEffectProviderBootstrapper.cs
 // Creates default EffectCategoryProvider and EffectTypeProvider assets for utilities.
 // Runs automatically via [InitializeOnLoad].
 

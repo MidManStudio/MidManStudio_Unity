@@ -1,4 +1,3 @@
-// EffectTypeGenerator.cs
 // Generates EffectCategory.cs and EffectType.cs from provider assets.
 // Follows the same block/priority/lock pattern as PoolTypeGenerator.
 // Open via: MidManStudio > Utilities > Effect Type Generator
@@ -446,7 +445,7 @@ namespace MidManStudio.Core.EditorUtils.FX
         }
     }
 
-    // ── Auto-generate hook ────────────────────────────────────────────────────
+    // ── Auto-generate hook -_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-__--__--__--__--__--__--___---___---___---___---___---____----____----____----____----_____-----_____------_____-----
 
     internal class FXTypeAssetPostprocessor : AssetPostprocessor
     {

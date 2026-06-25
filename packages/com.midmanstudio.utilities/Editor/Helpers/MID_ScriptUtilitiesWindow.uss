@@ -1,6 +1,3 @@
-/* MID_ScriptUtilitiesWindow.uss  —  UI Toolkit styles.
-   Self-contained; duplicates shared palette so no cross-file dependency.
-   Requires Unity 2022.3+ (USS custom properties since 2021.2). */
 
 /* ─── Palette ────────────────────────────────────────────────────────────── */
 :root {

@@ -1,5 +1,3 @@
-/* MID_SpriteToTilemapConverter.uss
-   Self-contained palette — no cross-file dependency. Requires Unity 2022.3+. */
 
 /* ── Palette ─────────────────────────────────────────────────────────────── */
 :root {

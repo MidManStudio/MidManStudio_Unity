@@ -1,4 +1,3 @@
-// MID_SpriteToTilemapConverter.cs
 // Scans a source GameObject hierarchy for SpriteRenderer components and bakes
 // them into Unity Tilemap cells, grouped by Sorting Layer + Sorting Order.
 // Preserves exact world position via per-cell transform matrix offset.

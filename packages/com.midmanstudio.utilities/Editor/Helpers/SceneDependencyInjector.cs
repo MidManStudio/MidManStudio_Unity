@@ -1,4 +1,3 @@
-
 // Editor-only. Ensures required persistent manager prefabs exist in the scene
 // when testing scenes directly without going through a bootstrap / loading scene.
 //

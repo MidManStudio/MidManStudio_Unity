@@ -1,4 +1,3 @@
-// MID_ScriptExecutionOrderWindow.cs  —  UI Toolkit rewrite (v2)
 // Enhanced execution order manager: real-time search, UXML/USS theming,
 // gradient header, order pip visualiser, ⊙ locate, ? info popups, Group NS.
 // Requires Unity 2022.3+ (UI Toolkit stable, Painter2D, DynamicHeight ListView).

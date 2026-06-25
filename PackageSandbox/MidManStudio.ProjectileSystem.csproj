@@ -1088,6 +1088,10 @@
       <HintPath>Library/ScriptAssemblies/Unity.Netcode.Runtime.dll</HintPath>
       <Private>False</Private>
     </Reference>
+    <Reference Include="Unity.Netcode.Components">
+      <HintPath>Library/ScriptAssemblies/Unity.Netcode.Components.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
     <Reference Include="Unity.Burst">
       <HintPath>Library/ScriptAssemblies/Unity.Burst.dll</HintPath>
       <Private>False</Private>
@@ -1100,10 +1104,6 @@
       <HintPath>Library/ScriptAssemblies/Unity.Mathematics.dll</HintPath>
       <Private>False</Private>
     </Reference>
-    <Reference Include="Unity.Netcode.Components">
-      <HintPath>Library/ScriptAssemblies/Unity.Netcode.Components.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
     <Reference Include="UnityEditor.UI">
       <HintPath>Library/ScriptAssemblies/UnityEditor.UI.dll</HintPath>
       <Private>False</Private>
@@ -1114,13 +1114,13 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="MidManStudio.Netcode.csproj">
-      <Project>{3E22BD0C-C237-C8CB-2253-0CF263B92C50}</Project>
-      <Name>MidManStudio.Netcode</Name>
-    </ProjectReference>
     <ProjectReference Include="MidManStudio.Utilities.csproj">
       <Project>{10AE8042-F6F9-C47C-03FB-B7CBC5BD0074}</Project>
       <Name>MidManStudio.Utilities</Name>
+    </ProjectReference>
+    <ProjectReference Include="MidManStudio.Netcode.csproj">
+      <Project>{3E22BD0C-C237-C8CB-2253-0CF263B92C50}</Project>
+      <Name>MidManStudio.Netcode</Name>
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)/Microsoft.CSharp.targets" />
