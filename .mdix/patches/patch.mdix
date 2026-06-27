@@ -1,0 +1,230 @@
+// =============================================================================
+// MidManStudio_Unity — Generated/ subfolder convention fix
+// =============================================================================
+// Findings (verified against generator source + class defaults, not guessed):
+//
+//  1. PoolableObjectType.cs / PoolableParticleType.cs / PoolableNetworkObjectType.cs
+//     are AUTO-GENERATED but sit outside any Generated/ folder.
+//     PoolTypeGeneratorSettingsSO.cs's own field defaults already say
+//     ".../PoolSystems/Generated/..." — only the checked-in .asset is stale.
+//
+//  2. LibraryId.cs / LibraryItemId.cs sit in a folder named "Generator"
+//     instead of "Generated". LibraryTypeGenerator.cs already hardcodes
+//     "Runtime/Libraries/Generated/..." as its output path.
+//
+//  3. PoolTypeGeneratorSettings.asset + PoolTypeLock.json sit loose at
+//     Generated/ root, unlike Projectiles' own Generated/Projectiles/
+//     subfolder. PoolTypeGeneratorSettingsSO.cs's lockFilePath default
+//     already says "Generated/Pools/...".
+//
+//  4. ProjectileConfigProvider_ProjectileSystem.asset is a hand-authored
+//     provider (same shape as every other *Provider_*.asset), but it's
+//     sitting inside Generated/Projectiles/ instead of alongside its
+//     siblings in a ConfigProviders/ folder.
+//
+// Run with --dry-run --diff first. None of these moves affect generator
+// discovery — providers/settings are found via AssetDatabase.FindAssets
+// by type, not by folder path.
+// =============================================================================
+
+@CONFIG(
+  version    -> "1.0.0"
+  author     -> "Mid-D-Man"
+  features   -> "quickfuncs,data"
+  debug_mode -> "off"
+)
+
+@QUICKFUNCS(
+
+  ~f<object>(name, ext) {
+    return { name = name, ext = ext, content = "" }
+  }
+
+  ~fc<object>(name, ext, content) {
+    return { name = name, ext = ext, content = content }
+  }
+
+  ~fremote<object>(name, ext, url) {
+    return { name = name, ext = ext, content = "remote::" + url }
+  }
+
+  ~gitkeep<object>() {
+    return { name = ".gitkeep", ext = "", content = "" }
+  }
+
+  ~hidden<object>(segment) {
+    return { segment = segment }
+  }
+
+  ~delete_file<object>(path) {
+    return { path = path }
+  }
+
+  ~rename<object>(src, dst) {
+    return { from_path = src, to_path = dst }
+  }
+
+  ~move<object>(src, dst) {
+    return { from_path = src, to_path = dst }
+  }
+
+  ~update<object>(path, content) {
+    return { path = path, content = content }
+  }
+
+  ~patch_insert_after<object>(path, anchor, content) {
+    return { path = path, op = "insert_after", anchor = anchor, content = content }
+  }
+
+  ~patch_insert_before<object>(path, anchor, content) {
+    return { path = path, op = "insert_before", anchor = anchor, content = content }
+  }
+
+  ~patch_replace_text<object>(path, anchor, content) {
+    return { path = path, op = "replace_text", anchor = anchor, content = content }
+  }
+
+  ~patch_replace_text_n<object>(path, anchor, content, match_index) {
+    return {
+      path        = path
+      op          = "replace_text"
+      anchor      = anchor
+      content     = content
+      match_index = match_index
+    }
+  }
+
+  ~patch_replace_block<object>(path, start_anchor, end_anchor, content) {
+    return {
+      path         = path
+      op           = "replace_block"
+      start_anchor = start_anchor
+      end_anchor   = end_anchor
+      content      = content
+    }
+  }
+
+  ~patch_replace_block_keep<object>(path, start_anchor, end_anchor, content) {
+    return {
+      path         = path
+      op           = "replace_block"
+      start_anchor = start_anchor
+      end_anchor   = end_anchor
+      content      = content
+      keep_anchors = "true"
+    }
+  }
+
+  ~patch_replace_regex<object>(path, pattern, content) {
+    return { path = path, op = "replace_regex", pattern = pattern, content = content }
+  }
+
+  ~patch_delete_text<object>(path, anchor) {
+    return { path = path, op = "delete_text", anchor = anchor }
+  }
+
+)
+
+@DATA(
+  project_name = "MidManStudio_Unity"
+  description  = "Enforce the Generated/ subfolder convention across PoolSystems, Libraries, and MidManStudio/Generated"
+  author       = "Mid-D-Man"
+
+  // ===========================================================================
+  // MOVES — relocate misplaced generated files into their Generated/ subfolder
+  // ===========================================================================
+  move_files::
+
+    // --- Fix 1: Pool enums → PoolSystems/Generated/ -------------------------
+    move("packages/com.midmanstudio.utilities/Runtime/PoolSystems/PoolableObjectType.cs",
+         "packages/com.midmanstudio.utilities/Runtime/PoolSystems/Generated/PoolableObjectType.cs")
+    move("packages/com.midmanstudio.utilities/Runtime/PoolSystems/PoolableObjectType.cs.meta",
+         "packages/com.midmanstudio.utilities/Runtime/PoolSystems/Generated/PoolableObjectType.cs.meta")
+
+    move("packages/com.midmanstudio.utilities/Runtime/PoolSystems/PoolableParticleType.cs",
+         "packages/com.midmanstudio.utilities/Runtime/PoolSystems/Generated/PoolableParticleType.cs")
+    move("packages/com.midmanstudio.utilities/Runtime/PoolSystems/PoolableParticleType.cs.meta",
+         "packages/com.midmanstudio.utilities/Runtime/PoolSystems/Generated/PoolableParticleType.cs.meta")
+
+    move("packages/com.midmanstudio.netcode/Runtime/PoolSystems/PoolableNetworkObjectType.cs",
+         "packages/com.midmanstudio.netcode/Runtime/PoolSystems/Generated/PoolableNetworkObjectType.cs")
+    move("packages/com.midmanstudio.netcode/Runtime/PoolSystems/PoolableNetworkObjectType.cs.meta",
+         "packages/com.midmanstudio.netcode/Runtime/PoolSystems/Generated/PoolableNetworkObjectType.cs.meta")
+
+    // --- Fix 2: Library enums → Generated/, out of Generator/ ---------------
+    move("packages/com.midmanstudio.utilities/Runtime/Libraries/Generator/LibraryId.cs",
+         "packages/com.midmanstudio.utilities/Runtime/Libraries/Generated/LibraryId.cs")
+    move("packages/com.midmanstudio.utilities/Runtime/Libraries/Generator/LibraryId.cs.meta",
+         "packages/com.midmanstudio.utilities/Runtime/Libraries/Generated/LibraryId.cs.meta")
+
+    move("packages/com.midmanstudio.utilities/Runtime/Libraries/Generator/LibraryItemId.cs",
+         "packages/com.midmanstudio.utilities/Runtime/Libraries/Generated/LibraryItemId.cs")
+    move("packages/com.midmanstudio.utilities/Runtime/Libraries/Generator/LibraryItemId.cs.meta",
+         "packages/com.midmanstudio.utilities/Runtime/Libraries/Generated/LibraryItemId.cs.meta")
+
+    // --- Fix 3: Pool project-level data → Generated/Pools/ -------------------
+    move("PackageSandbox/Assets/MidManStudio/Generated/PoolTypeGeneratorSettings.asset",
+         "PackageSandbox/Assets/MidManStudio/Generated/Pools/PoolTypeGeneratorSettings.asset")
+    move("PackageSandbox/Assets/MidManStudio/Generated/PoolTypeGeneratorSettings.asset.meta",
+         "PackageSandbox/Assets/MidManStudio/Generated/Pools/PoolTypeGeneratorSettings.asset.meta")
+
+    move("PackageSandbox/Assets/MidManStudio/Generated/PoolTypeLock.json",
+         "PackageSandbox/Assets/MidManStudio/Generated/Pools/PoolTypeLock.json")
+    move("PackageSandbox/Assets/MidManStudio/Generated/PoolTypeLock.json.meta",
+         "PackageSandbox/Assets/MidManStudio/Generated/Pools/PoolTypeLock.json.meta")
+
+    // --- Fix 4: hand-authored provider OUT of Generated/Projectiles/ --------
+    move("PackageSandbox/Assets/MidManStudio/Generated/Projectiles/ProjectileConfigProvider_ProjectileSystem.asset",
+         "PackageSandbox/Assets/MidManStudio/ProjectileSystem/ConfigProviders/ProjectileConfigProvider_ProjectileSystem.asset")
+    move("PackageSandbox/Assets/MidManStudio/Generated/Projectiles/ProjectileConfigProvider_ProjectileSystem.asset.meta",
+         "PackageSandbox/Assets/MidManStudio/ProjectileSystem/ConfigProviders/ProjectileConfigProvider_ProjectileSystem.asset.meta")
+
+  // ===========================================================================
+  // NEW FOLDER .meta FILES — Unity needs one per folder created by the moves
+  // above. Fresh GUIDs, never reused elsewhere in the project.
+  // ===========================================================================
+  update_files::
+
+    update("packages/com.midmanstudio.utilities/Runtime/PoolSystems/Generated.meta",
+      "fileFormatVersion: 2\nguid: 0bacbf39b7224d3b9f076401e4eb65f1\nfolderAsset: yes\nDefaultImporter:\n  externalObjects: {}\n  userData: \n  assetBundleName: \n  assetBundleVariant: \n")
+
+    update("packages/com.midmanstudio.netcode/Runtime/PoolSystems/Generated.meta",
+      "fileFormatVersion: 2\nguid: e8501ea264de4535ab195e690f955cf9\nfolderAsset: yes\nDefaultImporter:\n  externalObjects: {}\n  userData: \n  assetBundleName: \n  assetBundleVariant: \n")
+
+    update("packages/com.midmanstudio.utilities/Runtime/Libraries/Generated.meta",
+      "fileFormatVersion: 2\nguid: 0aa021df0f604e429899ab74f6ac0138\nfolderAsset: yes\nDefaultImporter:\n  externalObjects: {}\n  userData: \n  assetBundleName: \n  assetBundleVariant: \n")
+
+    update("PackageSandbox/Assets/MidManStudio/Generated/Pools.meta",
+      "fileFormatVersion: 2\nguid: 2dae040c5cee4ffcb91403b65c70b5aa\nfolderAsset: yes\nDefaultImporter:\n  externalObjects: {}\n  userData: \n  assetBundleName: \n  assetBundleVariant: \n")
+
+    update("PackageSandbox/Assets/MidManStudio/ProjectileSystem/ConfigProviders.meta",
+      "fileFormatVersion: 2\nguid: a5e06761b9af42d38eaa9d0daa65fea7\nfolderAsset: yes\nDefaultImporter:\n  externalObjects: {}\n  userData: \n  assetBundleName: \n  assetBundleVariant: \n")
+
+  // ===========================================================================
+  // PATCHES — fix the stale serialized paths inside the (now-moved) settings
+  // asset so the generator writes to the corrected locations on next run.
+  // Each anchor is an exact literal substring confirmed present in the file.
+  // ===========================================================================
+  patch_files::
+
+    patch_replace_text(
+      "PackageSandbox/Assets/MidManStudio/Generated/Pools/PoolTypeGeneratorSettings.asset",
+      "objectEnumOutputPath: packages/com.midmanstudio.utilities/Runtime/PoolSystems/PoolableObjectType.cs",
+      "objectEnumOutputPath: packages/com.midmanstudio.utilities/Runtime/PoolSystems/Generated/PoolableObjectType.cs")
+
+    patch_replace_text(
+      "PackageSandbox/Assets/MidManStudio/Generated/Pools/PoolTypeGeneratorSettings.asset",
+      "particleEnumOutputPath: packages/com.midmanstudio.utilities/Runtime/PoolSystems/PoolableParticleType.cs",
+      "particleEnumOutputPath: packages/com.midmanstudio.utilities/Runtime/PoolSystems/Generated/PoolableParticleType.cs")
+
+    patch_replace_text(
+      "PackageSandbox/Assets/MidManStudio/Generated/Pools/PoolTypeGeneratorSettings.asset",
+      "networkEnumOutputPath: packages/com.midmanstudio.netcode/Runtime/PoolSystems/PoolableNetworkObjectType.cs",
+      "networkEnumOutputPath: packages/com.midmanstudio.netcode/Runtime/PoolSystems/Generated/PoolableNetworkObjectType.cs")
+
+    patch_replace_text(
+      "PackageSandbox/Assets/MidManStudio/Generated/Pools/PoolTypeGeneratorSettings.asset",
+      "lockFilePath: Assets/MidManStudio/Generated/PoolTypeLock.json",
+      "lockFilePath: Assets/MidManStudio/Generated/Pools/PoolTypeLock.json")
+
+)

@@ -1,0 +1,53 @@
+# .github/workflows/run-patch.yml
+# Runs a one-off .mdix patch (default: .mdix/patches/patch.mdix) via the
+# shared mdix-scaffold reusable workflow.
+name: Apply mdix patch
+
+on:
+  workflow_dispatch:
+    inputs:
+      template:
+        description: 'Path to .mdix patch file'
+        required: false
+        default: '.mdix/patches/patch.mdix'
+        type: string
+      dry_run:
+        description: 'Preview without writing anything (true/false)'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      override_stubs:
+        description: 'Overwrite existing stub files (true/false)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      file_strategy:
+        description: 'How to handle existing files'
+        required: false
+        default: 'skip'
+        type: choice
+        options:
+          - 'skip'
+          - 'overwrite'
+          - 'backup'
+          - 'rename'
+  push:
+    paths:
+      - '.mdix/patches/**'
+
+jobs:
+  run-patch:
+    uses: Mid-D-Man/mdix-scaffold/.github/workflows/generate-structure.yml@main
+    permissions:
+      contents: write
+    with:
+      template:       ${{ inputs.template       || '.mdix/patches/patch.mdix' }}
+      dry_run:        ${{ inputs.dry_run        || 'true' }}
+      override_stubs: ${{ inputs.override_stubs || 'false' }}
+      file_strategy:  ${{ inputs.file_strategy  || 'skip' }}

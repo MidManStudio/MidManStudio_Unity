@@ -12,10 +12,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 5e20588e26ba943a19963475120b75ea, type: 3}
   m_Name: PoolTypeGeneratorSettings
   m_EditorClassIdentifier: 
-  objectEnumOutputPath: packages/com.midmanstudio.utilities/Runtime/PoolSystems/PoolableObjectType.cs
-  particleEnumOutputPath: packages/com.midmanstudio.utilities/Runtime/PoolSystems/PoolableParticleType.cs
-  networkEnumOutputPath: packages/com.midmanstudio.netcode/Runtime/PoolSystems/PoolableNetworkObjectType.cs
-  lockFilePath: Assets/MidManStudio/Generated/PoolTypeLock.json
+  objectEnumOutputPath: packages/com.midmanstudio.utilities/Runtime/PoolSystems/Generated/PoolableObjectType.cs
+  particleEnumOutputPath: packages/com.midmanstudio.utilities/Runtime/PoolSystems/Generated/PoolableParticleType.cs
+  networkEnumOutputPath: packages/com.midmanstudio.netcode/Runtime/PoolSystems/Generated/PoolableNetworkObjectType.cs
+  lockFilePath: Assets/MidManStudio/Generated/Pools/PoolTypeLock.json
   minimumBlockSize: 100
   generatedNamespace: MidManStudio.Core.Pools
   autoGenerateOnAssetChange: 0
