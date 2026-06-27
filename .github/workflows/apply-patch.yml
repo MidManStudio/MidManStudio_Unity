@@ -10,18 +10,33 @@ on:
         description: 'Path to .mdix patch file'
         required: false
         default: '.mdix/patches/patch.mdix'
+        type: string
       dry_run:
         description: 'Preview without writing anything (true/false)'
         required: false
         default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
       override_stubs:
         description: 'Overwrite existing stub files (true/false)'
         required: false
         default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
       file_strategy:
-        description: 'How to handle existing files: skip | overwrite | backup | rename'
+        description: 'How to handle existing files'
         required: false
         default: 'skip'
+        type: choice
+        options:
+          - 'skip'
+          - 'overwrite'
+          - 'backup'
+          - 'rename'
   push:
     paths:
       - '.mdix/patches/**'
