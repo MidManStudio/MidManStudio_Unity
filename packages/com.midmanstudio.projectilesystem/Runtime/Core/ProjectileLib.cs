@@ -1,4 +1,3 @@
-// ProjectileLib.cs
 // Complete FFI layer for projectile_core Rust native library.
 // ALL P/Invoke bindings live here. Nothing else uses DllImport.
 //

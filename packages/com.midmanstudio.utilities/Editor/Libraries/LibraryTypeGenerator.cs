@@ -1,4 +1,3 @@
-
 // Reads all LibraryTypeProviderSO assets and writes LibraryId.cs and LibraryItemId.cs.
 // Replaces magic string keys with typed enum members.
 // Open via: MidManStudio > Utilities > Library Type Generator

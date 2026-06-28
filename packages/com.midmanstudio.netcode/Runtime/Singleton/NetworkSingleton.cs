@@ -1,4 +1,3 @@
-// NetworkSingleton.cs
 // NGO-aware singleton base class.
 // Instance is available after Awake but network features only activate post-spawn.
 // Requires Unity Netcode for GameObjects (com.unity.netcode.gameobjects).
@@ -7,7 +6,7 @@ using UnityEngine;
 using Unity.Netcode;
 using UnityEngine.SceneManagement;
 
-namespace MidManStudio.Netcode
+namespace MidManStudio.Netcode.Singleton
 {
     /// <summary>
     /// Singleton that inherits from NetworkBehaviour.

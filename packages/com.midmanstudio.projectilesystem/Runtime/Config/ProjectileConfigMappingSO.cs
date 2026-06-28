@@ -1,4 +1,3 @@
-// packages/com.midmanstudio.projectilesystem/Runtime/Config/ProjectileConfigMappingSO.cs
 // Runtime-facing SO that maps ProjectileConfigType int values to
 // ProjectileConfigSO assets. _configs[i] corresponds to enum value i.
 //

@@ -1,4 +1,3 @@
-// FXEntry.cs
 // Single entry in the GlobalFXManager effect list.
 // Binds a (EffectCategory, EffectType) pair to an in-scene ParticleSystem.
 //

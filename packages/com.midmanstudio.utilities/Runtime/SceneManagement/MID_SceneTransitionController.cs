@@ -1,22 +1,4 @@
 
-// Abstract base class for scene transition UI controllers.
-// Coordinates MID_SceneLoader (utilities) and optionally a network loader (netcode)
-// through the ISceneLoader interface. Game code subclasses this and overrides the
-// virtual hooks to drive its own fade/animation system (DOTween, LeanTween, etc.).
-//
-// SUBCLASSING:
-//   public class MySceneManager : MID_SceneTransitionController
-//   {
-//       protected override IEnumerator TransitionIn()  { /* fade to black  */ yield break; }
-//       protected override IEnumerator TransitionOut() { /* fade from black */ yield break; }
-//       protected override void OnProgressUpdated(float p) { progressBar.value = p; }
-//       protected override void OnTransitionComplete(int sceneId) { HideLoadingUI(); }
-//   }
-//
-// USAGE (game code):
-//   MySceneManager.Instance.LoadScene(SceneId.Gameplay);
-//   MySceneManager.Instance.LoadScene(SceneId.Network, SceneLoadType.NetworkAdditive);
-
 using System;
 using System.Collections;
 using UnityEngine;
@@ -25,6 +7,26 @@ using MidManStudio.Core.Singleton;
 
 namespace MidManStudio.Core.SceneManagement
 {
+    /// <summary>
+    ///  Abstract base class for scene transition UI controllers.
+    /// Coordinates MID_SceneLoader (utilities) and optionally a network loader (netcode)
+    /// through the ISceneLoader interface. Game code subclasses this and overrides the
+    /// virtual hooks to drive its own fade/animation system (DOTween, LeanTween, etc.).
+    ///
+    /// SUBCLASSING:
+    ///   public class MySceneManager : MID_SceneTransitionController
+    ///   {
+    ///       protected override IEnumerator TransitionIn()  { /* fade to black  */ yield break; }
+    ///       protected override IEnumerator TransitionOut() { /* fade from black */ yield break; }
+    ///       protected override void OnProgressUpdated(float p) { progressBar.value = p; }
+    ///       protected override void OnTransitionComplete(int sceneId) { HideLoadingUI(); }
+    ///   }
+    ///
+    /// USAGE (game code):
+    ///   MySceneManager.Instance.LoadScene(SceneId.Gameplay);
+    ///   MySceneManager.Instance.LoadScene(SceneId.Network, SceneLoadType.NetworkAdditive);
+
+    /// </summary>
     [RequireComponent(typeof(Canvas))]
     public abstract class MID_SceneTransitionController : Singleton<MID_SceneTransitionController>
     {

@@ -354,13 +354,17 @@ MonoBehaviour:
   _textFile: {fileID: 0}
   _theme: 0
   _fontSize: 12
+  _useCustomTextColor: 0
+  _customTextColor: {r: 0, g: 0, b: 0, a: 1}
   _width: 300
   _maxBodyHeight: 380
+  _cornerPadding: 8
   _anchor: 0
   _margin: {x: 16, y: 16}
   _draggable: 1
+  _sortingOrder: 500
   _startVisible: 1
-  _showInEditMode: 1
+  _buildInEditMode: 1
 --- !u!4 &264144392
 Transform:
   m_ObjectHideFlags: 0

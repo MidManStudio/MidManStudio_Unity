@@ -1,4 +1,3 @@
-// ILocalLobbyTeamProvider.cs
 // Optional injectable interface for game-specific team management.
 // Implement this in your game and pass it to LocalLobbyManager.SetTeamProvider().
 // If no provider is set the manager still functions — players just have TeamId = -1.

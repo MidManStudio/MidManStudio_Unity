@@ -1,15 +1,16 @@
-// NetcodePoolProviderBootstrapper.cs
-// Creates default NetworkPoolTypeProvider assets for the netcode package on first import.
 
 #if UNITY_EDITOR
 using System.IO;
 using UnityEditor;
 using UnityEngine;
-using MidManStudio.Core.Pools.Generator;
 using MidManStudio.Netcode.Generator;
 
 namespace MidManStudio.Netcode.Editor
 {
+    /// <summary>
+    /// Creates default NetworkPoolTypeProvider assets for the netcode package on first import.
+
+    /// </summary>
     [InitializeOnLoad]
     internal static class NetcodePoolProviderBootstrapper
     {

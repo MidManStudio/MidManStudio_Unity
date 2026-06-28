@@ -69,6 +69,7 @@
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.netcode/Editor/MidManStudio.Netcode.Editor.asmdef">
       <Link>Editor/MidManStudio.Netcode.Editor.asmdef</Link>
     </None>
+    <None Include="Packages\NewFile.txt" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="UnityEngine">

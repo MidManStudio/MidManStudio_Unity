@@ -1,21 +1,3 @@
-// DimensionCameraController.cs
-//
-// ROOT CAUSE FIX (priority not changing after first switch):
-//   UnregisterPlayerCams was setting _vcam2D = null / _vcam3D = null.
-//   These are inspector-serialized scene references — nulling them at runtime
-//   meant every subsequent RefreshVcamState() call was a no-op.
-//   Fix: NEVER null the vcam refs. UnregisterPlayerCams now only clears
-//   the Follow/LookAt targets and lowers priorities.
-//
-// SUBSCRIPTION FIX:
-//   Moved subscription to Start() (guaranteed after all Awake()s) +
-//   kept OnEnable/OnDisable for enable/disable cycles. Prevents missing
-//   the event when DimensionManager.Awake runs after DCC.OnEnable.
-//
-// PRIORITY:
-//   SetVcamPriority() raises/lowers CinemachineVirtualCamera.Priority.
-//   Both vcam GameObjects stay active at all times — Cinemachine brain
-//   picks the highest-priority one. No SetActive calls on vcams.
 
 using UnityEngine;
 using Cinemachine;

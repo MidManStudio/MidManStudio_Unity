@@ -21,7 +21,7 @@ MonoBehaviour:
   _lifetime: 3
   _gravityScale: 0
   _maxRange: 50
-  _piercingType: 1
+  _piercingType: 0
   _maxCollisions: 2
   _hitLayers:
     serializedVersion: 2

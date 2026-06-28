@@ -1,33 +1,9 @@
-// packages/com.midmanstudio.projectilesystem/Tests/Runtime/TestSceneBootstrapper.cs
-//
-// CHANGE: Added ProjectileConfigManager and ProjectileConfigMappingSO references.
-// In Start(), after any manual _configs registration, calls
-// _configManager.RegisterAll(_configMapping) explicitly so enum-based config
-// resolution is available before the session starts — even when
-// ProjectileConfigManager.Start() execution order is ambiguous.
-//
-// TWO REGISTRATION PATHS — both are supported simultaneously:
-//
-//   A) Manual (legacy, _configs array):
-//      Drag configs into _configs in inspector.
-//      ProjectileRegistry assigns IDs in insertion order (0, 1, 2…).
-//      Set NetworkedDimensionPlayer._configTypeId2D = 0 etc.
-//
-//   B) Enum system (recommended, _configManager + _configMapping):
-//      Run Config Type Generator → generates ProjectileConfigType.cs + mapping asset.
-//      Assign mapping asset to ProjectileConfigManager._mapping in scene.
-//      Assign ProjectileConfigManager component + mapping to this bootstrapper.
-//      Set NetworkedDimensionPlayer._configTypeId2D = (int)ProjectileConfigType.Default.
-//
-//   Both paths call ProjectileRegistry.Register() which is idempotent by name,
-//   so running both for the same assets is safe and produces identical IDs.
 
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using Unity.Netcode;
 using MidManStudio.Core.Audio;
-using MidManStudio.Core.FX;
 using MidManStudio.Core.Logging;
 using MidManStudio.Core.Pools;
 using MidManStudio.Netcode.LocalMultiplayer;

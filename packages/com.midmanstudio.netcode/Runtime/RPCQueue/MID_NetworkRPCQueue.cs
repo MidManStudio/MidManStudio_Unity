@@ -1,4 +1,3 @@
-// MID_NetworkRPCQueue.cs
 // Batches NGO ClientRpc/ServerRpc payloads into one send per network tick.
 // Reduces packet overhead when many small state updates fire in one frame.
 //
@@ -38,7 +37,7 @@ using System.Collections.Generic;
 using Unity.Netcode;
 using UnityEngine;
 using MidManStudio.Core.Logging;
-
+using MidManStudio.Netcode.Singleton;
 namespace MidManStudio.Netcode
 {
     // ── Payload interface ─────────────────────────────────────────────────────
@@ -111,15 +110,9 @@ namespace MidManStudio.Netcode
     /// Tick-driven RPC batch queue for Unity Netcode for GameObjects.
     /// Attach to a persistent NetworkBehaviour GameObject.
     /// </summary>
-    public class MID_NetworkRPCQueue : NetworkBehaviour
+    public class MID_NetworkRPCQueue : HybridNetworkSingleton<MID_NetworkRPCQueue>
     {
-        #region Singleton
-
-        private static MID_NetworkRPCQueue _instance;
-        public  static MID_NetworkRPCQueue Instance   => _instance;
-        public  static bool                HasInstance => _instance != null;
-
-        #endregion
+     
 
         #region Inspector
 
@@ -140,10 +133,10 @@ namespace MidManStudio.Netcode
 
         #region Lifecycle
 
-        private void Awake()
+        protected override void Awake()
         {
-            if (_instance != null && _instance != this) { Destroy(gameObject); return; }
-            _instance = this;
+            base.Awake();
+            InitializeSingleton(true);
             _timer    = new NetworkTimer(_flushRate);
 
             MID_Logger.LogInfo(_logLevel,
@@ -153,7 +146,6 @@ namespace MidManStudio.Netcode
 
         public override void OnDestroy()
         {
-            if (_instance == this) _instance = null;
             base.OnDestroy();
         }
 

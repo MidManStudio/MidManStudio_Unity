@@ -1,4 +1,3 @@
-
 // Generates SceneId.cs and SceneRegistry.cs from all SceneTypeProviderSO assets.
 // Open via: MidManStudio > Utilities > Scene Type Generator
 

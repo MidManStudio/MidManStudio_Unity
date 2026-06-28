@@ -1,9 +1,3 @@
-// TestTarget2D.cs
-// NEW FILE — 2D-ONLY target. CircleCollider2D only. No SphereCollider, no Rigidbody.
-// Create a completely separate prefab from TestTarget3D.
-// Prefab needs: TestTarget2D script, CircleCollider2D, SpriteRenderer (optional),
-//               NetworkObject (for networked sessions).
-// Used by: Raycast2D, RustSim2D, PhysicsProjectile2D shoot modes.
 
 using System;
 using System.Collections;
@@ -11,7 +5,6 @@ using UnityEngine;
 using Unity.Netcode;
 using TMPro;
 using MidManStudio.Core.Audio;
-using MidManStudio.Core.FX;
 
 namespace TestGame
 {
@@ -35,7 +28,7 @@ namespace TestGame
 
         [Header("Death FX")]
         [SerializeField] private int   _deathParticleCount  = 12;
-        [SerializeField, Range(0f,1f)] private float _deathParticleVolume = 1f;
+
 
         [Header("Hit FX")]
         [SerializeField] private int _hitParticleCount = 4;
@@ -110,7 +103,7 @@ namespace TestGame
             RefreshVisuals(_maxHealth);
         }
 
-        private void OnDestroy()
+        public override void OnDestroy()
         {
             if (_bodyMaterial != null) Destroy(_bodyMaterial);
         }

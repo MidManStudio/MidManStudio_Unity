@@ -1,4 +1,3 @@
-// RustSpawnParams.cs
 // Minimal Rust-facing spawn parameters derived from ProjectileConfigSO.
 // Passed from ProjectileRegistry / ProjectileConfigSO to BatchSpawnHelper.
 // Only contains what the Rust sim and Burst fill jobs need — no Unity objects.

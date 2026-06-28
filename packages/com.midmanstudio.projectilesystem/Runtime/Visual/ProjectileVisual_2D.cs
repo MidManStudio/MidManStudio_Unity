@@ -1,28 +1,10 @@
-// packages/com.midmanstudio.projectilesystem/Runtime/Visual/ProjectileVisual_.cs
-//
-// FIX (client-side shape rendering):
-//   Shape mesh components (MeshFilter, MeshRenderer) are now created dynamically
-//   at runtime if not already present on the pool prefab.
-//   Previously, clients whose pool prefab only had SpriteRenderer + TrailRenderer
-//   fell back to sprite rendering even when the config specified a CustomShape.
-//   The host rendered correctly because ProjectileRenderer2D reads directly from the
-//   Rust buffer using Graphics.DrawMeshInstanced — it never needs MeshFilter on the visual.
-//   Clients use pool visuals (ProjectileVisual_) and thus DO need the components.
-//
-//   PREFAB NOTE: You no longer need to pre-add MeshFilter/MeshRenderer to pool prefabs.
-//   They are added at runtime the first time a shape config is used on a pooled instance.
-//   Assign _fallbackShapeMaterial in the inspector for correct shader behaviour
-//   (InstancedProjectile.shader or InstancedProjectile_URP.shader).
-//   Without it, falls back to Sprites/Default — renders correctly but without atlas UVs.
-//
-// Previous fixes retained.
 
 using UnityEngine;
 using MidManStudio.Projectiles.Config;
 
 namespace MidManStudio.Projectiles.Visuals
 {
-    public class ProjectileVisual_ : ProjectileVisualBase
+    public class ProjectileVisual_2D : ProjectileVisualBase
     {
         #region Inspector
 

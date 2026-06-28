@@ -1,18 +1,6 @@
-// ProjectilePatternSO.cs
-// ADDITIONS vs previous:
-//   + PatternShape.Formula = 7 — horizontal and vertical angles driven by
-//     math expressions evaluated per-projectile via MathFormulaEvaluator.
-//     H formula → degrees horizontal.  V formula → degrees vertical.
-//     Variables: t = i/n (normalised), i (index float), n (count float).
-//   + _patternFormulaH / _patternFormulaV fields + public accessors.
-//   + SampleFormula() private method.
-//   + SampleDirections() dispatch updated.
-//   + CreateDefaultPatterns() gets two formula examples.
 
 using System;
 using UnityEngine;
-using MidManStudio.Projectiles.Config;
-
 #if UNITY_EDITOR
 using UnityEditor;
 #endif
@@ -35,7 +23,7 @@ namespace MidManStudio.Projectiles.Config
         Shotgun = 4,
         Star    = 5,
         Spiral  = 6,
-        Formula = 7,   // NEW — per-projectile H/V from math expressions
+        Formula = 7,   // per-projectile H/V from math expressions
     }
 
     [CreateAssetMenu(
@@ -92,7 +80,6 @@ namespace MidManStudio.Projectiles.Config
 
         [Header("Star Settings")]
         [SerializeField, Range(3, 12)]   private int   _starPoints     = 5;
-        [SerializeField, Range(0f, 1f)]  private float _starInnerScale = 0f;
 
         [Header("Spiral Settings")]
         [SerializeField, Range(0f, 360f)] private float _spiralAngleStep = 30f;

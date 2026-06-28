@@ -1,12 +1,3 @@
-// DimensionManager.cs — FIXED
-//
-// Changes vs previous:
-//   + _dimensionToggleKey (serialized) replaces hard-coded Tab.
-//     Default: BackQuote (tilde/` key) — doesn't interfere with cursor or UI.
-//   + Apply2D / Apply3D: tracked _cameraLerpCoroutine (was StopAllCoroutines bug).
-//   + ApplyDimension: removed duplicate player notification.
-//   + Skip camera manipulation when DimensionCameraController present.
-//   + LerpCamera / FadeOverlay: guarded against zero duration divide.
 
 using System;
 using System.Collections;
@@ -56,7 +47,7 @@ namespace TestGame
 
         #region State
 
-        public Dimension Current         { get; private set; }
+        public  Dimension Current         { get; private set; }
         public bool      IsTransitioning { get; private set; }
 
         public event Action<Dimension> OnDimensionChanged;

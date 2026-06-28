@@ -1,4 +1,3 @@
-// EffectTypeProviderSO.cs
 // ScriptableObject that contributes entries to the EffectType enum.
 // One of these per package/game that needs custom effect variants.
 

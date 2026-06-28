@@ -1,7 +1,3 @@
-// ProjectileTypeRouter.cs
-// CHANGE: ComputeMode now returns SimulationMode.RustSim for all non-physics,
-// non-raycast paths. config.Is3D is the sole determinant of 2D vs 3D buffer.
-// ExplainRoute updated to reflect the merged value.
 
 using MidManStudio.Projectiles.Core;
 using MidManStudio.Projectiles.Config;

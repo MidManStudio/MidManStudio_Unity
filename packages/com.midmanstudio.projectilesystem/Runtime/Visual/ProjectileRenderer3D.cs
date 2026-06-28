@@ -1,14 +1,3 @@
-// ProjectileRenderer3D.cs
-// FIX: Two-pass render now uses TWO separate Mesh objects (_spriteMesh, _shapeMesh).
-// Previously both passes shared _mesh — Pass 2 called _mesh.Clear() after
-// Pass 1 submitted Graphics.DrawMesh(), clobbering Pass 1's geometry before
-// the GPU processed it. Now each pass owns its mesh entirely.
-//
-// Previous fixes retained:
-//   World-space vertices via Graphics.DrawMesh with Matrix4x4.identity (no shake).
-//   Billboard orientation: elongated quad along travel direction.
-//   MPB.SetTexture per draw call.
-//   UseSprite=false / custom-shape support (white texture fallback).
 
 using MidManStudio.Projectiles.Config;
 using MidManStudio.Projectiles.Core;

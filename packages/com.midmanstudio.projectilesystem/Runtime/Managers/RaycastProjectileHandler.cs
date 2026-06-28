@@ -1,26 +1,3 @@
-// RaycastProjectileHandler.cs
-// FIX (double visual on firing client): ServerHandleFire now accepts an optional
-// senderClientId. SpawnVisualClientRpc is sent to ALL clients EXCEPT the sender,
-// because the sender already spawned their own local visual via OfflineHandleFire
-// in MID_MasterProjectileSystem.RegisterRaycastFire. Previously the server sent
-// the visual RPC to everyone, so the firing client ended up with two travelling
-// bullet visuals for every raycast shot.
-//
-// FIX (raycast 2D not hitting targets):
-//   The original Physics2D.Raycast overload respects the Physics2D.queriesHitTriggers
-//   project setting. If targets use trigger colliders AND that setting is false, all
-//   2D server-validation raycasts silently miss. Fix: use Physics2D.Raycast with an
-//   explicit ContactFilter2D (useTriggers = true) for the server-side 2D validation.
-//
-// FIX (raycast 3D/2D not registering hits when server validation misses):
-//   The server runs its own validation raycast to anti-cheat. However, target
-//   positions can be desynced between server and client (e.g. server-side bob
-//   animation not replicated via NetworkTransform). When the server raycast misses
-//   or finds no NetworkObject but the client reported a plausible hit (valid
-//   HitTargetNetworkId + reasonable distance), the system now falls back to
-//   trusting the client's report rather than silently dropping the hit entirely.
-//   This is appropriate for cooperative / trusted client scenarios. Replace with
-//   stricter logic if anti-cheat is a priority.
 
 using System;
 using System.Collections.Generic;
@@ -28,7 +5,6 @@ using UnityEngine;
 using Unity.Netcode;
 using MidManStudio.Core.Logging;
 using MidManStudio.Core.Pools;
-using MidManStudio.Projectiles.Core;
 using MidManStudio.Projectiles.Config;
 using MidManStudio.Projectiles.Adapters;
 using MidManStudio.Projectiles.Data;

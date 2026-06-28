@@ -1,20 +1,3 @@
-// packages/com.midmanstudio.utilities/Runtime/UIState/MID_UIStateVisibility.cs
-//
-// FIX (initial state not applied):
-//   _visible defaults to false. When OnEnable fires (context state is 0, None),
-//   HandleStateChanged sets shouldShow=false which equals _visible=false → early return.
-//   Active-in-scene objects that should be hidden in the initial state were never hidden.
-//
-//   Fix: _initialised flag. The FIRST call to HandleStateChanged (triggered by OnEnable)
-//   bypasses the equality check and force-applies visibility regardless. Subsequent calls
-//   use the normal early-return optimisation.
-//
-//   Flow with fix:
-//     1. OnEnable → _initialised=false → HandleStateChanged(0)
-//        → shouldShow=false, _initialised=false → skip early return → Hide() called ✓
-//     2. UIStateManager.Start → ChangeState(initialState) → fires OnStateChanged
-//        → HandleStateChanged(initialState)
-//        → shouldShow matches mask → Show() or Hide() with early-return optimisation ✓
 
 using UnityEngine;
 using MidManStudio.Core.Logging;
@@ -51,7 +34,7 @@ namespace MidManStudio.Core.UIState
 
             _context.OnStateChanged += HandleStateChanged;
 
-            // FIX: reset _initialised so the first HandleStateChanged call always
+            //  reset _initialised so the first HandleStateChanged call always
             // force-applies visibility, even if shouldShow equals the stale _visible value.
             _initialised = false;
             HandleStateChanged(_context.CurrentState);
@@ -67,7 +50,7 @@ namespace MidManStudio.Core.UIState
         {
             bool shouldShow = _showWhenMask != 0 && (newState & _showWhenMask) != 0;
 
-            // FIX: skip early-return on the first call so initial state is always applied.
+            // skip early-return on the first call so initial state is always applied.
             // Subsequent calls use the optimisation normally.
             if (shouldShow == _visible && _initialised) return;
 

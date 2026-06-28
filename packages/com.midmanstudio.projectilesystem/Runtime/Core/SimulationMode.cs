@@ -1,5 +1,3 @@
-// SimulationMode.cs
-// CHANGE: merged RustSim2D and RustSim3D into RustSim.
 // ProjectileConfigSO.Is3D already controls which Rust buffer (2D/3D) is used —
 // there is no reason to duplicate that choice in the simulation-mode override.
 // Byte value 1 (RustSim2D) is preserved so existing serialised configs are not corrupted.

@@ -1,15 +1,3 @@
-// PhysicsProjectileBase.cs
-// FIX: Physics projectiles now use ProjectileConfigSO for damage calculation.
-//   Previously ApplyDirectHit always used _baseDamage * _damageMultiplier ignoring the
-//   damage curve and MaxRange defined on the config. Now it evaluates cfg.EvaluateDamage(normDist)
-//   based on travel distance, falling back to _baseDamage when no config is registered.
-//
-// FIX: _spawnPosition is recorded in OnProjectileInitialised so travel distance can be computed.
-//
-// ADDED: _visualConfigId is now exposed as protected so derived classes can set it at runtime
-//   if needed (e.g. PhysicsProjectile2D.OnLaunch already reads it for gravity scale).
-//
-// All other behaviour (ShouldAutoSpawnVisual, OnNetworkVelocityReceived, pool visual, etc.) unchanged.
 
 using System;
 using System.Collections;
@@ -21,7 +9,7 @@ using MidManStudio.Projectiles.Adapters;
 using MidManStudio.Projectiles.Config;
 using MidManStudio.Projectiles.Network;
 using MidManStudio.Projectiles.Visuals;
-
+using MidManStudio.Netcode.Pools;
 namespace MidManStudio.Projectiles.Managers
 {
     [DisallowMultipleComponent]
@@ -48,6 +36,7 @@ namespace MidManStudio.Projectiles.Managers
         [Tooltip("Pool type for 3D visual (MeshRenderer + trail).")]
         [SerializeField] protected PoolableObjectType _visual3DPoolType
             = PoolableObjectType.Projectile_Visual3D;
+
 
         [Header("Debug")]
         [SerializeField] protected MID_LogLevel _logLevel = MID_LogLevel.Info;
@@ -365,7 +354,7 @@ namespace MidManStudio.Projectiles.Managers
             _poolVisualGO = null;
             _poolVisual   = null;
         }
-
+      
         private Vector3 GetDefaultLaunchDir()
             => Is2D ? transform.right : transform.forward;
 

@@ -481,6 +481,7 @@ namespace MidManStudio.Core.EditorTools
         }
         #endregion
 
+
         #region Helper Methods
         private string FormatValue(object value, string format)
         {

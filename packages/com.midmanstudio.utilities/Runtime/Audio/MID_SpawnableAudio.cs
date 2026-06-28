@@ -1,18 +1,4 @@
 
-// Pooled audio object. Supports one-shot, looping-follow, and sequential
-// (flight → collision) playback modes.
-//
-// Requires a pool entry of type PoolableObjectType with value matching
-// PoolTypeId.SpawnableAudio (generated enum value 0 by default).
-//
-// SETUP:
-//   Register prefab in LocalObjectPool inspector with typeId = PoolTypeId.SpawnableAudio
-//   (value 0 from the generated enum, member name "SpawnableAudio").
-//
-// USAGE:
-//   var go  = LocalObjectPool.Instance.GetObject(PoolableObjectType.SpawnableAudio, pos, rot);
-//   var sfx = go.GetComponent<MID_SpawnableAudio>();
-//   sfx.PlayOneShot(clip, pos);
 
 using System.Collections;
 using UnityEngine;
@@ -20,6 +6,22 @@ using MidManStudio.Core.Logging;
 
 namespace MidManStudio.Core.Audio
 {
+    /// <summary>
+    /// Pooled audio object. Supports one-shot, looping-follow, and sequential
+    /// (flight → collision) playback modes.
+    ///
+    /// Requires a pool entry of type PoolableObjectType with value matching
+    /// PoolTypeId.SpawnableAudio (generated enum value 0 by default).
+    ///
+    /// SETUP:
+    ///   Register prefab in LocalObjectPool inspector with typeId = PoolTypeId.SpawnableAudio
+    ///   (value 0 from the generated enum, member name "SpawnableAudio").
+    ///
+    /// USAGE:
+    ///   var go  = LocalObjectPool.Instance.GetObject(PoolableObjectType.SpawnableAudio, pos, rot);
+    ///   var sfx = go.GetComponent<MID_SpawnableAudio>();
+    ///   sfx.PlayOneShot(clip, pos);
+    /// </summary>
     [RequireComponent(typeof(AudioSource))]
     public class MID_SpawnableAudio : MonoBehaviour
     {

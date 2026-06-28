@@ -1,7 +1,5 @@
-// packages/com.midmanstudio.projectilesystem/Runtime/Managers/MID_MasterProjectileSystem.cs
-//
-// ARCHITECTURE CHANGE:
-//   FireNetworkedSim now spawns immediately into LocalProjectileManager for the
+
+//   FireNetworkedSim spawns immediately into LocalProjectileManager for the
 //   firing client (non-server). This gives zero-latency visual feedback using the
 //   same Rust sim + GPU instanced rendering path as the host — no pool objects.
 //
@@ -144,7 +142,7 @@ namespace MidManStudio.Projectiles.Managers
                 nameof(MID_MasterProjectileSystem));
         }
 
-        private void OnDestroy()
+        protected override void OnDestroy()
         {
             BatchSpawnHelper.Shutdown();
             ProjectileLib.clear_movement_params();

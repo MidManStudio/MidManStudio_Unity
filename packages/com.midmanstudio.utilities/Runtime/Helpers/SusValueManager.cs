@@ -1,15 +1,4 @@
 
-// Tracks all ManagedSusValue instances so subscriptions can be bulk-cleared
-// when a GameObject is destroyed or a scene unloads.
-//
-// USAGE — automatic:
-//   new ManagedSusValue<float>(0f, "MyFloat", gameObject)
-//   → registered automatically, cleared when gameObject is destroyed.
-//
-// USAGE — manual bulk clear:
-//   SusValueManager.Instance.ClearAllForOwner(myGameObject);
-//   SusValueManager.Instance.ClearAll();
-
 using System.Collections.Generic;
 using UnityEngine;
 using MidManStudio.Core.Logging;
@@ -17,6 +6,18 @@ using MidManStudio.Core.Singleton;
 
 namespace MidManStudio.Core.ObservableValues
 {
+    /// <summary>
+    /// Tracks all ManagedSusValue instances so subscriptions can be bulk-cleared
+    /// when a GameObject is destroyed or a scene unloads.
+    ///
+    /// USAGE — automatic:
+    ///   new ManagedSusValue<float>(0f, "MyFloat", gameObject)
+    ///   → registered automatically, cleared when gameObject is destroyed.
+    ///
+    /// USAGE — manual bulk clear:
+    ///   SusValueManager.Instance.ClearAllForOwner(myGameObject);
+    ///   SusValueManager.Instance.ClearAll();
+    /// </summary>
     public class SusValueManager : Singleton<SusValueManager>
     {
         [SerializeField] private MID_LogLevel _logLevel = MID_LogLevel.Info;

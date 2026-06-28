@@ -1,21 +1,9 @@
-// ProjectileRegistry.cs — UPDATE
-//
-// Changes from plan:
-//   + GetRustSpawnData(configId) — returns RustSpawnParams without full SO ref
-//   + Register Is3D configs separately from 2D
-//   + RegisterMovementParams() called after ConfigId is assigned
-//   + Stores ProjectileConfigSO (package version) not the game-specific SO
-//   + ValidateStructSizes() called here at Awake
-//
-// ProjectileRegistry is the runtime lookup table for the sim system.
-// It is separate from ProjectileConfigManager (game-side O(1) cache by enum name).
-// Registry is indexed by ushort configId — compact, Rust-compatible.
 
 using System.Collections.Generic;
 using UnityEngine;
 using MidManStudio.Core.Singleton;
 using MidManStudio.Projectiles.Core;
-
+using MidManStudio.Core.Logging;
 namespace MidManStudio.Projectiles.Config
 {
     /// <summary>
@@ -42,6 +30,9 @@ namespace MidManStudio.Projectiles.Config
                  "Alternatively call Register() at runtime from your weapon system.")]
         [SerializeField] private ProjectileConfigSO[] _autoRegister = System.Array.Empty<ProjectileConfigSO>();
 
+        [Header("Debug")]
+        [SerializeField] MID_LogLevel _LogLevel = MID_LogLevel.None;
+
         protected override void Awake()
         {
             base.Awake();
@@ -54,7 +45,7 @@ namespace MidManStudio.Projectiles.Config
             }
             catch (System.InvalidOperationException ex)
             {
-                Debug.LogError($"[ProjectileRegistry] {ex.Message}");
+                MID_Logger.LogDebug(_LogLevel,$"[ProjectileRegistry] {ex.Message}");
                 // Disable the system entirely so projectiles don't fire with corrupt data
                 enabled = false;
                 return;
@@ -66,11 +57,11 @@ namespace MidManStudio.Projectiles.Config
                 if (cfg != null) Register(cfg);
             }
 
-            Debug.Log($"[ProjectileRegistry] Initialised with {_configs.Count} configs " +
+            MID_Logger.LogDebug(_LogLevel, $"[ProjectileRegistry] Initialised with {_configs.Count} configs " +
                       $"({_ids3D.Count} 3D, {_configs.Count - _ids3D.Count} 2D).");
         }
 
-        private void OnDestroy()
+        protected override void OnDestroy()
         {
             // Unregister movement params from Rust on shutdown
             foreach (var cfg in _configs)
@@ -91,7 +82,7 @@ namespace MidManStudio.Projectiles.Config
         {
             if (config == null)
             {
-                Debug.LogError("[ProjectileRegistry] Attempted to register null config.");
+                MID_Logger.LogError( _LogLevel, "[ProjectileRegistry] Attempted to register null config.");
                 return ushort.MaxValue;
             }
 
@@ -101,7 +92,8 @@ namespace MidManStudio.Projectiles.Config
 
             if (_configs.Count >= ushort.MaxValue - 1)
             {
-                Debug.LogError("[ProjectileRegistry] Config ID space exhausted (max 65534 configs).");
+
+                MID_Logger.LogError(_LogLevel, "[ProjectileRegistry] Config ID space exhausted (max 65534 configs).");
                 return ushort.MaxValue;
             }
 
@@ -128,7 +120,8 @@ namespace MidManStudio.Projectiles.Config
             var cfg = Resources.Load<ProjectileConfigSO>(resourcePath);
             if (cfg == null)
             {
-                Debug.LogError($"[ProjectileRegistry] Resource not found: {resourcePath}");
+
+                MID_Logger.LogError(_LogLevel, $"[ProjectileRegistry] Resource not found: {resourcePath}");
                 return ushort.MaxValue;
             }
             return Register(cfg);
@@ -178,7 +171,8 @@ namespace MidManStudio.Projectiles.Config
             var cfg = Get(configId);
             if (cfg == null)
             {
-                Debug.LogError($"[ProjectileRegistry] No config for id {configId}");
+
+                MID_Logger.LogError(_LogLevel, $"[ProjectileRegistry] No config for id {configId}");
                 return default;
             }
             return cfg.GetRustSpawnParams(speedOverride);

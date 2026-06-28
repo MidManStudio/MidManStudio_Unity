@@ -28,7 +28,6 @@ MonoBehaviour:
   _vShapeVerticalDeg: 0
   _shotgunConeDeg: 15
   _starPoints: 5
-  _starInnerScale: 0
   _spiralAngleStep: 30
   _patternFormulaH: i / (n - 1) * 180 - 90
   _patternFormulaV: cos(i / n * tau) * 30

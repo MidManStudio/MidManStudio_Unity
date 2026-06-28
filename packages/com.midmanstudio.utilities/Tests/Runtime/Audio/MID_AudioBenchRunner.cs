@@ -1,13 +1,4 @@
-// MID_AudioBenchRunner.cs — v2
-// Matches MID_NativeAudioBridge v2 (AudioSource pool) + MID_AudioLimiter (Rust DSP).
-//
-// FIX: process_buffer_bench DllImport now uses EntryPoint = "process_buffer".
-//   The Rust library exports the symbol as "process_buffer". Without EntryPoint,
-//   the P/Invoke runtime looks for a symbol literally named "process_buffer_bench"
-//   which doesn't exist → EntryPointNotFoundException at LimiterInner startup.
-//   The rename exists purely to avoid a C# method-name collision with
-//   MID_AudioLimiter's own import; the actual DLL symbol must still match.
-//
+
 // What this compares:
 //
 //   A) Naive  — AudioSource.PlayOneShot(clip) on a single source.

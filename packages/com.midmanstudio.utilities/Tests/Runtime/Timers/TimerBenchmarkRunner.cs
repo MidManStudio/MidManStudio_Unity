@@ -1,4 +1,3 @@
-// TimerBenchmarkRunner.cs
 // Runtime tests and benchmarks for Timer.cs and PerformanceBenchmarkTimer.cs.
 //
 // USAGE:

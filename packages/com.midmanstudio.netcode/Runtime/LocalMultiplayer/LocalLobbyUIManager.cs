@@ -1,22 +1,3 @@
-// packages/com.midmanstudio.netcode/Runtime/LocalMultiplayer/LocalLobbyUIManager.cs
-// REWRITTEN: replaces custom LobbyUIState enum with MID_UIStateContext from utilities.
-//
-// CHANGES vs previous version:
-//   + GoToMain() added — initial screen with Host + Look for Lobbies buttons.
-//   + GoToSearching() added — lobby list panel shown after clicking Look for Lobbies.
-//   + GoToInLobby() added — shared in-lobby state for both host and joining client.
-//   + GoToHosting() and GoToJoining() are now aliases for GoToInLobby() — both use
-//     the same InLobby state (mask=4), simplifying the panel setup.
-//   + GoToBrowse() is now an alias for GoToMain() (backward compatibility).
-//   + HandleHostResult: on failure now navigates back to Main instead of staying
-//     on the Loading panel (was a silent bug).
-//   + HandleJoinResult: same failure-path fix as above.
-//   + HandleLobbyDisbanded: navigates to Main (was GoToBrowse which was Browse/Main anyway).
-//   + IsInitialized property exposed so concrete classes can guard against race conditions.
-//   + OnSearchStarted() virtual hook added for concrete classes that need to react when
-//     search begins (e.g., showing a spinner, clearing stale cards).
-//   + RequestGoToSearching() helper — stops any running search, starts a fresh one,
-//     then transitions state. Single call for the "Look for Lobbies" button handler.
 
 using System.Collections.Generic;
 using UnityEngine;
@@ -26,6 +7,9 @@ using MidManStudio.Netcode.LocalMultiplayer;
 
 namespace MidManStudio.Netcode.UI
 {
+    /// <summary>
+    /// Overridable ui manager for offline lobbies, subscribes to callbacks from lobbymanager , and invokes events that can be ovveriden to perform some logic, useful for ui and stuff
+    /// </summary>
     [RequireComponent(typeof(Canvas))]
     public abstract class LocalLobbyUIManager : MonoBehaviour
     {

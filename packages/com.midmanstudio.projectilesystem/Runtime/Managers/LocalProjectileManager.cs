@@ -1,15 +1,4 @@
-// packages/com.midmanstudio.projectilesystem/Runtime/Managers/LocalProjectileManager.cs
-//
-// FIX (zig-zag on all diagonal/non-straight projectiles):
-//
-// ROOT CAUSE: ReconcileSnapshots compared the STALE snapshot position
-// (captured N ticks ago on server) against the client's CURRENT position.
-// For a projectile at 10 u/s with 80ms latency: snapshot is 0.8 units behind
-// where the projectile is NOW. Every correction moved the client backward,
-// then the Rust sim moved it forward → oscillation = zig-zag.
-//
-// FIX: Extrapolate the snapshot position forward by staleTime before comparing.
-//
+
 // MATH (derived from semi-implicit Euler, matching Rust simulation):
 //
 //   At snapshot tick T_snap, server position = (sx, sy).
@@ -36,11 +25,7 @@
 //   For ARCHING:         the -0.5*Ay*t^2 term applies ✓
 //   For GUIDED:          Ay≈0 for most configs, straight-line approx acceptable ✓
 //   For WAVE/CIRCULAR:   never sent in snapshots (filtered server-side) ✓
-//
-// With correct extrapolation, if both server and client Rust sims started at the
-// same position (which they should after initial catch-up), expected ≈ local →
-// error ≈ 0 → skip threshold fires → NO correction at all during normal flight.
-// Corrections only fire for genuine discrepancies (buffer full, missed ticks, etc.).
+
 
 using System;
 using System.Collections.Generic;
@@ -48,7 +33,6 @@ using System.Runtime.InteropServices;
 using UnityEngine;
 using MidManStudio.Core.Logging;
 using MidManStudio.Core.Singleton;
-using MidManStudio.Core.Pools;
 using MidManStudio.Projectiles.Core;
 using MidManStudio.Projectiles.Config;
 using MidManStudio.Projectiles.Adapters;
@@ -264,7 +248,7 @@ namespace MidManStudio.Projectiles.Managers
                 nameof(LocalProjectileManager));
         }
 
-        private void OnDestroy()
+        protected override void OnDestroy()
         {
             BatchSpawnHelper.Shutdown();
             FreeBuffers();

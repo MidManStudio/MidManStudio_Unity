@@ -97,11 +97,11 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.netcode/Runtime/PoolSystems/IPoolableNetworkObject.cs">
       <Link>Runtime/PoolSystems/IPoolableNetworkObject.cs</Link>
     </Compile>
-    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.netcode/Runtime/PoolSystems/PoolableNetworkObjectType.cs">
-      <Link>Runtime/PoolSystems/PoolableNetworkObjectType.cs</Link>
-    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.netcode/Runtime/Connection/MID_NetworkConnectionManager.cs">
       <Link>Runtime/Connection/MID_NetworkConnectionManager.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.netcode/Runtime/PoolSystems/Generated/PoolableNetworkObjectType.cs">
+      <Link>Runtime/PoolSystems/Generated/PoolableNetworkObjectType.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.netcode/Runtime/RPCQueue/MID_NetworkRPCQueue.cs">
       <Link>Runtime/RPCQueue/MID_NetworkRPCQueue.cs</Link>
@@ -117,6 +117,7 @@
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.netcode/Runtime/MidManStudio.Netcode.asmdef">
       <Link>Runtime/MidManStudio.Netcode.asmdef</Link>
     </None>
+    <None Include="Packages\NewFile.txt" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="UnityEngine">

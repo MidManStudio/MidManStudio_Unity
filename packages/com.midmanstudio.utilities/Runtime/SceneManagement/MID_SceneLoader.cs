@@ -1,4 +1,3 @@
-// MID_SceneLoader.cs
 // Standard (non-network) scene loader. Implements ISceneLoader.
 // Handles single and additive loading with progress reporting.
 // Optionally validates internet connectivity for InternetRequired scenes

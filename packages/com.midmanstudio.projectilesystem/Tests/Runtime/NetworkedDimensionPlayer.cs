@@ -1,19 +1,3 @@
-// packages/com.midmanstudio.projectilesystem/Tests/Runtime/NetworkedDimensionPlayer.cs
-//
-// FIX (client doesn't see own projectiles):
-//   FireSim() was bypassing MID_MasterProjectileSystem.Fire() entirely.
-//   It manually constructed a ProjectileFireRequest and called GetBridge().FireServerRpc()
-//   directly, skipping the SpawnFiringClientBatch2D/3D call that lives inside
-//   FireNetworkedSim(). The empty predMgr block was a leftover placeholder from
-//   the old ClientPredictionManager approach.
-//
-//   Fix: FireSim() now builds a WeaponFireContext and calls
-//   MID_MasterProjectileSystem.Instance.Fire() which routes correctly:
-//     - LocalOnly/offline → FireLocal → LocalProjectileManager.Spawn2D/3D
-//     - Networked client  → FireNetworkedSim → SpawnFiringClientBatch + FireServerRpc
-//     - Networked host    → FireNetworkedSim → skip local spawn + FireServerRpc
-//
-//   All other behaviour (raycast, physics, spread, pattern) unchanged.
 
 using UnityEngine;
 using Unity.Netcode;

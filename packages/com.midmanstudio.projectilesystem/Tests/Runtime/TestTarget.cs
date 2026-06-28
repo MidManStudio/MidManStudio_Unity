@@ -1,6 +1,3 @@
-// TestTarget.cs
-// 3D-ONLY target. SphereCollider only. No CircleCollider2D — ever.
-// Use a separate TestTarget2D prefab + script for 2D shoot modes.
 
 using System;
 using System.Collections;
@@ -8,7 +5,6 @@ using UnityEngine;
 using Unity.Netcode;
 using TMPro;
 using MidManStudio.Core.Audio;
-using MidManStudio.Core.FX;
 
 namespace TestGame
 {
@@ -29,7 +25,7 @@ namespace TestGame
 
         [Header("Death FX")]
         [SerializeField] private int   _deathParticleCount  = 20;
-        [SerializeField, Range(0f,1f)] private float _deathParticleVolume = 1f;
+
 
         [Header("Hit FX")]
         [SerializeField] private int _hitParticleCount = 6;
@@ -110,7 +106,7 @@ namespace TestGame
             RefreshVisuals(_maxHealth);
         }
 
-        private void OnDestroy()
+        public override void OnDestroy()
         {
             if (_bodyMaterial != null) Destroy(_bodyMaterial);
         }

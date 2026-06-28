@@ -1,4 +1,3 @@
-// MID_NetworkSceneLoader.cs
 // NGO-managed additive scene loader. Implements ISceneLoader.
 // Uses HybridNetworkSingleton — available before NGO spawns.
 // Scene names resolved via generated SceneRegistry.
@@ -15,6 +14,7 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using MidManStudio.Core.Logging;
 using MidManStudio.Core.SceneManagement;
+using MidManStudio.Netcode.Singleton;
 using SceneEventProgressStatus = Unity.Netcode.SceneEventProgressStatus;
 
 namespace MidManStudio.Netcode.SceneManagement

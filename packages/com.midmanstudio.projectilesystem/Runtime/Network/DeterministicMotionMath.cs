@@ -1,4 +1,3 @@
-// DeterministicMotionMath.cs
 // Closed-form parametric position and velocity-direction formulas for Wave and
 // Circular projectile types. Used by ClientPredictionManager to replace noisy
 // snapshot-velocity-estimation with analytically exact client-side simulation.

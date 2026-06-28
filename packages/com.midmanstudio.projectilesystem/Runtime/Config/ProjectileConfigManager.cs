@@ -1,4 +1,3 @@
-// packages/com.midmanstudio.projectilesystem/Runtime/Config/ProjectileConfigManager.cs
 // Runtime bridge between the generated ProjectileConfigType enum and the
 // session-local ushort configIds assigned by ProjectileRegistry.
 //
@@ -18,7 +17,7 @@ using UnityEngine;
 using MidManStudio.Core.Singleton;
 using MidManStudio.Projectiles.Adapters;
 using MidManStudio.Projectiles.Managers;
-
+using MidManStudio.Core.Logging;
 namespace MidManStudio.Projectiles.Config
 {
     [AddComponentMenu("MidMan/Projectile System/Projectile Config Manager")]
@@ -31,6 +30,7 @@ namespace MidManStudio.Projectiles.Config
 
         [Header("Debug")]
         [SerializeField] private bool _logRegistrations = false;
+        [SerializeField] private MID_LogLevel _LogLevel = MID_LogLevel.None;
 
         #endregion
 
@@ -60,10 +60,9 @@ namespace MidManStudio.Projectiles.Config
             if (mapping == null) return;
             if (!ProjectileRegistry.HasInstance)
             {
-                Debug.LogError(
+              MID_Logger.LogDebug(_LogLevel,
                     "[ProjectileConfigManager] ProjectileRegistry not found. " +
-                    "Ensure ProjectileRegistry.Awake() runs before ProjectileConfigManager.Start().",
-                    this);
+                    "Ensure ProjectileRegistry.Awake() runs before ProjectileConfigManager.Start().");
                 return;
             }
 
@@ -79,10 +78,10 @@ namespace MidManStudio.Projectiles.Config
                 _enumToId[i] = id;
 
                 if (_logRegistrations)
-                    Debug.Log($"[ProjectileConfigManager] [{i}] {cfg.name}  → configId={id}");
+                    MID_Logger.LogDebug(_LogLevel, $"[ProjectileConfigManager] [{i}] {cfg.name}  → configId={id}");
             }
 
-            Debug.Log($"[ProjectileConfigManager] Registered {_enumToId.Count} configs.");
+            MID_Logger.LogDebug(_LogLevel, $"[ProjectileConfigManager] Registered {_enumToId.Count} configs.");
         }
 
         /// <summary>
@@ -92,7 +91,7 @@ namespace MidManStudio.Projectiles.Config
         public ushort GetConfigId(int configTypeValue)
         {
             if (_enumToId.TryGetValue(configTypeValue, out ushort id)) return id;
-            Debug.LogWarning(
+            MID_Logger.LogWarning(_LogLevel,
                 $"[ProjectileConfigManager] ConfigType {configTypeValue} not registered. " +
                 "Ensure RegisterAll() was called at startup before Fire() calls.");
             return ushort.MaxValue;
@@ -107,7 +106,7 @@ namespace MidManStudio.Projectiles.Config
             {
                 var cfg = (_mapping != null && kv.Key < _mapping.Configs.Length)
                     ? _mapping.Configs[kv.Key] : null;
-                Debug.Log($"  [{kv.Key}] configId={kv.Value}  so={cfg?.name ?? "null"}");
+                MID_Logger.LogDebug(_LogLevel, $"  [{kv.Key}] configId={kv.Value}  so={cfg?.name ?? "null"}");
             }
         }
     }

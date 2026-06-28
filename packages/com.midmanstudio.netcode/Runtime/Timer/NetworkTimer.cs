@@ -1,4 +1,3 @@
-// NetworkTimer.cs
 // Fixed-interval network tick timer.
 // Tracks elapsed time and exposes ShouldTick() to drive server tick loops.
 // Part of com.midmanstudio.netcode.

@@ -1,4 +1,3 @@
-// packages/com.midmanstudio.projectilesystem/Editor/ProjectileConfigBootstrapper.cs
 // Creates the built-in default ProjectileConfigSO + ProjectileConfigProviderSO
 // + ProjectileConfigGeneratorSettingsSO assets on first import.
 //

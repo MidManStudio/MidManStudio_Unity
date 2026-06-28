@@ -1,4 +1,3 @@
-// ProjectileImpactHandler.cs
 // Client-side only. Manages impact effects for confirmed projectile hits.
 // MID_ProjectileNetworkBridge calls PlayImpact() on HitConfirmedClientRpc.
 //

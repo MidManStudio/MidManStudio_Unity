@@ -1,4 +1,3 @@
-// FXEntryDefinition.cs
 // One entry in an EffectCategoryProviderSO or EffectTypeProviderSO.
 // Mirrors PoolEntryDefinition exactly — same pinning and auto-assign rules.
 

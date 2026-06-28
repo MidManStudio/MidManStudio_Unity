@@ -1,32 +1,3 @@
-// MID_NativeAudioBridge.cs  — v2: AudioSource Pool
-//
-// WHAT CHANGED FROM v1 AND WHY:
-//
-// Removed: AudioClip.GetData() → PCM upload → Rust voice mixing
-//   GetData() requires Decompress On Load AND the clip to be fully loaded in memory
-//   at the exact moment Awake() runs. Unity loads clips asynchronously; the call
-//   races against the loader and produces "data larger than clip loaded" even with
-//   correct import settings. Bypassing Unity's hardware audio decoders also doubles
-//   memory and breaks streaming clips entirely. Wrong tool for a general-purpose package.
-//
-// Added: Standard AudioSource pool (16 voices, circular steal)
-//   Unity's AudioSource handles decoding, 3D spatialization, and AudioMixer routing.
-//   No clip format requirements — works with Compressed In Memory, Streaming, anything.
-//   PlayClip() is O(pool_size) worst-case to find a free source (typically O(1)).
-//
-// Rust DLL role: see MID_AudioLimiter.cs
-//   The limiter runs in OnAudioFilterRead on the AudioListener — not here.
-//   This class has no DllImport at all. It's pure C# AudioSource management.
-//
-// SETUP:
-//   1. Add MID_NativeAudioBridge to your Managers prefab.
-//   2. Assign AudioClips in the _clips inspector array (any Load Type works).
-//   3. Add MID_AudioLimiter to your AudioListener GameObject (Camera or dedicated).
-//   4. Call PlayClip(index, volume) from game code.
-//
-// WEBGL:
-//   Works identically — AudioSource pool is pure C# with no platform restrictions.
-//   MID_AudioLimiter skips the Rust DLL on WebGL (C# fallback limiter instead).
 
 using UnityEngine;
 using MidManStudio.Core.Logging;
@@ -34,6 +5,17 @@ using MidManStudio.Core.Singleton;
 
 namespace MidManStudio.Core.Audio
 {
+    /// <summary>
+    /// SETUP:
+    ///   1. Add MID_NativeAudioBridge to your Managers prefab.
+    ///   2. Assign AudioClips in the _clips inspector array (any Load Type works).
+    ///   3. Add MID_AudioLimiter to your AudioListener GameObject (Camera or dedicated).
+    ///   4. Call PlayClip(index, volume) from game code.
+    ///
+    /// WEBGL:
+    ///   Works identically — AudioSource pool is pure C# with no platform restrictions.
+    ///   MID_AudioLimiter skips the Rust DLL on WebGL (C# fallback limiter instead).
+    /// </summary>
     public class MID_NativeAudioBridge : Singleton<MID_NativeAudioBridge>
     {
         // ── Inspector ─────────────────────────────────────────────────────────

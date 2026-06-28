@@ -12,8 +12,8 @@ GameObject:
   - component: {fileID: 3027121082797755088}
   - component: {fileID: 8345006710408403906}
   - component: {fileID: -6145002849923757687}
-  - component: {fileID: 1825299885381150850}
   - component: {fileID: 8032413099760147388}
+  - component: {fileID: 8931123922998352057}
   m_Layer: 7
   m_Name: ProjectileVisual_3D
   m_TagString: Untagged
@@ -104,25 +104,6 @@ MonoBehaviour:
     duration: 5
     useAutoDestruct: 1
   originalType: 101
---- !u!114 &1825299885381150850
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 8989598825715357742}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: fe0b826b049d5482190019a64b97d465, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  _poolReturn: {fileID: -6145002849923757687}
-  _logLevel: 0
-  _meshFilter: {fileID: 3027121082797755088}
-  _meshRenderer: {fileID: 8345006710408403906}
-  _trailRenderer: {fileID: 8032413099760147388}
-  _scaleMultiplier: 1
-  _fallbackMaterial: {fileID: 2100000, guid: 8e2bd416c1769401bac71c1f8d976a94, type: 2}
 --- !u!96 &8032413099760147388
 TrailRenderer:
   serializedVersion: 3
@@ -227,3 +208,22 @@ TrailRenderer:
   m_Autodestruct: 0
   m_Emitting: 1
   m_ApplyActiveColorSpace: 1
+--- !u!114 &8931123922998352057
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8989598825715357742}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 96d903f9d4d7448dab2d8782449afc35, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _poolReturn: {fileID: 0}
+  _logLevel: 0
+  _meshFilter: {fileID: 3027121082797755088}
+  _meshRenderer: {fileID: 8345006710408403906}
+  _trailRenderer: {fileID: 8032413099760147388}
+  _scaleMultiplier: 1
+  _fallbackMaterial: {fileID: 2100000, guid: 8e2bd416c1769401bac71c1f8d976a94, type: 2}

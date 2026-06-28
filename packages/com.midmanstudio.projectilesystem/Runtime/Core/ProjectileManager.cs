@@ -1,4 +1,3 @@
-// ProjectileManager.cs
 // Marker MonoBehaviour.
 // ProjectileRenderer2D, ProjectileRenderer3D, and TrailObjectPool use
 // [RequireComponent(typeof(ProjectileManager))] to enforce they live on a

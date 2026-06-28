@@ -1,21 +1,4 @@
 
-// Generic static utility methods for use across all MidManStudio packages.
-//
-// WHAT'S HERE:
-//   - GameObject child management
-//   - UI / CanvasGroup helpers
-//   - String formatting (sentence, camel, pascal, kebab, snake)
-//   - Color parsing
-//   - Reflection-based debug printing
-//   - Generic functional helpers (Map, Filter, Reduce, GroupBy)
-//   - JSON / XML serialisation via Unity's built-in JsonUtility + System.Xml
-//
-// WHAT'S NOT HERE (intentionally removed):
-//   - Game-specific sprite/atlas loading
-//   - Cloud save / economy / analytics hooks
-//   - Error handler references
-//   - Any logging beyond thin wrappers around MID_Logger
-
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -30,6 +13,18 @@ using MidManStudio.Core.Logging;
 
 namespace MidManStudio.Core.HelperFunctions
 {
+    /// <summary>
+    /// Generic static utility methods for use across all MidManStudio packages.
+    ///
+    /// WHAT'S HERE:
+    ///   - GameObject child management
+    ///   - UI / CanvasGroup helpers
+    ///   - String formatting (sentence, camel, pascal, kebab, snake)
+    ///   - Color parsing
+    ///   - Reflection-based debug printing
+    ///   - Generic functional helpers (Map, Filter, Reduce, GroupBy)
+    ///   - JSON / XML serialisation via Unity's built-in JsonUtility + System.Xml
+    /// </summary>
     public static class MID_HelperFunctions
     {
         // ── Logging shims ─────────────────────────────────────────────────────

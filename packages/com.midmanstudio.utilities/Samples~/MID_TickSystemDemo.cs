@@ -1,4 +1,3 @@
-// MID_TickSystemDemo.cs
 // Visual in-Game-View dashboard demonstrating the Tick Dispatcher, Tick Delay,
 // and Timer systems. Attach to any GameObject in a test scene.
 //

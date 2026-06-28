@@ -1,7 +1,4 @@
 
-// Merged: was two assets (UIStateContextProviderSO + MID_UIStateContext).
-// Now one SO serves as both the code-generation source and the runtime state machine.
-//
 // SETUP:
 //   1. Create via right-click > MidManStudio > Utilities > UI State Context
 //   2. Set contextName (PascalCase, no spaces — e.g. "Menu" → generates MenuUIState.cs)

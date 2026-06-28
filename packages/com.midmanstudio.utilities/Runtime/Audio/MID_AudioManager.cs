@@ -1,15 +1,4 @@
-// MID_AudioManager.cs
-// Generic singleton audio manager.
-// Handles music (with crossfade and pitch glide) and SFX (one-shot, pitched).
-// All game-specific hooks (FP_SettingsManager, analytics, etc.) removed.
-//
-// MUSIC ENABLE/DISABLE:
-//   Subscribe to OnMusicEnabledChanged or call SetMusicEnabled(bool) directly.
-//
-// MIXER GROUPS:
-//   Assign _musicMixerGroup and _sfxMixerGroup in the inspector.
-//   The mixer owns all user-facing volume control via exposed parameters.
-//   Per-clip volume scalars are a secondary fine-tune only.
+
 
 using System.Collections;
 using UnityEngine;
@@ -19,6 +8,19 @@ using MidManStudio.Core.Singleton;
 
 namespace MidManStudio.Core.Audio
 {
+    /// <summary>
+    /// Generic singleton audio manager.
+    /// Handles music (with crossfade and pitch glide) and SFX (one-shot, pitched).
+    /// All game-specific hooks (FP_SettingsManager, analytics, etc.) removed.
+    ///
+    /// MUSIC ENABLE/DISABLE:
+    ///   Subscribe to OnMusicEnabledChanged or call SetMusicEnabled(bool) directly.
+    ///
+    /// MIXER GROUPS:
+    ///   Assign _musicMixerGroup and _sfxMixerGroup in the inspector.
+    ///   The mixer owns all user-facing volume control via exposed parameters.
+    ///   Per-clip volume scalars are a secondary fine-tune only.
+    /// </summary>
     public class MID_AudioManager : Singleton<MID_AudioManager>
     {
         #region Serialized Fields

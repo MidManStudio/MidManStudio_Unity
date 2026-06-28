@@ -1,4 +1,3 @@
-// HybridNetworkSingleton.cs
 // Like NetworkSingleton but instance is available immediately in Awake —
 // before any network spawn occurs. Network features layer on top when spawned.
 // Persists across scenes by default.
@@ -7,7 +6,7 @@ using UnityEngine;
 using Unity.Netcode;
 using UnityEngine.SceneManagement;
 
-namespace MidManStudio.Netcode
+namespace MidManStudio.Netcode.Singleton
 {
     /// <summary>
     /// Hybrid singleton: instance is ready in Awake, network features activate

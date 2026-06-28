@@ -1,5 +1,4 @@
-﻿
-// Editor window for bulk-managing MID_LogLevel fields across all scene MonoBehaviours.
+﻿// Editor window for bulk-managing MID_LogLevel fields across all scene MonoBehaviours.
 // Supports: search/filter, file selection, group by GameObject, validated live editing.
 // Open via: MidManStudio > Utilities > Logger Manager
 

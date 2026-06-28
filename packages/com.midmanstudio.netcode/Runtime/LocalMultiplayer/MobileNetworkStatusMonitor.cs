@@ -1,24 +1,24 @@
-// MobileNetworkStatusMonitor.cs
-// Monitors LAN / WiFi / hotspot / mobile-data status on mobile devices.
-// Reports status changes via OnNetworkStatusChanged event.
-// No game-specific dependencies.
-//
-// STATUS STRINGS:
-//   "WIFI_CONNECTED"  — standard WiFi (can host and join)
-//   "HOTSPOT"         — device is running a hotspot (can host, cannot join)
-//   "MOBILE_DATA"     — cellular only (cannot host or join LAN game)
-//   "NO_NETWORK"      — no connectivity
 
 using System;
 using System.Collections;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
-using System.Linq;
 using UnityEngine;
 using MidManStudio.Core.Logging;
 
 namespace MidManStudio.Netcode.LocalMultiplayer
 {
+    /// <summary>
+    /// 
+    /// Monitors LAN / WiFi / hotspot / mobile-data status on mobile devices.
+    /// Reports status changes via OnNetworkStatusChanged event.
+    ///
+    /// STATUS STRINGS:
+    ///   "WIFI_CONNECTED"  — standard WiFi (can host and join)
+    ///   "HOTSPOT"         — device is running a hotspot (can host, cannot join)
+    ///   "MOBILE_DATA"     — cellular only (cannot host or join LAN game)
+    ///   "NO_NETWORK"      — no connectivity
+    /// </summary>
     public class MobileNetworkStatusMonitor : MonoBehaviour
     {
         [Header("Settings")]

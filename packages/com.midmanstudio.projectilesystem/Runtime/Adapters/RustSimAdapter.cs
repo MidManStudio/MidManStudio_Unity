@@ -1,14 +1,3 @@
-// RustSimAdapter.cs
-// FIX (projectile death on hit):
-//   HandlePiercing previously set hasHit=true but never called Unregister().
-//   ServerProjectileAuthority.Collision2D checks !Adapter.IsRegistered(h.ProjId)
-//   to decide whether to set _projs2D[idx].Alive = 0. Since the projectile was
-//   still registered, Alive was never cleared and the projectile lived forever
-//   regardless of PiercingType.None or lifetime.
-//
-//   Fix: Unregister() + fire OnProjectileDied in HandlePiercing when the
-//   projectile should die. NotifyDead() (called from CompactDead2D on lifetime
-//   expiry) guards against double-fire with a ContainsKey check.
 
 using System;
 using System.Collections.Generic;
@@ -185,7 +174,7 @@ namespace MidManStudio.Projectiles.Adapters
         /// <summary>
         /// Determines whether the projectile should die and handles cleanup.
         ///
-        /// KEY FIX: For PiercingType.None (most common case), we immediately call
+        ///  For PiercingType.None (most common case), we immediately call
         /// Unregister() so that ServerProjectileAuthority.Collision2D's post-hit
         /// check (!Adapter.IsRegistered) returns true and sets Alive=0 in the
         /// Rust buffer. Without this, Alive was never cleared and projectiles

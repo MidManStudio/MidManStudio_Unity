@@ -1,4 +1,3 @@
-// packages/com.midmanstudio.projectilesystem/Runtime/Config/MathFormulaEvaluator.cs
 // Self-contained recursive-descent expression parser and evaluator.
 // Converts a math formula string to a float value with no external dependencies.
 //

@@ -1,24 +1,3 @@
-// MID_AudioLimiter.cs
-//
-// Applies the Rust peak limiter to the final mixed audio output.
-//
-// SETUP — CRITICAL:
-//   This component MUST be on the AudioListener GameObject.
-//   OnAudioFilterRead on the AudioListener receives the FINAL MIXED output
-//   from ALL AudioSources in the scene. On any other GameObject, it only
-//   processes that GameObject's own AudioSource output.
-//
-//   Typical setup:
-//     Main Camera (has AudioListener) → also add MID_AudioLimiter here.
-//     OR: a dedicated AudioListener GameObject → add MID_AudioLimiter there.
-//
-// WEBGL:
-//   Rust DLL unavailable. Falls back to a simple C# peak limiter with the
-//   same attack/release behaviour. Identical Inspector interface.
-//
-// PLATFORM DISPATCH:
-//   Desktop/Mobile: Rust DLL via DllImport — no managed allocation in DSP path.
-//   WebGL: Pure C# limiter — slightly higher GC risk but functionally identical.
 
 using System.Runtime.InteropServices;
 using UnityEngine;
@@ -26,6 +5,29 @@ using MidManStudio.Core.Logging;
 
 namespace MidManStudio.Core.Audio
 {
+    /// <summary>
+    ///
+    ///
+    /// Applies the Rust peak limiter to the final mixed audio output.
+    ///
+    /// SETUP — CRITICAL:
+    ///   This component MUST be on the AudioListener GameObject.
+    ///   OnAudioFilterRead on the AudioListener receives the FINAL MIXED output
+    ///   from ALL AudioSources in the scene. On any other GameObject, it only
+    ///   processes that GameObject's own AudioSource output.
+    ///
+    ///   Typical setup:
+    ///     Main Camera (has AudioListener) → also add MID_AudioLimiter here.
+    ///     OR: a dedicated AudioListener GameObject → add MID_AudioLimiter there.
+    ///
+    /// WEBGL:
+    ///   Rust DLL unavailable. Falls back to a simple C# peak limiter with the
+    ///   same attack/release behaviour. Identical Inspector interface.
+    ///
+    /// PLATFORM DISPATCH:
+    ///   Desktop/Mobile: Rust DLL via DllImport — no managed allocation in DSP path.
+    ///   WebGL: Pure C# limiter — slightly higher GC risk but functionally identical.
+    /// </summary>
     [RequireComponent(typeof(AudioListener))]
     public class MID_AudioLimiter : MonoBehaviour
     {

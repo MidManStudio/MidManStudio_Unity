@@ -1,4 +1,3 @@
-// NetworkPoolTypeProviderSO.cs
 // Contributes entries to the generated PoolableNetworkObjectType enum.
 // Same system as PoolTypeProviderSO but for the network object pool.
 //
@@ -11,7 +10,6 @@
 
 using System.Collections.Generic;
 using UnityEngine;
-using MidManStudio.Core.Pools;
 using MidManStudio.Core.Pools.Generator;
 using MidManStudio.Core.EditorUtils;
 

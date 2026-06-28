@@ -1,25 +1,3 @@
-// ProjectileConfigSO.cs — CORE PACKAGE VERSION
-//
-// CHANGE: _preferredSimMode default and HasSimModeOverride updated for
-//   the merged SimulationMode.RustSim (previously RustSim2D).
-//   All other behaviour is unchanged.
-//
-// FIX (scale):
-//   GetRustSpawnParams now uses _fullSizeX as the base ScaleStart when
-//   UseScaleGrowth is FALSE.
-//
-// FIX (live wave/circular params):
-//   OnValidate now calls RegisterMovementParams() during play mode.
-//
-// ADDED: _hitLayers (LayerMask) — controls which Unity layers this projectile's
-//   Rust collision hits are allowed to register against.
-//
-// ADDED (Phase 2 — Deterministic Prediction):
-//   Public read-only accessors for Wave and Circular movement parameters so that
-//   DeterministicMotionMath (ClientPredictionManager) can read them without
-//   reflection or additional serialization. These fields are already registered
-//   with the Rust lib via RegisterMovementParams(); the properties simply expose
-//   the same values to the C# prediction layer.
 
 using UnityEngine;
 using System;

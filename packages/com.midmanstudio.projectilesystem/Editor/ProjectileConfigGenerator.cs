@@ -1,18 +1,6 @@
-// packages/com.midmanstudio.projectilesystem/Editor/ProjectileConfigGenerator.cs
 // Editor-only. Scans all ProjectileConfigProviderSO assets, assigns stable enum
 // values (lock-file backed), writes the ProjectileConfigType enum, and
 // auto-generates/updates the ProjectileConfigMappingSO asset.
-//
-// FIX: [pinned] tag is now always emitted inside a // comment.
-//      Previously, when Comment was empty and WasPinned=true, the tag was
-//      appended without a // prefix, producing invalid C#:
-//          Default = 0, [pinned]      ← compile error
-//      Now always emits:
-//          Default = 0,               (no pin, no comment)
-//          Default = 0, // [pinned]   (pin only)
-//          Default = 0, // my note    (comment only)
-//          Default = 0, // my note [pinned]  (both)
-//
 // USAGE: MidManStudio > Projectile System > Config Type Generator → Generate Now
 
 #if UNITY_EDITOR

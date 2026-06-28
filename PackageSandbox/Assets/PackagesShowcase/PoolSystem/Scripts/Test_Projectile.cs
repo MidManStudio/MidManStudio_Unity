@@ -5,7 +5,7 @@ using MidManStudio.Core.Pools;
 
 public class Test_Projectile : MonoBehaviour
 {
-    public CircleCollider2D collider;
+    public new CircleCollider2D collider;
     public LocalPoolReturn poolReturn;
     public Rigidbody2D rb;
     public float speed = 10f; // Adjusted down slightly as Impulse force can be incredibly fast

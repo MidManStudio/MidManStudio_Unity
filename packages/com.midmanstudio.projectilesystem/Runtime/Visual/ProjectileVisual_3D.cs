@@ -1,10 +1,3 @@
-// ProjectileVisual3D.cs
-// FIX: Awake() now auto-finds _trailRenderer via GetComponentInChildren if not
-//   assigned in the inspector. Previously the trail was silently null when the
-//   user didn't wire it up, so ApplyTrail() returned early on every Init.
-//   _meshFilter and _meshRenderer already had auto-find — trail now matches.
-//
-// All other behaviour unchanged.
 
 using UnityEngine;
 using MidManStudio.Projectiles.Config;
@@ -12,7 +5,7 @@ using MidManStudio.Projectiles.Config;
 namespace MidManStudio.Projectiles.Visuals
 {
     [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
-    public class ProjectileVisual3D : ProjectileVisualBase
+    public class ProjectileVisual_3D : ProjectileVisualBase
     {
         #region Inspector
 

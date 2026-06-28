@@ -73,6 +73,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Libraries/Configs/MID_LibrarySO.cs">
       <Link>Runtime/Libraries/Configs/MID_LibrarySO.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/Generated/PoolableParticleType.cs">
+      <Link>Runtime/PoolSystems/Generated/PoolableParticleType.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/FXSystems/Config/FXEntryDefinition.cs">
       <Link>Runtime/FXSystems/Config/FXEntryDefinition.cs</Link>
     </Compile>
@@ -90,9 +93,6 @@
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/LocalParticleReturn.cs">
       <Link>Runtime/PoolSystems/LocalParticleReturn.cs</Link>
-    </Compile>
-    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Libraries/Generator/LibraryItemId.cs">
-      <Link>Runtime/Libraries/Generator/LibraryItemId.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Audio/MID_NativeAudioBridge.cs">
       <Link>Runtime/Audio/MID_NativeAudioBridge.cs</Link>
@@ -136,6 +136,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Singleton/Singleton.cs">
       <Link>Runtime/Singleton/Singleton.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Libraries/Generated/LibraryItemId.cs">
+      <Link>Runtime/Libraries/Generated/LibraryItemId.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/UIState/MID_UIStateVisibility.cs">
       <Link>Runtime/UIState/MID_UIStateVisibility.cs</Link>
     </Compile>
@@ -156,6 +159,9 @@
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Audio/MID_SpawnableAudio.cs">
       <Link>Runtime/Audio/MID_SpawnableAudio.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Libraries/Generated/LibraryId.cs">
+      <Link>Runtime/Libraries/Generated/LibraryId.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/Config/ParticlePoolTypeProviderSO.cs">
       <Link>Runtime/PoolSystems/Config/ParticlePoolTypeProviderSO.cs</Link>
@@ -192,9 +198,6 @@
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/UIState/Generated/MenuUIState.cs">
       <Link>Runtime/UIState/Generated/MenuUIState.cs</Link>
-    </Compile>
-    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Libraries/Generator/LibraryId.cs">
-      <Link>Runtime/Libraries/Generator/LibraryId.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Helpers/MID_NamedListAttribute.cs">
       <Link>Runtime/Helpers/MID_NamedListAttribute.cs</Link>
@@ -244,9 +247,6 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/BasicPoolConfig.cs">
       <Link>Runtime/PoolSystems/BasicPoolConfig.cs</Link>
     </Compile>
-    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/PoolableParticleType.cs">
-      <Link>Runtime/PoolSystems/PoolableParticleType.cs</Link>
-    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/FXSystems/FXEntry.cs">
       <Link>Runtime/FXSystems/FXEntry.cs</Link>
     </Compile>
@@ -262,8 +262,8 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Libraries/Configs/MID_AudioLibrarySO.cs">
       <Link>Runtime/Libraries/Configs/MID_AudioLibrarySO.cs</Link>
     </Compile>
-    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/PoolableObjectType.cs">
-      <Link>Runtime/PoolSystems/PoolableObjectType.cs</Link>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/Generated/PoolableObjectType.cs">
+      <Link>Runtime/PoolSystems/Generated/PoolableObjectType.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/UIState/Generated/LobbyUIState.cs">
       <Link>Runtime/UIState/Generated/LobbyUIState.cs</Link>
@@ -291,6 +291,7 @@
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/MidManStudio.Utilities.asmdef">
       <Link>Runtime/MidManStudio.Utilities.asmdef</Link>
     </None>
+    <None Include="Packages\NewFile.txt" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="UnityEngine">

@@ -10,9 +10,9 @@ GameObject:
   m_Component:
   - component: {fileID: 7513451885168340101}
   - component: {fileID: 8528035687696965095}
-  - component: {fileID: 299807945524687672}
   - component: {fileID: 6227975117751516752}
   - component: {fileID: 2226204678829518539}
+  - component: {fileID: 5645851845955790586}
   m_Layer: 0
   m_Name: ProjectileVisual_2D
   m_TagString: Untagged
@@ -85,27 +85,9 @@ SpriteRenderer:
   m_Size: {x: 1, y: 1}
   m_AdaptiveModeThreshold: 0.5
   m_SpriteTileMode: 0
-  m_WasSpriteAssigned: 0
+  m_WasSpriteAssigned: 1
   m_MaskInteraction: 0
   m_SpriteSortPoint: 0
---- !u!114 &299807945524687672
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 6515030138356718256}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: b3f0e04cbe8ab45d9952b296578aec39, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  _poolReturn: {fileID: 0}
-  _logLevel: 0
-  projectileSpriteRend: {fileID: 8528035687696965095}
-  projectileTrailRend: {fileID: 6227975117751516752}
-  _spriteSortingOrder: 1
-  _trailSortingOrder: 0
 --- !u!96 &6227975117751516752
 TrailRenderer:
   serializedVersion: 3
@@ -228,3 +210,26 @@ MonoBehaviour:
     duration: 5
     useAutoDestruct: 1
   originalType: 100
+--- !u!114 &5645851845955790586
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6515030138356718256}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f1a7f8b046082462f914c6045ef4c838, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _poolReturn: {fileID: 2226204678829518539}
+  _logLevel: 0
+  projectileSpriteRend: {fileID: 8528035687696965095}
+  projectileTrailRend: {fileID: 6227975117751516752}
+  _spriteSortingOrder: 1
+  _trailSortingOrder: 0
+  _shapeMeshFilter: {fileID: 0}
+  _shapeMeshRenderer: {fileID: 0}
+  _shapeSortingOrder: 1
+  _fallbackShapeMaterial: {fileID: 2100000, guid: 8e2bd416c1769401bac71c1f8d976a94,
+    type: 2}

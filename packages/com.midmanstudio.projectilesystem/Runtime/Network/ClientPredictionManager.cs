@@ -1,5 +1,3 @@
-// packages/com.midmanstudio.projectilesystem/Runtime/Network/ClientPredictionManager.cs
-//
 // SIMPLIFIED: The Rust sim prediction path has been removed entirely.
 //   LocalProjectileManager now handles all Rust sim visuals on clients using the
 //   same GPU instanced renderer (ProjectileRenderer2D/3D) as the host.
@@ -25,9 +23,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using MidManStudio.Core.Pools;
 using MidManStudio.Core.HelperFunctions;
-using MidManStudio.Projectiles.Core;
 using MidManStudio.Projectiles.Config;
-using MidManStudio.Projectiles.Managers;
 using MidManStudio.Projectiles.Visuals;
 using Unity.Netcode;
 

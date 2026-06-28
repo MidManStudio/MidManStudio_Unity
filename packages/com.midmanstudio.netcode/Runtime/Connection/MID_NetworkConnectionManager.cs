@@ -1,4 +1,3 @@
-// MID_NetworkConnectionManager.cs
 // Generic internet connectivity monitor.
 // Fires onConnectionStatusChanged when connectivity state changes.
 // No game-specific dependencies.
@@ -29,7 +28,10 @@ namespace MidManStudio.Netcode
         TcpConnection,
         HttpPing,
     }
-
+    /// <summary>
+    /// Dedicated network connction manger, checks for internet connection via options such as ping,httpRequest,dnsLookup e.t.c
+    /// can be configured to run continiously or just one time lookup
+    /// </summary>
     public class MID_NetworkConnectionManager : Singleton<MID_NetworkConnectionManager>
     {
         #region Constants
@@ -153,7 +155,7 @@ namespace MidManStudio.Netcode
                     nameof(MID_NetworkConnectionManager));
                 return;
             }
-
+            if (_destroying) return;
             _checking = true;
             _cts      = new CancellationTokenSource();
             RunCheckLoop(_cts.Token);

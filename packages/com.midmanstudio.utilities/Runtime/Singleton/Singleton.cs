@@ -17,7 +17,7 @@ namespace MidManStudio.Core.Singleton
         // Public properties with proper null checks
         public static bool HasInstance => _instance != null && _instance;
         public static T TryGetInstance() => HasInstance ? _instance : null;
-        public static T Current => _instance;
+        public static T CurrentInstance => _instance;
 
         // Persistence settings
         private static bool _persistAcrossScenes = false;

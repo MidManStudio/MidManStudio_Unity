@@ -1,4 +1,3 @@
-// ProjectileVisualBase.cs
 // Abstract base MonoBehaviour for ALL pooled projectile visuals (2D and 3D).
 //
 // WHY ABSTRACT CLASS OVER INTERFACE:

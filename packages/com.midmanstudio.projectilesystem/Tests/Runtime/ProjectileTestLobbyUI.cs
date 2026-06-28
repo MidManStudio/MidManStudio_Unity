@@ -1,7 +1,3 @@
-// ProjectileTestLobbyUI.cs
-// FIX: Replaced \u2713 (✓) in FriendlyStatus() with ASCII-safe string.
-// This eliminates the TMP glyph warning on the "NetStat" text object.
-// All other changes: none.
 
 using System.Collections.Generic;
 using UnityEngine;

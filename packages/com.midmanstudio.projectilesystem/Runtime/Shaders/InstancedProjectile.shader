@@ -5,7 +5,7 @@
 // Built-in Render Pipeline.
 // For URP use InstancedProjectile_URP.shader instead.
 //
-// FIX: Added float4 color : COLOR to appdata so the combined-mesh (DrawMesh)
+//  Added float4 color : COLOR to appdata so the combined-mesh (DrawMesh)
 // fallback path can carry per-vertex fade-alpha baked by ProjectileRenderer2D.
 // The instance _Color is multiplied by vertex color, so:
 //   - Instanced path:   vertex color = (1,1,1,1) white → _Color drives fade

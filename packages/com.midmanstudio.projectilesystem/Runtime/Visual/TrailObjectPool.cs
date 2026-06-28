@@ -1,8 +1,7 @@
-// TrailObjectPool.cs
-// ADDED: SyncToSimulation3D for NativeProjectile3D[] buffer.
-// LocalProjectileManager calls this every FixedUpdate for 3D projectiles.
+
 
 using UnityEngine;
+using MidManStudio.Core.Logging;
 using MidManStudio.Core.Pools;
 using MidManStudio.Projectiles.Core;
 using MidManStudio.Projectiles.Config;
@@ -14,7 +13,6 @@ namespace MidManStudio.Projectiles.Visuals
     {
         [Header("Trail Pool")]
         [SerializeField] private TrailRendererPool _trailPool;
-        [SerializeField] private float _fadePad = 0.12f;
 
         private readonly System.Collections.Generic.Dictionary<uint, int>
             _projToSlot = new(256);
@@ -25,7 +23,7 @@ namespace MidManStudio.Projectiles.Visuals
                 _trailPool = TrailRendererPool.Instance;
 
             if (_trailPool == null)
-                Debug.LogWarning(
+                MID_Logger.LogWarning( MID_LogLevel.Error,
                     "[TrailObjectPool] No TrailRendererPool found — " +
                     "trails will not render.");
         }

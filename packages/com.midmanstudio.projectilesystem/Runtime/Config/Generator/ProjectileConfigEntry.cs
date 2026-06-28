@@ -1,4 +1,3 @@
-// packages/com.midmanstudio.projectilesystem/Runtime/Config/Generator/ProjectileConfigEntry.cs
 // A single named entry in a ProjectileConfigProviderSO.
 // Maps an enum member name to a ProjectileConfigSO asset.
 // Used by the generator to produce stable ProjectileConfigType enum values

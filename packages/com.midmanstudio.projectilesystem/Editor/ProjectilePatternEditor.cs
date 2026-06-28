@@ -1,11 +1,9 @@
-// ProjectilePatternEditor.cs
-// ADDITIONS vs previous:
-//   + DrawShapeSpecificFields now handles PatternShape.Formula:
+
+//    DrawShapeSpecificFields now handles PatternShape.Formula:
 //     shows _patternFormulaH / _patternFormulaV text fields with live
 //     per-field validation (green ✓ or red error) and example dropdowns
 //     via MathFormulaEvaluator.GetExamples().
-//   + Formula validation cache (_lastValidatedH/V, _formulaHError/VError).
-//   + All other behaviour unchanged.
+//    Formula validation cache (_lastValidatedH/V, _formulaHError/VError).
 
 #if UNITY_EDITOR
 using UnityEngine;

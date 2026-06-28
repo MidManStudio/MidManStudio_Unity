@@ -1,4 +1,3 @@
-// NativeProjectile.cs
 // Core 2D projectile simulation struct.
 // MUST match Rust NativeProjectile (src/lib.rs) exactly — 72 bytes.
 // All other 2D/3D structs and enums live in ProjectileLib.cs.

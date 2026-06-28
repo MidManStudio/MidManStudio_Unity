@@ -1,26 +1,4 @@
-// MID_NetworkObjectPool.cs
-// Generic NGO network object pool.
-// Game-specific prepare/cleanup is handled via IPoolableNetworkObject on each prefab —
-// the pool itself has zero game dependencies.
-//
-// SETUP:
-//   1. Add this component to a persistent NetworkBehaviour in your scene.
-//   2. Fill pooledPrefabsList in the inspector. Each prefab needs a NetworkObject
-//      component. Add a component implementing IPoolableNetworkObject for cleanup hooks.
-//   3. Pool initialises automatically on OnNetworkSpawn (server and client).
-//      You no longer need to call InitializePool() manually.
-//
-// USAGE (server-side only):
-//   var netObj = MID_NetworkObjectPool.Singleton
-//       .GetNetworkObject(PoolableNetworkObjectType.MyWeapon, pos, rot);
-//   netObj.Spawn();
-//   // ... later ...
-//   MID_NetworkObjectPool.Singleton
-//       .ReturnNetworkObject(netObj, PoolableNetworkObjectType.MyWeapon);
-//
-// FIX: InitializePool() is now called automatically in OnNetworkSpawn so the pool
-//      is always ready when NGO starts. Previously it required a manual call from a
-//      GameManager which was easy to miss, causing "type not registered" errors.
+
 
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
@@ -31,7 +9,7 @@ using UnityEngine.SceneManagement;
 using MidManStudio.Core.Logging;
 using MidManStudio.Core.Pools;
 using MidManStudio.Core.EditorUtils;
-
+using MidManStudio.Netcode.Singleton;
 namespace MidManStudio.Netcode.Pools
 {
     // ── Pool config ───────────────────────────────────────────────────────────
@@ -54,12 +32,27 @@ namespace MidManStudio.Netcode.Pools
                                                        networkType.ToString();
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
 
-    public class MID_NetworkObjectPool : NetworkBehaviour
+    /// <summary>
+    ///  Generic NGO network object pool.
+    
+    /// SETUP:
+    ///   1. Add this component to a persistent NetworkBehaviour in your scene.
+    ///   2. Fill pooledPrefabsList in the inspector. Each prefab needs a NetworkObject
+    ///      component. Add a component implementing IPoolableNetworkObject for cleanup hooks.
+    ///   3. Pool initialises automatically on OnNetworkSpawn (server and client).
+    ///      You no longer need to call InitializePool() manually.
+    ///
+    /// USAGE (server-side only):
+    ///   var netObj = MID_NetworkObjectPool.Singleton
+    ///       .GetNetworkObject(PoolableNetworkObjectType.MyWeapon, pos, rot);
+    ///   netObj.Spawn();
+    ///   
+    ///   MID_NetworkObjectPool.Singleton
+    ///       .ReturnNetworkObject(netObj, PoolableNetworkObjectType.MyWeapon);
+    /// </summary>
+    public class MID_NetworkObjectPool : NetworkSingleton<MID_NetworkObjectPool>
     {
-        private static MID_NetworkObjectPool _instance;
-        public static MID_NetworkObjectPool Singleton => _instance;
 
         [Header("Pool Configuration")]
         [MID_NamedList]
@@ -79,18 +72,12 @@ namespace MidManStudio.Netcode.Pools
 
         // ── Unity / NGO lifecycle ─────────────────────────────────────────────
 
-        private void Awake()
+        protected override void Awake()
         {
-            if (_instance != null && _instance != this)
-            {
-                Destroy(gameObject);
-                return;
-            }
-            _instance = this;
             _targetScene = gameObject.scene;
         }
 
-        // FIX: auto-initialise on NGO spawn so the pool is ready without a
+        //  auto-initialise on NGO spawn so the pool is ready without a
         // manual InitializePool() call from external game code.
         public override void OnNetworkSpawn()
         {
@@ -106,7 +93,6 @@ namespace MidManStudio.Netcode.Pools
 
         public override void OnDestroy()
         {
-            if (_instance == this) _instance = null;
             base.OnDestroy();
         }
 

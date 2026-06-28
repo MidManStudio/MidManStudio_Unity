@@ -1,4 +1,3 @@
-// EffectTypeGeneratorSettingsSO.cs
 // Project-wide settings for the Effect Type Generator.
 // Create via: MidManStudio > Utilities > Effect Type Generator Settings
 

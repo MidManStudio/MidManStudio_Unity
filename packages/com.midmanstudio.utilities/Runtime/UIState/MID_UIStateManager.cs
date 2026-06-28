@@ -1,13 +1,3 @@
-// packages/com.midmanstudio.utilities/Runtime/UIState/MID_UIStateManager.cs
-//
-// FIX (initial state for _initialState == 0):
-//   When _initialState is 0 (None), ChangeState is never called, so HandleStateChanged
-//   never fires through the manager. Objects in cfg.show arrays that were active in
-//   the scene were not hidden. Fix: explicitly call HandleStateChanged(0) in Start
-//   when _initialState is 0 so the manager's config arrays are properly applied.
-//
-//   Note: MID_UIStateVisibility handles its own initial state independently via
-//   its _initialised fix — this fix covers objects in the manager's _configurations.
 
 using System;
 using System.Collections.Generic;

@@ -1,4 +1,3 @@
-// EffectCategoryProviderSO.cs
 // ScriptableObject that contributes entries to the EffectCategory enum.
 // One of these lives in every package (and game project) that needs custom categories.
 //

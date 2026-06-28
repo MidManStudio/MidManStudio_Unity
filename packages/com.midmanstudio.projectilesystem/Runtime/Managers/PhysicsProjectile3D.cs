@@ -1,9 +1,9 @@
-// PhysicsProjectile3D.cs
-// FIX: OnLaunch now consults ProjectileRegistry for gravity scale — mirrors PhysicsProjectile2D.
+// OnLaunch  consults ProjectileRegistry for gravity scale — mirrors PhysicsProjectile2D.
 //   Previously _useGravity was a hardcoded inspector field with no config hookup.
 //   If the config's GravityScale > 0, useGravity is forced true regardless of the inspector toggle.
 //   The inspector toggle still controls the fallback when no config is found.
 
+//   -  Ensure u set poolable object type to 3d
 using UnityEngine;
 using MidManStudio.Core.Logging;
 using MidManStudio.Projectiles.Config;

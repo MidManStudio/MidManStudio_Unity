@@ -1,22 +1,9 @@
-// packages/com.midmanstudio.projectilesystem/Runtime/Network/NetworkProjectileBase.cs
-//
-// CHANGES:
-//   + ShouldAutoSpawnVisual (protected virtual bool, default true):
-//     PhysicsProjectile overrides false to prevent the double-visual bug where
-//     NetworkProjectileBase.OnNetworkSpawn spawned a pool visual AND
-//     PhysicsProjectile.SpawnPoolVisual spawned a second one. The base visual
-//     was never parented, so it sat frozen in the air.
-//   + n_BulletVelocity.OnValueChanged subscription:
-//     On non-server clients, when BulletVelocity syncs from the server the new
-//     protected virtual OnNetworkVelocityReceived() is called so derived classes
-//     (PhysicsProjectile) can initialise their pool visual with the correct
-//     speed and direction — previously that init only ran on the server.
 
 using UnityEngine;
 using Unity.Netcode;
 using MidManStudio.Core.Pools;
-using MidManStudio.Netcode.Pools;
 using Unity.Netcode.Components;
+using MidManStudio.Netcode.Pools;
 
 namespace MidManStudio.Projectiles.Network
 {
@@ -37,9 +24,9 @@ namespace MidManStudio.Projectiles.Network
         [Tooltip("Same PoolableObjectType you pass to LocalObjectPool in your Projectile.cs.")]
         [SerializeField] private PoolableObjectType _visualPoolType
             = PoolableObjectType.Projectile_Visual2D;
-
+      
         [Header("Network Object Pool")]
-        [SerializeField] private PoolableNetworkObjectType _networkPoolType
+        [SerializeField] protected PoolableNetworkObjectType _networkPoolType
             = PoolableNetworkObjectType.BaseProjectileBlueprint_2D;
 
         // ─────────────────────────────────────────────────────────────────────
@@ -267,6 +254,13 @@ namespace MidManStudio.Projectiles.Network
             NetworkObject.Despawn();
         }
 
+        private void ReturnToNGOPool()
+        {
+            if (MID_NetworkObjectPool.HasInstance)
+            {
+                MID_NetworkObjectPool.Instance.ReturnNetworkObject(NetworkObject, _networkPoolType);
+            }
+        }
         // ─────────────────────────────────────────────────────────────────────
         //  RPCs
         // ─────────────────────────────────────────────────────────────────────

@@ -1,4 +1,3 @@
-// ServerProjectileData.cs
 // Server-side gameplay data for a single projectile.
 // Lives in RustSimAdapter._projData, keyed by projectileId_u32.
 // Contains everything the damage system needs — nothing Rust needs.

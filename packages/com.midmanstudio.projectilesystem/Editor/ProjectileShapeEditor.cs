@@ -1,15 +1,11 @@
-// ProjectileShapeEditor.cs — FULL REWRITE WITH FORMULA SUPPORT
-//
-// ADDITIONS vs previous:
-//   + DrawFormulaFields() — shown when Shape = Formula.
+
+//    DrawFormulaFields() — shown when Shape = Formula.
 //     Shows _formulaX / _formulaY text fields with live per-field validation
 //     (green ✓ or red error message), sample-count slider, and an "Insert
 //     Example" popup menu sourced from MathFormulaEvaluator.GetExamples().
-//   + Mesh rebuilds immediately on formula or sample-count change so the
+//    Mesh rebuilds immediately on formula or sample-count change so the
 //     canvas preview updates in real-time.
-//   + All other behaviour (drag-vertices, snap, grid, add/delete modes)
-//     is unchanged and still only active for the Custom preset.
-//   + RequiresConstantRepaint() = true (unchanged — needed for hover label).
+//    RequiresConstantRepaint() = true
 
 #if UNITY_EDITOR
 using System.Collections.Generic;

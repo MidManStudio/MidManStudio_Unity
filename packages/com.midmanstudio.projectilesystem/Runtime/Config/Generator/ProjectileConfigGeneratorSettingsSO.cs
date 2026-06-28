@@ -1,4 +1,3 @@
-// packages/com.midmanstudio.projectilesystem/Runtime/Config/Generator/ProjectileConfigGeneratorSettingsSO.cs
 // Project-wide settings for the ProjectileConfigType enum generator.
 // Create via: MidManStudio > Projectile System > Config Generator Settings
 

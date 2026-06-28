@@ -1,4 +1,3 @@
-// packages/com.midmanstudio.projectilesystem/Runtime/Config/Generator/ProjectileConfigProviderSO.cs
 // One of these lives in every package/game-assembly that registers ProjectileConfigSO
 // assets as named enum members in the generated ProjectileConfigType enum.
 //

@@ -1,7 +1,3 @@
-// ProjectileRenderer2D.cs
-// CHANGE from response 3: MAX_SHAPE_VERTS 7→12, MAX_SHAPE_TRIS 15→30
-// to accommodate Cross (12 verts, 30 tri-indices) and LetterI (12 verts).
-// All other logic is identical to response 3.
 
 using System.Collections.Generic;
 using MidManStudio.Projectiles.Config;

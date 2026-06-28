@@ -1,6 +1,4 @@
-// packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectile2D.cs
-//
-// UPDATED: OnLaunch mirrors original Projectile.cs velocity setup:
+// OnLaunch mirrors original Projectile.cs velocity setup:
 //   velocity = transform.right * BulletVelocity  (2D convention)
 //   gravityScale from config if available
 //   CapsuleCollider2D added as alternative to CircleCollider2D
@@ -12,11 +10,10 @@
 //   - CapsuleCollider2D  (matches original Projectile.cs — or CircleCollider2D)
 //   - NetworkObject
 //   - NetworkTransform (via NetworkProjectileBase)
-
+//   -  Ensure u set poolable object type to 2d
 using UnityEngine;
 using MidManStudio.Core.Logging;
 using MidManStudio.Projectiles.Config;
-
 namespace MidManStudio.Projectiles.Managers
 {
     [RequireComponent(typeof(Rigidbody2D))]
@@ -30,6 +27,7 @@ namespace MidManStudio.Projectiles.Managers
         private Rigidbody2D _rb;
 
         protected override bool Is2D => true;
+
 
         protected override void OnPhysicsSetup()
         {

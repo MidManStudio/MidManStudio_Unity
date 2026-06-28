@@ -1,4 +1,3 @@
-
 // One asset per package / game project. Contributes scene entries to the
 // generated SceneId enum and SceneRegistry.
 // Create via: MidManStudio > Utilities > Scene Type Provider

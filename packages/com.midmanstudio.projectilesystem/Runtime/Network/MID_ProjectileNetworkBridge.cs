@@ -1,20 +1,3 @@
-// packages/com.midmanstudio.projectilesystem/Runtime/Network/MID_ProjectileNetworkBridge.cs
-//
-// FIX (double visual on firing client):
-//   Removed ambiguous isFiringClient routing in SpawnConfirmedClientRpc.
-//   FireServerRpc now uses TargetClientIds to send two different RPCs:
-//     - LinkProjectileIdsClientRpc → ONLY the sender (firing client)
-//       Swaps temp IDs to real server IDs in their existing Rust buffer entries.
-//       No new projectiles spawned — they already have theirs running.
-//     - SpawnConfirmedClientRpc → all OTHER clients
-//       They have no existing entries; they spawn fresh Rust buffer entries.
-//   Host is excluded from both via if(IsServer) guards since it renders
-//   directly from ServerProjectileAuthority.
-//
-// FIX (zig-zag reconciliation):
-//   SendSnapshotClientRpc now passes currentServerTick + tickInterval to
-//   ReconcileSnapshots2D/3D so they can extrapolate the stale snapshot
-//   position forward before comparing. See LocalProjectileManager for math.
 
 using System;
 using System.Collections.Generic;
@@ -23,7 +6,6 @@ using Unity.Netcode;
 using Unity.Netcode.Transports.UTP;
 using MidManStudio.Core.Logging;
 using MidManStudio.Core.Pools;
-using MidManStudio.Projectiles.Core;
 using MidManStudio.Projectiles.Config;
 using MidManStudio.Projectiles.Adapters;
 using MidManStudio.Projectiles.Data;
@@ -221,7 +203,7 @@ namespace MidManStudio.Projectiles.Network
             base.OnNetworkDespawn();
         }
 
-        private void OnDestroy() => _isShuttingDown = true;
+        public override void OnDestroy() => _isShuttingDown = true;
 
         private void OnClientDisconnect(ulong clientId)
         {

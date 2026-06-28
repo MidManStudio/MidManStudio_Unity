@@ -1,17 +1,3 @@
-// ProjectileShapeSO.cs
-// CHANGES vs previous:
-//   + Preset.Formula — parametric mesh generation from X(t) / Y(t) expressions.
-//     The evaluator samples _formulaSampleCount points around t ∈ [0,1) and
-//     constructs a center-fan triangulation — works for any star-shaped closed
-//     curve. Curve must wind CCW for correct normals (cos/sin-based curves do).
-//   + _formulaX, _formulaY, _formulaSampleCount fields + public read accessors.
-//   + BuildFormula() private method.
-//   + CreateDefaultShapes() gets two formula examples (circle, petal-star).
-//   + using MidManStudio.Projectiles.Config added for FormulaContext.
-//
-// Combined-mesh path limits (unchanged):
-//   MAX_SHAPE_VERTS = 12 (Cross / LetterI = 12 verts)
-//   MAX_SHAPE_TRIS  = 30 (Cross = 10 tris × 3 = 30 indices)
 
 using System.Collections.Generic;
 using UnityEngine;

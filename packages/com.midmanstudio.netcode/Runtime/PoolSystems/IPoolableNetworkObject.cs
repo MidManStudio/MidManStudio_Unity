@@ -1,9 +1,6 @@
-// IPoolableNetworkObject.cs
 // Implement this on any NetworkBehaviour prefab that is managed by MID_NetworkObjectPool.
 // The pool calls these methods at the appropriate lifecycle points so the object
 // can reset its own state — no game-specific logic lives in the pool itself.
-
-using UnityEngine;
 
 namespace MidManStudio.Netcode.Pools
 {

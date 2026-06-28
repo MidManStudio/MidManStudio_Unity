@@ -1,5 +1,5 @@
 // InstancedProjectile_URP.shader
-// FIX: added explicit #ifdef UNITY_INSTANCING_ENABLED branches in vert.
+//  added explicit #ifdef UNITY_INSTANCING_ENABLED branches in vert.
 //
 // Without the ifdef, UNITY_ACCESS_INSTANCED_PROP(_UVRect) in the non-instanced
 // (combined-mesh DrawMesh) path returns the MATERIAL's default _UVRect value.

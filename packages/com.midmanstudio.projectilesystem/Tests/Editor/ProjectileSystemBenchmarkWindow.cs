@@ -1,4 +1,3 @@
-// packages/com.midmanstudio.projectilesystem/Tests/Editor/ProjectileSystemBenchmarkWindow.cs
 // Editor window companion to ProjectileSystemBenchmark.
 // Open via: MidManStudio > Utilities > Tests > Projectile System Bench
 

@@ -1,18 +1,16 @@
-// GlobalFXManager.cs
 // Unified CPU-based visual + audio effect manager.
 //
-// ADDED: Convenience overloads for TriggerImpact, TriggerMuzzleFlash, and EjectShell
+// Contians Convenience overloads for TriggerImpact, TriggerMuzzleFlash, and EjectShell
 //   that do not require an EffectType argument. These default to EffectType.Generic
 //   (Impact/Explosion) or EffectType.SmallMuzzle (MuzzleFlash) / EffectType.BrassShell
 //   (ShellEjection). This preserves backward compatibility with call sites that were
 //   written before EffectType was added to the API.
 //
-// ADDED: volumeOverride parameter alias on the no-type TriggerImpact overload to
+// AContians volumeOverride parameter alias on the no-type TriggerImpact overload to
 //   match the named-parameter call style used in TestSceneBootstrapper.
 
 using System.Collections.Generic;
 using UnityEngine;
-using MidManStudio.Core.Audio;
 using MidManStudio.Core.Logging;
 using MidManStudio.Core.Singleton;
 using MidManStudio.Core.FX;
@@ -20,6 +18,9 @@ using MidManStudio.Core.EditorUtils;
 
 namespace MidManStudio.Core.Audio
 {
+    /// <summary>
+    /// Global fx manager ,Unified CPU-based visual + audio effect manager.
+    /// </summary>
     public class GlobalFXManager : Singleton<GlobalFXManager>
     {
         // ── Inspector ─────────────────────────────────────────────────────────

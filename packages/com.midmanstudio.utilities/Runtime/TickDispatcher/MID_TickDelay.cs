@@ -1,4 +1,6 @@
-
+// ═══════════════════════════════════════════════════════════════════════════════
+// MidMan Studio — Core Systems
+//
 // Zero-allocation delayed action system built on MID_TickDispatcher.
 //
 // ZERO-ALLOC CONTRACT — READ BEFORE USE:

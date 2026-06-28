@@ -1,17 +1,15 @@
-// BatchSpawnHelper.cs
-// FIX: Ax/Ay for Wave and Circular movement now set to perpendicular of the
+//  Ax/Ay for Wave and Circular movement now set to perpendicular of the
 // fire direction instead of (0, GravityAy). The Rust simulation expects:
 //   MOVE_WAVE     → (Ax,Ay) = perpendicular axis to oscillate along
 //   MOVE_CIRCULAR → (Ax,Ay) = first perpendicular axis for orbit plane
 //   All others    → (Ax,Ay) = (0, GravityAy) as before
 //
-// FIX (spawn-forward visual artifact):
 //   Latency compensation no longer advances the projectile's X/Y/Z position.
 //   Previously: p.X += p.Vx * latencyCompensation  (etc.) moved the bullet
 //   to its "time-compensated" location BEFORE inserting it into the Rust buffer.
 //   The host renders directly from that buffer, so it saw the bullet already
 //   vel × latencyComp units ahead of the barrel — visually wrong.
-//   Fix: only reduce Lifetime by latencyCompensation. The DeterministicMath
+//    only reduce Lifetime by latencyCompensation. The DeterministicMath
 //   client-prediction path + ServerNetworkTime naturally account for the clock
 //   offset without needing the position to be pre-advanced. Collision accuracy
 //   loss is negligible for typical LAN/online latencies (< 100 ms).

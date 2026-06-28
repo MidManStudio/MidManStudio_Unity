@@ -1,4 +1,3 @@
-// MID_StickyNote.cs
 // UGUI-based sticky note overlay. Builds its own self-contained Canvas at
 // runtime AND in the editor ([ExecuteAlways]) so it appears correctly in the
 // Game View both in and out of Play Mode.

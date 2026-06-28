@@ -1,4 +1,4 @@
-// Packages/com.midmanstudio.projectilesystem/Runtime/Core/MID_BuildTargets.cs
+
 // Central build target detection. Import this namespace anywhere you need platform guards.
 
 namespace MidManStudio.Projectiles.Core

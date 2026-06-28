@@ -1,4 +1,3 @@
-// packages/com.midmanstudio.projectilesystem/Tests/Runtime/ProjectileSystemBenchmark.cs
 // Runtime benchmark comparing the Rust-native projectile sim against equivalent
 // managed C# approaches. Open the companion editor window via:
 //   MidManStudio > Utilities > Tests > Projectile System Bench

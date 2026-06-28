@@ -1,7 +1,3 @@
-// MID_StickyNoteEditor.cs
-// Custom inspector for MID_StickyNote.
-// Shows a live theme preview, note list with add/remove/reorder,
-// and quick-action runtime controls.
 
 #if UNITY_EDITOR
 using UnityEditor;
@@ -10,11 +6,16 @@ using MidManStudio.Core.Notes;
 
 namespace MidManStudio.Core.EditorUtils.Notes
 {
+    /// <summary>
+    /// Custom inspector for MID_StickyNote.
+    /// Shows a live theme preview, note list with add/remove/reorder,
+    /// and quick-action runtime controls.
+    /// </summary>
     [CustomEditor(typeof(MID_StickyNote))]
     public class MID_StickyNoteEditor : UnityEditor.Editor
     {
         // ── Serialized properties ─────────────────────────────────────────────
-
+       
         private SerializedProperty _pTitle;
         private SerializedProperty _pNotes;
         private SerializedProperty _pTextFile;

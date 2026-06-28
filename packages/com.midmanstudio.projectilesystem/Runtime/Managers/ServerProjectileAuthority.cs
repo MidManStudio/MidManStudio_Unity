@@ -1,17 +1,3 @@
-// ServerProjectileAuthority.cs
-// Server-only. Owns the Rust sim buffers (2D and 3D).
-//
-// FIX (Rust Sim invisible on host): Added _renderer2D / _renderer3D and LateUpdate().
-//
-// FIX (piercing — permanent target immunity): _hitTargets2D / _hitTargets3D per-projectile sets.
-//
-// FIX (snapshot bandwidth / receive queue overflow):
-//   SendSnapshots() now skips Wave and Circular projectiles entirely.
-//   ClientPredictionManager.ReconcileOne() already ignores DeterministicMath types,
-//   so sending snapshots for them wastes bandwidth and contributes to the
-//   "Receive queue is full" UTP warning that causes NamedMessage.Handle NPE spam
-//   on Play Mode exit. Filtering here can eliminate the majority of snapshot payload
-//   in Wave/Circular-heavy games.
 
 using System;
 using System.Collections.Generic;

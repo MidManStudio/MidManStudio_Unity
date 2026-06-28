@@ -1,4 +1,3 @@
-// ClientProjectileVisualManager.cs
 // Stub manager for non-local player projectile visuals.
 // ClientPredictionManager delegates other-player spawns here.
 // Implement the body in your game layer by extending or replacing this class.

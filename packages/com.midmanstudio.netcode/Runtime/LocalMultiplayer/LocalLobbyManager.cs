@@ -1,13 +1,3 @@
-// LocalLobbyManager.cs
-// FIX 1: _discoveryInterval default changed 1f -> 2f to reduce UDP packet rate.
-//         Same-machine testing with 1s interval floods the Unity Transport receive
-//         queue (128 packets default), causing "Receive queue is full" warnings.
-//         Increase UnityTransport.MaxPacketQueueSize to 256+ in the Inspector too.
-// FIX 2: OnDestroy now guards StartCoroutine(SafeShutdown()) with
-//         gameObject.activeInHierarchy. When the GameObject is inactive (e.g. parent
-//         Canvas disabled during scene teardown), StartCoroutine throws
-//         "Coroutine couldn't be started because the game object is inactive".
-//         When inactive, we fall back to a synchronous Shutdown() call.
 
 using System;
 using System.Collections;
@@ -17,12 +7,11 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Threading.Tasks;
-using Unity.Collections;
 using Unity.Netcode;
 using Unity.Netcode.Transports.UTP;
 using UnityEngine;
 using MidManStudio.Core.Logging;
-
+using MidManStudio.Netcode.Singleton;
 namespace MidManStudio.Netcode.LocalMultiplayer
 {
     [Serializable]
@@ -36,8 +25,10 @@ namespace MidManStudio.Netcode.LocalMultiplayer
         public int    ServerPort    = 7777;
         public int    BroadcastPort = 7778;
     }
-
-    public class LocalLobbyManager : NetworkBehaviour
+   /// <summary>
+   /// Offline lobby manager
+   /// </summary>
+    public class LocalLobbyManager : HybridNetworkSingleton<LocalLobbyManager>
     {
         #region Inspector
 
@@ -46,7 +37,7 @@ namespace MidManStudio.Netcode.LocalMultiplayer
         [SerializeField] private UnityTransport  _transport;
 
         [Header("Discovery")]
-        // FIX: was 1f — reduced to 2f to ease Unity Transport receive queue pressure.
+        // reduced to 2f to ease Unity Transport receive queue pressure.
         // At 1s with loopback + broadcast both firing, same-machine tests easily fill
         // the 128-packet queue. Also increase MaxPacketQueueSize on UnityTransport inspector.
         [SerializeField] private float _discoveryInterval = 2f;
@@ -79,21 +70,6 @@ namespace MidManStudio.Netcode.LocalMultiplayer
 
         #endregion
 
-        #region Singleton
-
-        private static LocalLobbyManager _instance;
-        public static LocalLobbyManager Instance
-        {
-            get
-            {
-                if (_instance == null)
-                    _instance = FindAnyObjectByType<LocalLobbyManager>();
-                return _instance;
-            }
-        }
-        public static bool HasInstance => _instance != null;
-
-        #endregion
 
         #region State
 
@@ -133,10 +109,10 @@ namespace MidManStudio.Netcode.LocalMultiplayer
 
         #region Unity Lifecycle
 
-        private void Awake()
+        protected override void Awake()
         {
-            if (_instance != null && _instance != this) { Destroy(gameObject); return; }
-            _instance = this;
+            base.Awake();
+            InitializeSingleton(false);
             LoadPlayerIdentity();
             StartCoroutine(InitAsync());
         }

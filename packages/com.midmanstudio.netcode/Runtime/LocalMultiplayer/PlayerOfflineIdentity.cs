@@ -1,6 +1,3 @@
-// PlayerOfflineIdentity.cs
-// Persistent offline player identity. Survives scene loads via DontDestroyOnLoad.
-// Saves to PlayerPrefs. Structured for clean migration to an online account.
 
 using System;
 using UnityEngine;
@@ -8,6 +5,10 @@ using MidManStudio.Core.Singleton;
 
 namespace MidManStudio.Netcode.LocalMultiplayer
 {
+    /// <summary>
+    ///Persistent offline player identity. Survives scene loads via DontDestroyOnLoad.
+    ///Saves to PlayerPrefs. Structured for clean migration to an online account.
+    /// </summary>
     public class PlayerOfflineIdentity : Singleton<PlayerOfflineIdentity>
     {
         private const string KEY_NAME = "OfflineIdentity_PlayerName";
