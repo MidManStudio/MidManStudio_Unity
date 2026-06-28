@@ -1,4 +1,3 @@
-
 using UnityEngine;
 using MidManStudio.Projectiles.Config;
 
@@ -28,6 +27,12 @@ namespace MidManStudio.Projectiles.Visuals
 
         #region State
 
+        // FIX (native leak on domain reload): this was "created once, never
+        // destroyed". Mesh is a native engine object — see the matching comment
+        // in ProjectileVisual_2D._fallbackTexture for the full explanation of why
+        // this causes Unity's "Leak Detected : Persistent allocates N individual
+        // allocations" warning on the next domain reload, and why the fix below
+        // (destroy before reload, via AssemblyReloadEvents) is the correct one.
         private static Mesh _defaultCapsuleMesh;
         private Material    _instancedMaterial;
         private bool        _trailConfigured;
@@ -221,6 +226,24 @@ namespace MidManStudio.Projectiles.Visuals
         #endregion
 
         #region Default Capsule Mesh
+
+#if UNITY_EDITOR
+        // See ProjectileVisual_2D for the full explanation. Same pattern: release
+        // the native object right before the domain that cached it goes away.
+        static ProjectileVisual_3D()
+        {
+            UnityEditor.AssemblyReloadEvents.beforeAssemblyReload += ReleaseStaticNativeCaches;
+        }
+
+        private static void ReleaseStaticNativeCaches()
+        {
+            if (_defaultCapsuleMesh != null)
+            {
+                UnityEngine.Object.DestroyImmediate(_defaultCapsuleMesh);
+                _defaultCapsuleMesh = null;
+            }
+        }
+#endif
 
         private static Mesh GetDefaultCapsule()
         {
