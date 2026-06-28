@@ -1,4 +1,3 @@
-
 using UnityEngine;
 using MidManStudio.Projectiles.Config;
 
@@ -40,8 +39,21 @@ namespace MidManStudio.Projectiles.Visuals
 
         private MaterialPropertyBlock _shapeMpb;
 
-        // Shared across all instances — created once, never destroyed
-        private static Sprite _fallbackSprite;
+        // Shared across all instances — created once, lazily, on first use.
+        // FIX (native leak on domain reload): this used to be "created once, never
+        // destroyed". The Texture2D + Sprite are native engine objects. Unity's
+        // domain reload (assembly recompile, or Enter Play Mode with "Reload
+        // Domain" enabled — the default) wipes the *managed* static field back to
+        // null, but it does NOT destroy the underlying native object, because that
+        // requires an explicit Object.Destroy/DestroyImmediate call that nothing
+        // was making. The orphaned native allocations are exactly what Unity's
+        // post-reload leak detector reports as
+        // "Leak Detected : Persistent allocates 8 individual allocations."
+        // Fix: explicitly release both native objects right before each domain
+        // reload via AssemblyReloadEvents (editor-only — builds never reload the
+        // domain at runtime, so there is nothing to leak there).
+        private static Sprite    _fallbackSprite;
+        private static Texture2D _fallbackTexture;
 
         #endregion
 
@@ -51,24 +63,51 @@ namespace MidManStudio.Projectiles.Visuals
         {
             if (_fallbackSprite != null) return _fallbackSprite;
 
-            var tex = new Texture2D(4, 4, TextureFormat.RGBA32, false)
+            _fallbackTexture = new Texture2D(4, 4, TextureFormat.RGBA32, false)
             {
                 filterMode = FilterMode.Point,
-                wrapMode   = TextureWrapMode.Clamp
+                wrapMode   = TextureWrapMode.Clamp,
+                name       = "FallbackProjectileTexture"
             };
             Color32[] pixels = new Color32[16];
             for (int i = 0; i < 16; i++) pixels[i] = new Color32(255, 255, 255, 255);
-            tex.SetPixels32(pixels);
-            tex.Apply(false, true);
+            _fallbackTexture.SetPixels32(pixels);
+            _fallbackTexture.Apply(false, true);
 
             _fallbackSprite = Sprite.Create(
-                tex,
+                _fallbackTexture,
                 new Rect(0, 0, 4, 4),
                 new Vector2(0.5f, 0.5f),
                 pixelsPerUnit: 4f);
             _fallbackSprite.name = "FallbackProjectileSprite";
             return _fallbackSprite;
         }
+
+#if UNITY_EDITOR
+        // Registered once per domain load. Fires right before the NEXT domain
+        // reload, so whatever was cached during this session gets explicitly
+        // destroyed instead of orphaned. The static fields themselves are reset
+        // to null for free when the new domain loads — only the native side
+        // needs the explicit call.
+        static ProjectileVisual_2D()
+        {
+            UnityEditor.AssemblyReloadEvents.beforeAssemblyReload += ReleaseStaticNativeCaches;
+        }
+
+        private static void ReleaseStaticNativeCaches()
+        {
+            if (_fallbackSprite != null)
+            {
+                UnityEngine.Object.DestroyImmediate(_fallbackSprite);
+                _fallbackSprite = null;
+            }
+            if (_fallbackTexture != null)
+            {
+                UnityEngine.Object.DestroyImmediate(_fallbackTexture);
+                _fallbackTexture = null;
+            }
+        }
+#endif
 
         #endregion
 
