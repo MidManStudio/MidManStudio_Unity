@@ -8,9 +8,10 @@ namespace MidManStudio.Core.AutoReference
 {
     public enum MID_AutoRefRunMode
     {
-        Manual = 0,
-        Awake  = 1,
-        Start  = 2
+        Manual     = 0,
+        Awake      = 1,
+        Start      = 2,
+        OnValidate = 3 // Edit-time only — resolves automatically after being added or edited, no button needed.
     }
 
     [Serializable]
@@ -34,7 +35,7 @@ namespace MidManStudio.Core.AutoReference
         public bool overwriteExisting = false;
 
         [Header("Runtime")]
-        [Tooltip("When to auto-resolve. Manual = only via ContextMenu / editor window / explicit code call.")]
+        [Tooltip("When to auto-resolve. Manual = only via ContextMenu / editor window / explicit code call. OnValidate = edit-time auto-resolve, no button needed.")]
         public MID_AutoRefRunMode runMode = MID_AutoRefRunMode.Manual;
 
         [Header("Logging")]
