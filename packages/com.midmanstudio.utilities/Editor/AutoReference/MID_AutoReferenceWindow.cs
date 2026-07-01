@@ -12,7 +12,7 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UIElements;
 using MidManStudio.Core.AutoReference;
-
+using MidManStudio.Core.EditorTools;
 namespace MidManStudio.Core.EditorUtils.AutoReference
 {
     public class MID_AutoReferenceWindow : EditorWindow

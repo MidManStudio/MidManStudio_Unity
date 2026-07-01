@@ -79,6 +79,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/PoolSystems/PackagePoolProviderBootstrapper.cs">
       <Link>Editor/PoolSystems/PackagePoolProviderBootstrapper.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/AutoReference/MID_AutoReferenceWindow.cs">
+      <Link>Editor/AutoReference/MID_AutoReferenceWindow.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/MID_ScriptExecutionOrderWindow.cs">
       <Link>Editor/Helpers/MID_ScriptExecutionOrderWindow.cs</Link>
     </Compile>
@@ -123,11 +126,17 @@
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/MID_SpriteToTilemapConverter.uxml">
       <Link>Editor/Helpers/MID_SpriteToTilemapConverter.uxml</Link>
     </None>
+    <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/AutoReference/MID_AutoReferenceWindow.uss">
+      <Link>Editor/AutoReference/MID_AutoReferenceWindow.uss</Link>
+    </None>
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/MID_ScriptUtilitiesWindow.uxml">
       <Link>Editor/Helpers/MID_ScriptUtilitiesWindow.uxml</Link>
     </None>
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/MID_ScriptExecutionOrderWindow.uss">
       <Link>Editor/Helpers/MID_ScriptExecutionOrderWindow.uss</Link>
+    </None>
+    <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/AutoReference/MID_AutoReferenceWindow.uxml">
+      <Link>Editor/AutoReference/MID_AutoReferenceWindow.uxml</Link>
     </None>
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/MID_ScriptExecutionOrderWindow.uxml">
       <Link>Editor/Helpers/MID_ScriptExecutionOrderWindow.uxml</Link>

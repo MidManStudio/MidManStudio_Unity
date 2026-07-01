@@ -88,6 +88,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/FXSystems/Config/EffectTypeProviderSO.cs">
       <Link>Runtime/FXSystems/Config/EffectTypeProviderSO.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/AutoReference/MID_NameMatcher.cs">
+      <Link>Runtime/AutoReference/MID_NameMatcher.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/SceneManagement/SceneNetworkDependency.cs">
       <Link>Runtime/SceneManagement/SceneNetworkDependency.cs</Link>
     </Compile>
@@ -141,6 +144,9 @@
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/UIState/MID_UIStateVisibility.cs">
       <Link>Runtime/UIState/MID_UIStateVisibility.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/AutoReference/MID_AutoRef.cs">
+      <Link>Runtime/AutoReference/MID_AutoRef.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Logging/MID_LogLevel.cs">
       <Link>Runtime/Logging/MID_LogLevel.cs</Link>
@@ -211,6 +217,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Events/MID_EventBus.cs">
       <Link>Runtime/Events/MID_EventBus.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/AutoReference/MID_AutoRefableAttribute.cs">
+      <Link>Runtime/AutoReference/MID_AutoRefableAttribute.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/FXSystems/Generated/EffectCategory.cs">
       <Link>Runtime/FXSystems/Generated/EffectCategory.cs</Link>
     </Compile>
@@ -244,6 +253,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/FXSystems/Config/EffectCategoryProviderSO.cs">
       <Link>Runtime/FXSystems/Config/EffectCategoryProviderSO.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/AutoReference/MID_AutoReferenceResolver.cs">
+      <Link>Runtime/AutoReference/MID_AutoReferenceResolver.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/BasicPoolConfig.cs">
       <Link>Runtime/PoolSystems/BasicPoolConfig.cs</Link>
     </Compile>
@@ -265,6 +277,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/Generated/PoolableObjectType.cs">
       <Link>Runtime/PoolSystems/Generated/PoolableObjectType.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/AutoReference/MID_AutoRefOptions.cs">
+      <Link>Runtime/AutoReference/MID_AutoRefOptions.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/UIState/Generated/LobbyUIState.cs">
       <Link>Runtime/UIState/Generated/LobbyUIState.cs</Link>
     </Compile>
@@ -279,6 +294,9 @@
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Timers/PerformanceBenchmarkTimer.cs">
       <Link>Runtime/Timers/PerformanceBenchmarkTimer.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/AutoReference/MID_NoAutoRefAttribute.cs">
+      <Link>Runtime/AutoReference/MID_NoAutoRefAttribute.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Libraries/MID_LibraryRegistry.cs">
       <Link>Runtime/Libraries/MID_LibraryRegistry.cs</Link>
