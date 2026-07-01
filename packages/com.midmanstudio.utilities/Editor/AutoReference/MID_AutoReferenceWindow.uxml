@@ -1,0 +1,51 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements"
+         xmlns:uie="UnityEditor.UIElements"
+         editor-extension-mode="True">
+
+    <ui:VisualElement class="mid-root">
+
+        <ui:VisualElement name="header" class="mid-header">
+            <ui:VisualElement class="mid-header__text">
+                <ui:Label class="mid-header__title" text="Auto Reference" />
+                <ui:Label class="mid-header__sub" text="Bulk-resolve component references for [MID_AutoRefable] scripts" />
+            </ui:VisualElement>
+            <ui:Button name="refresh-btn" class="mid-header__refresh" text="⟳" />
+        </ui:VisualElement>
+
+        <ui:VisualElement name="options" class="mid-options">
+            <ui:Toggle name="opt-overwrite" label="Overwrite Existing" />
+            <ui:Toggle name="opt-include-children" label="Include Children" />
+            <ui:Toggle name="opt-include-inactive" label="Include Inactive Children" />
+            <ui:VisualElement class="mid-options__row">
+                <ui:Toggle name="opt-include-external" label="Include External Root" />
+                <uie:ObjectField name="opt-external-root" label="External Root" type="UnityEngine.Transform, UnityEngine" />
+            </ui:VisualElement>
+            <ui:Toggle name="opt-log-unresolved" label="Log Unresolved" />
+            <ui:Toggle name="opt-log-ambiguous" label="Log Ambiguous Resolutions" />
+        </ui:VisualElement>
+
+        <ui:VisualElement name="toolbar" class="mid-toolbar">
+            <ui:Button name="scan-btn" text="Scan Scene" />
+            <ui:Button name="add-missing-btn" text="Add Missing Components" />
+            <ui:Button name="resolve-selected-btn" text="Resolve Selected" />
+            <ui:Button name="resolve-all-btn" text="Resolve All" />
+        </ui:VisualElement>
+
+        <ui:VisualElement name="body" class="mid-body">
+            <ui:VisualElement name="targets-panel" class="mid-panel">
+                <ui:Label class="mid-panel__title" text="Targets" />
+                <ui:ListView name="targets-list" class="mid-list" />
+            </ui:VisualElement>
+            <ui:VisualElement name="log-panel" class="mid-panel">
+                <ui:Label class="mid-panel__title" text="Results" />
+                <ui:ListView name="log-list" class="mid-list" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <ui:VisualElement name="footer" class="mid-footer">
+            <ui:Label name="stats-label" class="mid-footer__label" text="No scan yet." />
+        </ui:VisualElement>
+
+    </ui:VisualElement>
+
+</ui:UXML>
