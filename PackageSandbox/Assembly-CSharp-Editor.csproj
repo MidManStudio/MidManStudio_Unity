@@ -1255,9 +1255,6 @@
       <Name>MidManStudio.Netcode</Name>
     </ProjectReference>
   </ItemGroup>
-  <ItemGroup>
-    <None Include="Packages\NewFile.txt" />
-  </ItemGroup>
   <Import Project="$(MSBuildToolsPath)/Microsoft.CSharp.targets" />
   <Target Name="GenerateTargetFrameworkMonikerAttribute" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it.

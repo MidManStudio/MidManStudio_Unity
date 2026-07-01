@@ -99,7 +99,6 @@
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/MidManStudio.ProjectileSystem.Tests.asmdef">
       <Link>Tests/Runtime/MidManStudio.ProjectileSystem.Tests.asmdef</Link>
     </None>
-    <None Include="Packages\NewFile.txt" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="UnityEngine">

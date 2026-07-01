@@ -198,7 +198,6 @@
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/MidManStudio.ProjectileSystem.asmdef">
       <Link>Runtime/MidManStudio.ProjectileSystem.asmdef</Link>
     </None>
-    <None Include="Packages\NewFile.txt" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="UnityEngine">

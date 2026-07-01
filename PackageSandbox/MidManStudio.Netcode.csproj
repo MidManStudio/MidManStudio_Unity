@@ -117,7 +117,6 @@
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.netcode/Runtime/MidManStudio.Netcode.asmdef">
       <Link>Runtime/MidManStudio.Netcode.asmdef</Link>
     </None>
-    <None Include="Packages\NewFile.txt" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="UnityEngine">
