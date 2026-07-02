@@ -22,6 +22,8 @@
             </ui:VisualElement>
             <ui:Toggle name="opt-log-unresolved" label="Log Unresolved" />
             <ui:Toggle name="opt-log-ambiguous" label="Log Ambiguous Resolutions" />
+            <ui:Toggle name="opt-auto-add-on-scan" label="Auto-Add Missing Components on Scan"
+                       tooltip="Off by default. When on, Scan Scene also adds MID_AutoRef to every object found missing it." />
         </ui:VisualElement>
 
         <ui:VisualElement name="toolbar" class="mid-toolbar">
