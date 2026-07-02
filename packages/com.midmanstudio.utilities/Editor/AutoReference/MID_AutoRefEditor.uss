@@ -1,7 +1,3 @@
-.mid-autoref-btn {
-    -unity-text-align: middle-center;
-    font-size: 12px;
-}
 .mid-autoref-btn:hover { opacity: 0.9; }
 
 .mid-autoref-summary {
