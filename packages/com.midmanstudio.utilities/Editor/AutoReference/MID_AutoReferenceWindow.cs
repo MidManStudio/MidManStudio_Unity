@@ -1,6 +1,7 @@
 // Bulk auto-reference tool. Scans open scenes for GameObjects carrying any
 // [MID_AutoRefable] script, lets you bulk-add MID_AutoRef components to the
-// ones missing it, and bulk-resolve with a warnings log (unresolved / ambiguous).
+// ones missing it (manually or automatically on scan), and bulk-resolve with
+// a warnings log (unresolved / ambiguous).
 // Open via: MidManStudio > Utilities > Auto Reference
 
 #if UNITY_EDITOR
@@ -12,7 +13,7 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UIElements;
 using MidManStudio.Core.AutoReference;
-using MidManStudio.Core.EditorTools;
+
 namespace MidManStudio.Core.EditorUtils.AutoReference
 {
     public class MID_AutoReferenceWindow : EditorWindow
@@ -32,6 +33,8 @@ namespace MidManStudio.Core.EditorUtils.AutoReference
         private readonly List<GameObject>   _targets     = new();
         private readonly List<LogEntry>     _logEntries  = new();
 
+        private bool _autoAddOnScan; // off by default — a scan never mutates the scene on its own unless you opt in
+
         private ListView _targetsList;
         private ListView _logList;
         private Label    _statsLabel;
@@ -43,6 +46,7 @@ namespace MidManStudio.Core.EditorUtils.AutoReference
         private ObjectField  _externalRootField;
         private Toggle       _logUnresolvedToggle;
         private Toggle       _logAmbiguousToggle;
+        private Toggle       _autoAddOnScanToggle;
 
         // ── Menu ───────────────────────────────────────────────────────────────
 
@@ -92,6 +96,7 @@ namespace MidManStudio.Core.EditorUtils.AutoReference
             _externalRootField     = rootVisualElement.Q<ObjectField>("opt-external-root");
             _logUnresolvedToggle   = rootVisualElement.Q<Toggle>("opt-log-unresolved");
             _logAmbiguousToggle    = rootVisualElement.Q<Toggle>("opt-log-ambiguous");
+            _autoAddOnScanToggle   = rootVisualElement.Q<Toggle>("opt-auto-add-on-scan");
             BindOptions();
 
             _targetsList = rootVisualElement.Q<ListView>("targets-list");
@@ -124,6 +129,9 @@ namespace MidManStudio.Core.EditorUtils.AutoReference
 
             _logAmbiguousToggle.value = _options.logAmbiguousResolved;
             _logAmbiguousToggle.RegisterValueChangedCallback(e => _options.logAmbiguousResolved = e.newValue);
+
+            _autoAddOnScanToggle.value = _autoAddOnScan; // false by default
+            _autoAddOnScanToggle.RegisterValueChangedCallback(e => _autoAddOnScan = e.newValue);
         }
 
         private void SetupTargetsList()
@@ -210,6 +218,8 @@ namespace MidManStudio.Core.EditorUtils.AutoReference
             _targets.AddRange(found.OrderBy(g => g.name));
             _targetsList.RefreshItems();
             _statsLabel.text = $"{_targets.Count} object(s) with [MID_AutoRefable] scripts found.";
+
+            if (_autoAddOnScan) AddMissingComponents();
         }
 
         private void AddMissingComponents()
@@ -218,7 +228,7 @@ namespace MidManStudio.Core.EditorUtils.AutoReference
             foreach (var go in _targets)
             {
                 if (go.GetComponent<MID_AutoRef>() != null) continue;
-                Undo.AddComponent<MID_AutoRef>(go);
+                Undo.AddComponent<MID_AutoRef>(go); // duplicate-safe: checked above + [DisallowMultipleComponent] backstop
                 added++;
             }
             _targetsList.RefreshItems();
