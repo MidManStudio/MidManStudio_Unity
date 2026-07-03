@@ -1,6 +1,6 @@
 # com.midmanstudio.utilities — API Catalog
 **MidMan Studio Utilities** v1.0.0  
-Last updated: 2026-06-15
+Last updated: 2026-07-03
 
 > All discrepancy fixes from the audit are applied here.  
 > ⚠ marks corrected entries. Removed entries that had no implementation.
@@ -27,6 +27,7 @@ Last updated: 2026-06-15
 16. [Sequential Processing](#16-sequential-processing)
 17. [Sticky Note](#17-sticky-note)
 18. [Editor Tools](#18-editor-tools)
+19. [Auto Reference](#19-auto-reference)
 
 ---
 
@@ -973,6 +974,15 @@ Attach to any scene GameObject for scene setup documentation or tutorial callout
 
 **Runtime behaviour:** Drag to reposition. Minimize button collapses to title bar. Close button hides (does not destroy).
 
+**Edit-mode build safety (2026-07-03):**
+- The auto-created `EventSystem` is now reference-counted across every `MID_StickyNote`
+  instance that uses it, and only destroyed once none remain. A pre-existing user-placed
+  `EventSystem` is never touched. Fixes duplicate EventSystems accumulating in the scene.
+- Building the Canvas hierarchy from `OnEnable()` in edit mode is now deferred one editor
+  tick via `EditorApplication.delayCall`, avoiding Unity's "SendMessage cannot be called
+  during Awake, CheckConsistency, or OnValidate" warning. Play Mode is unaffected — it stays
+  synchronous.
+
 ---
 
 ## 18. Editor Tools
@@ -1068,6 +1078,17 @@ Eliminates the need for a dedicated bootstrap scene during isolated scene testin
 
 ---
 
+### Auto Reference Window
+
+`MidManStudio > Utilities > Auto Reference`
+
+Bulk scan/resolve tool for the Auto Reference system — see [§19](#19-auto-reference) for
+the full attribute/component/resolver reference. Scans open scenes for
+`[MID_AutoRefable]` scripts, bulk-adds `MID_AutoRef` to objects missing it (manually or
+automatically on scan, off by default), and bulk-resolves with a color-coded results log.
+
+---
+
 ### Benchmarks
 
 | Tool | Menu path | What it tests |
@@ -1075,3 +1096,96 @@ Eliminates the need for a dedicated bootstrap scene during isolated scene testin
 | Tick Delay Benchmark | `MidManStudio > Utilities > Tests > Tick Delay Bench` | Allocation profile + timing accuracy of MID_TickDelay |
 | Tick Dispatcher Benchmark | `MidManStudio > Utilities > Tests > Tick Dispatcher Bench` | Subscriber overhead at each TickRate |
 | Audio Benchmark | `MidManStudio > Utilities > Tests > Audio Bench` | MID_NativeAudioBridge voice steal performance |
+
+---
+
+## 19. Auto Reference
+
+**Namespace:** `MidManStudio.Core.AutoReference` (runtime) / `MidManStudio.Core.EditorUtils.AutoReference` (editor)  
+**Files:** `Runtime/AutoReference/*`, `Editor/AutoReference/*`  
+**Type:** Attribute + static resolver + MonoBehaviour + EditorWindow
+
+Auto-fills a MonoBehaviour's Component/GameObject/interface reference fields by searching
+self, children, and (optionally) an external search root — no attribute required per
+field. Multi-candidate fields are disambiguated by fuzzy name match against the field
+name. Pure reflection, zero external dependencies.
+
+### Attributes
+
+| Attribute | Target | Description |
+|---|---|---|
+| `[MID_AutoRefable(bool autoAddComponent = false)]` | Class | Opts a MonoBehaviour into resolver scanning. `autoAddComponent: true` makes the editor auto-add `MID_AutoRef` to any GameObject that receives this script. |
+| `[MID_NoAutoRef]` | Field | Opts a single field out of scanning — never touched regardless of type match. |
+
+### `MID_AutoRefOptions`
+
+`Runtime/AutoReference/MID_AutoRefOptions.cs` — `[Serializable]`, shared by `MID_AutoRef` and the bulk window.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `includeChildren` | `bool` | `true` | Search children recursively |
+| `includeInactiveChildren` | `bool` | `true` | Include inactive children in the search |
+| `includeExternalRoot` | `bool` | `false` | Also search a detached hierarchy (e.g. an unparented Canvas) |
+| `externalSearchRoot` | `Transform` | `null` | Root searched when `includeExternalRoot` is on |
+| `overwriteExisting` | `bool` | `false` | Overwrite fields that already have a value — off by default, never clobbers manual edits |
+| `runMode` | `MID_AutoRefRunMode` | `Manual` | `Manual` / `Awake` / `Start` / `OnValidate` |
+| `logUnresolved` | `bool` | `true` | Log a warning for fields with zero candidates |
+| `logAmbiguousResolved` | `bool` | `true` | Log a line whenever a multi-candidate field is resolved by name match |
+
+### `MID_AutoReferenceResolver`
+
+`Runtime/AutoReference/MID_AutoReferenceResolver.cs` — static.
+
+| Method | Returns | Description |
+|---|---|---|
+| `Resolve(GameObject target, MID_AutoRefOptions options)` | `List<MID_AutoRefFieldResult>` | Resolves every `[MID_AutoRefable]` script on `target`. Safe in edit or play mode. |
+| `IsAutoRefable(Type type)` | `bool` | True if the type (or a base type) carries `[MID_AutoRefable]` |
+
+`MID_AutoRefFieldResult.Outcome` is one of `Assigned`, `AmbiguousResolved`, `NoCandidates`, `SkippedAlreadySet`.
+
+> **Undo/dirtying:** wrapped in `#if UNITY_EDITOR` inside the runtime assembly — same pattern as `MID_Logger`. Skipped automatically in builds and during Play Mode.  
+> **Logging:** falls back to plain `Debug.Log`/`LogWarning` in edit mode rather than `MID_Logger`, to avoid waking `MID_Logger`'s auto-instantiating singleton during editor-only operations.
+
+### `MID_AutoRef` (runtime component)
+
+`Runtime/AutoReference/MID_AutoRef.cs`
+
+| Member | Description |
+|---|---|
+| `Options` | Exposes the instance's `MID_AutoRefOptions` |
+| `ResolveNow()` | `[ContextMenu]`-exposed manual resolve — also the entry point used by `Awake`/`Start`/`OnValidate` run modes |
+
+`[DisallowMultipleComponent]` — Unity enforces at most one `MID_AutoRef` per GameObject regardless of how it was added (manual, watcher, or bulk window).
+
+`runMode = OnValidate` resolves automatically whenever the component is added or its own inspector values change — no button needed. The actual work is deferred via `EditorApplication.delayCall` since Unity disallows some operations synchronously inside `OnValidate`.
+
+### `MID_AutoRefComponentWatcher` (editor-only)
+
+`Editor/AutoReference/MID_AutoRefComponentWatcher.cs` — `[InitializeOnLoad]`, hooks `ObjectFactory.componentWasAdded`.
+
+Auto-adds `MID_AutoRef` when a script carrying `[MID_AutoRefable(autoAddComponent: true)]` is added to a GameObject that doesn't already have one. If the resulting component's `runMode` is `OnValidate`, also triggers an initial resolve. Duplicate-safe: existence check + `[DisallowMultipleComponent]` backstop.
+
+### `MID_AutoReferenceWindow`
+
+`MidManStudio > Utilities > Auto Reference` — `Editor/AutoReference/MID_AutoReferenceWindow.cs`, UI Toolkit (UXML/USS).
+
+| Action | Description |
+|---|---|
+| Scan Scene | Finds every GameObject in open scenes carrying a `[MID_AutoRefable]` script |
+| Add Missing Components | Bulk-adds `MID_AutoRef` to scanned targets that don't have one |
+| Auto-Add Missing Components on Scan | Toggle, off by default — runs the above automatically after every scan |
+| Resolve Selected / Resolve All | Runs the resolver against the selected or full target list, with a color-coded results log (assigned / ambiguous / unresolved) |
+
+### Custom Inspector
+
+`Editor/AutoReference/MID_AutoRefEditor.cs` — adds a green→orange gradient "RESOLVE NOW" button to `MID_AutoRef`'s inspector (mesh-painted, since USS has no gradient support), plus a one-line summary of the last run.
+
+### `MID_NameMatcher`
+
+`Runtime/AutoReference/MID_NameMatcher.cs` — static, no external dependency.
+
+| Method | Returns | Description |
+|---|---|---|
+| `Score(string fieldName, string candidateName)` | `float` (0–1) | Composite of normalized Levenshtein similarity (45%), camelCase/underscore token Jaccard overlap (35%), and a substring-containment bonus (+0.25) |
+
+Used only when a field has 2+ type-matching candidates. Ties (equal score) resolve to the first candidate found, which follows Unity's `GetComponentsInChildren` depth-first-from-self order.

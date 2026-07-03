@@ -21,12 +21,31 @@
 //   input during Play Mode — exactly like every Button in your project.
 //   Position and appearance preview correctly in edit mode; interaction
 //   requires Play Mode.
+//
+// EDIT-MODE BUILD TIMING:
+//   OnEnable() (which [ExecuteAlways] also fires in edit mode) defers the
+//   actual Rebuild() by one editor tick via EditorApplication.delayCall.
+//   Building synchronously inside OnEnable — which itself can be firing as
+//   part of Unity's own message-sending pass (domain reload, scene load,
+//   prefab stage entry) — triggers "SendMessage cannot be called during
+//   Awake, CheckConsistency, or OnValidate" the moment AddComponent runs on
+//   the new Canvas/EventSystem. Deferring runs the build outside that pass.
+//   Play mode doesn't have this restriction and needs zero-frame init, so
+//   it stays synchronous there.
+//
+// EVENTSYSTEM OWNERSHIP:
+//   The auto-created EventSystem is reference-counted across every
+//   MID_StickyNote instance that ends up using it, and only destroyed once
+//   none remain. A pre-existing user-placed EventSystem is never touched.
 
 using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.EventSystems;
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
 
 namespace MidManStudio.Core.Notes
 {
@@ -152,8 +171,30 @@ namespace MidManStudio.Core.Notes
             _visible      = _startVisible;
             _minimized    = false;
             _contentDirty = true;
-            if (ShouldBeBuilt()) Rebuild();
+
+            if (!ShouldBeBuilt()) return;
+
+#if UNITY_EDITOR
+            if (!Application.isPlaying)
+            {
+                // See file header — deferred to dodge the SendMessage-during-a-
+                // message-pass reentrancy warning.
+                EditorApplication.delayCall += DeferredRebuildIfNeeded;
+                return;
+            }
+#endif
+            Rebuild();
         }
+
+#if UNITY_EDITOR
+        private void DeferredRebuildIfNeeded()
+        {
+            if (this == null) return;   // destroyed before delayCall fired
+            if (_built) return;         // Update() or another path already built it
+            if (!ShouldBeBuilt()) return;
+            Rebuild();
+        }
+#endif
 
         private void OnDisable() => DestroyBuiltHierarchy();
         private void OnDestroy() => DestroyBuiltHierarchy();
@@ -215,6 +256,8 @@ namespace MidManStudio.Core.Notes
             }
             _canvas = null; _panel = null; _header = null; _body = null;
             _content = null; _pinButton = null;
+
+            ReleaseOwnedEventSystemRef();
             _built = false;
         }
 
@@ -237,15 +280,57 @@ namespace MidManStudio.Core.Notes
         }
 
         // If your project uses the new Input System exclusively, place your own
-        // EventSystem + InputSystemUIInputModule in the scene ahead of time —
-        // we detect and reuse any existing EventSystem instead of creating one.
-        private static void EnsureEventSystem()
+        // EventSystem + InputSystemUIInputModule in the scene ahead of time — we
+        // detect and reuse any existing EventSystem instead of creating one, and
+        // never touch a user-placed one. When we DO create one, it's reference-
+        // counted across every MID_StickyNote instance that used it, and only
+        // destroyed once none remain — this is what stopped duplicate
+        // EventSystems from accumulating.
+        private static EventSystem s_ownedEventSystem;
+        private static int         s_ownedEventSystemRefCount;
+        private bool _ownsEventSystemRef;
+
+        private void EnsureEventSystem()
         {
             if (EventSystem.current != null) return;
-            if (FindAnyObjectByType<EventSystem>() != null) return;
+
+            if (s_ownedEventSystem != null)
+            {
+                ClaimOwnedEventSystemRef();
+                return;
+            }
+
+            // Inactive-inclusive scan is more reliable than a single current-only
+            // check across edit-mode edge cases (prefab stage entry, freshly-
+            // recompiled domain) — if literally anything exists, leave it alone.
+            var existing = FindObjectsByType<EventSystem>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            if (existing != null && existing.Length > 0) return;
 
             var go = new GameObject("EventSystem", typeof(EventSystem), typeof(StandaloneInputModule));
             go.hideFlags = HideFlags.DontSave;
+            s_ownedEventSystem = go.GetComponent<EventSystem>();
+            ClaimOwnedEventSystemRef();
+        }
+
+        private void ClaimOwnedEventSystemRef()
+        {
+            if (_ownsEventSystemRef) return;
+            _ownsEventSystemRef = true;
+            s_ownedEventSystemRefCount++;
+        }
+
+        private void ReleaseOwnedEventSystemRef()
+        {
+            if (!_ownsEventSystemRef) return;
+            _ownsEventSystemRef = false;
+            s_ownedEventSystemRefCount = Mathf.Max(0, s_ownedEventSystemRefCount - 1);
+
+            if (s_ownedEventSystemRefCount == 0 && s_ownedEventSystem != null)
+            {
+                if (Application.isPlaying) Destroy(s_ownedEventSystem.gameObject);
+                else                        DestroyImmediate(s_ownedEventSystem.gameObject);
+                s_ownedEventSystem = null;
+            }
         }
 
         private void BuildPanel()

@@ -1,6 +1,14 @@
 // Custom inspector for MID_AutoRef — a one-click "Resolve Now" button painted with
 // a green-to-orange gradient (same mesh-paint technique as GradientBannerElement,
 // since USS has no gradient support), plus a summary of the last run.
+//
+// NOTE: the button is a plain VisualElement (not a Button subclass) with a Clickable
+// manipulator. Subclassing Button and overriding its generateVisualContent painted
+// the gradient mesh ON TOP of Button's own internal text draw (generateVisualContent
+// is a multicast delegate — handlers paint in subscription order, later ones occlude
+// earlier ones) — that's why the label was invisible until :hover triggered a
+// different repaint path. Painting the gradient on its own child element behind a
+// separate Label sidesteps that entirely.
 
 #if UNITY_EDITOR
 using System;
@@ -11,7 +19,6 @@ using UnityEngine;
 using UnityEngine.UIElements;
 using MidManStudio.Core.AutoReference;
 
-using MidManStudio.Core.EditorTools;
 namespace MidManStudio.Core.EditorUtils.AutoReference
 {
     [CustomEditor(typeof(MID_AutoRef))]
@@ -57,30 +64,51 @@ namespace MidManStudio.Core.EditorUtils.AutoReference
         }
     }
 
-    /// <summary>Clickable button painted with a green→orange gradient — no CSS gradient needed.</summary>
-    internal sealed class GradientResolveButton : Button
+    /// <summary>
+    /// Clickable, green→orange gradient CTA. A plain VisualElement + Clickable
+    /// manipulator with a separate gradient-paint child behind a separate Label —
+    /// deliberately NOT a Button subclass (see file header for why that broke text).
+    /// </summary>
+    internal sealed class GradientResolveButton : VisualElement
     {
         private static readonly Color ColorStart = new Color(0.27f, 0.78f, 0.35f, 1f); // green
         private static readonly Color ColorEnd   = new Color(1.00f, 0.55f, 0.10f, 1f); // orange
 
-        public GradientResolveButton(string label, Action onClick) : base(onClick)
+        private readonly VisualElement _gradient;
+
+        public GradientResolveButton(string label, Action onClick)
         {
-            text = label; 
-            style.backgroundColor = Color.clear;
-            style.borderTopWidth = style.borderBottomWidth = style.borderLeftWidth = style.borderRightWidth = 0;
-            style.color = Color.white;
-            style.unityFontStyleAndWeight = FontStyle.Bold;
-            style.height = 32;
-            style.marginTop = 8;
-            style.marginBottom = 4;
+            style.height        = 32;
+            style.marginTop     = 8;
+            style.marginBottom  = 4;
+            style.flexDirection = FlexDirection.Row;
+            style.justifyContent = Justify.Center;
+            style.alignItems     = Align.Center;
+            style.overflow       = Overflow.Hidden;
             style.borderTopLeftRadius = style.borderTopRightRadius =
                 style.borderBottomLeftRadius = style.borderBottomRightRadius = 6;
-            generateVisualContent += Paint;
+
+            _gradient = new VisualElement();
+            _gradient.style.position = Position.Absolute;
+            _gradient.style.left = 0; _gradient.style.right = 0;
+            _gradient.style.top  = 0; _gradient.style.bottom = 0;
+            _gradient.pickingMode = PickingMode.Ignore;
+            _gradient.generateVisualContent += Paint;
+            Add(_gradient);
+
+            var text = new Label(label);
+            text.style.color = Color.white;
+            text.style.unityFontStyleAndWeight = FontStyle.Bold;
+            text.style.fontSize = 12;
+            text.pickingMode = PickingMode.Ignore;
+            Add(text);
+
+            this.AddManipulator(new Clickable(onClick));
         }
 
         private void Paint(MeshGenerationContext ctx)
         {
-            Rect r = contentRect;
+            Rect r = _gradient.contentRect;
             if (r.width < 1f || r.height < 1f) return;
 
             var m = ctx.Allocate(4, 6);
