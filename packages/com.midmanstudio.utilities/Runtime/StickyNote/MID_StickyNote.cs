@@ -159,9 +159,9 @@ namespace MidManStudio.Core.Notes
         private void OnDestroy() => DestroyBuiltHierarchy();
 
         private void OnValidate()
-        {
+        {  
             _contentDirty = true;
-            if (!_built) return;
+            if (!_built) return; 
             ApplyAnchor();
             ApplyTheme();
             ApplyLayoutSettings();

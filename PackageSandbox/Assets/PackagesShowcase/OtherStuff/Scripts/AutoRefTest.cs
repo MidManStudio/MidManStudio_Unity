@@ -2,7 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using MidManStudio.Core.AutoReference;
-[MID_AutoRefable]
+[MID_AutoRefable(true)]
 public class AutoRefTest : MonoBehaviour
 {
 

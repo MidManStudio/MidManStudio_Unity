@@ -1,10 +1,3 @@
-// Core auto-reference resolver. Scans a GameObject's [MID_AutoRefable] MonoBehaviours,
-// reflects over their assignable reference fields (Component / GameObject / interface),
-// and auto-assigns the best candidate found on self, children, and optionally an
-// external search root. No per-field attribute required — opt a field out with
-// [MID_NoAutoRef]. Editor-only concerns (Undo, dirtying, logging) are wrapped in
-// #if UNITY_EDITOR so this stays in the runtime assembly and still supports proper
-// undo when called from the editor — same pattern MID_Logger.cs already uses.
 
 using System;
 using System.Collections.Generic;
@@ -47,7 +40,15 @@ namespace MidManStudio.Core.AutoReference
             AssignedObjectName = assignedObjectName;
         }
     }
-
+    /// <summary>
+    ///  Core auto-reference resolver. Scans a GameObject's [MID_AutoRefable] MonoBehaviours,
+    /// reflects over their assignable reference fields (Component / GameObject / interface),
+    /// and auto-assigns the best candidate found on self, children, and optionally an
+    /// external search root. No per-field attribute required — opt a field out with
+    /// [MID_NoAutoRef]. Editor-only concerns (Undo, dirtying, logging) are wrapped in
+    /// #if UNITY_EDITOR so this stays in the runtime assembly and still supports proper
+    /// undo when called from the editor — same pattern MID_Logger.cs already uses.
+    /// </summary>
     public static class MID_AutoReferenceResolver
     {
         private const BindingFlags FieldFlags =

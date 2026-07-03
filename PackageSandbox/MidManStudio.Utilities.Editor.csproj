@@ -79,6 +79,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/PoolSystems/PackagePoolProviderBootstrapper.cs">
       <Link>Editor/PoolSystems/PackagePoolProviderBootstrapper.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/AutoReference/MID_AutoRefEditor.cs">
+      <Link>Editor/AutoReference/MID_AutoRefEditor.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/AutoReference/MID_AutoReferenceWindow.cs">
       <Link>Editor/AutoReference/MID_AutoReferenceWindow.cs</Link>
     </Compile>
@@ -121,8 +124,14 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/NamedListDrawer.cs">
       <Link>Editor/Helpers/NamedListDrawer.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/AutoReference/MID_AutoRefComponentWatcher.cs">
+      <Link>Editor/AutoReference/MID_AutoRefComponentWatcher.cs</Link>
+    </Compile>
   </ItemGroup>
   <ItemGroup>
+    <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/AutoReference/MID_AutoRefEditor.uss">
+      <Link>Editor/AutoReference/MID_AutoRefEditor.uss</Link>
+    </None>
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/MID_SpriteToTilemapConverter.uxml">
       <Link>Editor/Helpers/MID_SpriteToTilemapConverter.uxml</Link>
     </None>

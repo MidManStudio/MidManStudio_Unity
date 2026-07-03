@@ -639,6 +639,71 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1085333454
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1085333456}
+  - component: {fileID: 1085333455}
+  m_Layer: 0
+  m_Name: _Notes
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1085333455
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1085333454}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a1c3e7f2b5d8049a63e2f91d47b0c358, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _title: Scene Notes
+  _notes:
+  - Welcome to this scene!
+  - This scene is for tessting  the local object pool and unified global effects
+    manager, click on play, and click on F key to fire up the global effect with
+    spawnable audio from localobject pooltest, and click on E to fire the global
+    effects with native audio manager
+  _textFile: {fileID: 0}
+  _theme: 1
+  _fontSize: 14
+  _useCustomTextColor: 0
+  _customTextColor: {r: 0, g: 0, b: 0, a: 1}
+  _width: 320
+  _maxBodyHeight: 360
+  _cornerPadding: 8
+  _anchor: 0
+  _margin: {x: 16, y: 16}
+  _draggable: 1
+  _sortingOrder: 500
+  _startVisible: 1
+  _buildInEditMode: 1
+--- !u!4 &1085333456
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1085333454}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1274002632
 GameObject:
   m_ObjectHideFlags: 0
@@ -10518,3 +10583,4 @@ SceneRoots:
   - {fileID: 92866924}
   - {fileID: 587594352}
   - {fileID: 790466277}
+  - {fileID: 1085333456}

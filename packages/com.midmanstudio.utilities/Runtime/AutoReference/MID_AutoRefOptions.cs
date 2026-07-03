@@ -1,5 +1,3 @@
-// Shared settings for MID_AutoReferenceResolver — used by both the runtime MID_AutoRef
-// component (per-object) and the bulk Editor/AutoReference/MID_AutoReferenceWindow.
 
 using System;
 using UnityEngine;
@@ -13,7 +11,10 @@ namespace MidManStudio.Core.AutoReference
         Start      = 2,
         OnValidate = 3 // Edit-time only — resolves automatically after being added or edited, no button needed.
     }
-
+    /// <summary>
+    ///  Shared settings for MID_AutoReferenceResolver — used by both the runtime MID_AutoRef
+    /// component (per-object) and the bulk Editor/AutoReference/MID_AutoReferenceWindow.
+    /// </summary>
     [Serializable]
     public class MID_AutoRefOptions
     {

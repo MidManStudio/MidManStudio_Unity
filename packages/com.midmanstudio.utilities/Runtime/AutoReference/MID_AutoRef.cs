@@ -1,7 +1,3 @@
-// Drop this on any GameObject that has one or more [MID_AutoRefable] scripts.
-// Auto-fills their reference fields on self/children/(optional external root),
-// disambiguating multi-candidate fields by fuzzy name match. Works in edit mode
-// (via "Resolve Now" / OnValidate) and at runtime (Awake/Start), including in builds.
 
 using UnityEngine;
 #if UNITY_EDITOR
@@ -9,7 +5,12 @@ using UnityEditor;
 #endif
 
 namespace MidManStudio.Core.AutoReference
-{
+{/// <summary>
+ /// Drop this on any GameObject that has one or more [MID_AutoRefable] scripts.
+    /// Auto-fills their reference fields on self/children/(optional external root),
+    /// disambiguating multi-candidate fields by fuzzy name match. Works in edit mode
+    /// (via "Resolve Now" / OnValidate) and at runtime (Awake/Start), including in builds.
+    /// </summary>
     [DisallowMultipleComponent]
     public class MID_AutoRef : MonoBehaviour
     {

@@ -11,6 +11,7 @@ using UnityEngine;
 using UnityEngine.UIElements;
 using MidManStudio.Core.AutoReference;
 
+using MidManStudio.Core.EditorTools;
 namespace MidManStudio.Core.EditorUtils.AutoReference
 {
     [CustomEditor(typeof(MID_AutoRef))]
@@ -64,7 +65,7 @@ namespace MidManStudio.Core.EditorUtils.AutoReference
 
         public GradientResolveButton(string label, Action onClick) : base(onClick)
         {
-            text = label;
+            text = label; 
             style.backgroundColor = Color.clear;
             style.borderTopWidth = style.borderBottomWidth = style.borderLeftWidth = style.borderRightWidth = 0;
             style.color = Color.white;

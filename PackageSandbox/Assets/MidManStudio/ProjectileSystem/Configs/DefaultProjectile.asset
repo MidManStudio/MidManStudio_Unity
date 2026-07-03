@@ -17,7 +17,7 @@ MonoBehaviour:
   _preferredSimMode: 1
   _movementType: 0
   _minSpeed: 10
-  _maxSpeed: 10
+  _maxSpeed: 20
   _lifetime: 3
   _gravityScale: 0
   _maxRange: 50

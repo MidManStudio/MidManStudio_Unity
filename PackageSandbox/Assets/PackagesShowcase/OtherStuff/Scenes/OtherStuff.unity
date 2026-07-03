@@ -410,13 +410,19 @@ MonoBehaviour:
   _title: Scene Notes
   _notes:
   - Welcome to this scene!
-  - "\u2022 Step 1: This scene tests the auto ref"
-  - "\u2022 Step 2: Then do this."
+  - "\u2022 This scene is for testing the mid_auto refrence components, which as
+    it name suggests it for automatically finding refrences o a gameobject and or
+    its children and or a specified external root gameobject within the editor for
+    any monobehaviour script that has the [MID_AutoRefable] attribute ................................................................"
+  - "\u2022 Step 1: Click on the basic test gameobject, and click the orange resolve
+    now button [this will auto resolve the components]"
+  - "\u2022 Step 2:  Click on the other gameobjects and click on the context menu
+    u know the one with : but 3 dots  and click on run tests"
   _textFile: {fileID: 0}
   _theme: 0
-  _fontSize: 14
+  _fontSize: 16
   _useCustomTextColor: 0
-  _customTextColor: {r: 0, g: 0, b: 0, a: 1}
+  _customTextColor: {r: 1, g: 1, b: 1, a: 1}
   _width: 320
   _maxBodyHeight: 360
   _cornerPadding: 8
@@ -450,12 +456,12 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 790466277}
-  - component: {fileID: 790466281}
   - component: {fileID: 790466280}
   - component: {fileID: 790466279}
-  - component: {fileID: 790466278}
+  - component: {fileID: 790466282}
+  - component: {fileID: 790466281}
   m_Layer: 0
-  m_Name: Tester
+  m_Name: Basic-Test
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -477,27 +483,6 @@ Transform:
   - {fileID: 967458672}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &790466278
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 790466275}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 21e811bfbf16641df8f342d17a58f331, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  _options:
-    includeChildren: 0
-    includeInactiveChildren: 1
-    includeExternalRoot: 0
-    externalSearchRoot: {fileID: 0}
-    overwriteExisting: 0
-    runMode: 0
-    logUnresolved: 1
-    logAmbiguousResolved: 1
 --- !u!54 &790466279
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -557,12 +542,33 @@ MonoBehaviour:
   m_GameObject: {fileID: 790466275}
   m_Enabled: 1
   m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 21e811bfbf16641df8f342d17a58f331, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _options:
+    includeChildren: 0
+    includeInactiveChildren: 0
+    includeExternalRoot: 0
+    externalSearchRoot: {fileID: 0}
+    overwriteExisting: 0
+    runMode: 0
+    logUnresolved: 1
+    logAmbiguousResolved: 1
+--- !u!114 &790466282
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 790466275}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 8cf18e973ffb24ae9b5962d6efbddf74, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _collider: {fileID: 790466280}
-  _rb: {fileID: 790466279}
-  _mesh: {fileID: 967458671}
+  _collider: {fileID: 0}
+  _rb: {fileID: 0}
+  _mesh: {fileID: 0}
 --- !u!1 &967458670
 GameObject:
   m_ObjectHideFlags: 0
@@ -617,6 +623,141 @@ Transform:
   m_Children: []
   m_Father: {fileID: 790466277}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1090380570
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1090380572}
+  - component: {fileID: 1090380571}
+  m_Layer: 0
+  m_Name: External-Test
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1090380571
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1090380570}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f6c0d2b27f30e4c7392fa5e105ad041c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _runOnStart: 1
+--- !u!4 &1090380572
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1090380570}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1121267701
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1121267703}
+  - component: {fileID: 1121267702}
+  m_Layer: 0
+  m_Name: BasicDemo-Test
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1121267702
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1121267701}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a42d82b3b934646138816f81090f5f02, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _runOnStart: 1
+--- !u!4 &1121267703
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1121267701}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1239282479
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1239282481}
+  - component: {fileID: 1239282480}
+  m_Layer: 0
+  m_Name: AmbigousMatch-Test
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1239282480
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1239282479}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 30019778e86564cf786d76f033c3e3a8, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _runOnStart: 1
+--- !u!4 &1239282481
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1239282479}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
@@ -624,4 +765,7 @@ SceneRoots:
   - {fileID: 574552541}
   - {fileID: 158087175}
   - {fileID: 790466277}
+  - {fileID: 1239282481}
+  - {fileID: 1121267703}
+  - {fileID: 1090380572}
   - {fileID: 628232541}
