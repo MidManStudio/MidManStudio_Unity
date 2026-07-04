@@ -1,0 +1,38 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements"
+         xmlns:uie="UnityEditor.UIElements"
+         editor-extension-mode="True">
+
+    <ui:VisualElement class="mid-root">
+
+        <ui:VisualElement name="header" class="mid-header">
+            <ui:VisualElement class="mid-header__text">
+                <ui:Label class="mid-header__title" text="Hierarchy Arranger" />
+                <ui:Label class="mid-header__sub" text="Sort, group, and separate hierarchy children" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <ui:VisualElement name="options" class="mid-options">
+            <uie:EnumField name="opt-mode" label="Arrange Mode" />
+            <uie:EnumField name="opt-group-order" label="Group Order" />
+            <ui:Toggle name="opt-recurse" label="Recurse Into Children" />
+            <ui:Slider name="opt-threshold" label="Similarity Threshold" low-value="0" high-value="1" />
+
+            <ui:Label text="Separators" class="mid-options__section-label" />
+            <ui:Toggle name="opt-sep-enabled" label="Enabled" />
+            <ui:TextField name="opt-sep-unit" label="Repeat Unit" />
+            <ui:IntegerField name="opt-sep-count" label="Repeat Count" />
+            <ui:Toggle name="opt-sep-label" label="Include Group Label" />
+        </ui:VisualElement>
+
+        <ui:VisualElement name="toolbar" class="mid-toolbar">
+            <ui:Button name="arrange-selected-btn" text="Arrange Selected" />
+            <ui:Button name="arrange-roots-btn" text="Arrange Scene Roots" />
+        </ui:VisualElement>
+
+        <ui:VisualElement name="footer" class="mid-footer">
+            <ui:Label name="result-label" class="mid-footer__label" text="No arrangement run yet." />
+        </ui:VisualElement>
+
+    </ui:VisualElement>
+
+</ui:UXML>
