@@ -19,6 +19,7 @@ using UnityEngine;
 using UnityEngine.UIElements;
 using MidManStudio.Core.AutoReference;
 
+using MidManStudio.Core.EditorTools;
 namespace MidManStudio.Core.EditorUtils.AutoReference
 {
     [CustomEditor(typeof(MID_AutoRef))]

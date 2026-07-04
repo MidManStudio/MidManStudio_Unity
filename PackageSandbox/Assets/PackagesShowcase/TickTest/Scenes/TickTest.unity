@@ -365,18 +365,21 @@ MonoBehaviour:
   _title: Scene Notes
   _notes:
   - Welcome to this scene!
-  - "\u2022 Step 1: Do something here."
-  - "\u2022 Step 2: Then do this."
+  - Press play and watch the logs
   _textFile: {fileID: 0}
-  _theme: 3
+  _theme: 0
   _fontSize: 12
+  _useCustomTextColor: 0
+  _customTextColor: {r: 0, g: 0, b: 0, a: 1}
   _width: 300
   _maxBodyHeight: 380
+  _cornerPadding: 8
   _anchor: 0
   _margin: {x: 16, y: 16}
   _draggable: 1
+  _sortingOrder: 500
   _startVisible: 1
-  _showInEditMode: 1
+  _buildInEditMode: 1
 --- !u!4 &1514621144
 Transform:
   m_ObjectHideFlags: 0
@@ -401,6 +404,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 2099699018}
+  - component: {fileID: 2099699019}
   m_Layer: 0
   m_Name: TickTest
   m_TagString: Untagged
@@ -423,6 +427,27 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &2099699019
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2099699017}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a706e9754489b469b90d2e73e482ff54, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _fastRate: 4
+  _slowRate: 6
+  _summaryRate: 7
+  _oneShotDelay: 3
+  _finiteRepeatInterval: 1.5
+  _finiteRepeatCount: 4
+  _foreverRepeatInterval: 5
+  _countdownDuration: 4
+  _pulseDuration: 2
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
