@@ -6,7 +6,7 @@
 using UnityEngine;
 using UnityEngine.EventSystems;
 
-namespace MidManStudio.Projectiles.MobileControls
+namespace TestGame
 {
     [RequireComponent(typeof(RectTransform))]
     public class MID_TouchJoystick : MonoBehaviour, IPointerDownHandler, IDragHandler, IPointerUpHandler
