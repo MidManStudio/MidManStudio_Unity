@@ -1,4 +1,3 @@
-
 using UnityEngine;
 using Unity.Netcode;
 using TMPro;
@@ -74,6 +73,12 @@ namespace TestGame
         [SerializeField, Range(1, 64)]   private int   _pelletsPerShot = 1;
         [SerializeField, Range(0f, 45f)] private float _spreadDeg     = 0f;
         [SerializeField] private KeyCode _fireKey = KeyCode.Mouse0;
+
+        [Header("Mobile Touch Input (optional)")]
+        [Tooltip("Assign to enable on-screen joystick movement. Desktop keyboard input keeps working either way.")]
+        [SerializeField] private MID_TouchJoystick _touchMoveJoystick;
+        [Tooltip("Assign to enable an on-screen shoot button. Desktop mouse/key firing keeps working either way.")]
+        [SerializeField] private MID_TouchShootButton _touchShootButton;
 
         [Header("Shot Pattern (optional)")]
         [SerializeField] private ProjectilePatternSO _shotPattern;
@@ -342,6 +347,24 @@ namespace TestGame
         private Transform ResolveShotPoint()
             => Use3DConvention() ? _shotPoint3D : _shotPoint2D;
 
+        // Touch only kicks in when keyboard axes are neutral — on an actual mobile
+        // device keyboard input is always zero, so this activates automatically
+        // with no platform check needed. Shared by HandleMovement and StartDash.
+        private Vector2 GetMoveAxes()
+        {
+            float h = Input.GetAxisRaw("Horizontal");
+            float v = Input.GetAxisRaw("Vertical");
+
+            if (Mathf.Approximately(h, 0f) && Mathf.Approximately(v, 0f) && _touchMoveJoystick != null)
+            {
+                Vector2 t = _touchMoveJoystick.Value;
+                h = t.x;
+                v = t.y;
+            }
+
+            return new Vector2(h, v);
+        }
+
         #endregion
 
         #region Mouse Look
@@ -364,8 +387,9 @@ namespace TestGame
 
         private void HandleMovement()
         {
-            float h = Input.GetAxisRaw("Horizontal");
-            float v = Input.GetAxisRaw("Vertical");
+            Vector2 axes = GetMoveAxes();
+            float h = axes.x;
+            float v = axes.y;
 
             if (_isDashing)
             {
@@ -400,8 +424,10 @@ namespace TestGame
 
         private void StartDash()
         {
-            float h = Input.GetAxisRaw("Horizontal");
-            float v = Input.GetAxisRaw("Vertical");
+            Vector2 axes = GetMoveAxes();
+            float h = axes.x;
+            float v = axes.y;
+
             if (Use3DConvention())
             {
                 Vector3 d = transform.right * h + transform.forward * v;
@@ -425,9 +451,10 @@ namespace TestGame
 
         private void HandleFire()
         {
-            if (!Input.GetKey(_fireKey))   return;
-            if (Time.time < _nextFireTime) return;
-            if (!ProjectileRegistry.HasInstance) return;
+            bool firing = Input.GetKey(_fireKey) || (_touchShootButton != null && _touchShootButton.IsPressed);
+            if (!firing)                         return;
+            if (Time.time < _nextFireTime)        return;
+            if (!ProjectileRegistry.HasInstance)  return;
             _nextFireTime = Time.time + 1f / Mathf.Max(_fireRate, 0.01f);
 
             switch (_shootMode)
