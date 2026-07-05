@@ -3,6 +3,15 @@
 // sorts within each group alphabetically, orders the groups themselves, and
 // inserts separator GameObjects between them. One Undo step covers the whole
 // operation, including any recursion.
+//
+// Reordering uses SetAsLastSibling() applied in the desired final sequence,
+// NOT SetSiblingIndex(cursor++). Interleaving object creation with an
+// incrementing SetSiblingIndex is a known Unity gotcha — a freshly created
+// GameObject doesn't reliably honor an explicit SetSiblingIndex call in the
+// same pass, so it just stays wherever `new GameObject()` put it (the end).
+// SetAsLastSibling(), called once per item in exact target order, is the
+// standard bulletproof fix: each call unconditionally moves that object to
+// the end at that moment, so sequential calls always yield the correct order.
 
 #if UNITY_EDITOR
 using System;
@@ -83,19 +92,19 @@ namespace MidManStudio.Core.EditorUtils.HierarchyArranger
             // 4) Order the groups themselves.
             groups = OrderGroups(groups, options);
 
-            // 5) Insert separators between groups and apply final sibling order.
-            int cursor = 0;
+            // 5) Apply final order. SetAsLastSibling() in exact target sequence —
+            //    see file header for why this replaced SetSiblingIndex(cursor++).
             for (int g = 0; g < groups.Count; g++)
             {
                 if (g > 0 && options.separators.enabled)
                 {
                     var sep = CreateSeparator(parent, groups[g].Label, groups[g].Members.Count, options.separators);
-                    sep.transform.SetSiblingIndex(cursor++);
+                    sep.transform.SetAsLastSibling();
                 }
 
                 foreach (var child in groups[g].Members)
                 {
-                    child.SetSiblingIndex(cursor++);
+                    child.SetAsLastSibling();
                     if (options.recurseIntoChildren && child.childCount > 0)
                         processed += ArrangeRecursive(child, options);
                 }
@@ -123,7 +132,10 @@ namespace MidManStudio.Core.EditorUtils.HierarchyArranger
             {
                 case MID_HierarchyArrangeMode.Alphabetical:
                 case MID_HierarchyArrangeMode.AlphabeticalDescending:
-                    return string.Empty; // single implicit group
+                    // Flat sort (one implicit group) unless separators are on — in
+                    // which case bucket by first letter so there's something to
+                    // actually separate between.
+                    return options.separators.enabled ? GetFirstLetterKey(t.name) : string.Empty;
 
                 case MID_HierarchyArrangeMode.ByMainComponentType:
                     return GetMainComponentTypeName(t.gameObject);
@@ -149,6 +161,13 @@ namespace MidManStudio.Core.EditorUtils.HierarchyArranger
                 default:
                     return string.Empty;
             }
+        }
+
+        private static string GetFirstLetterKey(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return "#";
+            char c = char.ToUpperInvariant(name.TrimStart()[0]);
+            return char.IsLetter(c) ? c.ToString() : "#";
         }
 
         private static string GetMainComponentTypeName(GameObject go)
@@ -216,7 +235,7 @@ namespace MidManStudio.Core.EditorUtils.HierarchyArranger
             bool numericKey = options.mode == MID_HierarchyArrangeMode.ByComponentCount
                             || options.mode == MID_HierarchyArrangeMode.ByChildCount;
 
-            return options.groupOrder switch
+            List<(string Label, List<Transform> Members)> ordered = options.groupOrder switch
             {
                 MID_HierarchyGroupOrder.LargestFirst  => groups.OrderByDescending(g => g.Members.Count).ToList(),
                 MID_HierarchyGroupOrder.SmallestFirst => groups.OrderBy(g => g.Members.Count).ToList(),
@@ -224,6 +243,16 @@ namespace MidManStudio.Core.EditorUtils.HierarchyArranger
                     ? groups.OrderBy(g => int.TryParse(g.Label, out int n) ? n : 0).ToList()
                     : groups.OrderBy(g => g.Label, StringComparer.OrdinalIgnoreCase).ToList()
             };
+
+            // Descending alphabetical + letter categories: flip the group order too
+            // (Z-group first) — member order within each group is already reversed
+            // in step 3. Only auto-applies if the user hasn't explicitly chosen a
+            // different group-order strategy.
+            if (options.mode == MID_HierarchyArrangeMode.AlphabeticalDescending
+                && options.groupOrder == MID_HierarchyGroupOrder.Alphabetical)
+                ordered.Reverse();
+
+            return ordered;
         }
 
         private static GameObject CreateSeparator(
