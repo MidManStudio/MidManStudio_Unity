@@ -6,7 +6,7 @@ using System;
 using UnityEngine;
 using UnityEngine.EventSystems;
 
-namespace MidManStudio.Projectiles.MobileControls
+namespace TestGame
 {
     public class MID_TouchShootButton : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
     {
