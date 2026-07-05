@@ -8,6 +8,7 @@ using UnityEngine;
 using UnityEngine.UIElements;
 using MidManStudio.Core.EditorUtils.HierarchyArranger;
 
+using MidManStudio.Core.EditorTools;
 namespace MidManStudio.Core.EditorUtils.HierarchyArranger
 {
     public class MID_HierarchyArrangerWindow : EditorWindow

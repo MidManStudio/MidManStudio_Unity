@@ -64,6 +64,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/MID_PackageUpdateChecker.cs">
       <Link>Editor/Helpers/MID_PackageUpdateChecker.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/HierarchyArranger/MID_HierarchyArranger.cs">
+      <Link>Editor/HierarchyArranger/MID_HierarchyArranger.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/StickyNote/MID_StickyNoteEditor.cs">
       <Link>Editor/StickyNote/MID_StickyNoteEditor.cs</Link>
     </Compile>
@@ -112,6 +115,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Logging/MID_LoggerEditorWindow.cs">
       <Link>Editor/Logging/MID_LoggerEditorWindow.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/HierarchyArranger/MID_HierarchyArrangerWindow.cs">
+      <Link>Editor/HierarchyArranger/MID_HierarchyArrangerWindow.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Audio/MID_NativeAudioBridgeEditor.cs">
       <Link>Editor/Audio/MID_NativeAudioBridgeEditor.cs</Link>
     </Compile>
@@ -149,6 +155,12 @@
     </None>
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/MID_ScriptExecutionOrderWindow.uxml">
       <Link>Editor/Helpers/MID_ScriptExecutionOrderWindow.uxml</Link>
+    </None>
+    <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/HierarchyArranger/MID_HierarchyArrangerWindow.uxml">
+      <Link>Editor/HierarchyArranger/MID_HierarchyArrangerWindow.uxml</Link>
+    </None>
+    <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/HierarchyArranger/MID_HierarchyArrangerWindow.uss">
+      <Link>Editor/HierarchyArranger/MID_HierarchyArrangerWindow.uss</Link>
     </None>
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/MID_SpriteToTilemapConverter.uss">
       <Link>Editor/Helpers/MID_SpriteToTilemapConverter.uss</Link>

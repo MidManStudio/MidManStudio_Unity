@@ -79,6 +79,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/FXSystems/Config/FXEntryDefinition.cs">
       <Link>Runtime/FXSystems/Config/FXEntryDefinition.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/HierarchyArranger/MID_HierarchySeparatorMarker.cs">
+      <Link>Runtime/HierarchyArranger/MID_HierarchySeparatorMarker.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/LocalParticlePool.cs">
       <Link>Runtime/PoolSystems/LocalParticlePool.cs</Link>
     </Compile>
@@ -246,6 +249,9 @@
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Events/MID_DelayedGameEventListener.cs">
       <Link>Runtime/Events/MID_DelayedGameEventListener.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/HierarchyArranger/MID_HierarchyArrangeOptions.cs">
+      <Link>Runtime/HierarchyArranger/MID_HierarchyArrangeOptions.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/FXSystems/Generated/EffectType.cs">
       <Link>Runtime/FXSystems/Generated/EffectType.cs</Link>

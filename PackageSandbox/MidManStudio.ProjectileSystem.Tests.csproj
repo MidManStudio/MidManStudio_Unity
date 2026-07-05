@@ -70,8 +70,14 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/DimensionCameraController.cs">
       <Link>Tests/Runtime/DimensionCameraController.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/MID_MobileTestPlayerController.cs">
+      <Link>Tests/Runtime/MID_MobileTestPlayerController.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/ProjectileSystemBenchmark.cs">
       <Link>Tests/Runtime/ProjectileSystemBenchmark.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/MID_TouchJoystick.cs">
+      <Link>Tests/Runtime/MID_TouchJoystick.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/ProjectileTestLobbyUI.cs">
       <Link>Tests/Runtime/ProjectileTestLobbyUI.cs</Link>
@@ -84,6 +90,9 @@
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/TestSceneBootstrapper.cs">
       <Link>Tests/Runtime/TestSceneBootstrapper.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/MID_TouchShootButton.cs">
+      <Link>Tests/Runtime/MID_TouchShootButton.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/NetworkedDimensionPlayer.cs">
       <Link>Tests/Runtime/NetworkedDimensionPlayer.cs</Link>

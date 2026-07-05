@@ -3,7 +3,7 @@
 // repo yet — Stickman_Template in SampleScene is a static test rig for the
 // weapon, not a moving player — so this is a starting point, not a finished
 // character controller. Swap MoveTarget for your real player root once you have one.
-
+/*
 using UnityEngine;
 using MidManStudio.Projectiles;
 
@@ -76,3 +76,4 @@ namespace MidManStudio.Projectiles.MobileControls
         }
     }
 }
+*/
