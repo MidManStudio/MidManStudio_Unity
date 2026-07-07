@@ -1,14 +1,4 @@
 // Custom inspector for MID_AutoRef — a one-click "Resolve Now" button painted with
-// a green-to-orange gradient (same mesh-paint technique as GradientBannerElement,
-// since USS has no gradient support), plus a summary of the last run.
-//
-// NOTE: the button is a plain VisualElement (not a Button subclass) with a Clickable
-// manipulator. Subclassing Button and overriding its generateVisualContent painted
-// the gradient mesh ON TOP of Button's own internal text draw (generateVisualContent
-// is a multicast delegate — handlers paint in subscription order, later ones occlude
-// earlier ones) — that's why the label was invisible until :hover triggered a
-// different repaint path. Painting the gradient on its own child element behind a
-// separate Label sidesteps that entirely.
 
 #if UNITY_EDITOR
 using System;

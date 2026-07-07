@@ -12,8 +12,7 @@ rust_lib/**/target/
 **/[Bb]uild/
 **/[Bb]uilds/
 **/.vs/
-*.png
-*.jpg
+
 # ── Keep compiled native libs ─────────────────────────────────────────────────
 !packages/**/Plugins/Native/**/*.dll
 !packages/**/Plugins/Native/**/*.dylib

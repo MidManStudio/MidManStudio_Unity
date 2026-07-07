@@ -1,4 +1,5 @@
 
+
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -17,35 +18,35 @@ namespace MidManStudio.Netcode.LocalMultiplayer
     [Serializable]
     public class LocalLobbyConfig
     {
-        public string LobbyName     = "Local Game";
-        public int    MaxPlayers    = 4;
-        public string GameMode      = "";
-        public string GameMap       = "";
-        public string CustomData    = "";
-        public int    ServerPort    = 7777;
-        public int    BroadcastPort = 7778;
+        public string LobbyName = "Local Game";
+        public int MaxPlayers = 4;
+        public string GameMode = "";
+        public string GameMap = "";
+        public string CustomData = "";
+        public int ServerPort = 7777;
+        public int BroadcastPort = 7778;
     }
-   /// <summary>
-   /// Offline lobby manager
-   /// </summary>
+    /// <summary>
+    /// Offline lobby manager
+    /// </summary>
     public class LocalLobbyManager : HybridNetworkSingleton<LocalLobbyManager>
     {
         #region Inspector
 
         [Header("References")]
-        [SerializeField] private NetworkManager  _networkManager;
-        [SerializeField] private UnityTransport  _transport;
+        [SerializeField] private NetworkManager _networkManager;
+        [SerializeField] private UnityTransport _transport;
 
         [Header("Discovery")]
         // reduced to 2f to ease Unity Transport receive queue pressure.
         // At 1s with loopback + broadcast both firing, same-machine tests easily fill
         // the 128-packet queue. Also increase MaxPacketQueueSize on UnityTransport inspector.
         [SerializeField] private float _discoveryInterval = 2f;
-        [SerializeField] private float _lobbyTimeout      = 5f;
+        [SerializeField] private float _lobbyTimeout = 5f;
 
         [Header("Bots")]
-        [SerializeField] private bool     _fillWithBots    = false;
-        [SerializeField] private int      _maxBots         = 4;
+        [SerializeField] private bool _fillWithBots = false;
+        [SerializeField] private int _maxBots = 4;
         [SerializeField] private string[] _botNamePrefixes = { "Player", "Bot", "Pro", "Noob" };
         [SerializeField] private string[] _botNameSuffixes = { "123", "007", "42", "99" };
 
@@ -56,17 +57,17 @@ namespace MidManStudio.Netcode.LocalMultiplayer
 
         #region Events
 
-        public Action<LocalLobbyData>    OnLobbyDiscovered;
-        public Action<string>            OnLobbyRemoved;
-        public Action<LocalLobbyPlayer>  OnPlayerJoined;
-        public Action<ulong>             OnPlayerLeft;
-        public Action<LocalLobbyPlayer>  OnPlayerReadyStatusChanged;
-        public Action<bool>              OnHostResult;
-        public Action<bool>              OnJoinResult;
-        public Action                    OnLobbyDisbanded;
-        public Action<string>            OnNetworkStatusChanged;
+        public Action<LocalLobbyData> OnLobbyDiscovered;
+        public Action<string> OnLobbyRemoved;
+        public Action<LocalLobbyPlayer> OnPlayerJoined;
+        public Action<ulong> OnPlayerLeft;
+        public Action<LocalLobbyPlayer> OnPlayerReadyStatusChanged;
+        public Action<bool> OnHostResult;
+        public Action<bool> OnJoinResult;
+        public Action OnLobbyDisbanded;
+        public Action<string> OnNetworkStatusChanged;
         public Action<LocalLobbySnapshot> OnGameStartReceived;
-        public Action                    OnInitialized;
+        public Action OnInitialized;
 
         #endregion
 
@@ -81,15 +82,15 @@ namespace MidManStudio.Netcode.LocalMultiplayer
         private UdpClient _udpServer;
         private UdpClient _udpClient;
 
-        private LocalLobbyConfig                    _activeConfig;
-        private LocalLobbyData                      _currentLobby;
-        private readonly List<LocalLobbyPlayer>     _players    = new();
+        private LocalLobbyConfig _activeConfig;
+        private LocalLobbyData _currentLobby;
+        private readonly List<LocalLobbyPlayer> _players = new();
         private readonly Dictionary<string, LocalLobbyData> _discovered = new();
 
         private readonly NetworkList<NetworkLobbyPlayerData> _netPlayers
             = new NetworkList<NetworkLobbyPlayerData>();
 
-        private string _playerName   = "Player";
+        private string _playerName = "Player";
         private string _playerIconId = "default";
 
         private ILocalLobbyTeamProvider _teamProvider;
@@ -98,12 +99,12 @@ namespace MidManStudio.Netcode.LocalMultiplayer
 
         #region Properties
 
-        public bool   IsHosting     => _isHosting;
-        public bool   IsSearching   => _isSearching;
-        public bool   IsInLobby     => _networkManager != null &&
+        public bool IsHosting => _isHosting;
+        public bool IsSearching => _isSearching;
+        public bool IsInLobby => _networkManager != null &&
                                        (_networkManager.IsConnectedClient || _networkManager.IsHost);
-        public bool   IsInitialized => _isInitialized;
-        public string PlayerName    => _playerName;
+        public bool IsInitialized => _isInitialized;
+        public string PlayerName => _playerName;
 
         #endregion
 
@@ -129,7 +130,7 @@ namespace MidManStudio.Netcode.LocalMultiplayer
 
             if (!ValidateNetworkManager()) yield break;
 
-            _networkManager.OnClientConnectedCallback  += HandleClientConnected;
+            _networkManager.OnClientConnectedCallback += HandleClientConnected;
             _networkManager.OnClientDisconnectCallback += HandleClientDisconnected;
 
             _isInitialized = true;
@@ -152,7 +153,7 @@ namespace MidManStudio.Netcode.LocalMultiplayer
 
             if (_networkManager != null)
             {
-                _networkManager.OnClientConnectedCallback  -= HandleClientConnected;
+                _networkManager.OnClientConnectedCallback -= HandleClientConnected;
                 _networkManager.OnClientDisconnectCallback -= HandleClientDisconnected;
             }
 
@@ -232,9 +233,9 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                 {
                     var player = new LocalLobbyPlayer(np.ClientId, np.PlayerName.ToString(), np.IsHost)
                     {
-                        IsReady      = np.IsReady,
+                        IsReady = np.IsReady,
                         PlayerIconId = np.PlayerIconId.ToString(),
-                        TeamId       = np.TeamId
+                        TeamId = np.TeamId
                     };
                     _players.Add(player);
                     OnPlayerJoined?.Invoke(player);
@@ -266,9 +267,9 @@ namespace MidManStudio.Netcode.LocalMultiplayer
 
             if (_networkManager.IsServer)
             {
-                bool   isHost  = clientId == _networkManager.LocalClientId;
-                string name    = isHost ? _playerName : $"Player {clientId}";
-                int    teamId  = _teamProvider?.OnPlayerJoined(clientId, isHost) ?? -1;
+                bool isHost = clientId == _networkManager.LocalClientId;
+                string name = isHost ? _playerName : $"Player {clientId}";
+                int teamId = _teamProvider?.OnPlayerJoined(clientId, isHost) ?? -1;
 
                 AddPlayerLocal(clientId, name, _playerIconId, isHost, false, teamId);
                 StartCoroutine(AddToNetListDelayed(clientId, name, isHost, teamId));
@@ -339,17 +340,17 @@ namespace MidManStudio.Netcode.LocalMultiplayer
 
             _currentLobby = new LocalLobbyData
             {
-                LobbyName         = _activeConfig.LobbyName,
-                HostName          = _playerName,
-                HostAddress       = GetLocalIP(),
-                Port              = _activeConfig.ServerPort,
-                CurrentPlayers    = 1,
-                MaxPlayers        = _activeConfig.MaxPlayers,
-                GameMode          = _activeConfig.GameMode,
-                GameMap           = _activeConfig.GameMap,
-                CustomData        = _activeConfig.CustomData,
+                LobbyName = _activeConfig.LobbyName,
+                HostName = _playerName,
+                HostAddress = GetLocalIP(),
+                Port = _activeConfig.ServerPort,
+                CurrentPlayers = 1,
+                MaxPlayers = _activeConfig.MaxPlayers,
+                GameMode = _activeConfig.GameMode,
+                GameMap = _activeConfig.GameMap,
+                CustomData = _activeConfig.CustomData,
                 LastDiscoveryTime = Time.time,
-                TimeoutTime       = Time.time + _lobbyTimeout
+                TimeoutTime = Time.time + _lobbyTimeout
             };
 
             try
@@ -357,7 +358,7 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                 if (!ValidateNetworkManager()) throw new Exception("NetworkManager invalid.");
 
                 _transport.ConnectionData.Address = _currentLobby.HostAddress;
-                _transport.ConnectionData.Port    = (ushort)_activeConfig.ServerPort;
+                _transport.ConnectionData.Port = (ushort)_activeConfig.ServerPort;
                 _transport.ConnectionData.ServerListenAddress = "0.0.0.0";
 
                 _isHosting = true;
@@ -377,7 +378,7 @@ namespace MidManStudio.Netcode.LocalMultiplayer
             {
                 MID_Logger.LogError(_logLevel, $"StartHosting failed: {e.Message}",
                     nameof(LocalLobbyManager));
-                _isHosting    = false;
+                _isHosting = false;
                 _currentLobby = null;
                 OnHostResult?.Invoke(false);
             }
@@ -428,7 +429,7 @@ namespace MidManStudio.Netcode.LocalMultiplayer
             try
             {
                 _transport.ConnectionData.Address = lobby.HostAddress;
-                _transport.ConnectionData.Port    = (ushort)lobby.Port;
+                _transport.ConnectionData.Port = (ushort)lobby.Port;
                 _players.Clear();
                 _currentLobby = lobby;
 
@@ -544,9 +545,9 @@ namespace MidManStudio.Netcode.LocalMultiplayer
             if (_isHosting) { if (fill) FillWithBots(); else RemoveAllBots(); }
         }
 
-        public List<LocalLobbyPlayer> GetPlayers()         => new(_players);
-        public LocalLobbyData         GetCurrentLobby()    => _currentLobby;
-        public int                    RealPlayerCount      => _players.Count(p => !p.IsBot);
+        public List<LocalLobbyPlayer> GetPlayers() => new(_players);
+        public LocalLobbyData GetCurrentLobby() => _currentLobby;
+        public int RealPlayerCount => _players.Count(p => !p.IsBot);
 
         #endregion
 
@@ -671,9 +672,9 @@ namespace MidManStudio.Netcode.LocalMultiplayer
             {
                 if (_netPlayers[i].ClientId != clientId) continue;
                 var np = _netPlayers[i];
-                np.PlayerName   = name;
+                np.PlayerName = name;
                 np.PlayerIconId = iconId;
-                _netPlayers[i]  = np;
+                _netPlayers[i] = np;
                 break;
             }
             BroadcastNameUpdateClientRpc(clientId, name, iconId);
@@ -762,7 +763,7 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                 try
                 {
                     _currentLobby.LastDiscoveryTime = Time.time;
-                    _currentLobby.TimeoutTime       = Time.time + _lobbyTimeout;
+                    _currentLobby.TimeoutTime = Time.time + _lobbyTimeout;
 
                     string json = JsonUtility.ToJson(_currentLobby);
                     byte[] data = System.Text.Encoding.UTF8.GetBytes(json);
@@ -771,8 +772,11 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                         await _udpServer.SendAsync(data, data.Length,
                             new IPEndPoint(addr, broadcastPort));
 
-                    try { await _udpServer.SendAsync(data, data.Length,
-                            new IPEndPoint(IPAddress.Loopback, broadcastPort)); }
+                    try
+                    {
+                        await _udpServer.SendAsync(data, data.Length,
+                            new IPEndPoint(IPAddress.Loopback, broadcastPort));
+                    }
                     catch { /* loopback optional */ }
 
                     await Task.Delay((int)(_discoveryInterval * 1000));
@@ -788,11 +792,13 @@ namespace MidManStudio.Netcode.LocalMultiplayer
 
         private async Task ListenForDiscoveryRequests()
         {
+            int consecutiveFailures = 0;
             while (_isHosting && _udpServer != null)
             {
                 try
                 {
                     var result = await _udpServer.ReceiveAsync();
+                    consecutiveFailures = 0;
                     string msg = System.Text.Encoding.UTF8.GetString(result.Buffer);
 
                     if (msg == "DISCOVER_LOBBY")
@@ -804,9 +810,22 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                 }
                 catch (Exception e)
                 {
-                    if (_isHosting)
-                        MID_Logger.LogError(_logLevel, $"Discovery listen error: {e.Message}",
+                    if (!_isHosting) break;
+
+                    consecutiveFailures++;
+                    MID_Logger.LogError(_logLevel,
+                        $"Discovery listen error ({e.GetType().Name}, attempt {consecutiveFailures}): {e.Message}",
+                        nameof(LocalLobbyManager));
+
+                    if (consecutiveFailures >= 5)
+                    {
+                        MID_Logger.LogError(_logLevel,
+                            "Discovery listen failing repeatedly — stopping discovery server.",
                             nameof(LocalLobbyManager));
+                        break;
+                    }
+
+                    await Task.Delay(250);
                 }
             }
         }
@@ -846,11 +865,13 @@ namespace MidManStudio.Netcode.LocalMultiplayer
 
         private async void ListenForBroadcasts()
         {
+            int consecutiveFailures = 0;
             while (_isSearching && _udpClient != null)
             {
                 try
                 {
                     var result = await _udpClient.ReceiveAsync();
+                    consecutiveFailures = 0;
                     string msg = System.Text.Encoding.UTF8.GetString(result.Buffer);
 
                     try
@@ -859,10 +880,10 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                         if (lobby == null || string.IsNullOrEmpty(lobby.HostAddress)) continue;
 
                         lobby.LastDiscoveryTime = Time.time;
-                        lobby.TimeoutTime       = Time.time + _lobbyTimeout;
+                        lobby.TimeoutTime = Time.time + _lobbyTimeout;
 
-                        string key   = lobby.Key;
-                        bool   isNew = !_discovered.ContainsKey(key);
+                        string key = lobby.Key;
+                        bool isNew = !_discovered.ContainsKey(key);
                         _discovered[key] = lobby;
                         if (isNew) OnLobbyDiscovered?.Invoke(lobby);
                     }
@@ -870,9 +891,22 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                 }
                 catch (Exception e)
                 {
-                    if (_isSearching && _udpClient != null)
-                        MID_Logger.LogError(_logLevel, $"Listen error: {e.Message}",
+                    if (!_isSearching || _udpClient == null) break;
+
+                    consecutiveFailures++;
+                    MID_Logger.LogError(_logLevel,
+                        $"Listen error ({e.GetType().Name}, attempt {consecutiveFailures}): {e.Message}",
+                        nameof(LocalLobbyManager));
+
+                    if (consecutiveFailures >= 5)
+                    {
+                        MID_Logger.LogError(_logLevel,
+                            "Discovery client listen failing repeatedly — stopping search.",
                             nameof(LocalLobbyManager));
+                        break;
+                    }
+
+                    await Task.Delay(250);
                 }
             }
         }
@@ -888,8 +922,11 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                         await _udpClient.SendAsync(data, data.Length,
                             new IPEndPoint(addr, broadcastPort));
 
-                    try { await _udpClient.SendAsync(data, data.Length,
-                            new IPEndPoint(IPAddress.Loopback, broadcastPort)); }
+                    try
+                    {
+                        await _udpClient.SendAsync(data, data.Length,
+                            new IPEndPoint(IPAddress.Loopback, broadcastPort));
+                    }
                     catch { /* loopback optional */ }
 
                     await Task.Delay((int)(_discoveryInterval * 1000));
@@ -933,8 +970,8 @@ namespace MidManStudio.Netcode.LocalMultiplayer
         {
             if (!_isHosting || _currentLobby == null || !_fillWithBots) return;
 
-            int needed  = _currentLobby.MaxPlayers - RealPlayerCount;
-            needed      = Mathf.Clamp(needed, 0, _maxBots);
+            int needed = _currentLobby.MaxPlayers - RealPlayerCount;
+            needed = Mathf.Clamp(needed, 0, _maxBots);
             int current = _players.Count(p => p.IsBot);
 
             if (current > needed)
@@ -946,11 +983,11 @@ namespace MidManStudio.Netcode.LocalMultiplayer
             {
                 for (int i = 0; i < needed - current; i++)
                 {
-                    ulong  botId  = NextBotId();
-                    string name   = BotName();
-                    int    teamId = _teamProvider?.OnPlayerJoined(botId, false) ?? -1;
-                    var    bot    = new LocalLobbyPlayer(botId, name, false, true)
-                                   { IsReady = true, TeamId = teamId };
+                    ulong botId = NextBotId();
+                    string name = BotName();
+                    int teamId = _teamProvider?.OnPlayerJoined(botId, false) ?? -1;
+                    var bot = new LocalLobbyPlayer(botId, name, false, true)
+                    { IsReady = true, TeamId = teamId };
                     _players.Add(bot);
                     OnPlayerJoined?.Invoke(bot);
                     OnPlayerReadyStatusChanged?.Invoke(bot);
@@ -986,7 +1023,7 @@ namespace MidManStudio.Netcode.LocalMultiplayer
         {
             if (PlayerOfflineIdentity.HasInstance)
             {
-                _playerName   = PlayerOfflineIdentity.Instance.PlayerName;
+                _playerName = PlayerOfflineIdentity.Instance.PlayerName;
                 _playerIconId = PlayerOfflineIdentity.Instance.PlayerIconId;
             }
             else
@@ -1001,7 +1038,7 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                                     bool isHost, bool isBot, int teamId)
         {
             var p = new LocalLobbyPlayer(id, name, isHost, isBot)
-                    { PlayerIconId = iconId, TeamId = teamId };
+            { PlayerIconId = iconId, TeamId = teamId };
             _players.Add(p);
             OnPlayerJoined?.Invoke(p);
         }
@@ -1032,12 +1069,12 @@ namespace MidManStudio.Netcode.LocalMultiplayer
             var p = _players.Find(x => x.ClientId == clientId);
             _netPlayers.Add(new NetworkLobbyPlayerData
             {
-                ClientId     = clientId,
-                PlayerName   = name,
+                ClientId = clientId,
+                PlayerName = name,
                 PlayerIconId = p?.PlayerIconId ?? "",
-                IsHost       = isHost,
-                IsReady      = false,
-                TeamId       = teamId
+                IsHost = isHost,
+                IsReady = false,
+                TeamId = teamId
             });
             SyncPlayerListClientRpc();
         }
@@ -1120,7 +1157,7 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                         if (addr.Address.AddressFamily != AddressFamily.InterNetwork) continue;
                         string ip = addr.Address.ToString();
                         if (!ip.StartsWith("192.168.43.") && !ip.StartsWith("192.168.49.") &&
-                            !ip.StartsWith("172.20.10.")  && !IPAddress.IsLoopback(addr.Address))
+                            !ip.StartsWith("172.20.10.") && !IPAddress.IsLoopback(addr.Address))
                             return ip;
                     }
                 }
@@ -1166,9 +1203,9 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                         if (ua.Address.AddressFamily != AddressFamily.InterNetwork ||
                             IPAddress.IsLoopback(ua.Address)) continue;
 
-                        byte[] ip   = ua.Address.GetAddressBytes();
+                        byte[] ip = ua.Address.GetAddressBytes();
                         byte[] mask = ua.IPv4Mask.GetAddressBytes();
-                        var    bc   = new byte[4];
+                        var bc = new byte[4];
                         for (int i = 0; i < 4; i++) bc[i] = (byte)(ip[i] | ~mask[i]);
                         list.Add(new IPAddress(bc));
                     }

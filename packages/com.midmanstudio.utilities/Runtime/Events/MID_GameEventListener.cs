@@ -16,7 +16,7 @@ namespace MidManStudio.Core.Events
     {
         [SerializeField] private MID_GameEvent _gameEvent;
         [SerializeField] private UnityEvent    _onResponse;
-        [SerializeField] private MID_LogLevel  _logLevel = MID_LogLevel.None;
+        [SerializeField] protected MID_LogLevel _logLevel = MID_LogLevel.None;
 
         private void OnEnable()
         {

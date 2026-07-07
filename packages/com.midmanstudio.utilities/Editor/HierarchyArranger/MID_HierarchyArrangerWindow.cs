@@ -1,5 +1,3 @@
-// MidManStudio > Utilities > Hierarchy Arranger
-
 #if UNITY_EDITOR
 using System.Linq;
 using UnityEditor;
@@ -17,13 +15,13 @@ namespace MidManStudio.Core.EditorUtils.HierarchyArranger
 
         private EnumField _modeField;
         private EnumField _groupOrderField;
-        private Toggle    _recurseToggle;
-        private Slider    _thresholdSlider;
-        private Toggle    _sepEnabledToggle;
+        private Toggle _recurseToggle;
+        private Slider _thresholdSlider;
+        private Toggle _sepEnabledToggle;
         private TextField _sepUnitField;
         private IntegerField _sepCountField;
-        private Toggle    _sepLabelToggle;
-        private Label     _resultLabel;
+        private Toggle _sepLabelToggle;
+        private Label _resultLabel;
 
         [MenuItem("MidManStudio/Utilities/Hierarchy Arranger", priority = 119)]
         public static void Open()
@@ -34,7 +32,7 @@ namespace MidManStudio.Core.EditorUtils.HierarchyArranger
 
         public void CreateGUI()
         {
-            var uss  = MidEditorUIHelpers.FindUss("MID_HierarchyArrangerWindow");
+            var uss = MidEditorUIHelpers.FindUss("MID_HierarchyArrangerWindow");
             var uxml = MidEditorUIHelpers.FindUxml("MID_HierarchyArrangerWindow");
 
             if (uxml == null)
@@ -52,15 +50,15 @@ namespace MidManStudio.Core.EditorUtils.HierarchyArranger
 
         private void BindElements()
         {
-            _modeField       = rootVisualElement.Q<EnumField>("opt-mode");
+            _modeField = rootVisualElement.Q<EnumField>("opt-mode");
             _groupOrderField = rootVisualElement.Q<EnumField>("opt-group-order");
-            _recurseToggle   = rootVisualElement.Q<Toggle>("opt-recurse");
+            _recurseToggle = rootVisualElement.Q<Toggle>("opt-recurse");
             _thresholdSlider = rootVisualElement.Q<Slider>("opt-threshold");
             _sepEnabledToggle = rootVisualElement.Q<Toggle>("opt-sep-enabled");
-            _sepUnitField    = rootVisualElement.Q<TextField>("opt-sep-unit");
-            _sepCountField   = rootVisualElement.Q<IntegerField>("opt-sep-count");
-            _sepLabelToggle  = rootVisualElement.Q<Toggle>("opt-sep-label");
-            _resultLabel     = rootVisualElement.Q<Label>("result-label");
+            _sepUnitField = rootVisualElement.Q<TextField>("opt-sep-unit");
+            _sepCountField = rootVisualElement.Q<IntegerField>("opt-sep-count");
+            _sepLabelToggle = rootVisualElement.Q<Toggle>("opt-sep-label");
+            _resultLabel = rootVisualElement.Q<Label>("result-label");
 
             _modeField.Init(_options.mode);
             _modeField.RegisterValueChangedCallback(e => _options.mode = (MID_HierarchyArrangeMode)e.newValue);
@@ -89,7 +87,7 @@ namespace MidManStudio.Core.EditorUtils.HierarchyArranger
             _sepLabelToggle.RegisterValueChangedCallback(e => _options.separators.includeLabel = e.newValue);
 
             rootVisualElement.Q<Button>("arrange-selected-btn").clicked += ArrangeSelected;
-            rootVisualElement.Q<Button>("arrange-roots-btn").clicked    += ArrangeSceneRoots;
+            rootVisualElement.Q<Button>("arrange-roots-btn").clicked += ArrangeSceneRoots;
         }
 
         private void ArrangeSelected()
@@ -138,14 +136,13 @@ namespace MidManStudio.Core.EditorUtils.HierarchyArranger
 
             for (int i = scratch.transform.childCount - 1; i >= 0; i--)
             {
+                // Separators are just plain named GameObjects (see CreateSeparator /
+                // MID_HierarchySeparatorMarker) — nothing about them requires a
+                // parent to render correctly in the Hierarchy window, so they no
+                // longer need special-casing here. Previously these were deleted
+                // during the scratch-object unwind, which is why separators never
+                // showed up when arranging at the scene root.
                 var child = scratch.transform.GetChild(i);
-                if (child.GetComponent<Core.HierarchyArranger.MID_HierarchySeparatorMarker>() != null)
-                {
-                    // Scene root can't hold a bare separator without a parent context
-                    // that makes sense visually — drop root-level separators for now.
-                    Undo.DestroyObjectImmediate(child.gameObject);
-                    continue;
-                }
                 Undo.SetTransformParent(child, null, "Arrange Hierarchy");
                 UnityEngine.SceneManagement.SceneManager.MoveGameObjectToScene(child.gameObject, scene);
             }

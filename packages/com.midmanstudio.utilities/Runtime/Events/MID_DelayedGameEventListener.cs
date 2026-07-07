@@ -20,7 +20,6 @@ namespace MidManStudio.Core.Events
         [SerializeField] private float      _delay          = 1f;
         [SerializeField] private TickRate   _tickRate       = TickRate.Tick_0_1;
         [SerializeField] private UnityEvent _delayedResponse;
-        [SerializeField] private MID_LogLevel _logLevel     = MID_LogLevel.None;
 
         private TickDelayHandle _pendingHandle;
 
