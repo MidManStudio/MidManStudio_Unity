@@ -1,17 +1,21 @@
 # ── Rust ──────────────────────────────────────────────────────────────────────
 rust_lib/**/target/
 
-# ── Unity generated ───────────────────────────────────────────────────────────
-# Using wildcards ensures these folders are ignored anywhere in the repo, 
-# including inside PackageCreatorSandbox/
+# ── Unity Generated / Caches ──────────────────────────────────────────────────
 **/[Ll]ibrary/
 **/[Tt]emp/
 **/[Ll]ogs/
 **/[Uu]serSettings/
 **/[Oo]bj/
-**/[Bb]uild/
-**/[Bb]uilds/
 **/.vs/
+
+# Crash reports and memory dumps
+**/MemoryCaptures/
+**/Logs/
+
+# ── Build Outputs (Scoped to avoid breaking Packages) 
+# If your project has sub-projects, explicitly target their build outputs:
+# PackageSandbox/[Bb]uild/ 
 
 # ── Keep compiled native libs ─────────────────────────────────────────────────
 !packages/**/Plugins/Native/**/*.dll
