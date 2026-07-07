@@ -101,6 +101,14 @@ jobs:
           sudo swapoff -a || true && sudo rm -f /swapfile
           echo "📊 Disk after cleanup:"; df -h /
 
+      - name: Setup swap
+        if: steps.gate.outputs.should_build == 'true'
+        run: |
+          sudo dd if=/dev/zero of=/swapfile bs=1G count=4
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+
       - name: Checkout
         if: steps.gate.outputs.should_build == 'true'
         uses: actions/checkout@v4
