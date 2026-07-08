@@ -1,0 +1,419 @@
+# .github/workflows/build-rust-libs.yml
+name: Build Rust Native Projectile Libs
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'rust_lib/projectile_core/**'
+  workflow_dispatch:
+
+jobs:
+  # ── macOS (universal x86_64 + arm64) ────────────────────────────────────────
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+      - name: Build universal dylib
+        working-directory: rust_lib/projectile_core
+        run: |
+          cargo build --release --target x86_64-apple-darwin
+          cargo build --release --target aarch64-apple-darwin
+          lipo -create \
+            target/x86_64-apple-darwin/release/libprojectile_core.dylib \
+            target/aarch64-apple-darwin/release/libprojectile_core.dylib \
+            -output libprojectile_core.dylib
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-macos
+          path: rust_lib/projectile_core/libprojectile_core.dylib
+          retention-days: 1
+
+  # ── Windows x64 ─────────────────────────────────────────────────────────────
+  build-windows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+      - run: sudo apt-get install -y gcc-mingw-w64-x86-64
+      - name: Configure mingw linker
+        run: |
+          mkdir -p ~/.cargo
+          cat >> ~/.cargo/config.toml << 'EOF'
+          [target.x86_64-pc-windows-gnu]
+          linker = "x86_64-w64-mingw32-gcc"
+          EOF
+      - name: Build
+        working-directory: rust_lib/projectile_core
+        run: cargo build --release --target x86_64-pc-windows-gnu
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-windows
+          path: rust_lib/projectile_core/target/x86_64-pc-windows-gnu/release/projectile_core.dll
+          retention-days: 1
+
+  # ── Linux x64 ───────────────────────────────────────────────────────────────
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - working-directory: rust_lib/projectile_core
+        run: cargo build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-linux
+          path: rust_lib/projectile_core/target/release/libprojectile_core.so
+          retention-days: 1
+
+  # ── Android (arm64, armv7, x86_64) ──────────────────────────────────────────
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+      - run: cargo install cargo-ndk --version "^3" --locked
+      - name: Locate NDK
+        run: |
+          NDK="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_ROOT:-}}"
+          [ -z "$NDK" ] && NDK=$(ls -d /usr/local/lib/android/sdk/ndk/* 2>/dev/null | sort -V | tail -1)
+          [ -z "$NDK" ] && { echo "❌ Android NDK not found on runner"; exit 1; }
+          echo "ANDROID_NDK_HOME=$NDK" >> $GITHUB_ENV
+          echo "Using NDK: $NDK"
+      - name: Build all ABIs
+        working-directory: rust_lib/projectile_core
+        run: |
+          set -e
+          cargo ndk -t arm64-v8a   -o ./android-out build --release
+          cargo ndk -t armeabi-v7a -o ./android-out build --release
+          cargo ndk -t x86_64      -o ./android-out build --release
+      - name: Verify ABI outputs (catch stub/broken builds)
+        working-directory: rust_lib/projectile_core
+        run: |
+          set -e
+          MIN_BYTES=51200   # 50 KB floor — a real release build is 200-400KB; a stub is ~3KB
+          FAIL=0
+          for ABI in arm64-v8a armeabi-v7a x86_64; do
+            F="android-out/$ABI/libprojectile_core.so"
+            if [ ! -f "$F" ]; then
+              echo "❌ MISSING: $ABI — libprojectile_core.so was not produced"
+              FAIL=1; continue
+            fi
+            SIZE=$(stat -c%s "$F")
+            echo "  $ABI: ${SIZE} bytes"
+            if [ "$SIZE" -lt "$MIN_BYTES" ]; then
+              echo "❌ SUSPICIOUSLY SMALL: $ABI ($SIZE bytes) — likely a stub/failed build, not a real artifact"
+              FAIL=1
+            fi
+            if ! nm -D "$F" 2>/dev/null | grep -q "T "; then
+              echo "❌ NO EXPORTED SYMBOLS: $ABI — link likely produced a dead/empty lib"
+              FAIL=1
+            fi
+          done
+          # arm64-v8a specifically gates every modern device (Samsung A13, etc.) — hard-fail if missing/bad.
+          [ "$FAIL" = "1" ] && { echo "❌ Android artifact verification failed."; exit 1; }
+          echo "✅ All 3 ABIs present and sane."
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-android
+          path: rust_lib/projectile_core/android-out/
+          retention-days: 1
+
+  # ── iOS (device + simulator) ─────────────────────────────────────────────────
+  build-ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+      - working-directory: rust_lib/projectile_core
+        run: |
+          cargo build --release --target aarch64-apple-ios
+          cargo build --release --target aarch64-apple-ios-sim
+          cargo build --release --target x86_64-apple-ios
+          lipo -create \
+            target/aarch64-apple-ios-sim/release/libprojectile_core.a \
+            target/x86_64-apple-ios/release/libprojectile_core.a \
+            -output libprojectile_core_sim.a
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-ios-device
+          path: rust_lib/projectile_core/target/aarch64-apple-ios/release/libprojectile_core.a
+          retention-days: 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-ios-sim
+          path: rust_lib/projectile_core/libprojectile_core_sim.a
+          retention-days: 1
+
+  # ── WebGL (wasm32-unknown-emscripten) ────────────────────────────────────────
+  build-webgl:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Emscripten SDK
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.59
+          no-cache: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-emscripten
+      - name: Build staticlib for Unity WebGL
+        working-directory: rust_lib/projectile_core
+        run: |
+          cargo rustc \
+            --lib \
+            --profile release-wasm \
+            --target wasm32-unknown-emscripten \
+            --crate-type staticlib
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-webgl
+          path: rust_lib/projectile_core/target/wasm32-unknown-emscripten/release-wasm/libprojectile_core.a
+          retention-days: 1
+
+  # ── Commit all built libs into the Unity package ─────────────────────────────
+  commit-to-repo:
+    needs: [build-macos, build-windows, build-linux, build-android, build-ios, build-webgl]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with: { name: native-macos, path: dl/macos }
+        continue-on-error: true
+      - uses: actions/download-artifact@v4
+        with: { name: native-windows, path: dl/windows }
+        continue-on-error: true
+      - uses: actions/download-artifact@v4
+        with: { name: native-linux, path: dl/linux }
+        continue-on-error: true
+
+      # Android is NOT optional — required() means the job hard-fails if this
+      # download fails, instead of silently leaving stale libs committed.
+      - uses: actions/download-artifact@v4
+        with: { name: native-android, path: dl/android }
+
+      - uses: actions/download-artifact@v4
+        with: { name: native-ios-device, path: dl/ios-device }
+        continue-on-error: true
+      - uses: actions/download-artifact@v4
+        with: { name: native-ios-sim, path: dl/ios-sim }
+        continue-on-error: true
+      - uses: actions/download-artifact@v4
+        with: { name: native-webgl, path: dl/webgl }
+        continue-on-error: true
+
+      - name: Copy libs into package + generate/validate .meta
+        run: |
+          set -e
+          PLUG=packages/com.midmanstudio.projectilesystem/Runtime/Plugins/Native
+          CORRUPT=0
+
+          copy_if() {
+            [ -f "$1" ] && { mkdir -p "$(dirname "$2")"; cp "$1" "$2"; echo "copied $2"; } || echo "missing $1"
+          }
+
+          gen_guid() { python3 -c "import uuid; print(uuid.uuid4().hex)"; }
+
+          fail_on_corruption() {
+            local f="$1"
+            [ -f "$f" ] || return 0
+            if grep -q "^      : Any" "$f"; then
+              echo "❌ CORRUPTED META (duplicate legacy platformData block): $f"
+              echo "   This is the known Unity-editor duplicate-key import crash. Fix by hand — CI will not overwrite it for you."
+              CORRUPT=1
+            fi
+          }
+
+          # Standalone-platform lib (macOS/Windows/Linux). editor_on: 1 = also load in Editor.
+          write_desktop_meta() {
+            local so="$1" os="$2" editor_on="$3" meta="${1}.meta"
+            fail_on_corruption "$meta"
+            [ -f "$meta" ] && return 0
+            [ -f "$so" ] || return 0
+            local guid; guid=$(gen_guid)
+            cat > "$meta" <<EOF
+          fileFormatVersion: 2
+          guid: $guid
+          PluginImporter:
+            externalObjects: {}
+            serializedVersion: 2
+            iconMap: {}
+            executionOrder: {}
+            defineConstraints: []
+            isPreloaded: 0
+            isOverridable: 1
+            isExplicitlyReferenced: 0
+            validateReferences: 1
+            platformData:
+            - first:
+                Any: 
+              second:
+                enabled: 0
+                settings: {}
+            - first:
+                Editor: Editor
+              second:
+                enabled: $editor_on
+                settings:
+                  DefaultValueInitialized: true
+            - first:
+                Standalone: $os
+              second:
+                enabled: 1
+                settings:
+                  CPU: AnyCPU
+            userData: 
+            assetBundleName: 
+            assetBundleVariant: 
+          EOF
+            echo "generated $meta"
+          }
+
+          write_android_meta() {
+            local so="$1" cpu="$2" meta="${1}.meta"
+            fail_on_corruption "$meta"
+            [ -f "$meta" ] && return 0
+            [ -f "$so" ] || return 0
+            local guid; guid=$(gen_guid)
+            cat > "$meta" <<EOF
+          fileFormatVersion: 2
+          guid: $guid
+          PluginImporter:
+            externalObjects: {}
+            serializedVersion: 2
+            iconMap: {}
+            executionOrder: {}
+            defineConstraints: []
+            isPreloaded: 0
+            isOverridable: 1
+            isExplicitlyReferenced: 0
+            validateReferences: 1
+            platformData:
+            - first:
+                Any: 
+              second:
+                enabled: 0
+                settings: {}
+            - first:
+                Editor: Editor
+              second:
+                enabled: 0
+                settings:
+                  DefaultValueInitialized: true
+            - first:
+                Android: Android
+              second:
+                enabled: 1
+                settings:
+                  CPU: $cpu
+            userData: 
+            assetBundleName: 
+            assetBundleVariant: 
+          EOF
+            echo "generated $meta"
+          }
+
+          write_simple_meta() {
+            local so="$1" platform="$2" meta="${1}.meta"
+            fail_on_corruption "$meta"
+            [ -f "$meta" ] && return 0
+            [ -f "$so" ] || return 0
+            local guid; guid=$(gen_guid)
+            cat > "$meta" <<EOF
+          fileFormatVersion: 2
+          guid: $guid
+          PluginImporter:
+            externalObjects: {}
+            serializedVersion: 2
+            iconMap: {}
+            executionOrder: {}
+            defineConstraints: []
+            isPreloaded: 0
+            isOverridable: 1
+            isExplicitlyReferenced: 0
+            validateReferences: 1
+            platformData:
+            - first:
+                Any: 
+              second:
+                enabled: 0
+                settings: {}
+            - first:
+                Editor: Editor
+              second:
+                enabled: 0
+                settings:
+                  DefaultValueInitialized: true
+            - first:
+                $platform: $platform
+              second:
+                enabled: 1
+                settings: {}
+            userData: 
+            assetBundleName: 
+            assetBundleVariant: 
+          EOF
+            echo "generated $meta"
+          }
+
+          # existing .meta corruption check runs even for files we don't touch below
+          find "$PLUG" -name "*.meta" 2>/dev/null | while read -r f; do fail_on_corruption "$f"; done
+
+          copy_if dl/macos/libprojectile_core.dylib "$PLUG/macOS/libprojectile_core.dylib"
+          write_desktop_meta "$PLUG/macOS/libprojectile_core.dylib" OSXUniversal 1
+
+          copy_if dl/windows/projectile_core.dll "$PLUG/Windows/projectile_core.dll"
+          write_desktop_meta "$PLUG/Windows/projectile_core.dll" Win64 1
+
+          copy_if dl/linux/libprojectile_core.so "$PLUG/Linux/libprojectile_core.so"
+          write_desktop_meta "$PLUG/Linux/libprojectile_core.so" Linux64 0   # Editor OFF — CI-only, avoids the dlclose/TLS segfault-on-quit bug
+
+          declare -A CPUMAP=( [arm64-v8a]=ARM64 [armeabi-v7a]=ARMv7 [x86_64]=X86_64 )
+          MISSING_REQUIRED=0
+          for ABI in arm64-v8a armeabi-v7a x86_64; do
+            SRC="dl/android/$ABI/libprojectile_core.so"
+            DST="$PLUG/Android/$ABI/libprojectile_core.so"
+            if [ ! -f "$SRC" ]; then
+              echo "❌ REQUIRED Android ABI missing: $ABI"
+              [ "$ABI" = "arm64-v8a" ] && MISSING_REQUIRED=1   # this is what Samsung A13 and every modern device needs
+              continue
+            fi
+            copy_if "$SRC" "$DST"
+            write_android_meta "$DST" "${CPUMAP[$ABI]}"
+          done
+          [ "$MISSING_REQUIRED" = "1" ] && { echo "❌ arm64-v8a build missing — this breaks modern Android devices (A13 included). Failing."; exit 1; }
+
+          copy_if dl/ios-device/libprojectile_core.a "$PLUG/iOS/libprojectile_core.a"
+          write_simple_meta "$PLUG/iOS/libprojectile_core.a" iOS
+          copy_if dl/ios-sim/libprojectile_core_sim.a "$PLUG/iOS/libprojectile_core_sim.a"
+          write_simple_meta "$PLUG/iOS/libprojectile_core_sim.a" iOS
+
+          copy_if dl/webgl/libprojectile_core.a "$PLUG/WebGL/libprojectile_core.a"
+          write_simple_meta "$PLUG/WebGL/libprojectile_core.a" WebGL
+
+          [ "$CORRUPT" = "1" ] && { echo "❌ One or more existing .meta files are corrupted — see above. Fix by hand before this can pass."; exit 1; }
+          echo "✅ Copy + meta generation complete."
+
+      - name: Commit
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add packages/com.midmanstudio.projectilesystem/Runtime/Plugins/Native/
+          git diff --staged --quiet && echo "no changes" || \
+            git commit -m "ci: rebuild native libs [skip ci]"
+          git push
