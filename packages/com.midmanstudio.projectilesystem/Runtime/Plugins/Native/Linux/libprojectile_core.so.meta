@@ -1,3 +1,4 @@
+
 fileFormatVersion: 2
 guid: 55a51ebdcd7ed429e9aa29bd5068523e
 PluginImporter:
@@ -14,7 +15,7 @@ PluginImporter:
   - first:
       Any: 
     second:
-      enabled: 1
+      enabled: 0
       settings: {}
   - first:
       Editor: Editor
@@ -22,6 +23,12 @@ PluginImporter:
       enabled: 0
       settings:
         DefaultValueInitialized: true
+  - first:
+      Standalone: Linux64
+    second:
+      enabled: 1
+      settings:
+        CPU: AnyCPU
   userData: 
   assetBundleName: 
-  assetBundleVariant: 
+  assetBundleVariant:
