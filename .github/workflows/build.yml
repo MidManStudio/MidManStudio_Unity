@@ -104,7 +104,7 @@ jobs:
       - name: Setup swap
         if: steps.gate.outputs.should_build == 'true'
         run: |
-          sudo dd if=/dev/zero of=/swapfile bs=1G count=4
+          sudo dd if=/dev/zero of=/swapfile bs=1G count=8
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
@@ -134,12 +134,11 @@ jobs:
           UNITY_EMAIL:    ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         with:
-          # Point at PackageSandbox which is the actual Unity project
           projectPath: PackageSandbox
           targetPlatform: ${{ matrix.targetPlatform }}
           unityVersion: 2022.3.13f1
           buildName: PackageSandbox
-          customParameters: -disable-assembly-updater
+          customParameters: -disable-assembly-updater -maxConcurrentShaderCompilers 1
 
       - name: Upload
         if: steps.gate.outputs.should_build == 'true' && success()
