@@ -6,8 +6,8 @@
 # ── Platform support ──────────────────────────────────────────────────────────
 #   macOS    : universal x86_64 + arm64 dylib  (lipo merged)
 #   Windows  : x64 DLL via MinGW cross-compile
-#   Linux    : x64 .so
-#   Android  : arm64-v8a, armeabi-v7a, x86_64  (via cargo-ndk)
+#   Linux    : x64 .so  (Editor-compat OFF — CI-only, avoids dlclose/TLS segfault on Unity quit)
+#   Android  : arm64-v8a, armeabi-v7a, x86_64  (via cargo-ndk), size/symbol-validated
 #   iOS      : device arm64 .a  +  simulator fat .a  (arm64-sim + x86_64)
 #   WebGL    : NOT SUPPORTED — Unity WebGL uses the Web Audio API; there is
 #              no OnAudioFilterRead native callback path available. Skip.
@@ -25,7 +25,7 @@ name: Build mid_audio Native Libs
 
 on:
   push:
-    branches: [main]
+    branches: [master]
     paths:
       - 'rust_lib/mid_audio/**'
   workflow_dispatch:
@@ -37,11 +37,9 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-apple-darwin,aarch64-apple-darwin
-
       - name: Cache cargo
         uses: actions/cache@v3
         with:
@@ -52,7 +50,6 @@ jobs:
             rust_lib/mid_audio/target/
           key: audio-macos-${{ hashFiles('rust_lib/mid_audio/Cargo.toml') }}
           restore-keys: audio-macos-
-
       - name: Build universal dylib
         working-directory: rust_lib/mid_audio
         run: |
@@ -62,7 +59,6 @@ jobs:
             target/x86_64-apple-darwin/release/libmid_audio.dylib \
             target/aarch64-apple-darwin/release/libmid_audio.dylib \
             -output libmid_audio.dylib
-
       - uses: actions/upload-artifact@v4
         with:
           name: audio-macos
@@ -74,13 +70,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-gnu
-
       - run: sudo apt-get install -y gcc-mingw-w64-x86-64
-
       - name: Configure MinGW linker
         run: |
           mkdir -p ~/.cargo
@@ -88,7 +81,6 @@ jobs:
           [target.x86_64-pc-windows-gnu]
           linker = "x86_64-w64-mingw32-gcc"
           EOF
-
       - name: Cache cargo
         uses: actions/cache@v3
         with:
@@ -99,11 +91,9 @@ jobs:
             rust_lib/mid_audio/target/
           key: audio-windows-${{ hashFiles('rust_lib/mid_audio/Cargo.toml') }}
           restore-keys: audio-windows-
-
       - name: Build
         working-directory: rust_lib/mid_audio
         run: cargo build --release --target x86_64-pc-windows-gnu
-
       - uses: actions/upload-artifact@v4
         with:
           name: audio-windows
@@ -116,7 +106,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-
       - name: Cache cargo
         uses: actions/cache@v3
         with:
@@ -127,10 +116,8 @@ jobs:
             rust_lib/mid_audio/target/
           key: audio-linux-${{ hashFiles('rust_lib/mid_audio/Cargo.toml') }}
           restore-keys: audio-linux-
-
       - working-directory: rust_lib/mid_audio
         run: cargo build --release
-
       - uses: actions/upload-artifact@v4
         with:
           name: audio-linux
@@ -142,19 +129,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
-
       - run: cargo install cargo-ndk --version "^3" --locked
-
       - name: Locate NDK
         run: |
           NDK="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_ROOT:-}}"
           [ -z "$NDK" ] && NDK=$(ls -d /usr/local/lib/android/sdk/ndk/* 2>/dev/null | sort -V | tail -1)
+          [ -z "$NDK" ] && { echo "❌ Android NDK not found on runner"; exit 1; }
           echo "ANDROID_NDK_HOME=$NDK" >> $GITHUB_ENV
-
+          echo "Using NDK: $NDK"
       - name: Cache cargo
         uses: actions/cache@v3
         with:
@@ -165,13 +150,37 @@ jobs:
             rust_lib/mid_audio/target/
           key: audio-android-${{ hashFiles('rust_lib/mid_audio/Cargo.toml') }}
           restore-keys: audio-android-
-
-      - working-directory: rust_lib/mid_audio
+      - name: Build all ABIs
+        working-directory: rust_lib/mid_audio
         run: |
+          set -e
           cargo ndk -t arm64-v8a   -o ./android-out build --release
           cargo ndk -t armeabi-v7a -o ./android-out build --release
           cargo ndk -t x86_64      -o ./android-out build --release
-
+      - name: Verify ABI outputs (catch stub/broken builds)
+        working-directory: rust_lib/mid_audio
+        run: |
+          set -e
+          MIN_BYTES=51200
+          FAIL=0
+          for ABI in arm64-v8a armeabi-v7a x86_64; do
+            F="android-out/$ABI/libmid_audio.so"
+            if [ ! -f "$F" ]; then
+              echo "❌ MISSING: $ABI — libmid_audio.so was not produced"
+              FAIL=1; continue
+            fi
+            SIZE=$(stat -c%s "$F")
+            echo "  $ABI: ${SIZE} bytes"
+            if [ "$SIZE" -lt "$MIN_BYTES" ]; then
+              echo "❌ SUSPICIOUSLY SMALL: $ABI ($SIZE bytes) — likely a stub/failed build"
+              FAIL=1
+            fi
+            for SYM in process_buffer set_limiter_params get_limiter_gain reset_limiter; do
+              nm -D "$F" 2>/dev/null | grep -q "$SYM" || { echo "❌ Missing expected symbol '$SYM' in $ABI"; FAIL=1; }
+            done
+          done
+          [ "$FAIL" = "1" ] && { echo "❌ Android artifact verification failed."; exit 1; }
+          echo "✅ All 3 ABIs present, sized correctly, and export the expected symbols."
       - uses: actions/upload-artifact@v4
         with:
           name: audio-android
@@ -183,11 +192,9 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
-
       - name: Cache cargo
         uses: actions/cache@v3
         with:
@@ -198,7 +205,6 @@ jobs:
             rust_lib/mid_audio/target/
           key: audio-ios-${{ hashFiles('rust_lib/mid_audio/Cargo.toml') }}
           restore-keys: audio-ios-
-
       - working-directory: rust_lib/mid_audio
         run: |
           cargo build --release --target aarch64-apple-ios
@@ -208,13 +214,11 @@ jobs:
             target/aarch64-apple-ios-sim/release/libmid_audio.a \
             target/x86_64-apple-ios/release/libmid_audio.a \
             -output libmid_audio_sim.a
-
       - uses: actions/upload-artifact@v4
         with:
           name: audio-ios-device
           path: rust_lib/mid_audio/target/aarch64-apple-ios/release/libmid_audio.a
           retention-days: 1
-
       - uses: actions/upload-artifact@v4
         with:
           name: audio-ios-sim
@@ -232,46 +236,213 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: actions/download-artifact@v4
-        with: { name: audio-macos,      path: dl/macos }
+        with: { name: audio-macos, path: dl/macos }
+        continue-on-error: true
+      - uses: actions/download-artifact@v4
+        with: { name: audio-windows, path: dl/windows }
+        continue-on-error: true
+      - uses: actions/download-artifact@v4
+        with: { name: audio-linux, path: dl/linux }
         continue-on-error: true
 
+      # Android is required — no continue-on-error. If build-android failed,
+      # this download fails and the job stops instead of silently no-op'ing.
       - uses: actions/download-artifact@v4
-        with: { name: audio-windows,    path: dl/windows }
-        continue-on-error: true
-
-      - uses: actions/download-artifact@v4
-        with: { name: audio-linux,      path: dl/linux }
-        continue-on-error: true
-
-      - uses: actions/download-artifact@v4
-        with: { name: audio-android,    path: dl/android }
-        continue-on-error: true
+        with: { name: audio-android, path: dl/android }
 
       - uses: actions/download-artifact@v4
         with: { name: audio-ios-device, path: dl/ios-device }
         continue-on-error: true
-
       - uses: actions/download-artifact@v4
-        with: { name: audio-ios-sim,    path: dl/ios-sim }
+        with: { name: audio-ios-sim, path: dl/ios-sim }
         continue-on-error: true
 
-      - name: Copy libs into utilities package
+      - name: Copy libs into utilities package + generate/validate .meta
         run: |
+          set -e
+          PLUG=packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio
+          CORRUPT=0
+
           copy_if() {
             [ -f "$1" ] && { mkdir -p "$(dirname "$2")"; cp "$1" "$2"; echo "copied $2"; } || echo "missing: $1"
           }
-          PLUG=packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio
 
-          copy_if dl/macos/libmid_audio.dylib          "$PLUG/macOS/libmid_audio.dylib"
-          copy_if dl/windows/mid_audio.dll              "$PLUG/Windows/mid_audio.dll"
-          copy_if dl/linux/libmid_audio.so              "$PLUG/Linux/libmid_audio.so"
+          gen_guid() { python3 -c "import uuid; print(uuid.uuid4().hex)"; }
 
+          fail_on_corruption() {
+            local f="$1"
+            [ -f "$f" ] || return 0
+            if grep -q "^      : Any" "$f"; then
+              echo "❌ CORRUPTED META (duplicate legacy platformData block): $f"
+              echo "   Known Unity duplicate-key import crash. Fix by hand — CI will not overwrite it for you."
+              CORRUPT=1
+            fi
+          }
+
+          write_desktop_meta() {
+            local so="$1" os="$2" editor_on="$3" meta="${1}.meta"
+            fail_on_corruption "$meta"
+            [ -f "$meta" ] && return 0
+            [ -f "$so" ] || return 0
+            local guid; guid=$(gen_guid)
+            cat > "$meta" <<EOF
+          fileFormatVersion: 2
+          guid: $guid
+          PluginImporter:
+            externalObjects: {}
+            serializedVersion: 2
+            iconMap: {}
+            executionOrder: {}
+            defineConstraints: []
+            isPreloaded: 0
+            isOverridable: 1
+            isExplicitlyReferenced: 0
+            validateReferences: 1
+            platformData:
+            - first:
+                Any: 
+              second:
+                enabled: 0
+                settings: {}
+            - first:
+                Editor: Editor
+              second:
+                enabled: $editor_on
+                settings:
+                  DefaultValueInitialized: true
+            - first:
+                Standalone: $os
+              second:
+                enabled: 1
+                settings:
+                  CPU: AnyCPU
+            userData: 
+            assetBundleName: 
+            assetBundleVariant: 
+          EOF
+            echo "generated $meta"
+          }
+
+          write_android_meta() {
+            local so="$1" cpu="$2" meta="${1}.meta"
+            fail_on_corruption "$meta"
+            [ -f "$meta" ] && return 0
+            [ -f "$so" ] || return 0
+            local guid; guid=$(gen_guid)
+            cat > "$meta" <<EOF
+          fileFormatVersion: 2
+          guid: $guid
+          PluginImporter:
+            externalObjects: {}
+            serializedVersion: 2
+            iconMap: {}
+            executionOrder: {}
+            defineConstraints: []
+            isPreloaded: 0
+            isOverridable: 1
+            isExplicitlyReferenced: 0
+            validateReferences: 1
+            platformData:
+            - first:
+                Any: 
+              second:
+                enabled: 0
+                settings: {}
+            - first:
+                Editor: Editor
+              second:
+                enabled: 0
+                settings:
+                  DefaultValueInitialized: true
+            - first:
+                Android: Android
+              second:
+                enabled: 1
+                settings:
+                  CPU: $cpu
+            userData: 
+            assetBundleName: 
+            assetBundleVariant: 
+          EOF
+            echo "generated $meta"
+          }
+
+          write_simple_meta() {
+            local so="$1" platform="$2" meta="${1}.meta"
+            fail_on_corruption "$meta"
+            [ -f "$meta" ] && return 0
+            [ -f "$so" ] || return 0
+            local guid; guid=$(gen_guid)
+            cat > "$meta" <<EOF
+          fileFormatVersion: 2
+          guid: $guid
+          PluginImporter:
+            externalObjects: {}
+            serializedVersion: 2
+            iconMap: {}
+            executionOrder: {}
+            defineConstraints: []
+            isPreloaded: 0
+            isOverridable: 1
+            isExplicitlyReferenced: 0
+            validateReferences: 1
+            platformData:
+            - first:
+                Any: 
+              second:
+                enabled: 0
+                settings: {}
+            - first:
+                Editor: Editor
+              second:
+                enabled: 0
+                settings:
+                  DefaultValueInitialized: true
+            - first:
+                $platform: $platform
+              second:
+                enabled: 1
+                settings: {}
+            userData: 
+            assetBundleName: 
+            assetBundleVariant: 
+          EOF
+            echo "generated $meta"
+          }
+
+          find "$PLUG" -name "*.meta" 2>/dev/null | while read -r f; do fail_on_corruption "$f"; done
+
+          copy_if dl/macos/libmid_audio.dylib "$PLUG/macOS/libmid_audio.dylib"
+          write_desktop_meta "$PLUG/macOS/libmid_audio.dylib" OSXUniversal 1
+
+          copy_if dl/windows/mid_audio.dll "$PLUG/Windows/mid_audio.dll"
+          write_desktop_meta "$PLUG/Windows/mid_audio.dll" Win64 1
+
+          copy_if dl/linux/libmid_audio.so "$PLUG/Linux/libmid_audio.so"
+          write_desktop_meta "$PLUG/Linux/libmid_audio.so" Linux64 0   # Editor OFF — CI-only, avoids dlclose/TLS segfault on Unity quit
+
+          declare -A CPUMAP=( [arm64-v8a]=ARM64 [armeabi-v7a]=ARMv7 [x86_64]=X86_64 )
+          MISSING_REQUIRED=0
           for ABI in arm64-v8a armeabi-v7a x86_64; do
-            copy_if "dl/android/$ABI/libmid_audio.so"  "$PLUG/Android/$ABI/libmid_audio.so"
+            SRC="dl/android/$ABI/libmid_audio.so"
+            DST="$PLUG/Android/$ABI/libmid_audio.so"
+            if [ ! -f "$SRC" ]; then
+              echo "❌ REQUIRED Android ABI missing: $ABI"
+              [ "$ABI" = "arm64-v8a" ] && MISSING_REQUIRED=1
+              continue
+            fi
+            copy_if "$SRC" "$DST"
+            write_android_meta "$DST" "${CPUMAP[$ABI]}"
           done
+          [ "$MISSING_REQUIRED" = "1" ] && { echo "❌ arm64-v8a build missing — this breaks modern Android devices (A13 included). Failing."; exit 1; }
 
-          copy_if dl/ios-device/libmid_audio.a          "$PLUG/iOS/libmid_audio.a"
-          copy_if dl/ios-sim/libmid_audio_sim.a         "$PLUG/iOS/libmid_audio_sim.a"
+          copy_if dl/ios-device/libmid_audio.a "$PLUG/iOS/libmid_audio.a"
+          write_simple_meta "$PLUG/iOS/libmid_audio.a" iOS
+          copy_if dl/ios-sim/libmid_audio_sim.a "$PLUG/iOS/libmid_audio_sim.a"
+          write_simple_meta "$PLUG/iOS/libmid_audio_sim.a" iOS
+
+          [ "$CORRUPT" = "1" ] && { echo "❌ One or more existing .meta files are corrupted — see above. Fix by hand before this can pass."; exit 1; }
+          echo "✅ Copy + meta generation complete."
 
       - name: Commit
         run: |
