@@ -3,11 +3,22 @@
 # Builds mid_audio native DSP library for all supported Unity platforms.
 # Mirrors build-rust-libs.yml exactly — same pattern, different crate.
 #
+# NOTE: no cargo/target caching on this crate. mid_audio is ~150 lines,
+# zero dependencies, and compiles in under 10s per target even with
+# lto=true + codegen-units=1. A previous version of this workflow cached
+# `target/` keyed only on Cargo.toml — which meant a `restore-keys` prefix
+# fallback could silently restore a build of an OLD version of this crate
+# (from before the v1 PCM-bank -> v2 limiter-only rewrite) whenever the
+# exact cache key missed. That produced 300KB+ "stale" .so files on
+# arm64-v8a/x86_64 that looked fine (correct symbol names, plausible size)
+# but were running old code. Not worth the risk for a build this fast —
+# just build clean every time.
+#
 # ── Platform support ──────────────────────────────────────────────────────────
 #   macOS    : universal x86_64 + arm64 dylib  (lipo merged)
 #   Windows  : x64 DLL via MinGW cross-compile
 #   Linux    : x64 .so  (Editor-compat OFF — CI-only, avoids dlclose/TLS segfault on Unity quit)
-#   Android  : arm64-v8a, armeabi-v7a, x86_64  (via cargo-ndk), size/symbol-validated
+#   Android  : arm64-v8a, armeabi-v7a, x86_64  (via cargo-ndk), symbol-validated
 #   iOS      : device arm64 .a  +  simulator fat .a  (arm64-sim + x86_64)
 #   WebGL    : NOT SUPPORTED — Unity WebGL uses the Web Audio API; there is
 #              no OnAudioFilterRead native callback path available. Skip.
@@ -40,16 +51,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-apple-darwin,aarch64-apple-darwin
-      - name: Cache cargo
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            rust_lib/mid_audio/target/
-          key: audio-macos-${{ hashFiles('rust_lib/mid_audio/Cargo.toml') }}
-          restore-keys: audio-macos-
       - name: Build universal dylib
         working-directory: rust_lib/mid_audio
         run: |
@@ -81,16 +82,6 @@ jobs:
           [target.x86_64-pc-windows-gnu]
           linker = "x86_64-w64-mingw32-gcc"
           EOF
-      - name: Cache cargo
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            rust_lib/mid_audio/target/
-          key: audio-windows-${{ hashFiles('rust_lib/mid_audio/Cargo.toml') }}
-          restore-keys: audio-windows-
       - name: Build
         working-directory: rust_lib/mid_audio
         run: cargo build --release --target x86_64-pc-windows-gnu
@@ -106,16 +97,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Cache cargo
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            rust_lib/mid_audio/target/
-          key: audio-linux-${{ hashFiles('rust_lib/mid_audio/Cargo.toml') }}
-          restore-keys: audio-linux-
       - working-directory: rust_lib/mid_audio
         run: cargo build --release
       - uses: actions/upload-artifact@v4
@@ -140,29 +121,22 @@ jobs:
           [ -z "$NDK" ] && { echo "❌ Android NDK not found on runner"; exit 1; }
           echo "ANDROID_NDK_HOME=$NDK" >> $GITHUB_ENV
           echo "Using NDK: $NDK"
-      - name: Cache cargo
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            rust_lib/mid_audio/target/
-          key: audio-android-${{ hashFiles('rust_lib/mid_audio/Cargo.toml') }}
-          restore-keys: audio-android-
-      - name: Build all ABIs
+      - name: Build all ABIs (clean, no cache)
         working-directory: rust_lib/mid_audio
         run: |
           set -e
           cargo ndk -t arm64-v8a   -o ./android-out build --release
           cargo ndk -t armeabi-v7a -o ./android-out build --release
           cargo ndk -t x86_64      -o ./android-out build --release
-      - name: Verify ABI outputs (catch stub/broken builds)
+      - name: Verify ABI outputs (symbol-set consistency, not raw size)
         working-directory: rust_lib/mid_audio
         run: |
           set -e
-          MIN_BYTES=51200
+          MIN_BYTES=500   # only catches literal zero/truncated files, not "small but correct"
+          EXPECTED_SYMS="process_buffer set_limiter_params set_limiter_enabled reset_limiter get_limiter_gain get_limiter_threshold mid_audio_version"
           FAIL=0
+          declare -A SYMSETS
+
           for ABI in arm64-v8a armeabi-v7a x86_64; do
             F="android-out/$ABI/libmid_audio.so"
             if [ ! -f "$F" ]; then
@@ -172,15 +146,29 @@ jobs:
             SIZE=$(stat -c%s "$F")
             echo "  $ABI: ${SIZE} bytes"
             if [ "$SIZE" -lt "$MIN_BYTES" ]; then
-              echo "❌ SUSPICIOUSLY SMALL: $ABI ($SIZE bytes) — likely a stub/failed build"
-              FAIL=1
+              echo "❌ TRUNCATED/EMPTY: $ABI ($SIZE bytes)"
+              FAIL=1; continue
             fi
-            for SYM in process_buffer set_limiter_params get_limiter_gain reset_limiter; do
-              nm -D "$F" 2>/dev/null | grep -q "$SYM" || { echo "❌ Missing expected symbol '$SYM' in $ABI"; FAIL=1; }
+
+            DEFINED=$(nm -D --defined-only "$F" 2>/dev/null | awk '{print $3}' | sort)
+            SYMSETS[$ABI]="$DEFINED"
+
+            for SYM in $EXPECTED_SYMS; do
+              echo "$DEFINED" | grep -qx "$SYM" || { echo "❌ $ABI missing exported symbol: $SYM"; FAIL=1; }
             done
           done
+
+          # All three ABIs must export the exact same set of functions —
+          # this is what actually distinguishes "small but correct" from "stub".
+          if [ -n "${SYMSETS[arm64-v8a]:-}" ] && [ -n "${SYMSETS[armeabi-v7a]:-}" ]; then
+            [ "${SYMSETS[arm64-v8a]}" = "${SYMSETS[armeabi-v7a]}" ] || { echo "❌ arm64-v8a/armeabi-v7a export different symbol sets"; FAIL=1; }
+          fi
+          if [ -n "${SYMSETS[arm64-v8a]:-}" ] && [ -n "${SYMSETS[x86_64]:-}" ]; then
+            [ "${SYMSETS[arm64-v8a]}" = "${SYMSETS[x86_64]}" ] || { echo "❌ arm64-v8a/x86_64 export different symbol sets"; FAIL=1; }
+          fi
+
           [ "$FAIL" = "1" ] && { echo "❌ Android artifact verification failed."; exit 1; }
-          echo "✅ All 3 ABIs present, sized correctly, and export the expected symbols."
+          echo "✅ All 3 ABIs present, export the identical expected symbol set. (Sizes may legitimately differ per-target and that's fine.)"
       - uses: actions/upload-artifact@v4
         with:
           name: audio-android
@@ -195,16 +183,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
-      - name: Cache cargo
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            rust_lib/mid_audio/target/
-          key: audio-ios-${{ hashFiles('rust_lib/mid_audio/Cargo.toml') }}
-          restore-keys: audio-ios-
       - working-directory: rust_lib/mid_audio
         run: |
           cargo build --release --target aarch64-apple-ios
@@ -245,8 +223,6 @@ jobs:
         with: { name: audio-linux, path: dl/linux }
         continue-on-error: true
 
-      # Android is required — no continue-on-error. If build-android failed,
-      # this download fails and the job stops instead of silently no-op'ing.
       - uses: actions/download-artifact@v4
         with: { name: audio-android, path: dl/android }
 
@@ -419,7 +395,7 @@ jobs:
           write_desktop_meta "$PLUG/Windows/mid_audio.dll" Win64 1
 
           copy_if dl/linux/libmid_audio.so "$PLUG/Linux/libmid_audio.so"
-          write_desktop_meta "$PLUG/Linux/libmid_audio.so" Linux64 0   # Editor OFF — CI-only, avoids dlclose/TLS segfault on Unity quit
+          write_desktop_meta "$PLUG/Linux/libmid_audio.so" Linux64 0
 
           declare -A CPUMAP=( [arm64-v8a]=ARM64 [armeabi-v7a]=ARMv7 [x86_64]=X86_64 )
           MISSING_REQUIRED=0
