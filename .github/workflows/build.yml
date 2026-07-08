@@ -148,6 +148,16 @@ jobs:
           path: build/${{ matrix.targetPlatform }}
           retention-days: 14
 
+      - name: Upload crash diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unity-crash-diagnostics-${{ matrix.targetPlatform }}-${{ github.run_number }}
+          path: |
+            ~/.local/share/unity3d/Editor/Crash.log
+            ~/.config/unity3d/Editor.log
+          retention-days: 3
+
       - name: Skipped
         if: steps.gate.outputs.should_build == 'false'
         run: echo "⏭️  ${{ matrix.targetPlatform }} not requested."
