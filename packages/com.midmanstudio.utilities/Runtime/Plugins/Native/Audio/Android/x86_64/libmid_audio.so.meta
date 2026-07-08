@@ -1,3 +1,4 @@
+
 fileFormatVersion: 2
 guid: 3e7cab3312c0141a2a5142725d95e170
 PluginImporter:
@@ -11,17 +12,6 @@ PluginImporter:
   isExplicitlyReferenced: 0
   validateReferences: 1
   platformData:
-  - first:
-      : Any
-    second:
-      enabled: 0
-      settings:
-        Exclude Android: 0
-        Exclude Editor: 0
-        Exclude Linux64: 0
-        Exclude OSXUniversal: 0
-        Exclude Win: 0
-        Exclude Win64: 0
   - first:
       Android: Android
     second:
@@ -68,4 +58,4 @@ PluginImporter:
         CPU: AnyCPU
   userData: 
   assetBundleName: 
-  assetBundleVariant: 
+  assetBundleVariant:
