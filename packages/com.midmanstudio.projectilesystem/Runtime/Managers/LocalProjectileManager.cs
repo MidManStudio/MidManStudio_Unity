@@ -1,4 +1,3 @@
-
 // MATH (derived from semi-implicit Euler, matching Rust simulation):
 //
 //   At snapshot tick T_snap, server position = (sx, sy).
@@ -651,7 +650,7 @@ namespace MidManStudio.Projectiles.Managers
             if (count <= 0) return;
 
             var rustParams = ProjectileRegistry.Instance.GetRustSpawnParams(conf.ConfigId, conf.Speed);
-            var spawnPts   = BuildSpawnPointsFromConfirmation(conf, count);
+            var spawnPts   = BuildSpawnPointsFromConfirmation(conf, false);
             var (writePtr, remaining) = GetWriteHead2D();
             int startIdx = _count2D;
             int written  = BatchSpawnHelper.SpawnBatch2D(
@@ -691,7 +690,7 @@ namespace MidManStudio.Projectiles.Managers
             if (count <= 0) return;
 
             var rustParams = ProjectileRegistry.Instance.GetRustSpawnParams(conf.ConfigId, conf.Speed);
-            var spawnPts   = BuildSpawnPointsFromConfirmation(conf, count);
+            var spawnPts   = BuildSpawnPointsFromConfirmation(conf, true);
             var (writePtr, remaining) = GetWriteHead3D();
             int startIdx = _count3D;
             int written  = BatchSpawnHelper.SpawnBatch3D(
@@ -737,6 +736,20 @@ namespace MidManStudio.Projectiles.Managers
                 if (!found)
                     for (int j = 0; j < _count3D; j++)
                         if (_projs3D[j].ProjId == tempId) { _projs3D[j].ProjId = realId; break; }
+
+                // BUG FIX: TrailObjectPool._projToSlot is keyed by ProjId and was
+                // populated under tempId by earlier SyncToSimulation calls (this
+                // projectile has been live and trailing since the instant local
+                // fire, well before the server confirmed). Without this relink, the
+                // very next SyncToSimulation tick looks up the now-swapped realId,
+                // misses, and acquires a brand-new trail slot from scratch — which
+                // is exactly the trail streak / "small sync" hitch on fan/16
+                // continuous fire: the old slot is orphaned (never released, since
+                // NotifyDead will only ever fire with realId), and it leaks one
+                // slot per pellet per shot until the pool runs dry. Re-keying here
+                // instead of re-acquiring means the same trail continues under its
+                // new id with zero visual discontinuity, and nothing leaks.
+                _trailPool?.RelinkProjectileId(tempId, realId);
             }
         }
 
@@ -1047,18 +1060,17 @@ namespace MidManStudio.Projectiles.Managers
             return (ptr, _maxProjectiles3D - _count3D);
         }
 
-        private static SpawnPoint[] BuildSpawnPointsFromConfirmation(
-            SpawnConfirmation conf, int count)
+        private static SpawnPoint[] BuildSpawnPointsFromConfirmation(SpawnConfirmation conf, bool is3D)
         {
-            var pts = new SpawnPoint[count];
-            for (int i = 0; i < count; i++)
-                pts[i] = new SpawnPoint
-                {
-                    Origin    = conf.Origin,
-                    Direction = conf.GetDirection(i).normalized,
-                    Speed     = conf.Speed
-                };
-            return pts;
+            // conf.ProjectileCount (not the caller's buffer-clamped local count) is
+            // what drives spread-fallback determinism here — it's the same value the
+            // firing client used to build its own SpreadDeg geometry. Buffer-space
+            // clamping still happens downstream, in BatchSpawnHelper.SpawnBatch2D/3D's
+            // own `count` parameter, so a pattern's full natural pellet array is safe
+            // to return here even when the local buffer has less room left.
+            return ProjectileDirectionResolver.Resolve(
+                conf.PatternId, conf.Origin, conf.Direction,
+                conf.ProjectileCount, conf.SpreadDeg, conf.Speed, is3D);
         }
 
         #endregion
