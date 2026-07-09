@@ -560,16 +560,24 @@ namespace TestGame
                           && MID_MasterProjectileSystem.Instance.IsNetworked
                           && IsSpawned;
 
+            // patternId 0 means "no pattern" on the wire — ProjectilePatternRegistry
+            // reserves 0 specifically so this needs no separate bool field. _shotPattern's
+            // own PatternId is cached by ProjectilePatternRegistry.Register() at startup
+            // (mirrors ProjectileConfigSO.ConfigId), so this is just a field read, not a
+            // lookup, and it's zero for the un-registered/no-pattern case for free.
+            ushort patternId = _shotPattern != null ? _shotPattern.PatternId : (ushort)0;
+
             // FIX: Build WeaponFireContext and call Fire().
             //   LocalOnly / offline → FireLocal → LocalProjectileManager.Spawn2D/3D
             //   Networked client    → FireNetworkedSim → SpawnFiringClientBatch + FireServerRpc
             //   Networked host      → FireNetworkedSim → skip local spawn + FireServerRpc
             // The master system now handles the full flow — no manual RPC call needed here.
             //
-            // KNOWN LIMITATION (flagged, not silently papered over): FireNetworkedSim caps
-            // the wire request at 64 total directions (1 primary + 63 extra). Patterns/pellet
-            // counts above 64 will render fully here on the firing client but collapse onto
-            // the primary direction once confirmed server-side / seen by other clients.
+            // Wire cap removed: FireNetworkedSim no longer transmits raw directions at all
+            // for pattern fire, so there's no 64-pellet ceiling to collapse onto the primary
+            // direction anymore — patternId is the only thing that crosses the network, and
+            // every recipient (server + every other client) regenerates the full pellet set
+            // itself via ProjectileDirectionResolver against the same registered pattern asset.
             var context = new WeaponFireContext
             {
                 FireRate               = _fireRate,
@@ -583,7 +591,8 @@ namespace TestGame
                 DamageMultiplier       = 1f
             };
 
-            MID_MasterProjectileSystem.Instance.Fire(cfgId, pts, pts.Length, context);
+            MID_MasterProjectileSystem.Instance.Fire(
+                cfgId, pts, pts.Length, context, patternId, _spreadDeg);
         }
 
         #endregion
