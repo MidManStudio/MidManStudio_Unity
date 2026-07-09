@@ -1,4 +1,3 @@
-
 using System;
 using UnityEngine;
 #if UNITY_EDITOR
@@ -32,6 +31,11 @@ namespace MidManStudio.Projectiles.Config
         order     = 11)]
     public class ProjectilePatternSO : ScriptableObject
     {
+        // Session-stable id assigned by ProjectilePatternRegistry.Register().
+        // Mirrors ProjectileConfigSO.ConfigId. 0 = unregistered / "no pattern"
+        // wire sentinel — do not rely on this before registration has run.
+        [HideInInspector] public ushort PatternId;
+
         [Header("Pattern Shape")]
         [SerializeField] private PatternShape _shape = PatternShape.Spline;
         public PatternShape Shape => _shape;
