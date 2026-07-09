@@ -1,4 +1,3 @@
-
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -20,41 +19,40 @@ namespace MidManStudio.Projectiles.Network
         public Vector3 Origin;
         public Vector3 Direction;
         public float   Speed;
-        public uint    RngSeed;
         public byte    ProjectileCount;
+        public ushort  PatternId;    // 0 = no pattern (simple spread / single direction)
+        public float   SpreadDeg;    // only meaningful when PatternId == 0 and ProjectileCount > 1
         public ulong   OwnerMidId;
         public ulong   FiredByNetworkObjectId;
         public bool    IsBotOwner;
         public byte    WeaponLevel;
         public float   DamageMultiplier;
         public int     ClientFireTick;
-        public byte      ExtraDirectionCount;
-        public Vector3[] ExtraDirections;
 
+        // NOTE: no direction/speed arrays here, and no RngSeed either — the old
+        // RngSeed field was populated with a fresh UnityEngine.Random.Range() every
+        // shot but never actually read back out server-side (grep confirms zero
+        // reads anywhere in Runtime/); it was dead weight. Direction and per-pellet
+        // speed are regenerated on every recipient via
+        // ProjectileDirectionResolver.Resolve(), which for pattern fire reads the
+        // pattern asset's own fixed RngSeed property — the exact same value the
+        // firing client's local predicted visual already uses. This struct is now
+        // fixed-size (~59 bytes) regardless of pellet count or pattern complexity.
         public void NetworkSerialize<T>(BufferSerializer<T> s) where T : IReaderWriter
         {
             s.SerializeValue(ref ConfigId);
             s.SerializeValue(ref Origin);
             s.SerializeValue(ref Direction);
             s.SerializeValue(ref Speed);
-            s.SerializeValue(ref RngSeed);
             s.SerializeValue(ref ProjectileCount);
+            s.SerializeValue(ref PatternId);
+            s.SerializeValue(ref SpreadDeg);
             s.SerializeValue(ref OwnerMidId);
             s.SerializeValue(ref FiredByNetworkObjectId);
             s.SerializeValue(ref IsBotOwner);
             s.SerializeValue(ref WeaponLevel);
             s.SerializeValue(ref DamageMultiplier);
             s.SerializeValue(ref ClientFireTick);
-            s.SerializeValue(ref ExtraDirectionCount);
-            if (s.IsReader)
-                ExtraDirections = ExtraDirectionCount > 0 ? new Vector3[ExtraDirectionCount] : null;
-            for (int i = 0; i < ExtraDirectionCount; i++)
-            {
-                Vector3 d = (s.IsWriter && ExtraDirections != null && i < ExtraDirections.Length)
-                    ? ExtraDirections[i] : Vector3.zero;
-                s.SerializeValue(ref d);
-                if (s.IsReader && ExtraDirections != null) ExtraDirections[i] = d;
-            }
         }
     }
 
@@ -68,8 +66,8 @@ namespace MidManStudio.Projectiles.Network
         public Vector3 Direction;
         public float   Speed;
         public ulong   OwnerMidId;
-        public byte      ExtraDirectionCount;
-        public Vector3[] ExtraDirections;
+        public ushort  PatternId;    // mirrors ProjectileFireRequest.PatternId
+        public float   SpreadDeg;    // mirrors ProjectileFireRequest.SpreadDeg
 
         /// <summary>
         /// Server-authoritative NetworkTime.TimeAsFloat at spawn.
@@ -88,26 +86,16 @@ namespace MidManStudio.Projectiles.Network
             s.SerializeValue(ref Direction);
             s.SerializeValue(ref Speed);
             s.SerializeValue(ref OwnerMidId);
-            s.SerializeValue(ref ExtraDirectionCount);
-            if (s.IsReader)
-                ExtraDirections = ExtraDirectionCount > 0 ? new Vector3[ExtraDirectionCount] : null;
-            for (int i = 0; i < ExtraDirectionCount; i++)
-            {
-                Vector3 d = (s.IsWriter && ExtraDirections != null && i < ExtraDirections.Length)
-                    ? ExtraDirections[i] : Vector3.zero;
-                s.SerializeValue(ref d);
-                if (s.IsReader && ExtraDirections != null) ExtraDirections[i] = d;
-            }
+            s.SerializeValue(ref PatternId);
+            s.SerializeValue(ref SpreadDeg);
             s.SerializeValue(ref ServerNetworkTime);
         }
 
-        public Vector3 GetDirection(int i)
-        {
-            if (i == 0) return Direction;
-            int extra = i - 1;
-            return (ExtraDirections != null && extra < ExtraDirections.Length)
-                ? ExtraDirections[extra] : Direction;
-        }
+        // GetDirection(i) is gone — direction expansion now always goes through
+        // ProjectileDirectionResolver.Resolve(PatternId, ..., ProjectileCount,
+        // SpreadDeg, ...) so every recipient regenerates the full pellet set the
+        // same way instead of indexing into a transmitted array. See
+        // LocalProjectileManager.BuildSpawnPointsFromConfirmation.
     }
 
     public struct HitConfirmation : INetworkSerializable
@@ -144,6 +132,12 @@ namespace MidManStudio.Projectiles.Network
         #endregion
 
         public event Action<HitConfirmation> OnHitConfirmedLocal;
+
+        // Independent of any pattern's own count — just a sanity ceiling so a
+        // corrupt/hostile ProjectileCount can't be used to over-allocate proj IDs
+        // or spam the batch buffer. Comfortably above the pattern SO's own
+        // [Range(1,64)] ProjectileCount ceiling.
+        private const int MaxProjectileCountSanity = 128;
 
         [SerializeField] private MID_LogLevel _logLevel = MID_LogLevel.Info;
 
@@ -248,10 +242,27 @@ namespace MidManStudio.Projectiles.Network
             float clampedSpeed = Mathf.Clamp(request.Speed, cfg.MinSpeed, cfg.MaxSpeed);
             float latencyComp  = ComputeLatencyComp(rpcParams, request.ClientFireTick);
 
-            var spawnPts     = BuildServerSpawnPoints(request);
+            // Server-authoritative direction/speed regeneration. For pattern fire
+            // (PatternId != 0) this reads only the pattern asset's own baked data —
+            // nothing the client sent can influence the actual pellet directions or
+            // speeds beyond which registered pattern/spread it asked for. Also drop
+            // any request whose declared ProjectileCount can't possibly be honest
+            // (a config-max sanity check independent of pattern mechanics).
+            if (request.ProjectileCount == 0 || request.ProjectileCount > MaxProjectileCountSanity)
+            {
+                MID_Logger.LogWarning(_logLevel,
+                    $"FireServerRpc: rejected ProjectileCount {request.ProjectileCount} for configId {request.ConfigId}",
+                    nameof(MID_ProjectileNetworkBridge));
+                return;
+            }
+
+            var spawnPts = ProjectileDirectionResolver.Resolve(
+                request.PatternId, request.Origin, request.Direction,
+                request.ProjectileCount, request.SpreadDeg, clampedSpeed, cfg.Is3D);
+
             var rustParams   = ProjectileRegistry.Instance.GetRustSpawnParams(
                 request.ConfigId, clampedSpeed);
-            uint baseId      = Authority.AllocateProjIds(request.ProjectileCount);
+            uint baseId      = Authority.AllocateProjIds(spawnPts.Length);
             var dataTemplate = new ServerProjectileData(
                 request.OwnerMidId, request.FiredByNetworkObjectId,
                 request.IsBotOwner, request.WeaponLevel,
@@ -263,7 +274,7 @@ namespace MidManStudio.Projectiles.Network
             {
                 var (ptr, rem) = Authority.Get2DWriteHead();
                 written = BatchSpawnHelper.SpawnBatch2D(
-                    spawnPts, request.ProjectileCount, null, rustParams,
+                    spawnPts, spawnPts.Length, null, rustParams,
                     request.ConfigId, 0, baseId, ptr, rem, latencyComp);
                 Authority.NotifyBatchSpawned2D(written, baseId, dataTemplate);
             }
@@ -271,7 +282,7 @@ namespace MidManStudio.Projectiles.Network
             {
                 var (ptr, rem) = Authority.Get3DWriteHead();
                 written = BatchSpawnHelper.SpawnBatch3D(
-                    spawnPts, request.ProjectileCount, rustParams,
+                    spawnPts, spawnPts.Length, rustParams,
                     request.ConfigId, 0, baseId, ptr, rem, latencyComp);
                 Authority.NotifyBatchSpawned3D(written, baseId, dataTemplate);
             }
@@ -284,20 +295,21 @@ namespace MidManStudio.Projectiles.Network
 
             var confirmation = new SpawnConfirmation
             {
-                BaseProjId          = baseId,
-                ProjectileCount     = (byte)written,
-                ConfigId            = request.ConfigId,
-                ServerSpawnTick     = GetServerTick(),
-                Origin              = request.Origin,
-                Direction           = request.Direction,
-                Speed               = clampedSpeed,
-                OwnerMidId          = request.OwnerMidId,
-                ExtraDirectionCount = request.ExtraDirectionCount,
-                ExtraDirections     = request.ExtraDirections,
-                ServerNetworkTime   = serverNetworkTime
+                BaseProjId        = baseId,
+                ProjectileCount   = (byte)written,
+                ConfigId          = request.ConfigId,
+                ServerSpawnTick   = GetServerTick(),
+                Origin            = request.Origin,
+                Direction         = request.Direction,
+                Speed             = clampedSpeed,
+                OwnerMidId        = request.OwnerMidId,
+                PatternId         = request.PatternId,
+                SpreadDeg         = request.SpreadDeg,
+                ServerNetworkTime = serverNetworkTime
             };
 
             ulong senderClientId = rpcParams.Receive.SenderClientId;
+
 
             // FIX: Route differently to sender vs all other clients.
             //
@@ -532,23 +544,10 @@ namespace MidManStudio.Projectiles.Network
             return Mathf.Clamp(deltaTicks * tickInterval, 0f, 0.5f);
         }
 
-        private static SpawnPoint[] BuildServerSpawnPoints(ProjectileFireRequest req)
-        {
-            var pts = new SpawnPoint[req.ProjectileCount];
-            for (int i = 0; i < req.ProjectileCount; i++)
-            {
-                Vector3 dir = i == 0 ? req.Direction.normalized
-                    : (req.ExtraDirections != null && i - 1 < req.ExtraDirections.Length
-                        ? req.ExtraDirections[i - 1].normalized
-                        : req.Direction.normalized);
-                pts[i] = new SpawnPoint
-                {
-                    Origin    = req.Origin,
-                    Direction = dir,
-                    Speed     = req.Speed
-                };
-            }
-            return pts;
-        }
+        // BuildServerSpawnPoints(ProjectileFireRequest) is gone — it used to trust
+        // req.ExtraDirections wholesale. Replaced by
+        // ProjectileDirectionResolver.Resolve(...) in FireServerRpc, which
+        // regenerates directions from the registered pattern (or the spread
+        // scalars) instead of anything the client claims about individual pellets.
     }
 }
