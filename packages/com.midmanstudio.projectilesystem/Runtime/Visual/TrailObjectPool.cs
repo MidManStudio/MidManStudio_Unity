@@ -1,5 +1,3 @@
-
-
 using UnityEngine;
 using MidManStudio.Core.Logging;
 using MidManStudio.Core.Pools;
@@ -86,6 +84,27 @@ namespace MidManStudio.Projectiles.Visuals
             if (!_projToSlot.TryGetValue(projId, out int slot)) return;
             _trailPool.Release(slot);
             _projToSlot.Remove(projId);
+        }
+
+        /// <summary>
+        /// Re-key an in-flight projectile's trail slot from its old id to its new
+        /// one, without touching the slot itself. Needed specifically for the
+        /// firing client's temp-id → real-server-id swap
+        /// (LocalProjectileManager.LinkNetworkProjectileBatch): that swap mutates
+        /// NativeProjectile.ProjId in place, but _projToSlot here is keyed by the
+        /// old id, so without this call the very next SyncToSimulation tick misses
+        /// the lookup, silently acquires a brand new slot (visible trail
+        /// discontinuity), and orphans the old slot forever (NotifyDead only ever
+        /// fires with the new id, so the old entry never gets released — a slow
+        /// leak, one slot per pellet per shot). No-op if oldId has no active slot.
+        /// </summary>
+        public void RelinkProjectileId(uint oldId, uint newId)
+        {
+            if (oldId == newId) return;
+            if (!_projToSlot.TryGetValue(oldId, out int slot)) return;
+
+            _projToSlot.Remove(oldId);
+            _projToSlot[newId] = slot;
         }
 
         /// <summary>Release all active trail slots.</summary>
