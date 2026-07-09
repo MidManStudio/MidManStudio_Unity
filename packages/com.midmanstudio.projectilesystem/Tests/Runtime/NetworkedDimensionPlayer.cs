@@ -88,8 +88,18 @@ namespace TestGame
         [SerializeField] private TMP_Text        _modeText;
         [SerializeField] private UnityEngine.UI.Button _modeCycleButton;
 
-        [Header("Dimension Toggle Key")]
+        [Header("Dimension Toggle")]
         [SerializeField] private KeyCode _dimensionKey = KeyCode.BackQuote;
+        [Tooltip("On-screen equivalent of _dimensionKey, for touch devices. Same SwitchDimension() call either way.")]
+        [SerializeField] private UnityEngine.UI.Button _dimensionSwitchButton;
+
+        [Header("Local Player UI (Multiplayer)")]
+        [Tooltip(
+            "Root Canvas holding this player's on-screen controls (joystick, shoot button, " +
+            "mode/dimension buttons, HUD text). Every spawned player instance carries its own " +
+            "copy of this prefab, so without this gating every remote player's UI renders on " +
+            "top of your own screen too. Set active for the owner only, in OnNetworkSpawn.")]
+        [SerializeField] private Canvas _localPlayerCanvas;
 
         [Header("Raycast Settings")]
         [SerializeField] private LayerMask _raycastLayers = -1;
@@ -178,6 +188,9 @@ namespace TestGame
                 if (_modeCycleButton != null)
                     _modeCycleButton.onClick.AddListener(CycleModeNext);
 
+                if (_dimensionSwitchButton != null)
+                    _dimensionSwitchButton.onClick.AddListener(HandleDimensionButtonPressed);
+
                 Dimension startDim = DimensionManager.HasInstance
                     ? DimensionManager.Instance.Current : Dimension.TwoD;
                 _currentDimension = startDim;
@@ -214,6 +227,13 @@ namespace TestGame
                 }
             }
 
+            // Only the local owner's on-screen controls should ever be visible/interactable.
+            // Every spawned player instance (including remote ones on your own screen) carries
+            // its own copy of this Canvas — without this, every connected player's joystick,
+            // shoot button, and mode/dimension buttons render stacked on top of each other.
+            if (_localPlayerCanvas != null)
+                _localPlayerCanvas.gameObject.SetActive(IsOwner);
+
             ApplyTint(IsOwner ? _ownerColor : _remoteColor);
         }
 
@@ -224,6 +244,8 @@ namespace TestGame
             {
                 if (_modeCycleButton != null)
                     _modeCycleButton.onClick.RemoveListener(CycleModeNext);
+                if (_dimensionSwitchButton != null)
+                    _dimensionSwitchButton.onClick.RemoveListener(HandleDimensionButtonPressed);
                 if (DimensionManager.HasInstance)
                     DimensionManager.Instance.OnDimensionChanged -= HandleDimensionChanged;
                 DimensionCameraController.Instance?.UnregisterPlayerCams();
@@ -246,10 +268,7 @@ namespace TestGame
                 return;
             }
 
-            if (Input.GetKeyDown(_dimensionKey)
-                && DimensionManager.HasInstance
-                && !DimensionManager.Instance.IsTransitioning)
-                DimensionManager.Instance.SwitchDimension();
+            if (Input.GetKeyDown(_dimensionKey)) HandleDimensionButtonPressed();
 
             if (Input.GetKeyDown(KeyCode.Alpha1)) ChangeMode(PlayerShootMode.LocalOnly);
             if (Input.GetKeyDown(KeyCode.Alpha2)) ChangeMode(PlayerShootMode.RustSim2D);
@@ -271,6 +290,21 @@ namespace TestGame
             HandleMovement();
             if (Use3DConvention())
                 _rb.MoveRotation(Quaternion.Euler(0f, _yaw, 0f));
+        }
+
+        #endregion
+
+        #region Dimension Switch
+
+        /// <summary>
+        /// Shared by the keyboard key (_dimensionKey) and the on-screen button
+        /// (_dimensionSwitchButton) — same call, same guard, one place to change it.
+        /// </summary>
+        private void HandleDimensionButtonPressed()
+        {
+            if (!IsOwner) return;
+            if (!DimensionManager.HasInstance || DimensionManager.Instance.IsTransitioning) return;
+            DimensionManager.Instance.SwitchDimension();
         }
 
         #endregion
@@ -531,6 +565,11 @@ namespace TestGame
             //   Networked client    → FireNetworkedSim → SpawnFiringClientBatch + FireServerRpc
             //   Networked host      → FireNetworkedSim → skip local spawn + FireServerRpc
             // The master system now handles the full flow — no manual RPC call needed here.
+            //
+            // KNOWN LIMITATION (flagged, not silently papered over): FireNetworkedSim caps
+            // the wire request at 64 total directions (1 primary + 63 extra). Patterns/pellet
+            // counts above 64 will render fully here on the firing client but collapse onto
+            // the primary direction once confirmed server-side / seen by other clients.
             var context = new WeaponFireContext
             {
                 FireRate               = _fireRate,
