@@ -1,4 +1,3 @@
-
 //   FireNetworkedSim spawns immediately into LocalProjectileManager for the
 //   firing client (non-server). This gives zero-latency visual feedback using the
 //   same Rust sim + GPU instanced rendering path as the host — no pool objects.
@@ -166,8 +165,20 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Public API — Fire
 
+        /// <param name="patternId">
+        /// 0 = no pattern (default). When non-zero, only PatternId travels over
+        /// the wire for RustSim fire — the server re-samples the same registered
+        /// ProjectilePatternSO instead of trusting spawnPoints' directions.
+        /// spawnPoints is still used in full for this client's own local visual
+        /// (predicted spawn / LocalOnly mode never leaves the machine).
+        /// </param>
+        /// <param name="spreadDeg">
+        /// Only relevant when patternId == 0 and count > 1 — the arc used to
+        /// regenerate a parametric fan spread server-side.
+        /// </param>
         public void Fire(
-            ushort configId, SpawnPoint[] spawnPoints, int count, WeaponFireContext context)
+            ushort configId, SpawnPoint[] spawnPoints, int count, WeaponFireContext context,
+            ushort patternId = 0, float spreadDeg = 0f)
         {
             if (!_initialised) return;
 
@@ -189,7 +200,7 @@ namespace MidManStudio.Projectiles.Managers
                     break;
 
                 case SimulationMode.RustSim:
-                    FireNetworkedSim(configId, spawnPoints, count, context, cfg);
+                    FireNetworkedSim(configId, spawnPoints, count, context, cfg, patternId, spreadDeg);
                     break;
 
                 case SimulationMode.Raycast:
@@ -228,7 +239,8 @@ namespace MidManStudio.Projectiles.Managers
 
         private void FireNetworkedSim(
             ushort configId, SpawnPoint[] spawnPoints, int count,
-            WeaponFireContext context, ProjectileConfigSO cfg)
+            WeaponFireContext context, ProjectileConfigSO cfg,
+            ushort patternId, float spreadDeg)
         {
             if (_networkBridge == null) return;
 
@@ -236,31 +248,25 @@ namespace MidManStudio.Projectiles.Managers
                 ? spawnPoints[0].Speed
                 : cfg.ResolveSpeed();
 
-            int extraCount = Mathf.Min(count - 1, 63);
-            Vector3[] extraDirs = null;
-            if (extraCount > 0)
-            {
-                extraDirs = new Vector3[extraCount];
-                for (int i = 0; i < extraCount; i++)
-                    extraDirs[i] = spawnPoints[i + 1].Direction;
-            }
-
+            // No more ExtraDirections/RngSeed packing here — patternId + spreadDeg
+            // are enough for every recipient to regenerate the identical pellet set
+            // via ProjectileDirectionResolver.Resolve(). spawnPoints itself is only
+            // used below, locally, for this client's own instant predicted visual.
             var request = new ProjectileFireRequest
             {
                 ConfigId               = configId,
                 Origin                 = count > 0 ? spawnPoints[0].Origin    : Vector3.zero,
                 Direction              = count > 0 ? spawnPoints[0].Direction : Vector3.forward,
                 Speed                  = resolvedSpeed,
-                RngSeed                = (uint)UnityEngine.Random.Range(0, int.MaxValue),
                 ProjectileCount        = (byte)Mathf.Min(count, 255),
+                PatternId              = patternId,
+                SpreadDeg              = spreadDeg,
                 OwnerMidId             = context.OwnerMidId,
                 FiredByNetworkObjectId = context.FiredByNetworkObjectId,
                 IsBotOwner             = context.IsBotOwner,
                 WeaponLevel            = context.WeaponLevel,
                 DamageMultiplier       = context.DamageMultiplier,
-                ClientFireTick         = _networkBridge.GetServerTick(),
-                ExtraDirectionCount    = (byte)extraCount,
-                ExtraDirections        = extraDirs
+                ClientFireTick         = _networkBridge.GetServerTick()
             };
 
             // ARCHITECTURE: Firing client immediately spawns into their own Rust sim buffer.
