@@ -15170,7 +15170,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _atlasMaterial: {fileID: 2100000, guid: 8e2bd416c1769401bac71c1f8d976a94, type: 2}
-  _forceDrawMesh: 1
+  _forceDrawMesh: 0
 --- !u!114 &1771295140
 MonoBehaviour:
   m_ObjectHideFlags: 0

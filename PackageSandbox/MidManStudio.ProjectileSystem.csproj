@@ -85,6 +85,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectileBase.cs">
       <Link>Runtime/Managers/PhysicsProjectileBase.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Network/ProjectileDirectionResolver.cs">
+      <Link>Runtime/Network/ProjectileDirectionResolver.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Core/ProjectileManager.cs">
       <Link>Runtime/Core/ProjectileManager.cs</Link>
     </Compile>
@@ -147,6 +150,9 @@
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Visual/ProjectileRenderer2D.cs">
       <Link>Runtime/Visual/ProjectileRenderer2D.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Config/ProjectilePatternRegistry.cs">
+      <Link>Runtime/Config/ProjectilePatternRegistry.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/ServerProjectileAuthority.cs">
       <Link>Runtime/Managers/ServerProjectileAuthority.cs</Link>
