@@ -1,4 +1,3 @@
-
 //    DrawShapeSpecificFields now handles PatternShape.Formula:
 //     shows _patternFormulaH / _patternFormulaV text fields with live
 //     per-field validation (green ✓ or red error) and example dropdowns
@@ -246,9 +245,16 @@ namespace MidManStudio.Projectiles.EditorTools
                     EditorGUILayout.PropertyField(
                         serializedObject.FindProperty("_starPoints"),
                         new GUIContent("Polygon Points"));
-                    EditorGUILayout.PropertyField(
-                        serializedObject.FindProperty("_starInnerScale"),
-                        new GUIContent("Inner Ring Scale"));
+                    // "_starInnerScale" removed: it was never a real field on
+                    // ProjectilePatternSO (SampleStar() only ever reads
+                    // _starPoints — no inner/outer radius concept exists in the
+                    // sampling math), so FindProperty("_starInnerScale") always
+                    // returned null and PropertyField(null, ...) threw a NRE
+                    // every time a Star-shaped pattern was inspected. Pre-existing,
+                    // unrelated to the networking refactor — just the first time
+                    // it got hit. If you actually want an inner/outer star ring,
+                    // that needs a real field + SampleStar() support added, not
+                    // just the inspector line back.
                     break;
 
                 case PatternShape.Spiral:

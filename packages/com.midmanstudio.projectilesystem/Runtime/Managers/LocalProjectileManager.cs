@@ -650,7 +650,7 @@ namespace MidManStudio.Projectiles.Managers
             if (count <= 0) return;
 
             var rustParams = ProjectileRegistry.Instance.GetRustSpawnParams(conf.ConfigId, conf.Speed);
-            var spawnPts   = BuildSpawnPointsFromConfirmation(conf, false);
+            var spawnPts   = BuildSpawnPointsFromConfirmation(conf);
             var (writePtr, remaining) = GetWriteHead2D();
             int startIdx = _count2D;
             int written  = BatchSpawnHelper.SpawnBatch2D(
@@ -690,7 +690,7 @@ namespace MidManStudio.Projectiles.Managers
             if (count <= 0) return;
 
             var rustParams = ProjectileRegistry.Instance.GetRustSpawnParams(conf.ConfigId, conf.Speed);
-            var spawnPts   = BuildSpawnPointsFromConfirmation(conf, true);
+            var spawnPts   = BuildSpawnPointsFromConfirmation(conf);
             var (writePtr, remaining) = GetWriteHead3D();
             int startIdx = _count3D;
             int written  = BatchSpawnHelper.SpawnBatch3D(
@@ -1060,7 +1060,7 @@ namespace MidManStudio.Projectiles.Managers
             return (ptr, _maxProjectiles3D - _count3D);
         }
 
-        private static SpawnPoint[] BuildSpawnPointsFromConfirmation(SpawnConfirmation conf, bool is3D)
+        private static SpawnPoint[] BuildSpawnPointsFromConfirmation(SpawnConfirmation conf)
         {
             // conf.ProjectileCount (not the caller's buffer-clamped local count) is
             // what drives spread-fallback determinism here — it's the same value the
@@ -1068,9 +1068,16 @@ namespace MidManStudio.Projectiles.Managers
             // clamping still happens downstream, in BatchSpawnHelper.SpawnBatch2D/3D's
             // own `count` parameter, so a pattern's full natural pellet array is safe
             // to return here even when the local buffer has less room left.
+            //
+            // conf.PatternIs3D (not "this is the 2D/3D batch method, so pass
+            // false/true"): the firing client's own Use3DConvention() || cfg.Is3D
+            // result. A 2D-configured weapon fired while the player was in 3D mode
+            // rotates in 3D view space by design — the buffer this ends up landing in
+            // (2D vs 3D native buffer) is a separate concern from the rotation basis
+            // used to spread the pattern/spread pellets in the first place.
             return ProjectileDirectionResolver.Resolve(
                 conf.PatternId, conf.Origin, conf.Direction,
-                conf.ProjectileCount, conf.SpreadDeg, conf.Speed, is3D);
+                conf.ProjectileCount, conf.SpreadDeg, conf.Speed, conf.PatternIs3D);
         }
 
         #endregion

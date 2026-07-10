@@ -176,9 +176,27 @@ namespace MidManStudio.Projectiles.Managers
         /// Only relevant when patternId == 0 and count > 1 — the arc used to
         /// regenerate a parametric fan spread server-side.
         /// </param>
+        /// <param name="baseDirection">
+        /// The RAW, unrotated aim direction (before any pattern/spread offset is
+        /// applied) — i.e. whatever was passed as `dir` into whatever built
+        /// spawnPoints, NOT spawnPoints[0].Direction. This matters: pellet 0 is
+        /// not generally centered on the aim direction (a fan's first pellet sits
+        /// at -halfArc, for example), so using spawnPoints[0] here would make
+        /// every recipient regenerate the pattern rotated around an
+        /// already-rotated base — the whole pattern skews off at an angle.
+        /// Falls back to spawnPoints[0].Direction if left default, which is only
+        /// correct for single-shot (count == 1) fire.
+        /// </param>
+        /// <param name="patternIs3D">
+        /// The resolved rotation convention the caller used to build spawnPoints
+        /// (e.g. Use3DConvention() || cfg.Is3D) — sent as-is rather than
+        /// re-derived from cfg.Is3D server-side, since the two can legitimately
+        /// diverge (a 2D-configured weapon fired in 3D mode or vice versa).
+        /// </param>
         public void Fire(
             ushort configId, SpawnPoint[] spawnPoints, int count, WeaponFireContext context,
-            ushort patternId = 0, float spreadDeg = 0f)
+            ushort patternId = 0, float spreadDeg = 0f,
+            Vector3 baseDirection = default, bool patternIs3D = false)
         {
             if (!_initialised) return;
 
@@ -200,7 +218,8 @@ namespace MidManStudio.Projectiles.Managers
                     break;
 
                 case SimulationMode.RustSim:
-                    FireNetworkedSim(configId, spawnPoints, count, context, cfg, patternId, spreadDeg);
+                    FireNetworkedSim(configId, spawnPoints, count, context, cfg,
+                        patternId, spreadDeg, baseDirection, patternIs3D);
                     break;
 
                 case SimulationMode.Raycast:
@@ -240,13 +259,24 @@ namespace MidManStudio.Projectiles.Managers
         private void FireNetworkedSim(
             ushort configId, SpawnPoint[] spawnPoints, int count,
             WeaponFireContext context, ProjectileConfigSO cfg,
-            ushort patternId, float spreadDeg)
+            ushort patternId, float spreadDeg, Vector3 baseDirection, bool patternIs3D)
         {
             if (_networkBridge == null) return;
 
             float resolvedSpeed = count > 0 && spawnPoints[0].Speed > 0f
                 ? spawnPoints[0].Speed
                 : cfg.ResolveSpeed();
+
+            // BUG FIX: this used to be spawnPoints[0].Direction, which for any
+            // pattern/spread with more than one pellet is already offset by that
+            // pellet's own angle within the pattern (pellet 0 sits at the start of
+            // the arc, not the center). Feeding that back in as the regeneration
+            // base made every recipient re-apply the full pattern on top of an
+            // already-rotated direction — the whole shot skews off at an angle.
+            // baseDirection is the actual raw aim direction, pre-pattern.
+            Vector3 resolvedBaseDir = baseDirection.sqrMagnitude > 0.0001f
+                ? baseDirection.normalized
+                : (count > 0 ? spawnPoints[0].Direction : Vector3.forward);
 
             // No more ExtraDirections/RngSeed packing here — patternId + spreadDeg
             // are enough for every recipient to regenerate the identical pellet set
@@ -255,12 +285,13 @@ namespace MidManStudio.Projectiles.Managers
             var request = new ProjectileFireRequest
             {
                 ConfigId               = configId,
-                Origin                 = count > 0 ? spawnPoints[0].Origin    : Vector3.zero,
-                Direction              = count > 0 ? spawnPoints[0].Direction : Vector3.forward,
+                Origin                 = count > 0 ? spawnPoints[0].Origin : Vector3.zero,
+                Direction              = resolvedBaseDir,
                 Speed                  = resolvedSpeed,
                 ProjectileCount        = (byte)Mathf.Min(count, 255),
                 PatternId              = patternId,
                 SpreadDeg              = spreadDeg,
+                PatternIs3D            = patternIs3D,
                 OwnerMidId             = context.OwnerMidId,
                 FiredByNetworkObjectId = context.FiredByNetworkObjectId,
                 IsBotOwner             = context.IsBotOwner,
