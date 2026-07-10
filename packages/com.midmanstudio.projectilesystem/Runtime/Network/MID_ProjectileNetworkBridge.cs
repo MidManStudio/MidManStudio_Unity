@@ -22,6 +22,7 @@ namespace MidManStudio.Projectiles.Network
         public byte    ProjectileCount;
         public ushort  PatternId;    // 0 = no pattern (simple spread / single direction)
         public float   SpreadDeg;    // only meaningful when PatternId == 0 and ProjectileCount > 1
+        public bool    PatternIs3D;  // see PatternIs3D note below
         public ulong   OwnerMidId;
         public ulong   FiredByNetworkObjectId;
         public bool    IsBotOwner;
@@ -36,8 +37,15 @@ namespace MidManStudio.Projectiles.Network
         // speed are regenerated on every recipient via
         // ProjectileDirectionResolver.Resolve(), which for pattern fire reads the
         // pattern asset's own fixed RngSeed property — the exact same value the
-        // firing client's local predicted visual already uses. This struct is now
-        // fixed-size (~59 bytes) regardless of pellet count or pattern complexity.
+        // firing client's local predicted visual already uses.
+        //
+        // PatternIs3D: the client's own Use3DConvention() || cfg.Is3D result.
+        // These two CAN diverge (a 2D-configured weapon fired while the player's
+        // current mode/dimension is 3D, or vice versa) — cfg.Is3D alone, resolved
+        // fresh server-side from ConfigId, is not guaranteed to match what the
+        // firing client actually used for its own pattern/spread rotation basis.
+        // Sending the resolved bit directly removes that ambiguity entirely rather
+        // than trying to reconstruct player-local UI state server-side.
         public void NetworkSerialize<T>(BufferSerializer<T> s) where T : IReaderWriter
         {
             s.SerializeValue(ref ConfigId);
@@ -47,6 +55,7 @@ namespace MidManStudio.Projectiles.Network
             s.SerializeValue(ref ProjectileCount);
             s.SerializeValue(ref PatternId);
             s.SerializeValue(ref SpreadDeg);
+            s.SerializeValue(ref PatternIs3D);
             s.SerializeValue(ref OwnerMidId);
             s.SerializeValue(ref FiredByNetworkObjectId);
             s.SerializeValue(ref IsBotOwner);
@@ -68,6 +77,7 @@ namespace MidManStudio.Projectiles.Network
         public ulong   OwnerMidId;
         public ushort  PatternId;    // mirrors ProjectileFireRequest.PatternId
         public float   SpreadDeg;    // mirrors ProjectileFireRequest.SpreadDeg
+        public bool    PatternIs3D;  // mirrors ProjectileFireRequest.PatternIs3D
 
         /// <summary>
         /// Server-authoritative NetworkTime.TimeAsFloat at spawn.
@@ -88,6 +98,7 @@ namespace MidManStudio.Projectiles.Network
             s.SerializeValue(ref OwnerMidId);
             s.SerializeValue(ref PatternId);
             s.SerializeValue(ref SpreadDeg);
+            s.SerializeValue(ref PatternIs3D);
             s.SerializeValue(ref ServerNetworkTime);
         }
 
@@ -258,7 +269,7 @@ namespace MidManStudio.Projectiles.Network
 
             var spawnPts = ProjectileDirectionResolver.Resolve(
                 request.PatternId, request.Origin, request.Direction,
-                request.ProjectileCount, request.SpreadDeg, clampedSpeed, cfg.Is3D);
+                request.ProjectileCount, request.SpreadDeg, clampedSpeed, request.PatternIs3D);
 
             var rustParams   = ProjectileRegistry.Instance.GetRustSpawnParams(
                 request.ConfigId, clampedSpeed);
@@ -305,6 +316,7 @@ namespace MidManStudio.Projectiles.Network
                 OwnerMidId        = request.OwnerMidId,
                 PatternId         = request.PatternId,
                 SpreadDeg         = request.SpreadDeg,
+                PatternIs3D       = request.PatternIs3D,
                 ServerNetworkTime = serverNetworkTime
             };
 
