@@ -567,6 +567,15 @@ namespace TestGame
             // lookup, and it's zero for the un-registered/no-pattern case for free.
             ushort patternId = _shotPattern != null ? _shotPattern.PatternId : (ushort)0;
 
+            // Same convention BuildSpawnPointsFromPattern/BuildSpawnPointsSpread already
+            // use internally for their own rotation basis — computed once here and sent
+            // as-is so the server/other clients use the SAME basis rather than re-deriving
+            // it from cfg.Is3D alone. This is deliberately an OR, not just cfg.Is3D: a
+            // 2D-configured weapon fired while the player's current shoot mode/dimension
+            // is 3D still needs to rotate in 3D view space, not collapse to the flat Z-only
+            // path — that's existing, intentional behavior, not something to "fix away".
+            bool patternIs3D = Use3DConvention() || cfg.Is3D;
+
             // FIX: Build WeaponFireContext and call Fire().
             //   LocalOnly / offline → FireLocal → LocalProjectileManager.Spawn2D/3D
             //   Networked client    → FireNetworkedSim → SpawnFiringClientBatch + FireServerRpc
@@ -591,8 +600,14 @@ namespace TestGame
                 DamageMultiplier       = 1f
             };
 
+            // dir (raw, unrotated aim direction) — NOT pts[0].Direction, which for any
+            // pattern/spread with more than one pellet is already offset by that pellet's
+            // own angle within the pattern. Sending pts[0] as the regeneration base was
+            // the actual cause of every pattern shot skewing off at an angle: the server
+            // and other clients would re-apply the FULL pattern rotation set on top of an
+            // already-rotated direction instead of the true center.
             MID_MasterProjectileSystem.Instance.Fire(
-                cfgId, pts, pts.Length, context, patternId, _spreadDeg);
+                cfgId, pts, pts.Length, context, patternId, _spreadDeg, dir, patternIs3D);
         }
 
         #endregion
