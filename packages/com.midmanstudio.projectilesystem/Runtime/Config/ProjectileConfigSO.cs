@@ -1,4 +1,3 @@
-
 using UnityEngine;
 using System;
 using MidManStudio.Core.Pools;
@@ -238,8 +237,30 @@ namespace MidManStudio.Projectiles.Config
         public float CircularAngularSpeed => _circularAngularSpeed;
         public float CircularStartAngle   => _circularStartAngle;
 
+        /// <summary>
+        /// Registers this config's Wave/Circular movement parameters with the
+        /// native sim. No-ops (with a logged warning) instead of throwing when
+        /// the native library isn't available on this platform/architecture —
+        /// previously an uncaught DllNotFoundException here (via ProjectileRegistry.
+        /// Register(), often called from a coroutine such as
+        /// TestSceneBootstrapper.Start()) could abort the caller mid-method,
+        /// skipping any code queued after it — including lobby event subscriptions
+        /// that never touch the native lib at all.
+        /// </summary>
         public void RegisterMovementParams()
         {
+            if (_movementType != ProjectileMovementType.Wave &&
+                _movementType != ProjectileMovementType.Circular)
+                return;
+
+            if (!ProjectileLib.IsAvailable)
+            {
+                Debug.LogWarning(
+                    $"[ProjectileConfigSO] '{name}': skipping native movement-param " +
+                    "registration — projectile_core is unavailable on this device.");
+                return;
+            }
+
             switch (_movementType)
             {
                 case ProjectileMovementType.Wave:
@@ -257,6 +278,8 @@ namespace MidManStudio.Projectiles.Config
 
         public void UnregisterMovementParams()
         {
+            if (!ProjectileLib.IsAvailable) return;
+
             switch (_movementType)
             {
                 case ProjectileMovementType.Wave:
