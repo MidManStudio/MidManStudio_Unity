@@ -103,6 +103,14 @@ namespace MidManStudio.Projectiles.Managers
         {
             if (_initialised) return;
 
+            // NOTE: ProjectileLib.ValidateStructSizes() now throws
+            // InvalidOperationException both for the original "struct size
+            // mismatch" case AND for "native library failed to load on this
+            // platform/architecture" (previously that second case threw an
+            // uncaught DllNotFoundException here, which meant _initialised
+            // never got set to true and everything below — BatchSpawnHelper
+            // init, transport config, _networkBridge wiring — silently never
+            // ran, with no error surfaced at this call site at all).
             try { ProjectileLib.ValidateStructSizes(); }
             catch (InvalidOperationException ex)
             {
