@@ -192,6 +192,24 @@ namespace MidManStudio.Projectiles.Managers
         private readonly Queue<(uint baseTempId, int count)> _pendingTempBases
             = new Queue<(uint, int)>(16);
 
+        // BUG FIX (wiggle on the firing client's own shots): real proj ids that
+        // THIS client fired, populated the instant LinkNetworkProjectileBatch
+        // swaps a batch from temp -> real ids. ReconcileSnapshots2D/3D skips any
+        // id in here entirely. SendSnapshots() (ServerProjectileAuthority) sends
+        // one shared snapshot array to every connected client with no per-owner
+        // filtering — it has to, that's the only way one broadcast covers
+        // everyone's view of everyone else's projectiles. Without this exemption,
+        // a client's own already-correct, already-locally-simulated shots get
+        // continuously nudged toward a separately-computed server extrapolation
+        // that's never going to line up exactly (different spawn instant, ping
+        // jitter in staleTime, tick-phase drift) — every "close enough but not
+        // pixel-identical" snapshot triggers another partial Lerp correction,
+        // which is the actual wiggle. The client owns and fully trusts its own
+        // simulation for what it fired; the server's snapshot is authoritative
+        // only for projectiles this client did NOT fire and has no better local
+        // source of truth for.
+        private readonly HashSet<uint> _locallyOwnedProjIds = new(64);
+
         #endregion
 
         #region Local State (offline path)
@@ -750,6 +768,12 @@ namespace MidManStudio.Projectiles.Managers
                 // instead of re-acquiring means the same trail continues under its
                 // new id with zero visual discontinuity, and nothing leaks.
                 _trailPool?.RelinkProjectileId(tempId, realId);
+
+                // This id is now a real server id for a projectile THIS client
+                // fired — see the field comment on _locallyOwnedProjIds. Removed
+                // again in KillNetworkProjectile so the set doesn't grow forever
+                // over a long session.
+                _locallyOwnedProjIds.Add(realId);
             }
         }
 
@@ -757,6 +781,8 @@ namespace MidManStudio.Projectiles.Managers
 
         public void KillNetworkProjectile(uint projId)
         {
+            _locallyOwnedProjIds.Remove(projId);
+
             for (int i = 0; i < _count2D; i++)
                 if (_projs2D[i].ProjId == projId) { _projs2D[i].Alive = 0; return; }
             for (int i = 0; i < _count3D; i++)
@@ -793,6 +819,10 @@ namespace MidManStudio.Projectiles.Managers
             for (int s = 0; s < count; s++)
             {
                 uint  projId    = snapshots[s].ProjId;
+
+                // Never correct what I fired myself — see _locallyOwnedProjIds.
+                if (_locallyOwnedProjIds.Contains(projId)) continue;
+
                 float staleTime = Mathf.Max(0f,
                     (currentServerTick - snapshots[s].ServerTick) * tickInterval);
 
@@ -845,6 +875,10 @@ namespace MidManStudio.Projectiles.Managers
             for (int s = 0; s < count; s++)
             {
                 uint  projId    = snapshots[s].ProjId;
+
+                // Never correct what I fired myself — see _locallyOwnedProjIds.
+                if (_locallyOwnedProjIds.Contains(projId)) continue;
+
                 float staleTime = Mathf.Max(0f,
                     (currentServerTick - snapshots[s].ServerTick) * tickInterval);
 
