@@ -1,4 +1,3 @@
-
 using System.Collections.Generic;
 using UnityEngine;
 using MidManStudio.Core.Singleton;
@@ -39,6 +38,11 @@ namespace MidManStudio.Projectiles.Config
 
             // Validate Rust struct sizes first — crash loudly if there is a mismatch
             // rather than silently corrupting memory later.
+            // NOTE: ProjectileLib.ValidateStructSizes() now also throws
+            // InvalidOperationException (instead of letting DllNotFoundException
+            // escape uncaught) when the native lib itself fails to load, so this
+            // catch correctly handles both "size mismatch" and "lib missing" cases
+            // without any change needed here.
             try
             {
                 ProjectileLib.ValidateStructSizes();
@@ -105,8 +109,25 @@ namespace MidManStudio.Projectiles.Config
             if (config.Is3D)
                 _ids3D.Add(id);
 
-            // Register Rust-side movement params for Wave/Circular types
-            config.RegisterMovementParams();
+            // Register Rust-side movement params for Wave/Circular types.
+            // ProjectileConfigSO.RegisterMovementParams() already no-ops safely
+            // when the native lib is unavailable, but this try/catch is kept as
+            // defense-in-depth so a future change there (or any other
+            // unanticipated exception) can never abort whichever loop or
+            // coroutine called Register() — a config that fails to register its
+            // native movement params should not prevent every config after it
+            // in the same batch from registering.
+            try
+            {
+                config.RegisterMovementParams();
+            }
+            catch (System.Exception ex)
+            {
+                MID_Logger.LogError(_LogLevel,
+                    $"[ProjectileRegistry] '{config.name}': RegisterMovementParams() threw " +
+                    $"{ex.GetType().Name} — {ex.Message}. Continuing without native movement params " +
+                    "for this config.");
+            }
 
             return id;
         }
