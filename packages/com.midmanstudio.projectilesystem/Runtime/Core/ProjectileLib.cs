@@ -251,6 +251,56 @@ namespace MidManStudio.Projectiles.Core
 
         public static readonly MovementTypeConstants MovementTypes = new MovementTypeConstants();
 
+        // ── Native availability probe ─────────────────────────────────────────
+        //
+        // FIX (device-specific DllNotFoundException hardening):
+        // Every P/Invoke call site below assumed the native library would either
+        // load correctly or the caller would already be inside ValidateStructSizes()'s
+        // try/catch. In practice, a missing/misconfigured per-architecture .so
+        // (e.g. an Android Plugin Importer entry missing its CPU tag) throws
+        // DllNotFoundException the instant ANY of these extern methods is called —
+        // including from call sites like ProjectileConfigSO.RegisterMovementParams()
+        // that never went through ValidateStructSizes() at all. Since that
+        // exception type was never being caught anywhere, it could escape
+        // uncaught out of a MonoBehaviour.Awake() or, worse, out of a running
+        // Coroutine — silently killing everything queued after it in that
+        // coroutine (see TestSceneBootstrapper.Start()).
+        //
+        // IsAvailable performs ONE cheap probe call the first time it's touched
+        // and caches the result for the rest of the session. Callers that can't
+        // function without the native lib (RegisterMovementParams, etc.) should
+        // check this BEFORE calling any other extern method, and degrade
+        // gracefully (log + return) instead of letting the exception propagate.
+        private static bool? _isAvailable;
+
+        public static bool IsAvailable
+        {
+            get
+            {
+                if (_isAvailable.HasValue) return _isAvailable.Value;
+
+                try
+                {
+                    _ = projectile_struct_size();
+                    _isAvailable = true;
+                }
+                catch (Exception ex) when (
+                    ex is DllNotFoundException or EntryPointNotFoundException or BadImageFormatException)
+                {
+                    Debug.LogError(
+                        $"[ProjectileLib] Native library '{DLL}' failed to load on this platform/" +
+                        $"architecture: {ex.GetType().Name} — {ex.Message}. The projectile system " +
+                        "will be disabled on this device. Check the Plugin Importer CPU setting for " +
+                        "Plugins/Native/Android/<abi>/libprojectile_core.so (per-ABI meta files need an " +
+                        "explicit Android platform entry with the matching CPU tag, or Unity silently " +
+                        "drops the .so from that ABI's build).");
+                    _isAvailable = false;
+                }
+
+                return _isAvailable.Value;
+            }
+        }
+
         // ── Layout validation ─────────────────────────────────────────────────
 
         [DllImport(DLL)] private static extern int projectile_struct_size();
@@ -382,11 +432,22 @@ namespace MidManStudio.Projectiles.Core
 
         /// <summary>
         /// Verify all C# struct sizes match the compiled Rust library.
-        /// Throws InvalidOperationException on mismatch.
+        /// Throws InvalidOperationException on mismatch, AND now also throws
+        /// InvalidOperationException (instead of letting DllNotFoundException
+        /// escape uncaught) if the native library isn't available on this
+        /// platform/architecture at all. This keeps every existing call site
+        /// that already does `catch (InvalidOperationException)` working
+        /// correctly for the "lib missing" case, with no changes needed there.
         /// Call ONCE on startup before any FFI call.
         /// </summary>
         public static void ValidateStructSizes()
         {
+            if (!IsAvailable)
+                throw new InvalidOperationException(
+                    $"[ProjectileLib] Native library '{DLL}' is not available on this platform/" +
+                    "architecture — see the earlier error log for the underlying exception. " +
+                    "All P/Invoke calls are unsafe until this is fixed.");
+
             bool ok = true;
 
             ok &= Check("NativeProjectile (2D)",
