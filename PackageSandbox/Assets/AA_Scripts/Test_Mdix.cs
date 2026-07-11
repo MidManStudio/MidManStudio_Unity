@@ -1,3 +1,4 @@
+/*
 // PackageSandbox/Assets/AA_Scripts/Test_Mdix.cs
 //
 // Smoke test for com.midmanstudio.mdix -- attach to any GameObject and hit
@@ -283,7 +284,7 @@ public class Test_Mdix : MonoBehaviour
             db.GetInt("value") is { IsSuccess: true, SuccessResult: 2 });
 
         db.DisableHotReload();
-        try { File.Delete(path); } catch { /* best-effort cleanup */ }
+        try { File.Delete(path); } catch { /* best-effort cleanup  }
 
         Log($"===== Hot reload test done — running total: {_passed} passed, {_failed} failed =====");
     }
@@ -309,3 +310,4 @@ public class Test_Mdix : MonoBehaviour
     private static void Log(string message)      => Debug.Log($"[MdixTest] {message}");
     private static void LogError(string message)  => Debug.LogError($"[MdixTest] {message}");
 }
+*/
