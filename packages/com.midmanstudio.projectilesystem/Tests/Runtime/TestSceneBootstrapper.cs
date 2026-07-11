@@ -1,4 +1,4 @@
-
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -110,6 +110,24 @@ namespace TestGame
 
         private IEnumerator Start()
         {
+            // ── Lobby / session routing ───────────────────────────────────────
+            // FIX: this subscription (and showing the lobby UI) now happens FIRST,
+            // before any config registration below. Config registration touches
+            // the native projectile_core library (via ProjectileRegistry.Register()
+            // → ProjectileConfigSO.RegisterMovementParams()), and if that library
+            // is missing/misconfigured for this device's architecture, a failure
+            // there used to throw uncaught partway through this coroutine —
+            // which skipped this subscription entirely and silently broke
+            // "Start Game" for the whole session, on every device, since nothing
+            // was left listening for OnGameStartReceived on the host. Wiring this
+            // up first means Start Game always works, even in a degraded
+            // (no local projectile visuals) state on a device with a broken
+            // native lib.
+            if (_lobbyManager != null)
+                _lobbyManager.OnGameStartReceived += HandleGameStart;
+
+            SetLobbyUIActive(true);
+
             // ── Pool initialisation ───────────────────────────────────────────
             if (_objectPool   != null && !_objectPool.HasBeenInitialized())
                 _objectPool.CallInitializePool();
@@ -124,10 +142,25 @@ namespace TestGame
                 foreach (var cfg in _configs)
                 {
                     if (cfg == null) continue;
-                    ushort id = _registry.Register(cfg);
-                    MID_Logger.LogInfo(_logLevel,
-                        $"[Manual] Registered '{cfg.name}' → configId={id}",
-                        nameof(TestSceneBootstrapper));
+
+                    // FIX: a single config that fails to register (e.g. native
+                    // lib unavailable on this device) must not abort this
+                    // coroutine — that used to also skip everything below,
+                    // including offline auto-spawn a few lines down.
+                    try
+                    {
+                        ushort id = _registry.Register(cfg);
+                        MID_Logger.LogInfo(_logLevel,
+                            $"[Manual] Registered '{cfg.name}' → configId={id}",
+                            nameof(TestSceneBootstrapper));
+                    }
+                    catch (Exception ex)
+                    {
+                        MID_Logger.LogError(_logLevel,
+                            $"[Manual] Failed to register '{cfg.name}': " +
+                            $"{ex.GetType().Name} — {ex.Message}",
+                            nameof(TestSceneBootstrapper));
+                    }
                 }
             }
 
@@ -153,12 +186,6 @@ namespace TestGame
                     "and to ProjectileConfigManager._mapping in the scene.",
                     nameof(TestSceneBootstrapper));
             }
-
-            // ── Lobby / session routing ───────────────────────────────────────
-            if (_lobbyManager != null)
-                _lobbyManager.OnGameStartReceived += HandleGameStart;
-
-            SetLobbyUIActive(true);
 
             if (_autoSpawnOffline && _lobbyManager == null)
             {
