@@ -15,17 +15,29 @@ namespace MidManStudio.Projectiles.Visuals
         [SerializeField] private int _spriteSortingOrder = 1;
         [SerializeField] private int _trailSortingOrder  = 0;
 
-        [Header("Shape Mesh (auto-created at runtime when needed)")]
-        [Tooltip("MeshFilter for CustomShape configs. Auto-found then created if missing.")]
-        [SerializeField] private MeshFilter   _shapeMeshFilter;
-        [Tooltip("MeshRenderer for CustomShape configs. Auto-found then created if missing.")]
-        [SerializeField] private MeshRenderer _shapeMeshRenderer;
+        [Header("Shape Mesh (CustomShape configs only)")]
+        [Tooltip("Isolated on its own child GameObject, auto-created at runtime when a " +
+                 "CustomShape config first needs it — never on this GameObject directly. " +
+                 "SpriteRenderer and MeshRenderer sharing one GameObject was the actual " +
+                 "issue here: not a hard Unity restriction, but two renderer components " +
+                 "on one object is exactly the kind of setup where GetComponent<Renderer>() " +
+                 "calls elsewhere in the pool/prefab pipeline become ambiguous about which " +
+                 "one they're getting, and where a prefab that had them pre-added manually " +
+                 "(instead of lazily, only-when-needed, on their own object) could easily end " +
+                 "up with stale/misconfigured component state after a pool cycle. Child object " +
+                 "removes the ambiguity entirely — the sprite GameObject has exactly one " +
+                 "renderer, always.")]
+        [SerializeField] private Transform     _shapeMeshChild;
+        [SerializeField] private MeshFilter    _shapeMeshFilter;
+        [SerializeField] private MeshRenderer  _shapeMeshRenderer;
         [Tooltip("Sorting order for the shape MeshRenderer.")]
         [SerializeField] private int _shapeSortingOrder = 1;
         [Tooltip("Material for shape mesh rendering.\n" +
                  "Assign InstancedProjectile.shader material for correct atlas UV support.\n" +
                  "If null, falls back to Sprites/Default (no atlas UV remapping).")]
         [SerializeField] private Material _fallbackShapeMaterial;
+
+        private const string ShapeMeshChildName = "ShapeMesh (auto)";
 
         #endregion
 
@@ -117,9 +129,19 @@ namespace MidManStudio.Projectiles.Visuals
         {
             base.Awake();
 
-            // Try to find pre-existing components — don't create yet (may never be needed)
-            if (_shapeMeshFilter   == null) _shapeMeshFilter   = GetComponent<MeshFilter>();
-            if (_shapeMeshRenderer == null) _shapeMeshRenderer = GetComponent<MeshRenderer>();
+            // Pool-recycled instance may already have the child from a previous
+            // cycle — find it by name rather than GetComponent<MeshFilter>() on
+            // this GameObject, since that should never have one directly.
+            if (_shapeMeshChild == null)
+            {
+                var existing = transform.Find(ShapeMeshChildName);
+                if (existing != null)
+                {
+                    _shapeMeshChild    = existing;
+                    _shapeMeshFilter   = existing.GetComponent<MeshFilter>();
+                    _shapeMeshRenderer = existing.GetComponent<MeshRenderer>();
+                }
+            }
 
             // Disable if found — sprite is the default visual
             if (_shapeMeshRenderer != null) _shapeMeshRenderer.enabled = false;
@@ -217,35 +239,38 @@ namespace MidManStudio.Projectiles.Visuals
         #region Shape Mesh
 
         /// <summary>
-        /// Creates MeshFilter and MeshRenderer dynamically if not already present.
-        /// This allows pool prefabs to omit these components — they are added the
-        /// first time a shape config is used on this pooled instance.
+        /// Creates the shape-mesh child GameObject (and its MeshFilter/MeshRenderer)
+        /// on first use, if it doesn't already exist. Lives entirely off to the side
+        /// of this GameObject — the sprite object itself never carries these
+        /// components. Pool prefabs never need to pre-add anything for this.
         /// </summary>
         private void EnsureShapeMeshComponents()
         {
-            if (_shapeMeshFilter == null)
-                _shapeMeshFilter = GetComponent<MeshFilter>() ?? gameObject.AddComponent<MeshFilter>();
-
-            if (_shapeMeshRenderer == null)
+            if (_shapeMeshChild == null)
             {
-                _shapeMeshRenderer = GetComponent<MeshRenderer>() ?? gameObject.AddComponent<MeshRenderer>();
+                var childGO = new GameObject(ShapeMeshChildName);
+                childGO.transform.SetParent(transform, worldPositionStays: false);
+                childGO.transform.localPosition = Vector3.zero;
+                childGO.transform.localRotation = Quaternion.identity;
+                childGO.transform.localScale    = Vector3.one;
+
+                _shapeMeshChild    = childGO.transform;
+                _shapeMeshFilter   = childGO.AddComponent<MeshFilter>();
+                _shapeMeshRenderer = childGO.AddComponent<MeshRenderer>();
 
                 // Assign material — prefer inspector-assigned, then Sprites/Default
-                if (_shapeMeshRenderer.sharedMaterial == null)
+                if (_fallbackShapeMaterial != null)
                 {
-                    if (_fallbackShapeMaterial != null)
-                    {
-                        _shapeMeshRenderer.sharedMaterial = _fallbackShapeMaterial;
-                    }
-                    else
-                    {
-                        // Sprites/Default is always available (Built-in and URP)
-                        var shader = Shader.Find("Sprites/Default");
-                        if (shader == null) shader = Shader.Find("Unlit/Transparent");
-                        if (shader != null)
-                            _shapeMeshRenderer.sharedMaterial = new Material(shader)
-                                { name = "DynamicShapeFallback" };
-                    }
+                    _shapeMeshRenderer.sharedMaterial = _fallbackShapeMaterial;
+                }
+                else
+                {
+                    // Sprites/Default is always available (Built-in and URP)
+                    var shader = Shader.Find("Sprites/Default");
+                    if (shader == null) shader = Shader.Find("Unlit/Transparent");
+                    if (shader != null)
+                        _shapeMeshRenderer.sharedMaterial = new Material(shader)
+                            { name = "DynamicShapeFallback" };
                 }
 
                 _shapeMeshRenderer.enabled = false;
@@ -253,14 +278,17 @@ namespace MidManStudio.Projectiles.Visuals
         }
 
         /// <summary>
-        /// Applies the CustomShape mesh to MeshFilter/MeshRenderer.
-        /// Scale matches ProjectileRenderer2D: (FullSizeX, FullSizeY, 1).
+        /// Applies the CustomShape mesh to the child's MeshFilter/MeshRenderer.
+        /// Scale matches ProjectileRenderer2D: (FullSizeX, FullSizeY, 1) — set on
+        /// THIS transform (not the child), same as before the child-object split.
+        /// _shapeMeshChild keeps identity local scale, so it inherits this size
+        /// through normal Unity parent/child transform propagation — no behavior
+        /// change from isolating the mesh onto its own object.
         /// </summary>
         private void ApplyShapeMeshOptimised(ProjectileConfigSO cfg, Mesh mesh)
         {
             _shapeMeshFilter.sharedMesh = mesh;
 
-            // Scale to world size — matches what ProjectileRenderer2D computes for the instanced path
             transform.localScale = new Vector3(cfg.FullSizeX, cfg.FullSizeY, 1f);
 
             // Apply sprite texture via MPB — avoids material instance allocation
