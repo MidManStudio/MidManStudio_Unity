@@ -46,19 +46,72 @@ namespace MidManStudio.Projectiles.Network
         // firing client actually used for its own pattern/spread rotation basis.
         // Sending the resolved bit directly removes that ambiguity entirely rather
         // than trying to reconstruct player-local UI state server-side.
+        //
+        // WIRE COMPRESSION: every field here is still the plain type it always
+        // was (Vector3 Origin, Vector3 Direction, float SpreadDeg, bool
+        // IsBotOwner/PatternIs3D) — nothing outside this method changed at all.
+        // Only how they're PACKED changed: Direction goes through octahedral
+        // encoding (12 -> 4 bytes), Origin through half-precision (12 -> 6),
+        // SpreadDeg through byte quantization (4 -> 1), and the two bools share
+        // one packed byte instead of one each. See WireCompression.cs for the
+        // encode/decode math and precision reasoning on each. 64 -> 46 bytes.
         public void NetworkSerialize<T>(BufferSerializer<T> s) where T : IReaderWriter
         {
             s.SerializeValue(ref ConfigId);
-            s.SerializeValue(ref Origin);
-            s.SerializeValue(ref Direction);
+
+            if (s.IsWriter)
+            {
+                WireCompression.EncodePosition(Origin, out ushort ox, out ushort oy, out ushort oz);
+                s.SerializeValue(ref ox);
+                s.SerializeValue(ref oy);
+                s.SerializeValue(ref oz);
+
+                WireCompression.EncodeDirection(Direction, out short dx, out short dy);
+                s.SerializeValue(ref dx);
+                s.SerializeValue(ref dy);
+            }
+            else
+            {
+                ushort ox = 0, oy = 0, oz = 0;
+                s.SerializeValue(ref ox);
+                s.SerializeValue(ref oy);
+                s.SerializeValue(ref oz);
+                Origin = WireCompression.DecodePosition(ox, oy, oz);
+
+                short dx = 0, dy = 0;
+                s.SerializeValue(ref dx);
+                s.SerializeValue(ref dy);
+                Direction = WireCompression.DecodeDirection(dx, dy);
+            }
+
             s.SerializeValue(ref Speed);
             s.SerializeValue(ref ProjectileCount);
             s.SerializeValue(ref PatternId);
-            s.SerializeValue(ref SpreadDeg);
-            s.SerializeValue(ref PatternIs3D);
+
+            if (s.IsWriter)
+            {
+                byte spreadPacked = WireCompression.EncodeDegrees0to360(SpreadDeg);
+                s.SerializeValue(ref spreadPacked);
+
+                byte flags = 0;
+                if (PatternIs3D) flags |= 0b01;
+                if (IsBotOwner)  flags |= 0b10;
+                s.SerializeValue(ref flags);
+            }
+            else
+            {
+                byte spreadPacked = 0;
+                s.SerializeValue(ref spreadPacked);
+                SpreadDeg = WireCompression.DecodeDegrees0to360(spreadPacked);
+
+                byte flags = 0;
+                s.SerializeValue(ref flags);
+                PatternIs3D = (flags & 0b01) != 0;
+                IsBotOwner  = (flags & 0b10) != 0;
+            }
+
             s.SerializeValue(ref OwnerMidId);
             s.SerializeValue(ref FiredByNetworkObjectId);
-            s.SerializeValue(ref IsBotOwner);
             s.SerializeValue(ref WeaponLevel);
             s.SerializeValue(ref DamageMultiplier);
             s.SerializeValue(ref ClientFireTick);
@@ -86,18 +139,59 @@ namespace MidManStudio.Projectiles.Network
         /// </summary>
         public float ServerNetworkTime;
 
+        // WIRE COMPRESSION: same treatment as ProjectileFireRequest — see that
+        // struct's comment for the full reasoning. Public fields unchanged.
+        // 58 -> 41 bytes. This one matters more than the fire request's own
+        // shrink, since it's the one that gets sent to every OTHER connected
+        // client, not just once to the server.
         public void NetworkSerialize<T>(BufferSerializer<T> s) where T : IReaderWriter
         {
             s.SerializeValue(ref BaseProjId);
             s.SerializeValue(ref ProjectileCount);
             s.SerializeValue(ref ConfigId);
             s.SerializeValue(ref ServerSpawnTick);
-            s.SerializeValue(ref Origin);
-            s.SerializeValue(ref Direction);
+
+            if (s.IsWriter)
+            {
+                WireCompression.EncodePosition(Origin, out ushort ox, out ushort oy, out ushort oz);
+                s.SerializeValue(ref ox);
+                s.SerializeValue(ref oy);
+                s.SerializeValue(ref oz);
+
+                WireCompression.EncodeDirection(Direction, out short dx, out short dy);
+                s.SerializeValue(ref dx);
+                s.SerializeValue(ref dy);
+            }
+            else
+            {
+                ushort ox = 0, oy = 0, oz = 0;
+                s.SerializeValue(ref ox);
+                s.SerializeValue(ref oy);
+                s.SerializeValue(ref oz);
+                Origin = WireCompression.DecodePosition(ox, oy, oz);
+
+                short dx = 0, dy = 0;
+                s.SerializeValue(ref dx);
+                s.SerializeValue(ref dy);
+                Direction = WireCompression.DecodeDirection(dx, dy);
+            }
+
             s.SerializeValue(ref Speed);
             s.SerializeValue(ref OwnerMidId);
             s.SerializeValue(ref PatternId);
-            s.SerializeValue(ref SpreadDeg);
+
+            if (s.IsWriter)
+            {
+                byte spreadPacked = WireCompression.EncodeDegrees0to360(SpreadDeg);
+                s.SerializeValue(ref spreadPacked);
+            }
+            else
+            {
+                byte spreadPacked = 0;
+                s.SerializeValue(ref spreadPacked);
+                SpreadDeg = WireCompression.DecodeDegrees0to360(spreadPacked);
+            }
+
             s.SerializeValue(ref PatternIs3D);
             s.SerializeValue(ref ServerNetworkTime);
         }
@@ -437,8 +531,17 @@ namespace MidManStudio.Projectiles.Network
         /// FIX: Sent to OTHER clients only (not the firing client).
         /// Spawns fresh Rust buffer entries for projectiles fired by remote players.
         /// Position is advanced by elapsed server time to account for RPC travel time.
+        ///
+        /// Delivery = Unreliable on purpose: this is a one-shot cosmetic spawn
+        /// event for a client that isn't the shooter and isn't the authority for
+        /// this projectile either. If the packet is dropped, that one client
+        /// simply never renders that one shot's visual — no state elsewhere
+        /// depends on it, nothing desyncs, and it isn't superseded/retried by
+        /// anything later (unlike the periodic snapshot), so treat this as an
+        /// occasional acceptable miss rather than paying for guaranteed delivery
+        /// on every single shot in every large lobby.
         /// </summary>
-        [ClientRpc]
+        [ClientRpc(Delivery = RpcDelivery.Unreliable)]
         public void SpawnConfirmedClientRpc(
             SpawnConfirmation confirmation,
             ClientRpcParams rpcParams = default)
@@ -510,8 +613,17 @@ namespace MidManStudio.Projectiles.Network
         /// FIX: Passes currentServerTick and tickInterval to ReconcileSnapshots so
         /// the stale snapshot position can be extrapolated forward before comparing.
         /// See LocalProjectileManager.ReconcileSnapshots2D/3D for the math.
+        ///
+        /// Delivery = Unreliable on purpose: textbook case for it. Each snapshot
+        /// supersedes the previous one a few ticks later regardless — that's
+        /// exactly what the staleTime extrapolation in ReconcileSnapshots2D/3D
+        /// already exists to smooth over. A dropped snapshot just means the next
+        /// one (already coming shortly) catches up; paying reliable-delivery
+        /// retransmission cost on a value that's about to be replaced anyway is
+        /// pure waste, and at high player/projectile counts this is the highest-
+        /// frequency RPC in the whole system.
         /// </summary>
-        [ClientRpc]
+        [ClientRpc(Delivery = RpcDelivery.Unreliable)]
         public void SendSnapshotClientRpc(
             ProjectileSnapshot2D[] snapshots2D, int count2D,
             ProjectileSnapshot3D[] snapshots3D, int count3D)
