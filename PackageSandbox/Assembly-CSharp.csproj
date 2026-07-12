@@ -73,6 +73,7 @@
     <Compile Include="Assets/PackagesShowcase/OtherStuff/Scripts/MID_AutoRefDemo_BasicMatch.cs" />
     <Compile Include="Assets/PackagesShowcase/OtherStuff/Scripts/MID_AutoRefDemo_AmbiguousMatch.cs" />
     <Compile Include="Assets/AA_Scripts/Test_1.cs" />
+    <Compile Include="Assets/AA_Scripts/Test_Mdix.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets/TextMesh Pro/Shaders/TMPro.cginc" />
