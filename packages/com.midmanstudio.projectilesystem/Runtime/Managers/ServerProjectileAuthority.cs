@@ -114,6 +114,18 @@ namespace MidManStudio.Projectiles.Managers
         [Header("Snapshot")]
         [SerializeField] private int _snapshotIntervalTicks = 4;
 
+        [Header("Distance Culling (opt-in — off changes nothing)")]
+        [Tooltip("When off (default), snapshots broadcast to every client exactly as " +
+                 "before this existed. When on, each client only receives snapshots for " +
+                 "projectiles within Cull Vis Range of their own observer position (via " +
+                 "ObserverProvider) — clients with no registered/resolvable observer " +
+                 "position still get everything, unfiltered, as a safe fallback.")]
+        [SerializeField] private bool  _enableDistanceCulling = false;
+
+        [Tooltip("Radius around a client's observer position within which projectile " +
+                 "snapshots are sent to them. Same units as your world (2D or 3D).")]
+        [SerializeField] private float _cullVisRange = 60f;
+
         [Header("Rendering (Host / Offline)")]
         [Tooltip("Assign the scene ProjectileRenderer2D here.\n" +
                  "In host mode this renders the server-side Rust buffer.\n" +
@@ -132,6 +144,17 @@ namespace MidManStudio.Projectiles.Managers
 
         public RustSimAdapter              Adapter       { get; private set; }
         public TrailObjectPool             TrailPool     { get; set; }
+
+        /// <summary>
+        /// Optional. Implement IProjectileObserverProvider in your game code and
+        /// assign it here (e.g. from your session/lobby manager's Start()) to
+        /// enable distance culling — see IProjectileObserverProvider's doc
+        /// comment. Left null (default), _enableDistanceCulling has no effect
+        /// even if turned on in the inspector; both must be set for culling to
+        /// actually engage, and either one being unset/off is a fully safe,
+        /// unfiltered fallback.
+        /// </summary>
+        public IProjectileObserverProvider ObserverProvider { get; set; }
         public MID_ProjectileNetworkBridge NetworkBridge { get; set; }
 
         #endregion
@@ -242,6 +265,13 @@ namespace MidManStudio.Projectiles.Managers
         private ProjectileSnapshot3D[] _snapshots3D;
         private int _fixedUpdateCounter;
 
+        // Reused across every client, every tick, when distance culling is on —
+        // refilled in place per client, never reallocated. Same max size as the
+        // combined arrays above since a single client's filtered set can never
+        // exceed the full candidate set.
+        private ProjectileSnapshot2D[] _cullScratch2D;
+        private ProjectileSnapshot3D[] _cullScratch3D;
+
         // Cached byte values for movement type filter in SendSnapshots —
         // avoids repeated enum casts inside the hot loop.
         private static readonly byte _movWave     = (byte)ProjectileMovementType.Wave;
@@ -294,6 +324,9 @@ namespace MidManStudio.Projectiles.Managers
 
             _snapshots2D = new ProjectileSnapshot2D[_maxProjectiles2D];
             _snapshots3D = new ProjectileSnapshot3D[_maxProjectiles3D];
+
+            _cullScratch2D = new ProjectileSnapshot2D[_maxProjectiles2D];
+            _cullScratch3D = new ProjectileSnapshot3D[_maxProjectiles3D];
         }
 
         private void FreeBuffers()
@@ -503,7 +536,7 @@ namespace MidManStudio.Projectiles.Managers
         #region Snapshot
 
         /// <summary>
-        /// Sends position snapshots for active projectiles to all clients for
+        /// Sends position snapshots for active projectiles to clients for
         /// linear-prediction reconciliation.
         ///
         /// FIX: Wave and Circular projectiles are excluded from the snapshot payload.
@@ -511,6 +544,18 @@ namespace MidManStudio.Projectiles.Managers
         /// (PredictionMode.DeterministicMath) — sending them was pure overhead that
         /// contributed to the "Receive queue is full" UTP warning seen at high fire rates.
         /// In Wave/Circular-heavy games this can eliminate the majority of snapshot data.
+        ///
+        /// DISTANCE CULLING (opt-in, see _enableDistanceCulling / ObserverProvider):
+        /// off by default and behaves exactly as before — one combined array,
+        /// one broadcast to everyone. Turned on, the same candidate pool gets
+        /// filtered per connected client (distance from their observer position,
+        /// plus excluding projectiles that client owns — matches
+        /// LocalProjectileManager's own client-side ownership exemption, just
+        /// applied at the source instead of discarded on arrival) and sent as N
+        /// separate targeted RPCs instead of one broadcast. Clients with no
+        /// resolvable observer position fall back to the full unfiltered set —
+        /// never silently starved of data just because their position isn't
+        /// known yet.
         /// </summary>
         private void SendSnapshots()
         {
@@ -551,11 +596,80 @@ namespace MidManStudio.Projectiles.Managers
                 };
             }
 
-            // Skip the RPC entirely if there is nothing to send after filtering.
-            if (snap2DCount > 0 || snap3DCount > 0)
+            if (snap2DCount == 0 && snap3DCount == 0) return;
+
+            // Default path — unchanged from before culling existed at all.
+            if (!_enableDistanceCulling || ObserverProvider == null || NetworkManager.Singleton == null)
+            {
                 NetworkBridge.SendSnapshotClientRpc(
                     _snapshots2D, snap2DCount, _snapshots3D, snap3DCount);
+                return;
+            }
+
+            SendSnapshotsCulled(snap2DCount, snap3DCount);
         }
+
+        private void SendSnapshotsCulled(int snap2DCount, int snap3DCount)
+        {
+            float rangeSq = _cullVisRange * _cullVisRange;
+
+            foreach (ulong clientId in NetworkManager.Singleton.ConnectedClientsIds)
+            {
+                bool hasObserver = ObserverProvider.TryGetObserverPosition(clientId, out Vector3 observerPos);
+
+                var targetParams = new ClientRpcParams
+                {
+                    Send = new ClientRpcSendParams { TargetClientIds = new[] { clientId } }
+                };
+
+                // No resolvable position for this client — safest fallback is
+                // "send everything," never "send nothing." Same array, same
+                // count, just re-targeted to this one client instead of a
+                // shared broadcast.
+                if (!hasObserver)
+                {
+                    NetworkBridge.SendSnapshotClientRpc(
+                        _snapshots2D, snap2DCount, _snapshots3D, snap3DCount, targetParams);
+                    continue;
+                }
+
+                int filtered2D = 0;
+                for (int i = 0; i < snap2DCount; i++)
+                {
+                    ref readonly var snap = ref _snapshots2D[i];
+                    if (IsOwnedBy(snap.ProjId, clientId)) continue;
+
+                    float dx = snap.X - observerPos.x;
+                    float dy = snap.Y - observerPos.y;
+                    if (dx * dx + dy * dy > rangeSq) continue;
+
+                    _cullScratch2D[filtered2D++] = snap;
+                }
+
+                int filtered3D = 0;
+                for (int i = 0; i < snap3DCount; i++)
+                {
+                    ref readonly var snap = ref _snapshots3D[i];
+                    if (IsOwnedBy(snap.ProjId, clientId)) continue;
+
+                    float dx = snap.X - observerPos.x;
+                    float dy = snap.Y - observerPos.y;
+                    float dz = snap.Z - observerPos.z;
+                    if (dx * dx + dy * dy + dz * dz > rangeSq) continue;
+
+                    _cullScratch3D[filtered3D++] = snap;
+                }
+
+                if (filtered2D == 0 && filtered3D == 0) continue;
+
+                NetworkBridge.SendSnapshotClientRpc(
+                    _cullScratch2D, filtered2D, _cullScratch3D, filtered3D, targetParams);
+            }
+        }
+
+        /// <summary>True if the given client id is this projectile's owner — see ServerProjectileData.ownerClientId.</summary>
+        private bool IsOwnedBy(uint projId, ulong clientId)
+            => Adapter.TryGetData(projId, out var data) && data.ownerClientId == clientId;
 
         #endregion
 
