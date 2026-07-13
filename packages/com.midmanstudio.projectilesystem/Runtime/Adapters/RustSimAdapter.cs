@@ -1,4 +1,3 @@
-
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -51,6 +50,10 @@ namespace MidManStudio.Projectiles.Adapters
 
         public bool IsRegistered(uint projId)
             => _projData.ContainsKey(projId);
+
+        /// <summary>Look up a projectile's server-side data (owner, config, etc.) by id.</summary>
+        public bool TryGetData(uint projId, out ServerProjectileData data)
+            => _projData.TryGetValue(projId, out data);
 
         // ── Hit processing (2D) ───────────────────────────────────────────────
 
