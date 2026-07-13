@@ -1,0 +1,12 @@
+OverflowException: RPC parameters are too large for unreliable delivery.
+Unity.Netcode.NetworkBehaviour.__endSendClientRpc (Unity.Netcode.FastBufferWriter& bufferWriter, System.UInt32 rpcMethodId, Unity.Netcode.ClientRpcParams clientRpcParams, Unity.Netcode.RpcDelivery rpcDelivery) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkBehaviour.cs:285)
+MidManStudio.Projectiles.Network.MID_ProjectileNetworkBridge.SendSnapshotClientRpc (MidManStudio.Projectiles.Managers.ProjectileSnapshot2D[] snapshots2D, System.Int32 count2D, MidManStudio.Projectiles.Managers.ProjectileSnapshot3D[] snapshots3D, System.Int32 count3D, Unity.Netcode.ClientRpcParams rpcParams) (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Network/MID_ProjectileNetworkBridge.cs:633)
+MidManStudio.Projectiles.Managers.ServerProjectileAuthority.SendSnapshots () (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/ServerProjectileAuthority.cs:604)
+MidManStudio.Projectiles.Managers.ServerProjectileAuthority.FixedUpdate () (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/ServerProjectileAuthority.cs:381)
+
+OverflowException: RPC parameters are too large for unreliable delivery.
+Unity.Netcode.NetworkBehaviour.__endSendClientRpc (Unity.Netcode.FastBufferWriter& bufferWriter, System.UInt32 rpcMethodId, Unity.Netcode.ClientRpcParams clientRpcParams, Unity.Netcode.RpcDelivery rpcDelivery) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkBehaviour.cs:285)
+MidManStudio.Projectiles.Network.MID_ProjectileNetworkBridge.SendSnapshotClientRpc (MidManStudio.Projectiles.Managers.ProjectileSnapshot2D[] snapshots2D, System.Int32 count2D, MidManStudio.Projectiles.Managers.ProjectileSnapshot3D[] snapshots3D, System.Int32 count3D, Unity.Netcode.ClientRpcParams rpcParams) (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Network/MID_ProjectileNetworkBridge.cs:633)
+MidManStudio.Projectiles.Managers.ServerProjectileAuthority.SendSnapshots () (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/ServerProjectileAuthority.cs:604)
+MidManStudio.Projectiles.Managers.ServerProjectileAuthority.FixedUpdate () (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/ServerProjectileAuthority.cs:381)
+
