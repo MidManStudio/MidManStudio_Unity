@@ -626,7 +626,8 @@ namespace MidManStudio.Projectiles.Network
         [ClientRpc(Delivery = RpcDelivery.Unreliable)]
         public void SendSnapshotClientRpc(
             ProjectileSnapshot2D[] snapshots2D, int count2D,
-            ProjectileSnapshot3D[] snapshots3D, int count3D)
+            ProjectileSnapshot3D[] snapshots3D, int count3D,
+            ClientRpcParams rpcParams = default)
         {
             // Skip dedicated server AND host — both render from ServerProjectileAuthority
             if (IsServer || !IsSpawned || _isShuttingDown) return;
