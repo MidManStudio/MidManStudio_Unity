@@ -598,11 +598,9 @@ namespace MidManStudio.Projectiles.Managers
 
             if (snap2DCount == 0 && snap3DCount == 0) return;
 
-            // Default path — unchanged from before culling existed at all.
             if (!_enableDistanceCulling || ObserverProvider == null || NetworkManager.Singleton == null)
             {
-                NetworkBridge.SendSnapshotClientRpc(
-                    _snapshots2D, snap2DCount, _snapshots3D, snap3DCount);
+                SendSnapshotChunked(_snapshots2D, snap2DCount, _snapshots3D, snap3DCount, default);
                 return;
             }
 
@@ -623,13 +621,12 @@ namespace MidManStudio.Projectiles.Managers
                 };
 
                 // No resolvable position for this client — safest fallback is
-                // "send everything," never "send nothing." Same array, same
-                // count, just re-targeted to this one client instead of a
-                // shared broadcast.
+                // "send everything," never "send nothing." Same candidate set,
+                // just re-targeted to this one client instead of a broadcast —
+                // still goes through the chunked sender, same as everyone else.
                 if (!hasObserver)
                 {
-                    NetworkBridge.SendSnapshotClientRpc(
-                        _snapshots2D, snap2DCount, _snapshots3D, snap3DCount, targetParams);
+                    SendSnapshotChunked(_snapshots2D, snap2DCount, _snapshots3D, snap3DCount, targetParams);
                     continue;
                 }
 
@@ -662,8 +659,85 @@ namespace MidManStudio.Projectiles.Managers
 
                 if (filtered2D == 0 && filtered3D == 0) continue;
 
-                NetworkBridge.SendSnapshotClientRpc(
-                    _cullScratch2D, filtered2D, _cullScratch3D, filtered3D, targetParams);
+                SendSnapshotChunked(_cullScratch2D, filtered2D, _cullScratch3D, filtered3D, targetParams);
+            }
+        }
+
+        // ── Chunked sender ──────────────────────────────────────────────────────
+        //
+        // BUG FIX (the actual crash): NGO serializes a T[] RPC parameter by its
+        // real .Length — it has no idea "count2D" is supposed to mean "only the
+        // first N of these are real," that's a purely applicaton-side convention.
+        // _snapshots2D/_cullScratch2D are pre-allocated at full capacity
+        // (_maxProjectiles2D = 2048) and reused in place for exactly the reason
+        // you'd want that — avoid GC pressure — but that means handing either of
+        // them straight to an RPC call was ALWAYS serializing all 2048 slots
+        // (~24.5KB for 2D alone), not just the live ones. Under Reliable delivery
+        // that silently fragmented across packets and nobody noticed; Unreliable
+        // has no fragmentation, so it hits the "too large" ceiling immediately —
+        // this isn't really a "delivery type" bug, the delivery type just
+        // stopped tolerating a pre-existing oversized payload.
+        //
+        // Fix has two parts, both handled here: (1) every chunk actually handed
+        // to the RPC is resized to exactly how many entries it holds — _chunk2D/
+        // _chunk3D only reallocate when the requested size changes, so a steady
+        // stream of same-sized chunks costs nothing extra; (2) each chunk is
+        // capped to a conservative byte budget so even a fully-trimmed, fully
+        // legitimate large snapshot (e.g. a real 150-projectile tick) still can't
+        // exceed NGO's unreliable ceiling — it just becomes 2-3 RPC calls instead
+        // of one. Losing one chunk to a dropped unreliable packet only costs that
+        // slice of that tick's projectiles their update, self-corrected next tick.
+
+        private const int kSafeUnreliablePayloadBytes = 900; // conservative; real ceiling is MTU-bound, ~1200
+        private const int kFixedRpcOverheadBytes       = 48;  // two counts + two length-prefixes + rpc header headroom
+        private const int kEntry2DBytes = 12; // ProjId(4) + halfX(2) + halfY(2) + ServerTick(4) — see WireCompression.cs
+        private const int kEntry3DBytes = 14; // + halfZ(2)
+
+        private ProjectileSnapshot2D[] _chunk2D = new ProjectileSnapshot2D[0];
+        private ProjectileSnapshot3D[] _chunk3D = new ProjectileSnapshot3D[0];
+
+        private void SendSnapshotChunked(
+            ProjectileSnapshot2D[] src2D, int count2D,
+            ProjectileSnapshot3D[] src3D, int count3D,
+            ClientRpcParams targetParams)
+        {
+            int i2 = 0, i3 = 0;
+
+            while (i2 < count2D || i3 < count3D)
+            {
+                int budget = kSafeUnreliablePayloadBytes - kFixedRpcOverheadBytes;
+                int n2 = 0, n3 = 0;
+
+                while (i2 + n2 < count2D && budget >= kEntry2DBytes)
+                {
+                    n2++;
+                    budget -= kEntry2DBytes;
+                }
+                while (i3 + n3 < count3D && budget >= kEntry3DBytes)
+                {
+                    n3++;
+                    budget -= kEntry3DBytes;
+                }
+
+                // Guard against a pathological zero-progress case (shouldn't be
+                // reachable at these entry sizes vs. budget, but never loop forever).
+                if (n2 == 0 && n3 == 0)
+                {
+                    if (i2 < count2D) n2 = 1;
+                    else if (i3 < count3D) n3 = 1;
+                    else break;
+                }
+
+                if (_chunk2D.Length != n2) System.Array.Resize(ref _chunk2D, n2);
+                if (_chunk3D.Length != n3) System.Array.Resize(ref _chunk3D, n3);
+
+                if (n2 > 0) System.Array.Copy(src2D, i2, _chunk2D, 0, n2);
+                if (n3 > 0) System.Array.Copy(src3D, i3, _chunk3D, 0, n3);
+
+                NetworkBridge.SendSnapshotClientRpc(_chunk2D, n2, _chunk3D, n3, targetParams);
+
+                i2 += n2;
+                i3 += n3;
             }
         }
 
