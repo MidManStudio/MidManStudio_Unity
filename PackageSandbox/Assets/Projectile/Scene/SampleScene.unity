@@ -16704,8 +16704,8 @@ MonoBehaviour:
   _cellSize2D: 4
   _cellSize3D: 4
   _snapshotIntervalTicks: 4
-  _enableDistanceCulling: 0
-  _cullVisRange: 60
+  _enableDistanceCulling: 1
+  _cullVisRange: 20
   _renderer2D: {fileID: 1771295139}
   _renderer3D: {fileID: 100733518}
   _enableLogs: 0

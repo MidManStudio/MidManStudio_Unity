@@ -76,6 +76,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/MID_TouchJoystick.cs">
       <Link>Tests/Runtime/MID_TouchJoystick.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/NetworkPlayerObjectObserverProvider.cs">
+      <Link>Tests/Runtime/NetworkPlayerObjectObserverProvider.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/ProjectileTestLobbyUI.cs">
       <Link>Tests/Runtime/ProjectileTestLobbyUI.cs</Link>
     </Compile>
