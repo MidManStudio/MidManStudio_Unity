@@ -11,6 +11,7 @@ using MidManStudio.Projectiles.Adapters;
 using MidManStudio.Projectiles.Managers;
 using MidManStudio.Projectiles.Config;
 using MidManStudio.Projectiles.Core;
+using MidManStudio.Projectiles.Network;
 
 namespace TestGame
 {
@@ -244,6 +245,23 @@ namespace TestGame
                 SpawnTestTargets2D(networked: true);
                 SubscribeHitEvents();
                 StartCoroutine(BobTargets());
+
+                // Wires the capability, doesn't turn it on. _enableDistanceCulling
+                // and _cullVisRange are Inspector fields on ServerProjectileAuthority
+                // by design — flip the checkbox there when you want to actually test
+                // culling, this just makes sure ObserverProvider has something to
+                // resolve positions against when you do. Leaving it wired with
+                // culling off in the Inspector costs nothing (ObserverProvider only
+                // gets consulted when _enableDistanceCulling is true).
+                var authority = _projectileSystem?.GetAuthority();
+                if (authority != null)
+                {
+                    authority.ObserverProvider = new NetworkPlayerObjectObserverProvider();
+                    MID_Logger.LogInfo(_logLevel,
+                        "ObserverProvider wired (NetworkPlayerObjectObserverProvider). " +
+                        "Toggle ServerProjectileAuthority._enableDistanceCulling to test.",
+                        nameof(TestSceneBootstrapper));
+                }
 
                 if (_playerPrefab != null)
                 {
