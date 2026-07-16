@@ -265,6 +265,22 @@ namespace MidManStudio.Projectiles.Network
                 return;
             }
             transport.MaxSendQueueSize = 16 * 1024 * 1024;
+
+            // FIX: "Receive queue is full, some packets could be dropped" — this
+            // is a DIFFERENT setting from MaxSendQueueSize above. That one is the
+            // byte-size batching/accumulation buffer; MaxPacketQueueSize is the
+            // count of discrete packets UTP can hold per internal send/receive
+            // queue, i.e. how many packets can actually be processed in a single
+            // frame. Culling's per-client dispatch (SendSnapshotsCulled) fires N
+            // separate targeted RPC calls per snapshot tick instead of the
+            // previous handful of broadcasts — each individually chunked, so it's
+            // now genuinely possible to have more discrete packets land in one
+            // frame than the transport's default packet-count queue was sized
+            // for, independent of total bytes (which is already bounded by the
+            // chunking fix). 2048 gives real headroom at "10s/100s of players"
+            // scale — UTP's own practical ceiling is in the 13-14k range before
+            // other problems start, so this is nowhere close to that.
+            transport.MaxPacketQueueSize = 2048;
         }
 
         // ── Public API ────────────────────────────────────────────────────────
