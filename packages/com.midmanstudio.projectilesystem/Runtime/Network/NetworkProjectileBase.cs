@@ -1,4 +1,3 @@
-
 using UnityEngine;
 using Unity.Netcode;
 using MidManStudio.Core.Pools;
@@ -167,15 +166,31 @@ namespace MidManStudio.Projectiles.Network
         {
             if (!IsSpawned) return;
 
-            if (IsServer)
-            {
-                base.Update();
+            // BUG FIX (projectiles spawn but never move on clients — visible as
+            // "client sees it get pulled from the pool but it just sits there
+            // until despawn"): this used to be
+            //
+            //     if (IsServer) { base.Update(); ... }
+            //
+            // which meant NetworkTransform's own Update() — the method that both
+            // (a) detects local transform changes to broadcast on the authority
+            // side AND (b) advances the interpolator that APPLIES incoming
+            // position/rotation state on every non-authoritative peer — only ever
+            // ran on the server. On a dedicated server that's "fine" for sending,
+            // but every client (including the host's remote clients) never
+            // called base.Update() at all, so the interpolated state NetworkTransform
+            // received was parsed and stored but never applied to transform.position.
+            // The projectile visually froze at its spawn pose and only visibly
+            // changed again when OnNetworkDespawn tore it down — exactly the
+            // reported symptom. NetworkTransform.Update() must run on every peer;
+            // only the TTL watchdog below is actually server-only.
+            base.Update();
 
-                if (_initialized
-                    && NetworkManager.ServerTime.TimeAsFloat >= _endOfLifeTime)
-                {
-                    DestroyProjectile();
-                }
+            if (IsServer
+                && _initialized
+                && NetworkManager.ServerTime.TimeAsFloat >= _endOfLifeTime)
+            {
+                DestroyProjectile();
             }
         }
 
