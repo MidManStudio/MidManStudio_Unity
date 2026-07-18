@@ -42,6 +42,19 @@ namespace MidManStudio.Core.Pools
         private readonly Dictionary<PoolableObjectType, int> _activeCount = new();
         private readonly Dictionary<GameObject, PoolableObjectType> _prefabToType = new();
 
+        // FIX: tracks every GameObject currently sitting in one of the
+        // _pooledObjects queues. Used by ReturnObject to reject a duplicate
+        // enqueue of an object that's already queued (e.g. an auto-return timer
+        // firing on an object a caller is still explicitly holding and later also
+        // returns manually — see LocalPoolReturn / PhysicsProjectileBase). Without
+        // this, the same GameObject reference can be dequeued and handed to two
+        // callers at once; whichever loses the race ends up with a visual that
+        // gets reparented/destroyed out from under it, and a stale/destroyed
+        // reference can be left sitting in the queue for a later GetObject() to
+        // choke on. Cleared whenever an entry leaves a queue (GetObject dequeue,
+        // ClearPool).
+        private readonly HashSet<GameObject> _queuedObjects = new();
+
         #endregion
 
         #region Properties
@@ -90,13 +103,37 @@ namespace MidManStudio.Core.Pools
             if (!EnsureRegistered(type)) return null;
 
             var pool = _pooledObjects[type];
-            bool isNew = pool.Count == 0;
+            GameObject obj = null;
 
-            var obj = isNew
-                ? CreateInstance(_typeConfigs[type])
-                : pool.Dequeue();
+            // FIX (MissingReferenceException on GetObject): a queued entry can go
+            // stale if something outside the pool's own Get/Return pair destroys
+            // it directly — most commonly a NetworkObject parent destroyed by
+            // Netcode while a pooled child visual was still (incorrectly) sitting
+            // in the queue from an earlier premature/duplicate return. Unity's
+            // overridden `== null` correctly reports true for a destroyed native
+            // object even though the C# reference itself is non-null, so this
+            // skip is cheap and reliable. Previously a bare Dequeue() handed the
+            // destroyed reference straight to the caller, and the very next
+            // `.transform` access on it threw MissingReferenceException.
+            while (pool.Count > 0)
+            {
+                var candidate = pool.Dequeue();
+                _queuedObjects.Remove(candidate);
 
-            if (isNew) _totalSpawned[type]++;
+                if (candidate != null) { obj = candidate; break; }
+
+                MID_Logger.LogWarning(_logLevel,
+                    $"Discarded a destroyed pooled {type} reference found in queue.",
+                    nameof(LocalObjectPool), nameof(GetObject));
+            }
+
+            bool isNew = obj == null;
+            if (isNew)
+            {
+                obj = CreateInstance(_typeConfigs[type]);
+                _totalSpawned[type]++;
+            }
+
             _activeCount[type]++;
 
             obj.transform.SetParent(null);
@@ -119,6 +156,30 @@ namespace MidManStudio.Core.Pools
 
         public void ReturnObject(GameObject obj, PoolableObjectType type)
         {
+            // FIX: a destroyed/null object has nothing to return — silently
+            // enqueuing it (or worse, re-Destroying it) just masks whatever
+            // double-return or dangling-reference bug produced the call.
+            if (obj == null)
+            {
+                MID_Logger.LogWarning(_logLevel,
+                    $"ReturnObject called with a null/destroyed {type} reference — ignored.",
+                    nameof(LocalObjectPool));
+                return;
+            }
+
+            // FIX: reject a duplicate return of an object that's already queued.
+            // See the _queuedObjects field comment for why this matters — without
+            // it, the same GameObject can be dequeued twice and handed to two
+            // owners simultaneously.
+            if (_queuedObjects.Contains(obj))
+            {
+                MID_Logger.LogWarning(_logLevel,
+                    $"ReturnObject: {type} (id={obj.GetInstanceID()}) is already queued — " +
+                    "ignoring duplicate return.",
+                    nameof(LocalObjectPool), nameof(ReturnObject));
+                return;
+            }
+
             if (!_registeredTypes.Contains(type))
             {
                 if (enableAutoRegistration)
@@ -169,6 +230,7 @@ namespace MidManStudio.Core.Pools
             obj.transform.SetParent(transform);
             obj.SetActive(false);
             pool.Enqueue(obj);
+            _queuedObjects.Add(obj);
 
             MID_Logger.LogDebug(_logLevel,
                 $"Returned {type} | id={obj.GetInstanceID()} pool={pool.Count}",
@@ -247,6 +309,7 @@ namespace MidManStudio.Core.Pools
             _totalSpawned.Clear();
             _activeCount.Clear();
             _prefabToType.Clear();
+            _queuedObjects.Clear();
 
             MID_Logger.LogInfo(_logLevel, $"Pool cleared — {total} object(s) destroyed.",
                 nameof(LocalObjectPool));
@@ -323,6 +386,7 @@ namespace MidManStudio.Core.Pools
                     obj.transform.SetParent(transform);
                     obj.SetActive(false);
                     pool.Enqueue(obj);
+                    _queuedObjects.Add(obj);
                 }
             }
         }
