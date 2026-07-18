@@ -1,5 +1,3 @@
-
-
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -13,6 +11,9 @@ using Unity.Netcode.Transports.UTP;
 using UnityEngine;
 using MidManStudio.Core.Logging;
 using MidManStudio.Netcode.Singleton;
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
 namespace MidManStudio.Netcode.LocalMultiplayer
 {
     [Serializable]
@@ -116,6 +117,65 @@ namespace MidManStudio.Netcode.LocalMultiplayer
             InitializeSingleton(false);
             LoadPlayerIdentity();
             StartCoroutine(InitAsync());
+
+            // FIX ("message handle errors" on game close — NullReferenceException
+            // in Unity.Netcode.NamedMessage.Handle during NetworkManager's own
+            // internal ModeChanged-triggered shutdown): this is a known rough edge
+            // in Netcode for GameObjects' shutdown sequence — Unity's release
+            // notes for the 1.5.x/1.6.0 era call out the exact same class of bug
+            // ("recent refactorings to NetworkManager's shutdown have prevented
+            // the ability to invoke CustomMessages when OnClientDisconnected
+            // callbacks are invoked during a shutdown"). In the Editor, pressing
+            // Stop fires NetworkManager's OWN internal playModeStateChanged
+            // subscription, which calls ShutdownInternal() synchronously — this
+            // can race the message queue drain and throw while messages are still
+            // being processed mid-teardown. Our own shutdown paths below
+            // (OnDestroy / SafeShutdown / StopHosting / LeaveLobby /
+            // CleanupNetworkAsync) already try to shut down gracefully, but they
+            // run as coroutines/async Tasks that may not get a chance to execute
+            // before Unity finishes exiting play mode.
+            //
+            // The fix is to shut down PROACTIVELY and SYNCHRONOUSLY the moment
+            // play mode starts exiting (or the application starts quitting),
+            // using discardMessageQueue: true so nothing is left half-processed.
+            // Once _networkManager.IsListening is already false, NGO's own
+            // internal auto-shutdown handler finds nothing to do and no longer
+            // races anyone.
+#if UNITY_EDITOR
+            EditorApplication.playModeStateChanged += HandleEditorPlayModeChanged;
+#endif
+        }
+
+#if UNITY_EDITOR
+        private void HandleEditorPlayModeChanged(PlayModeStateChange state)
+        {
+            if (state != PlayModeStateChange.ExitingPlayMode) return;
+            ShutdownNetworkImmediate();
+        }
+#endif
+
+        private void OnApplicationQuit()
+        {
+            // Same proactive/synchronous shutdown as the editor hook above, for
+            // standalone builds (EditorApplication doesn't exist outside the Editor).
+            ShutdownNetworkImmediate();
+        }
+
+        /// <summary>
+        /// Synchronous, discard-queue shutdown used by both the editor
+        /// play-mode-exit hook and OnApplicationQuit — see the comment in Awake()
+        /// for why this needs to run eagerly rather than through the existing
+        /// coroutine-based SafeShutdown()/StopHostCoroutine() paths.
+        /// </summary>
+        private void ShutdownNetworkImmediate()
+        {
+            if (_networkManager == null || !_networkManager.IsListening) return;
+
+            MID_Logger.LogInfo(_logLevel,
+                "Proactive synchronous shutdown (play mode exit / application quit).",
+                nameof(LocalLobbyManager));
+
+            _networkManager.Shutdown(discardMessageQueue: true);
         }
 
         private IEnumerator InitAsync()
@@ -148,6 +208,10 @@ namespace MidManStudio.Netcode.LocalMultiplayer
 
         public override void OnDestroy()
         {
+#if UNITY_EDITOR
+            EditorApplication.playModeStateChanged -= HandleEditorPlayModeChanged;
+#endif
+
             if (!_isInitialized) return;
             _isShuttingDown = true;
 
@@ -176,7 +240,8 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                 MID_Logger.LogInfo(_logLevel,
                     "OnDestroy: GameObject inactive, shutting down NetworkManager synchronously.",
                     nameof(LocalLobbyManager));
-                _networkManager.Shutdown();
+                // FIX: discardMessageQueue: true — see Awake()'s comment for why.
+                _networkManager.Shutdown(discardMessageQueue: true);
             }
 
             base.OnDestroy();
@@ -192,7 +257,8 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                             _networkManager.DisconnectClient(id);
 
                 yield return new WaitForSeconds(0.2f);
-                _networkManager.Shutdown();
+                // FIX: discardMessageQueue: true — see Awake()'s comment for why.
+                _networkManager.Shutdown(discardMessageQueue: true);
                 yield return new WaitForSeconds(0.3f);
             }
         }
@@ -407,7 +473,8 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                         _networkManager.DisconnectClient(id);
 
                 yield return new WaitForSeconds(0.2f);
-                _networkManager.Shutdown();
+                // FIX: discardMessageQueue: true — see Awake()'s comment for why.
+                _networkManager.Shutdown(discardMessageQueue: true);
                 yield return new WaitForSeconds(0.3f);
             }
         }
@@ -469,7 +536,8 @@ namespace MidManStudio.Netcode.LocalMultiplayer
 
             if (_networkManager != null && _networkManager.IsConnectedClient)
             {
-                _networkManager.Shutdown();
+                // FIX: discardMessageQueue: true — see Awake()'s comment for why.
+                _networkManager.Shutdown(discardMessageQueue: true);
                 yield return new WaitForSeconds(0.5f);
             }
         }
@@ -1130,7 +1198,8 @@ namespace MidManStudio.Netcode.LocalMultiplayer
                             _networkManager.DisconnectClient(id);
 
                 await Task.Delay(200);
-                _networkManager.Shutdown();
+                // FIX: discardMessageQueue: true — see Awake()'s comment for why.
+                _networkManager.Shutdown(discardMessageQueue: true);
                 await Task.Delay(500);
             }
             catch (Exception e)
