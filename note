@@ -1,727 +1,732 @@
-Receive queue is full, some packets could be dropped, consider increase its size (256).
- #1 DefaultBurstRuntimeLogCallback(void*, BurstLogType, char const*, char const*, int)
- #2 Unity.Jobs.IJobExtensions.JobStruct`1<Unity.Networking.Transport.TopLayer.CompleteReceiveJob>.Execute(ref Unity.Networking.Transport.TopLayer.CompleteReceiveJob data, System.IntPtr additionalPtr, System.IntPtr bufferRangePatchData, ref Unity.Jobs.LowLevel.Unsafe.JobRanges ranges, int jobIndex) -> void_689e816c271b799ebd6b634ff47fa91d from UnityEngine.CoreModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null
- #3 d7d08c149e8ff16267f542be6f8a2420
- #4 ExecuteJob(ManagedJobData*, void (*)(void*, void*, void*, void*, int), int, unsigned char*)
- #5 ForwardJobToManaged(ManagedJobData*)
- #6 ujob_execute_job(ujob_control_t*, ujob_lane_t*, ujob_job_t*, ujob_handle_t, int)
- #7 lane_guts(ujob_control_t*, ujob_lane_t*, int, int)
- #8 ujob_wait_for(ujob_control_t*, ujob_handle_t, int)
- #9 CompleteFenceInternal(JobFence&, WorkStealMode)
- #10 ScheduleBatchedScriptingJobsAndComplete(JobFence&, ScriptingExceptionPtr*)
- #11 JobHandle_CUSTOM_ScheduleBatchedJobsAndComplete(JobFence&)
- #12  (Mono JIT Code) (wrapper managed-to-native) Unity.Jobs.JobHandle:ScheduleBatchedJobsAndComplete (Unity.Jobs.JobHandle&)
- #13  (Mono JIT Code) (wrapper runtime-invoke) object:runtime_invoke_void__this__ (object,intptr,intptr,intptr)
- #14 mono_jit_runtime_invoke
- #15 do_runtime_invoke
- #16 mono_runtime_invoke
- #17 scripting_method_invoke(ScriptingMethodPtr, ScriptingObjectPtr, ScriptingArguments&, ScriptingExceptionPtr*, bool)
- #18 ScriptingInvocation::Invoke(ScriptingExceptionPtr*, bool)
- #19 MonoBehaviour::CallMethodIfAvailable(int)
- #20 MonoBehaviour::CallUpdateMethod(int)
- #21 void BaseBehaviourManager::CommonUpdate<BehaviourManager>()
- #22 BehaviourManager::Update()
- #23 InitPlayerLoopCallbacks()::UpdateScriptRunBehaviourUpdateRegistrator::Forward()
- #24 ExecutePlayerLoop(NativePlayerLoopSystem*)
- #25 ExecutePlayerLoop(NativePlayerLoopSystem*)
- #26 PlayerLoop()
- #27 EditorPlayerLoop::Execute()
- #28 PlayerLoopController::InternalUpdateScene(bool, bool)
- #29 PlayerLoopController::UpdateSceneIfNeededFromMainLoop()
- #30 Application::TickTimer()
- #31 -[EditorApplication TickTimer]
- #32 __NSFireTimer
- #33 __CFRUNLOOP_IS_CALLING_OUT_TO_A_TIMER_CALLBACK_FUNCTION__
- #34 __CFRunLoopDoTimer
- #35 __CFRunLoopDoTimers
- #36 __CFRunLoopRun
- #37 CFRunLoopRunSpecific
- #38 RunCurrentEventLoopInMode
- #39 ReceiveNextEventCommon
- #40 _BlockUntilNextEventMatchingListInModeWithFilter
- #41 _DPSNextEvent
- #42 -[NSApplication(NSEvent) _nextEventMatchingEventMask:untilDate:inMode:dequeue:]
- #43 -[EditorApplication checkForFocusChange:]
- #44 __NSFireTimer
- #45 __CFRUNLOOP_IS_CALLING_OUT_TO_A_TIMER_CALLBACK_FUNCTION__
- #46 __CFRunLoopDoTimer
- #47 __CFRunLoopDoTimers
- #48 __CFRunLoopRun
- #49 CFRunLoopRunSpecific
- #50 RunCurrentEventLoopInMode
- #51 ReceiveNextEventCommon
- #52 _BlockUntilNextEventMatchingListInModeWithFilter
- #53 _DPSNextEvent
- #54 -[NSApplication(NSEvent) _nextEventMatchingEventMask:untilDate:inMode:dequeue:]
- #55 -[EditorApplication TickTimer]
- #56 __NSFireTimer
- #57 __CFRUNLOOP_IS_CALLING_OUT_TO_A_TIMER_CALLBACK_FUNCTION__
- #58 __CFRunLoopDoTimer
- #59 __CFRunLoopDoTimers
- #60 __CFRunLoopRun
- #61 CFRunLoopRunSpecific
- #62 RunCurrentEventLoopInMode
- #63 ReceiveNextEventCommon
- #64 _BlockUntilNextEventMatchingListInModeWithFilter
- #65 _DPSNextEvent
- #66 -[NSApplication(NSEvent) _nextEventMatchingEventMask:untilDate:inMode:dequeue:]
- #67 -[NSApplication run]
- #68 NSApplicationMain
- #69 EditorMain(int, char const**)
- #70 main
- #71 start
- #72 ???
+Ok following issues persist, one, when we close game we get message handle errors., two , when we shoot 3d projectile pysicis based we gett null ref, both 2d and 3d pysics based projectiles, their visual movment is not synced across the net work, and 3d projectiles visual is not set, and 2d projectile visual for psycis is only set for the host, MissingReferenceException: The object of type 'GameObject' has been destroyed but you are still trying to access it.
+Your script should either check if it is null or you should not destroy the object.
+MidManStudio.Core.Pools.LocalObjectPool.GetObject (MidManStudio.Core.Pools.PoolableObjectType type, UnityEngine.Vector3 position, UnityEngine.Quaternion rotation) (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/LocalObjectPool.cs:102)
+MidManStudio.Projectiles.Managers.PhysicsProjectileBase.SpawnPoolVisual () (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectileBase.cs:334)
+MidManStudio.Projectiles.Managers.PhysicsProjectileBase.OnNetworkSpawn () (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectileBase.cs:80)
+Unity.Netcode.NetworkBehaviour.VisibleOnNetworkSpawn () (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkBehaviour.cs:506)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkBehaviour:VisibleOnNetworkSpawn() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkBehaviour.cs:510)
+Unity.Netcode.NetworkObject:InvokeBehaviourNetworkSpawn() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkObject.cs:1237)
+Unity.Netcode.NetworkSpawnManager:SpawnNetworkObjectLocallyCommon(NetworkObject, UInt64, Boolean, Boolean, UInt64, Boolean) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Spawning/NetworkSpawnManager.cs:606)
+Unity.Netcode.NetworkSpawnManager:SpawnNetworkObjectLocally(NetworkObject, SceneObject&, Boolean) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Spawning/NetworkSpawnManager.cs:525)
+Unity.Netcode.NetworkObject:AddSceneObject(SceneObject&, FastBufferReader, NetworkManager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkObject.cs:1744)
+Unity.Netcode.CreateObjectMessage:Handle(NetworkContext&) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/CreateObjectMessage.cs:37)
+Unity.Netcode.NetworkMessageManager:ReceiveMessage(FastBufferReader, NetworkContext&, NetworkMessageManager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkManager:NetworkUpdate(NetworkUpdateStage) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:45)
+Unity.Netcode.NetworkUpdateLoop:RunNetworkUpdateStage(NetworkUpdateStage) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkUpdateLoop.cs:185)
+Unity.Netcode.<>c:<CreateLoopSystem>b__0_0() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkUpdateLoop.cs:208)
 
-Receive queue is full, some packets could be dropped, consider increase its size (256).
- #1 DefaultBurstRuntimeLogCallback(void*, BurstLogType, char const*, char const*, int)
- #2 Unity.Jobs.IJobExtensions.JobStruct`1<Unity.Networking.Transport.TopLayer.CompleteReceiveJob>.Execute(ref Unity.Networking.Transport.TopLayer.CompleteReceiveJob data, System.IntPtr additionalPtr, System.IntPtr bufferRangePatchData, ref Unity.Jobs.LowLevel.Unsafe.JobRanges ranges, int jobIndex) -> void_689e816c271b799ebd6b634ff47fa91d from UnityEngine.CoreModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null
- #3 d7d08c149e8ff16267f542be6f8a2420
- #4 ExecuteJob(ManagedJobData*, void (*)(void*, void*, void*, void*, int), int, unsigned char*)
- #5 ForwardJobToManaged(ManagedJobData*)
- #6 ujob_execute_job(ujob_control_t*, ujob_lane_t*, ujob_job_t*, ujob_handle_t, int)
- #7 lane_guts(ujob_control_t*, ujob_lane_t*, int, int)
- #8 ujob_wait_for(ujob_control_t*, ujob_handle_t, int)
- #9 CompleteFenceInternal(JobFence&, WorkStealMode)
- #10 ScheduleBatchedScriptingJobsAndComplete(JobFence&, ScriptingExceptionPtr*)
- #11 JobHandle_CUSTOM_ScheduleBatchedJobsAndComplete(JobFence&)
- #12  (Mono JIT Code) (wrapper managed-to-native) Unity.Jobs.JobHandle:ScheduleBatchedJobsAndComplete (Unity.Jobs.JobHandle&)
- #13  (Mono JIT Code) (wrapper runtime-invoke) object:runtime_invoke_void__this__ (object,intptr,intptr,intptr)
- #14 mono_jit_runtime_invoke
- #15 do_runtime_invoke
- #16 mono_runtime_invoke
- #17 scripting_method_invoke(ScriptingMethodPtr, ScriptingObjectPtr, ScriptingArguments&, ScriptingExceptionPtr*, bool)
- #18 ScriptingInvocation::Invoke(ScriptingExceptionPtr*, bool)
- #19 MonoBehaviour::CallMethodIfAvailable(int)
- #20 MonoBehaviour::CallUpdateMethod(int)
- #21 void BaseBehaviourManager::CommonUpdate<BehaviourManager>()
- #22 BehaviourManager::Update()
- #23 InitPlayerLoopCallbacks()::UpdateScriptRunBehaviourUpdateRegistrator::Forward()
- #24 ExecutePlayerLoop(NativePlayerLoopSystem*)
- #25 ExecutePlayerLoop(NativePlayerLoopSystem*)
- #26 PlayerLoop()
- #27 EditorPlayerLoop::Execute()
- #28 PlayerLoopController::InternalUpdateScene(bool, bool)
- #29 PlayerLoopController::UpdateSceneIfNeededFromMainLoop()
- #30 Application::TickTimer()
- #31 -[EditorApplication TickTimer]
- #32 __NSFireTimer
- #33 __CFRUNLOOP_IS_CALLING_OUT_TO_A_TIMER_CALLBACK_FUNCTION__
- #34 __CFRunLoopDoTimer
- #35 __CFRunLoopDoTimers
- #36 __CFRunLoopRun
- #37 CFRunLoopRunSpecific
- #38 RunCurrentEventLoopInMode
- #39 ReceiveNextEventCommon
- #40 _BlockUntilNextEventMatchingListInModeWithFilter
- #41 _DPSNextEvent
- #42 -[NSApplication(NSEvent) _nextEventMatchingEventMask:untilDate:inMode:dequeue:]
- #43 -[NSApplication run]
- #44 NSApplicationMain
- #45 EditorMain(int, char const**)
- #46 main
- #47 start
- #48 ???
+MissingReferenceException: The object of type 'GameObject' has been destroyed but you are still trying to access it.
+Your script should either check if it is null or you should not destroy the object.
+MidManStudio.Core.Pools.LocalObjectPool.GetObject (MidManStudio.Core.Pools.PoolableObjectType type, UnityEngine.Vector3 position, UnityEngine.Quaternion rotation) (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/LocalObjectPool.cs:102)
+MidManStudio.Projectiles.Managers.PhysicsProjectileBase.SpawnPoolVisual () (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectileBase.cs:334)
+MidManStudio.Projectiles.Managers.PhysicsProjectileBase.OnNetworkSpawn () (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectileBase.cs:80)
+Unity.Netcode.NetworkBehaviour.VisibleOnNetworkSpawn () (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkBehaviour.cs:506)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkBehaviour:VisibleOnNetworkSpawn() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkBehaviour.cs:510)
+Unity.Netcode.NetworkObject:InvokeBehaviourNetworkSpawn() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkObject.cs:1237)
+Unity.Netcode.NetworkSpawnManager:SpawnNetworkObjectLocallyCommon(NetworkObject, UInt64, Boolean, Boolean, UInt64, Boolean) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Spawning/NetworkSpawnManager.cs:606)
+Unity.Netcode.NetworkSpawnManager:SpawnNetworkObjectLocally(NetworkObject, SceneObject&, Boolean) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Spawning/NetworkSpawnManager.cs:525)
+Unity.Netcode.NetworkObject:AddSceneObject(SceneObject&, FastBufferReader, NetworkManager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkObject.cs:1744)
+Unity.Netcode.CreateObjectMessage:Handle(NetworkContext&) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/CreateObjectMessage.cs:37)
+Unity.Netcode.NetworkMessageManager:ReceiveMessage(FastBufferReader, NetworkContext&, NetworkMessageManager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkManager:NetworkUpdate(NetworkUpdateStage) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:45)
+Unity.Netcode.NetworkUpdateLoop:RunNetworkUpdateStage(NetworkUpdateStage) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkUpdateLoop.cs:185)
+Unity.Netcode.<>c:<CreateLoopSystem>b__0_0() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkUpdateLoop.cs:208)
 
-Receive queue is full, some packets could be dropped, consider increase its size (256).
- #1 DefaultBurstRuntimeLogCallback(void*, BurstLogType, char const*, char const*, int)
- #2 Unity.Jobs.IJobExtensions.JobStruct`1<Unity.Networking.Transport.TopLayer.CompleteReceiveJob>.Execute(ref Unity.Networking.Transport.TopLayer.CompleteReceiveJob data, System.IntPtr additionalPtr, System.IntPtr bufferRangePatchData, ref Unity.Jobs.LowLevel.Unsafe.JobRanges ranges, int jobIndex) -> void_689e816c271b799ebd6b634ff47fa91d from UnityEngine.CoreModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null
- #3 d7d08c149e8ff16267f542be6f8a2420
- #4 ExecuteJob(ManagedJobData*, void (*)(void*, void*, void*, void*, int), int, unsigned char*)
- #5 ForwardJobToManaged(ManagedJobData*)
- #6 ujob_execute_job(ujob_control_t*, ujob_lane_t*, ujob_job_t*, ujob_handle_t, int)
- #7 lane_guts(ujob_control_t*, ujob_lane_t*, int, int)
- #8 worker_thread_routine(void*)
- #9 Thread::RunThreadWrapper(void*)
- #10 _pthread_start
- #11 thread_start
+MissingReferenceException: The object of type 'GameObject' has been destroyed but you are still trying to access it.
+Your script should either check if it is null or you should not destroy the object.
+MidManStudio.Core.Pools.LocalObjectPool.GetObject (MidManStudio.Core.Pools.PoolableObjectType type, UnityEngine.Vector3 position, UnityEngine.Quaternion rotation) (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/LocalObjectPool.cs:102)
+MidManStudio.Projectiles.Managers.PhysicsProjectileBase.SpawnPoolVisual () (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectileBase.cs:334)
+MidManStudio.Projectiles.Managers.PhysicsProjectileBase.OnNetworkSpawn () (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectileBase.cs:80)
+Unity.Netcode.NetworkBehaviour.VisibleOnNetworkSpawn () (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkBehaviour.cs:506)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkBehaviour:VisibleOnNetworkSpawn() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkBehaviour.cs:510)
+Unity.Netcode.NetworkObject:InvokeBehaviourNetworkSpawn() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkObject.cs:1237)
+Unity.Netcode.NetworkSpawnManager:SpawnNetworkObjectLocallyCommon(NetworkObject, UInt64, Boolean, Boolean, UInt64, Boolean) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Spawning/NetworkSpawnManager.cs:606)
+Unity.Netcode.NetworkSpawnManager:SpawnNetworkObjectLocally(NetworkObject, SceneObject&, Boolean) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Spawning/NetworkSpawnManager.cs:525)
+Unity.Netcode.NetworkObject:AddSceneObject(SceneObject&, FastBufferReader, NetworkManager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkObject.cs:1744)
+Unity.Netcode.CreateObjectMessage:Handle(NetworkContext&) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/CreateObjectMessage.cs:37)
+Unity.Netcode.NetworkMessageManager:ReceiveMessage(FastBufferReader, NetworkContext&, NetworkMessageManager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkManager:NetworkUpdate(NetworkUpdateStage) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:45)
+Unity.Netcode.NetworkUpdateLoop:RunNetworkUpdateStage(NetworkUpdateStage) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkUpdateLoop.cs:185)
+Unity.Netcode.<>c:<CreateLoopSystem>b__0_0() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkUpdateLoop.cs:208)
 
-Receive queue is full, some packets could be dropped, consider increase its size (256).
- #1 DefaultBurstRuntimeLogCallback(void*, BurstLogType, char const*, char const*, int)
- #2 Unity.Jobs.IJobExtensions.JobStruct`1<Unity.Networking.Transport.TopLayer.CompleteReceiveJob>.Execute(ref Unity.Networking.Transport.TopLayer.CompleteReceiveJob data, System.IntPtr additionalPtr, System.IntPtr bufferRangePatchData, ref Unity.Jobs.LowLevel.Unsafe.JobRanges ranges, int jobIndex) -> void_689e816c271b799ebd6b634ff47fa91d from UnityEngine.CoreModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null
- #3 d7d08c149e8ff16267f542be6f8a2420
- #4 ExecuteJob(ManagedJobData*, void (*)(void*, void*, void*, void*, int), int, unsigned char*)
- #5 ForwardJobToManaged(ManagedJobData*)
- #6 ujob_execute_job(ujob_control_t*, ujob_lane_t*, ujob_job_t*, ujob_handle_t, int)
- #7 lane_guts(ujob_control_t*, ujob_lane_t*, int, int)
- #8 ujob_wait_for(ujob_control_t*, ujob_handle_t, int)
- #9 CompleteFenceInternal(JobFence&, WorkStealMode)
- #10 ScheduleBatchedScriptingJobsAndComplete(JobFence&, ScriptingExceptionPtr*)
- #11 JobHandle_CUSTOM_ScheduleBatchedJobsAndComplete(JobFence&)
- #12  (Mono JIT Code) (wrapper managed-to-native) Unity.Jobs.JobHandle:ScheduleBatchedJobsAndComplete (Unity.Jobs.JobHandle&)
- #13  (Mono JIT Code) (wrapper runtime-invoke) object:runtime_invoke_void__this__ (object,intptr,intptr,intptr)
- #14 mono_jit_runtime_invoke
- #15 do_runtime_invoke
- #16 mono_runtime_invoke
- #17 scripting_method_invoke(ScriptingMethodPtr, ScriptingObjectPtr, ScriptingArguments&, ScriptingExceptionPtr*, bool)
- #18 ScriptingInvocation::Invoke(ScriptingExceptionPtr*, bool)
- #19 MonoBehaviour::CallMethodIfAvailable(int)
- #20 MonoBehaviour::CallUpdateMethod(int)
- #21 void BaseBehaviourManager::CommonUpdate<BehaviourManager>()
- #22 BehaviourManager::Update()
- #23 InitPlayerLoopCallbacks()::UpdateScriptRunBehaviourUpdateRegistrator::Forward()
- #24 ExecutePlayerLoop(NativePlayerLoopSystem*)
- #25 ExecutePlayerLoop(NativePlayerLoopSystem*)
- #26 PlayerLoop()
- #27 EditorPlayerLoop::Execute()
- #28 PlayerLoopController::InternalUpdateScene(bool, bool)
- #29 PlayerLoopController::UpdateSceneIfNeededFromMainLoop()
- #30 Application::TickTimer()
- #31 -[EditorApplication TickTimer]
- #32 __NSFireTimer
- #33 __CFRUNLOOP_IS_CALLING_OUT_TO_A_TIMER_CALLBACK_FUNCTION__
- #34 __CFRunLoopDoTimer
- #35 __CFRunLoopDoTimers
- #36 __CFRunLoopRun
- #37 CFRunLoopRunSpecific
- #38 RunCurrentEventLoopInMode
- #39 ReceiveNextEventCommon
- #40 _BlockUntilNextEventMatchingListInModeWithFilter
- #41 _DPSNextEvent
- #42 -[NSApplication(NSEvent) _nextEventMatchingEventMask:untilDate:inMode:dequeue:]
- #43 -[EditorApplication checkForFocusChange:]
- #44 __NSFireTimer
- #45 __CFRUNLOOP_IS_CALLING_OUT_TO_A_TIMER_CALLBACK_FUNCTION__
- #46 __CFRunLoopDoTimer
- #47 __CFRunLoopDoTimers
- #48 __CFRunLoopRun
- #49 CFRunLoopRunSpecific
- #50 RunCurrentEventLoopInMode
- #51 ReceiveNextEventCommon
- #52 _BlockUntilNextEventMatchingListInModeWithFilter
- #53 _DPSNextEvent
- #54 -[NSApplication(NSEvent) _nextEventMatchingEventMask:untilDate:inMode:dequeue:]
- #55 -[NSApplication run]
- #56 NSApplicationMain
- #57 EditorMain(int, char const**)
- #58 main
- #59 start
- #60 ???
+MissingReferenceException: The object of type 'GameObject' has been destroyed but you are still trying to access it.
+Your script should either check if it is null or you should not destroy the object.
+MidManStudio.Core.Pools.LocalObjectPool.GetObject (MidManStudio.Core.Pools.PoolableObjectType type, UnityEngine.Vector3 position, UnityEngine.Quaternion rotation) (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/LocalObjectPool.cs:102)
+MidManStudio.Projectiles.Managers.PhysicsProjectileBase.SpawnPoolVisual () (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectileBase.cs:334)
+MidManStudio.Projectiles.Managers.PhysicsProjectileBase.OnNetworkSpawn () (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectileBase.cs:80)
+Unity.Netcode.NetworkBehaviour.VisibleOnNetworkSpawn () (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkBehaviour.cs:506)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkBehaviour:VisibleOnNetworkSpawn() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkBehaviour.cs:510)
+Unity.Netcode.NetworkObject:InvokeBehaviourNetworkSpawn() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkObject.cs:1237)
+Unity.Netcode.NetworkSpawnManager:SpawnNetworkObjectLocallyCommon(NetworkObject, UInt64, Boolean, Boolean, UInt64, Boolean) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Spawning/NetworkSpawnManager.cs:606)
+Unity.Netcode.NetworkSpawnManager:SpawnNetworkObjectLocally(NetworkObject, SceneObject&, Boolean) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Spawning/NetworkSpawnManager.cs:525)
+Unity.Netcode.NetworkObject:AddSceneObject(SceneObject&, FastBufferReader, NetworkManager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkObject.cs:1744)
+Unity.Netcode.CreateObjectMessage:Handle(NetworkContext&) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/CreateObjectMessage.cs:37)
+Unity.Netcode.NetworkMessageManager:ReceiveMessage(FastBufferReader, NetworkContext&, NetworkMessageManager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkManager:NetworkUpdate(NetworkUpdateStage) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:45)
+Unity.Netcode.NetworkUpdateLoop:RunNetworkUpdateStage(NetworkUpdateStage) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkUpdateLoop.cs:185)
+Unity.Netcode.<>c:<CreateLoopSystem>b__0_0() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkUpdateLoop.cs:208)
 
-Receive queue is full, some packets could be dropped, consider increase its size (256).
- #1 DefaultBurstRuntimeLogCallback(void*, BurstLogType, char const*, char const*, int)
- #2 Unity.Jobs.IJobExtensions.JobStruct`1<Unity.Networking.Transport.TopLayer.CompleteReceiveJob>.Execute(ref Unity.Networking.Transport.TopLayer.CompleteReceiveJob data, System.IntPtr additionalPtr, System.IntPtr bufferRangePatchData, ref Unity.Jobs.LowLevel.Unsafe.JobRanges ranges, int jobIndex) -> void_689e816c271b799ebd6b634ff47fa91d from UnityEngine.CoreModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null
- #3 d7d08c149e8ff16267f542be6f8a2420
- #4 ExecuteJob(ManagedJobData*, void (*)(void*, void*, void*, void*, int), int, unsigned char*)
- #5 ForwardJobToManaged(ManagedJobData*)
- #6 ujob_execute_job(ujob_control_t*, ujob_lane_t*, ujob_job_t*, ujob_handle_t, int)
- #7 lane_guts(ujob_control_t*, ujob_lane_t*, int, int)
- #8 worker_thread_routine(void*)
- #9 Thread::RunThreadWrapper(void*)
- #10 _pthread_start
- #11 thread_start
+MissingReferenceException: The object of type 'GameObject' has been destroyed but you are still trying to access it.
+Your script should either check if it is null or you should not destroy the object.
+MidManStudio.Core.Pools.LocalObjectPool.GetObject (MidManStudio.Core.Pools.PoolableObjectType type, UnityEngine.Vector3 position, UnityEngine.Quaternion rotation) (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/LocalObjectPool.cs:102)
+MidManStudio.Projectiles.Managers.PhysicsProjectileBase.SpawnPoolVisual () (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectileBase.cs:334)
+MidManStudio.Projectiles.Managers.PhysicsProjectileBase.OnNetworkSpawn () (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectileBase.cs:80)
+Unity.Netcode.NetworkBehaviour.VisibleOnNetworkSpawn () (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkBehaviour.cs:506)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkBehaviour:VisibleOnNetworkSpawn() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkBehaviour.cs:510)
+Unity.Netcode.NetworkObject:InvokeBehaviourNetworkSpawn() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkObject.cs:1237)
+Unity.Netcode.NetworkSpawnManager:SpawnNetworkObjectLocallyCommon(NetworkObject, UInt64, Boolean, Boolean, UInt64, Boolean) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Spawning/NetworkSpawnManager.cs:606)
+Unity.Netcode.NetworkSpawnManager:SpawnNetworkObjectLocally(NetworkObject, SceneObject&, Boolean) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Spawning/NetworkSpawnManager.cs:525)
+Unity.Netcode.NetworkObject:AddSceneObject(SceneObject&, FastBufferReader, NetworkManager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkObject.cs:1744)
+Unity.Netcode.CreateObjectMessage:Handle(NetworkContext&) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/CreateObjectMessage.cs:37)
+Unity.Netcode.NetworkMessageManager:ReceiveMessage(FastBufferReader, NetworkContext&, NetworkMessageManager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkManager:NetworkUpdate(NetworkUpdateStage) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:45)
+Unity.Netcode.NetworkUpdateLoop:RunNetworkUpdateStage(NetworkUpdateStage) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkUpdateLoop.cs:185)
+Unity.Netcode.<>c:<CreateLoopSystem>b__0_0() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkUpdateLoop.cs:208)
 
-Receive queue is full, some packets could be dropped, consider increase its size (256).
- #1 DefaultBurstRuntimeLogCallback(void*, BurstLogType, char const*, char const*, int)
- #2 Unity.Jobs.IJobExtensions.JobStruct`1<Unity.Networking.Transport.TopLayer.CompleteReceiveJob>.Execute(ref Unity.Networking.Transport.TopLayer.CompleteReceiveJob data, System.IntPtr additionalPtr, System.IntPtr bufferRangePatchData, ref Unity.Jobs.LowLevel.Unsafe.JobRanges ranges, int jobIndex) -> void_689e816c271b799ebd6b634ff47fa91d from UnityEngine.CoreModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null
- #3 d7d08c149e8ff16267f542be6f8a2420
- #4 ExecuteJob(ManagedJobData*, void (*)(void*, void*, void*, void*, int), int, unsigned char*)
- #5 ForwardJobToManaged(ManagedJobData*)
- #6 ujob_execute_job(ujob_control_t*, ujob_lane_t*, ujob_job_t*, ujob_handle_t, int)
- #7 lane_guts(ujob_control_t*, ujob_lane_t*, int, int)
- #8 worker_thread_routine(void*)
- #9 Thread::RunThreadWrapper(void*)
- #10 _pthread_start
- #11 thread_start
+MissingReferenceException: The object of type 'GameObject' has been destroyed but you are still trying to access it.
+Your script should either check if it is null or you should not destroy the object.
+MidManStudio.Core.Pools.LocalObjectPool.GetObject (MidManStudio.Core.Pools.PoolableObjectType type, UnityEngine.Vector3 position, UnityEngine.Quaternion rotation) (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/LocalObjectPool.cs:102)
+MidManStudio.Projectiles.Managers.PhysicsProjectileBase.SpawnPoolVisual () (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectileBase.cs:334)
+MidManStudio.Projectiles.Managers.PhysicsProjectileBase.OnNetworkSpawn () (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectileBase.cs:80)
+Unity.Netcode.NetworkBehaviour.VisibleOnNetworkSpawn () (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkBehaviour.cs:506)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkBehaviour:VisibleOnNetworkSpawn() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkBehaviour.cs:510)
+Unity.Netcode.NetworkObject:InvokeBehaviourNetworkSpawn() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkObject.cs:1237)
+Unity.Netcode.NetworkSpawnManager:SpawnNetworkObjectLocallyCommon(NetworkObject, UInt64, Boolean, Boolean, UInt64, Boolean) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Spawning/NetworkSpawnManager.cs:606)
+Unity.Netcode.NetworkSpawnManager:SpawnNetworkObjectLocally(NetworkObject, SceneObject&, Boolean) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Spawning/NetworkSpawnManager.cs:525)
+Unity.Netcode.NetworkObject:AddSceneObject(SceneObject&, FastBufferReader, NetworkManager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkObject.cs:1744)
+Unity.Netcode.CreateObjectMessage:Handle(NetworkContext&) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/CreateObjectMessage.cs:37)
+Unity.Netcode.NetworkMessageManager:ReceiveMessage(FastBufferReader, NetworkContext&, NetworkMessageManager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkManager:NetworkUpdate(NetworkUpdateStage) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:45)
+Unity.Netcode.NetworkUpdateLoop:RunNetworkUpdateStage(NetworkUpdateStage) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkUpdateLoop.cs:185)
+Unity.Netcode.<>c:<CreateLoopSystem>b__0_0() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkUpdateLoop.cs:208)
 
-Receive queue is full, some packets could be dropped, consider increase its size (256).
- #1 DefaultBurstRuntimeLogCallback(void*, BurstLogType, char const*, char const*, int)
- #2 Unity.Jobs.IJobExtensions.JobStruct`1<Unity.Networking.Transport.TopLayer.CompleteReceiveJob>.Execute(ref Unity.Networking.Transport.TopLayer.CompleteReceiveJob data, System.IntPtr additionalPtr, System.IntPtr bufferRangePatchData, ref Unity.Jobs.LowLevel.Unsafe.JobRanges ranges, int jobIndex) -> void_689e816c271b799ebd6b634ff47fa91d from UnityEngine.CoreModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null
- #3 d7d08c149e8ff16267f542be6f8a2420
- #4 ExecuteJob(ManagedJobData*, void (*)(void*, void*, void*, void*, int), int, unsigned char*)
- #5 ForwardJobToManaged(ManagedJobData*)
- #6 ujob_execute_job(ujob_control_t*, ujob_lane_t*, ujob_job_t*, ujob_handle_t, int)
- #7 lane_guts(ujob_control_t*, ujob_lane_t*, int, int)
- #8 ujob_wait_for(ujob_control_t*, ujob_handle_t, int)
- #9 CompleteFenceInternal(JobFence&, WorkStealMode)
- #10 ScheduleBatchedScriptingJobsAndComplete(JobFence&, ScriptingExceptionPtr*)
- #11 JobHandle_CUSTOM_ScheduleBatchedJobsAndComplete(JobFence&)
- #12  (Mono JIT Code) (wrapper managed-to-native) Unity.Jobs.JobHandle:ScheduleBatchedJobsAndComplete (Unity.Jobs.JobHandle&)
- #13  (Mono JIT Code) (wrapper runtime-invoke) object:runtime_invoke_void__this__ (object,intptr,intptr,intptr)
- #14 mono_jit_runtime_invoke
- #15 do_runtime_invoke
- #16 mono_runtime_invoke
- #17 scripting_method_invoke(ScriptingMethodPtr, ScriptingObjectPtr, ScriptingArguments&, ScriptingExceptionPtr*, bool)
- #18 ScriptingInvocation::Invoke(ScriptingExceptionPtr*, bool)
- #19 MonoBehaviour::CallMethodIfAvailable(int)
- #20 MonoBehaviour::CallUpdateMethod(int)
- #21 void BaseBehaviourManager::CommonUpdate<BehaviourManager>()
- #22 BehaviourManager::Update()
- #23 InitPlayerLoopCallbacks()::UpdateScriptRunBehaviourUpdateRegistrator::Forward()
- #24 ExecutePlayerLoop(NativePlayerLoopSystem*)
- #25 ExecutePlayerLoop(NativePlayerLoopSystem*)
- #26 PlayerLoop()
- #27 EditorPlayerLoop::Execute()
- #28 PlayerLoopController::InternalUpdateScene(bool, bool)
- #29 PlayerLoopController::UpdateSceneIfNeededFromMainLoop()
- #30 Application::TickTimer()
- #31 -[EditorApplication TickTimer]
- #32 __NSFireTimer
- #33 __CFRUNLOOP_IS_CALLING_OUT_TO_A_TIMER_CALLBACK_FUNCTION__
- #34 __CFRunLoopDoTimer
- #35 __CFRunLoopDoTimers
- #36 __CFRunLoopRun
- #37 CFRunLoopRunSpecific
- #38 RunCurrentEventLoopInMode
- #39 ReceiveNextEventCommon
- #40 _BlockUntilNextEventMatchingListInModeWithFilter
- #41 _DPSNextEvent
- #42 -[NSApplication(NSEvent) _nextEventMatchingEventMask:untilDate:inMode:dequeue:]
- #43 -[EditorApplication checkForFocusChange:]
- #44 __NSFireTimer
- #45 __CFRUNLOOP_IS_CALLING_OUT_TO_A_TIMER_CALLBACK_FUNCTION__
- #46 __CFRunLoopDoTimer
- #47 __CFRunLoopDoTimers
- #48 __CFRunLoopRun
- #49 CFRunLoopRunSpecific
- #50 RunCurrentEventLoopInMode
- #51 ReceiveNextEventCommon
- #52 _BlockUntilNextEventMatchingListInModeWithFilter
- #53 _DPSNextEvent
- #54 -[NSApplication(NSEvent) _nextEventMatchingEventMask:untilDate:inMode:dequeue:]
- #55 -[NSApplication run]
- #56 NSApplicationMain
- #57 EditorMain(int, char const**)
- #58 main
- #59 start
- #60 ???
+MissingReferenceException: The object of type 'GameObject' has been destroyed but you are still trying to access it.
+Your script should either check if it is null or you should not destroy the object.
+MidManStudio.Core.Pools.LocalObjectPool.GetObject (MidManStudio.Core.Pools.PoolableObjectType type, UnityEngine.Vector3 position, UnityEngine.Quaternion rotation) (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/LocalObjectPool.cs:102)
+MidManStudio.Projectiles.Managers.PhysicsProjectileBase.SpawnPoolVisual () (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectileBase.cs:334)
+MidManStudio.Projectiles.Managers.PhysicsProjectileBase.OnNetworkSpawn () (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectileBase.cs:80)
+Unity.Netcode.NetworkBehaviour.VisibleOnNetworkSpawn () (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkBehaviour.cs:506)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkBehaviour:VisibleOnNetworkSpawn() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkBehaviour.cs:510)
+Unity.Netcode.NetworkObject:InvokeBehaviourNetworkSpawn() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkObject.cs:1237)
+Unity.Netcode.NetworkSpawnManager:SpawnNetworkObjectLocallyCommon(NetworkObject, UInt64, Boolean, Boolean, UInt64, Boolean) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Spawning/NetworkSpawnManager.cs:606)
+Unity.Netcode.NetworkSpawnManager:SpawnNetworkObjectLocally(NetworkObject, SceneObject&, Boolean) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Spawning/NetworkSpawnManager.cs:525)
+Unity.Netcode.NetworkObject:AddSceneObject(SceneObject&, FastBufferReader, NetworkManager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkObject.cs:1744)
+Unity.Netcode.CreateObjectMessage:Handle(NetworkContext&) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/CreateObjectMessage.cs:37)
+Unity.Netcode.NetworkMessageManager:ReceiveMessage(FastBufferReader, NetworkContext&, NetworkMessageManager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkManager:NetworkUpdate(NetworkUpdateStage) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:45)
+Unity.Netcode.NetworkUpdateLoop:RunNetworkUpdateStage(NetworkUpdateStage) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkUpdateLoop.cs:185)
+Unity.Netcode.<>c:<CreateLoopSystem>b__0_0() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkUpdateLoop.cs:208)
 
-Receive queue is full, some packets could be dropped, consider increase its size (256).
- #1 DefaultBurstRuntimeLogCallback(void*, BurstLogType, char const*, char const*, int)
- #2 Unity.Jobs.IJobExtensions.JobStruct`1<Unity.Networking.Transport.TopLayer.CompleteReceiveJob>.Execute(ref Unity.Networking.Transport.TopLayer.CompleteReceiveJob data, System.IntPtr additionalPtr, System.IntPtr bufferRangePatchData, ref Unity.Jobs.LowLevel.Unsafe.JobRanges ranges, int jobIndex) -> void_689e816c271b799ebd6b634ff47fa91d from UnityEngine.CoreModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null
- #3 d7d08c149e8ff16267f542be6f8a2420
- #4 ExecuteJob(ManagedJobData*, void (*)(void*, void*, void*, void*, int), int, unsigned char*)
- #5 ForwardJobToManaged(ManagedJobData*)
- #6 ujob_execute_job(ujob_control_t*, ujob_lane_t*, ujob_job_t*, ujob_handle_t, int)
- #7 lane_guts(ujob_control_t*, ujob_lane_t*, int, int)
- #8 worker_thread_routine(void*)
- #9 Thread::RunThreadWrapper(void*)
- #10 _pthread_start
- #11 thread_start
+MissingReferenceException: The object of type 'GameObject' has been destroyed but you are still trying to access it.
+Your script should either check if it is null or you should not destroy the object.
+MidManStudio.Core.Pools.LocalObjectPool.GetObject (MidManStudio.Core.Pools.PoolableObjectType type, UnityEngine.Vector3 position, UnityEngine.Quaternion rotation) (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/LocalObjectPool.cs:102)
+MidManStudio.Projectiles.Managers.PhysicsProjectileBase.SpawnPoolVisual () (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectileBase.cs:334)
+MidManStudio.Projectiles.Managers.PhysicsProjectileBase.OnNetworkSpawn () (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectileBase.cs:80)
+Unity.Netcode.NetworkBehaviour.VisibleOnNetworkSpawn () (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkBehaviour.cs:506)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkBehaviour:VisibleOnNetworkSpawn() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkBehaviour.cs:510)
+Unity.Netcode.NetworkObject:InvokeBehaviourNetworkSpawn() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkObject.cs:1237)
+Unity.Netcode.NetworkSpawnManager:SpawnNetworkObjectLocallyCommon(NetworkObject, UInt64, Boolean, Boolean, UInt64, Boolean) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Spawning/NetworkSpawnManager.cs:606)
+Unity.Netcode.NetworkSpawnManager:SpawnNetworkObjectLocally(NetworkObject, SceneObject&, Boolean) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Spawning/NetworkSpawnManager.cs:525)
+Unity.Netcode.NetworkObject:AddSceneObject(SceneObject&, FastBufferReader, NetworkManager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkObject.cs:1744)
+Unity.Netcode.CreateObjectMessage:Handle(NetworkContext&) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/CreateObjectMessage.cs:37)
+Unity.Netcode.NetworkMessageManager:ReceiveMessage(FastBufferReader, NetworkContext&, NetworkMessageManager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkManager:NetworkUpdate(NetworkUpdateStage) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:45)
+Unity.Netcode.NetworkUpdateLoop:RunNetworkUpdateStage(NetworkUpdateStage) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkUpdateLoop.cs:185)
+Unity.Netcode.<>c:<CreateLoopSystem>b__0_0() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkUpdateLoop.cs:208)
 
-Receive queue is full, some packets could be dropped, consider increase its size (256).
- #1 DefaultBurstRuntimeLogCallback(void*, BurstLogType, char const*, char const*, int)
- #2 Unity.Jobs.IJobExtensions.JobStruct`1<Unity.Networking.Transport.TopLayer.CompleteReceiveJob>.Execute(ref Unity.Networking.Transport.TopLayer.CompleteReceiveJob data, System.IntPtr additionalPtr, System.IntPtr bufferRangePatchData, ref Unity.Jobs.LowLevel.Unsafe.JobRanges ranges, int jobIndex) -> void_689e816c271b799ebd6b634ff47fa91d from UnityEngine.CoreModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null
- #3 d7d08c149e8ff16267f542be6f8a2420
- #4 ExecuteJob(ManagedJobData*, void (*)(void*, void*, void*, void*, int), int, unsigned char*)
- #5 ForwardJobToManaged(ManagedJobData*)
- #6 ujob_execute_job(ujob_control_t*, ujob_lane_t*, ujob_job_t*, ujob_handle_t, int)
- #7 lane_guts(ujob_control_t*, ujob_lane_t*, int, int)
- #8 ujob_wait_for(ujob_control_t*, ujob_handle_t, int)
- #9 CompleteFenceInternal(JobFence&, WorkStealMode)
- #10 ScheduleBatchedScriptingJobsAndComplete(JobFence&, ScriptingExceptionPtr*)
- #11 JobHandle_CUSTOM_ScheduleBatchedJobsAndComplete(JobFence&)
- #12  (Mono JIT Code) (wrapper managed-to-native) Unity.Jobs.JobHandle:ScheduleBatchedJobsAndComplete (Unity.Jobs.JobHandle&)
- #13  (Mono JIT Code) (wrapper runtime-invoke) object:runtime_invoke_void__this__ (object,intptr,intptr,intptr)
- #14 mono_jit_runtime_invoke
- #15 do_runtime_invoke
- #16 mono_runtime_invoke
- #17 scripting_method_invoke(ScriptingMethodPtr, ScriptingObjectPtr, ScriptingArguments&, ScriptingExceptionPtr*, bool)
- #18 ScriptingInvocation::Invoke(ScriptingExceptionPtr*, bool)
- #19 MonoBehaviour::CallMethodIfAvailable(int)
- #20 MonoBehaviour::CallUpdateMethod(int)
- #21 void BaseBehaviourManager::CommonUpdate<BehaviourManager>()
- #22 BehaviourManager::Update()
- #23 InitPlayerLoopCallbacks()::UpdateScriptRunBehaviourUpdateRegistrator::Forward()
- #24 ExecutePlayerLoop(NativePlayerLoopSystem*)
- #25 ExecutePlayerLoop(NativePlayerLoopSystem*)
- #26 PlayerLoop()
- #27 EditorPlayerLoop::Execute()
- #28 PlayerLoopController::InternalUpdateScene(bool, bool)
- #29 PlayerLoopController::UpdateSceneIfNeededFromMainLoop()
- #30 Application::TickTimer()
- #31 -[EditorApplication TickTimer]
- #32 __NSFireTimer
- #33 __CFRUNLOOP_IS_CALLING_OUT_TO_A_TIMER_CALLBACK_FUNCTION__
- #34 __CFRunLoopDoTimer
- #35 __CFRunLoopDoTimers
- #36 __CFRunLoopRun
- #37 CFRunLoopRunSpecific
- #38 RunCurrentEventLoopInMode
- #39 ReceiveNextEventCommon
- #40 _BlockUntilNextEventMatchingListInModeWithFilter
- #41 _DPSNextEvent
- #42 -[NSApplication(NSEvent) _nextEventMatchingEventMask:untilDate:inMode:dequeue:]
- #43 -[NSApplication run]
- #44 NSApplicationMain
- #45 EditorMain(int, char const**)
- #46 main
- #47 start
- #48 ???
+MissingReferenceException: The object of type 'GameObject' has been destroyed but you are still trying to access it.
+Your script should either check if it is null or you should not destroy the object.
+MidManStudio.Core.Pools.LocalObjectPool.GetObject (MidManStudio.Core.Pools.PoolableObjectType type, UnityEngine.Vector3 position, UnityEngine.Quaternion rotation) (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/LocalObjectPool.cs:102)
+MidManStudio.Projectiles.Managers.PhysicsProjectileBase.SpawnPoolVisual () (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectileBase.cs:334)
+MidManStudio.Projectiles.Managers.PhysicsProjectileBase.OnNetworkSpawn () (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectileBase.cs:80)
+Unity.Netcode.NetworkBehaviour.VisibleOnNetworkSpawn () (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkBehaviour.cs:506)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkBehaviour:VisibleOnNetworkSpawn() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkBehaviour.cs:510)
+Unity.Netcode.NetworkObject:InvokeBehaviourNetworkSpawn() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkObject.cs:1237)
+Unity.Netcode.NetworkSpawnManager:SpawnNetworkObjectLocallyCommon(NetworkObject, UInt64, Boolean, Boolean, UInt64, Boolean) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Spawning/NetworkSpawnManager.cs:606)
+Unity.Netcode.NetworkSpawnManager:SpawnNetworkObjectLocally(NetworkObject, SceneObject&, Boolean) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Spawning/NetworkSpawnManager.cs:525)
+Unity.Netcode.NetworkObject:AddSceneObject(SceneObject&, FastBufferReader, NetworkManager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkObject.cs:1744)
+Unity.Netcode.CreateObjectMessage:Handle(NetworkContext&) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/CreateObjectMessage.cs:37)
+Unity.Netcode.NetworkMessageManager:ReceiveMessage(FastBufferReader, NetworkContext&, NetworkMessageManager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkManager:NetworkUpdate(NetworkUpdateStage) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:45)
+Unity.Netcode.NetworkUpdateLoop:RunNetworkUpdateStage(NetworkUpdateStage) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkUpdateLoop.cs:185)
+Unity.Netcode.<>c:<CreateLoopSystem>b__0_0() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkUpdateLoop.cs:208)
 
-Receive queue is full, some packets could be dropped, consider increase its size (256).
- #1 DefaultBurstRuntimeLogCallback(void*, BurstLogType, char const*, char const*, int)
- #2 Unity.Jobs.IJobExtensions.JobStruct`1<Unity.Networking.Transport.TopLayer.CompleteReceiveJob>.Execute(ref Unity.Networking.Transport.TopLayer.CompleteReceiveJob data, System.IntPtr additionalPtr, System.IntPtr bufferRangePatchData, ref Unity.Jobs.LowLevel.Unsafe.JobRanges ranges, int jobIndex) -> void_689e816c271b799ebd6b634ff47fa91d from UnityEngine.CoreModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null
- #3 d7d08c149e8ff16267f542be6f8a2420
- #4 ExecuteJob(ManagedJobData*, void (*)(void*, void*, void*, void*, int), int, unsigned char*)
- #5 ForwardJobToManaged(ManagedJobData*)
- #6 ujob_execute_job(ujob_control_t*, ujob_lane_t*, ujob_job_t*, ujob_handle_t, int)
- #7 lane_guts(ujob_control_t*, ujob_lane_t*, int, int)
- #8 worker_thread_routine(void*)
- #9 Thread::RunThreadWrapper(void*)
- #10 _pthread_start
- #11 thread_start
+MissingReferenceException: The object of type 'GameObject' has been destroyed but you are still trying to access it.
+Your script should either check if it is null or you should not destroy the object.
+MidManStudio.Core.Pools.LocalObjectPool.GetObject (MidManStudio.Core.Pools.PoolableObjectType type, UnityEngine.Vector3 position, UnityEngine.Quaternion rotation) (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/LocalObjectPool.cs:102)
+MidManStudio.Projectiles.Managers.PhysicsProjectileBase.SpawnPoolVisual () (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectileBase.cs:334)
+MidManStudio.Projectiles.Managers.PhysicsProjectileBase.OnNetworkSpawn () (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectileBase.cs:80)
+Unity.Netcode.NetworkBehaviour.VisibleOnNetworkSpawn () (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkBehaviour.cs:506)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkBehaviour:VisibleOnNetworkSpawn() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkBehaviour.cs:510)
+Unity.Netcode.NetworkObject:InvokeBehaviourNetworkSpawn() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkObject.cs:1237)
+Unity.Netcode.NetworkSpawnManager:SpawnNetworkObjectLocallyCommon(NetworkObject, UInt64, Boolean, Boolean, UInt64, Boolean) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Spawning/NetworkSpawnManager.cs:606)
+Unity.Netcode.NetworkSpawnManager:SpawnNetworkObjectLocally(NetworkObject, SceneObject&, Boolean) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Spawning/NetworkSpawnManager.cs:525)
+Unity.Netcode.NetworkObject:AddSceneObject(SceneObject&, FastBufferReader, NetworkManager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkObject.cs:1744)
+Unity.Netcode.CreateObjectMessage:Handle(NetworkContext&) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/CreateObjectMessage.cs:37)
+Unity.Netcode.NetworkMessageManager:ReceiveMessage(FastBufferReader, NetworkContext&, NetworkMessageManager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkManager:NetworkUpdate(NetworkUpdateStage) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:45)
+Unity.Netcode.NetworkUpdateLoop:RunNetworkUpdateStage(NetworkUpdateStage) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkUpdateLoop.cs:185)
+Unity.Netcode.<>c:<CreateLoopSystem>b__0_0() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkUpdateLoop.cs:208)
 
-Receive queue is full, some packets could be dropped, consider increase its size (256).
- #1 DefaultBurstRuntimeLogCallback(void*, BurstLogType, char const*, char const*, int)
- #2 Unity.Jobs.IJobExtensions.JobStruct`1<Unity.Networking.Transport.TopLayer.CompleteReceiveJob>.Execute(ref Unity.Networking.Transport.TopLayer.CompleteReceiveJob data, System.IntPtr additionalPtr, System.IntPtr bufferRangePatchData, ref Unity.Jobs.LowLevel.Unsafe.JobRanges ranges, int jobIndex) -> void_689e816c271b799ebd6b634ff47fa91d from UnityEngine.CoreModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null
- #3 d7d08c149e8ff16267f542be6f8a2420
- #4 ExecuteJob(ManagedJobData*, void (*)(void*, void*, void*, void*, int), int, unsigned char*)
- #5 ForwardJobToManaged(ManagedJobData*)
- #6 ujob_execute_job(ujob_control_t*, ujob_lane_t*, ujob_job_t*, ujob_handle_t, int)
- #7 lane_guts(ujob_control_t*, ujob_lane_t*, int, int)
- #8 ujob_wait_for(ujob_control_t*, ujob_handle_t, int)
- #9 CompleteFenceInternal(JobFence&, WorkStealMode)
- #10 ScheduleBatchedScriptingJobsAndComplete(JobFence&, ScriptingExceptionPtr*)
- #11 JobHandle_CUSTOM_ScheduleBatchedJobsAndComplete(JobFence&)
- #12  (Mono JIT Code) (wrapper managed-to-native) Unity.Jobs.JobHandle:ScheduleBatchedJobsAndComplete (Unity.Jobs.JobHandle&)
- #13  (Mono JIT Code) (wrapper runtime-invoke) object:runtime_invoke_void__this__ (object,intptr,intptr,intptr)
- #14 mono_jit_runtime_invoke
- #15 do_runtime_invoke
- #16 mono_runtime_invoke
- #17 scripting_method_invoke(ScriptingMethodPtr, ScriptingObjectPtr, ScriptingArguments&, ScriptingExceptionPtr*, bool)
- #18 ScriptingInvocation::Invoke(ScriptingExceptionPtr*, bool)
- #19 MonoBehaviour::CallMethodIfAvailable(int)
- #20 MonoBehaviour::CallUpdateMethod(int)
- #21 void BaseBehaviourManager::CommonUpdate<BehaviourManager>()
- #22 BehaviourManager::Update()
- #23 InitPlayerLoopCallbacks()::UpdateScriptRunBehaviourUpdateRegistrator::Forward()
- #24 ExecutePlayerLoop(NativePlayerLoopSystem*)
- #25 ExecutePlayerLoop(NativePlayerLoopSystem*)
- #26 PlayerLoop()
- #27 EditorPlayerLoop::Execute()
- #28 PlayerLoopController::InternalUpdateScene(bool, bool)
- #29 PlayerLoopController::UpdateSceneIfNeededFromMainLoop()
- #30 Application::TickTimer()
- #31 -[EditorApplication TickTimer]
- #32 __NSFireTimer
- #33 __CFRUNLOOP_IS_CALLING_OUT_TO_A_TIMER_CALLBACK_FUNCTION__
- #34 __CFRunLoopDoTimer
- #35 __CFRunLoopDoTimers
- #36 __CFRunLoopRun
- #37 CFRunLoopRunSpecific
- #38 RunCurrentEventLoopInMode
- #39 ReceiveNextEventCommon
- #40 _BlockUntilNextEventMatchingListInModeWithFilter
- #41 _DPSNextEvent
- #42 -[NSApplication(NSEvent) _nextEventMatchingEventMask:untilDate:inMode:dequeue:]
- #43 -[NSApplication run]
- #44 NSApplicationMain
- #45 EditorMain(int, char const**)
- #46 main
- #47 start
- #48 ???
+MissingReferenceException: The object of type 'GameObject' has been destroyed but you are still trying to access it.
+Your script should either check if it is null or you should not destroy the object.
+MidManStudio.Core.Pools.LocalObjectPool.GetObject (MidManStudio.Core.Pools.PoolableObjectType type, UnityEngine.Vector3 position, UnityEngine.Quaternion rotation) (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/LocalObjectPool.cs:102)
+MidManStudio.Projectiles.Managers.PhysicsProjectileBase.SpawnPoolVisual () (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectileBase.cs:334)
+MidManStudio.Projectiles.Managers.PhysicsProjectileBase.OnNetworkSpawn () (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectileBase.cs:80)
+Unity.Netcode.NetworkBehaviour.VisibleOnNetworkSpawn () (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkBehaviour.cs:506)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkBehaviour:VisibleOnNetworkSpawn() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkBehaviour.cs:510)
+Unity.Netcode.NetworkObject:InvokeBehaviourNetworkSpawn() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkObject.cs:1237)
+Unity.Netcode.NetworkSpawnManager:SpawnNetworkObjectLocallyCommon(NetworkObject, UInt64, Boolean, Boolean, UInt64, Boolean) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Spawning/NetworkSpawnManager.cs:606)
+Unity.Netcode.NetworkSpawnManager:SpawnNetworkObjectLocally(NetworkObject, SceneObject&, Boolean) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Spawning/NetworkSpawnManager.cs:525)
+Unity.Netcode.NetworkObject:AddSceneObject(SceneObject&, FastBufferReader, NetworkManager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkObject.cs:1744)
+Unity.Netcode.CreateObjectMessage:Handle(NetworkContext&) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/CreateObjectMessage.cs:37)
+Unity.Netcode.NetworkMessageManager:ReceiveMessage(FastBufferReader, NetworkContext&, NetworkMessageManager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkManager:NetworkUpdate(NetworkUpdateStage) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:45)
+Unity.Netcode.NetworkUpdateLoop:RunNetworkUpdateStage(NetworkUpdateStage) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkUpdateLoop.cs:185)
+Unity.Netcode.<>c:<CreateLoopSystem>b__0_0() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkUpdateLoop.cs:208)
 
-Receive queue is full, some packets could be dropped, consider increase its size (256).
- #1 DefaultBurstRuntimeLogCallback(void*, BurstLogType, char const*, char const*, int)
- #2 Unity.Jobs.IJobExtensions.JobStruct`1<Unity.Networking.Transport.TopLayer.CompleteReceiveJob>.Execute(ref Unity.Networking.Transport.TopLayer.CompleteReceiveJob data, System.IntPtr additionalPtr, System.IntPtr bufferRangePatchData, ref Unity.Jobs.LowLevel.Unsafe.JobRanges ranges, int jobIndex) -> void_689e816c271b799ebd6b634ff47fa91d from UnityEngine.CoreModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null
- #3 d7d08c149e8ff16267f542be6f8a2420
- #4 ExecuteJob(ManagedJobData*, void (*)(void*, void*, void*, void*, int), int, unsigned char*)
- #5 ForwardJobToManaged(ManagedJobData*)
- #6 ujob_execute_job(ujob_control_t*, ujob_lane_t*, ujob_job_t*, ujob_handle_t, int)
- #7 lane_guts(ujob_control_t*, ujob_lane_t*, int, int)
- #8 ujob_wait_for(ujob_control_t*, ujob_handle_t, int)
- #9 CompleteFenceInternal(JobFence&, WorkStealMode)
- #10 ScheduleBatchedScriptingJobsAndComplete(JobFence&, ScriptingExceptionPtr*)
- #11 JobHandle_CUSTOM_ScheduleBatchedJobsAndComplete(JobFence&)
- #12  (Mono JIT Code) (wrapper managed-to-native) Unity.Jobs.JobHandle:ScheduleBatchedJobsAndComplete (Unity.Jobs.JobHandle&)
- #13  (Mono JIT Code) (wrapper runtime-invoke) object:runtime_invoke_void__this__ (object,intptr,intptr,intptr)
- #14 mono_jit_runtime_invoke
- #15 do_runtime_invoke
- #16 mono_runtime_invoke
- #17 scripting_method_invoke(ScriptingMethodPtr, ScriptingObjectPtr, ScriptingArguments&, ScriptingExceptionPtr*, bool)
- #18 ScriptingInvocation::Invoke(ScriptingExceptionPtr*, bool)
- #19 MonoBehaviour::CallMethodIfAvailable(int)
- #20 MonoBehaviour::CallUpdateMethod(int)
- #21 void BaseBehaviourManager::CommonUpdate<BehaviourManager>()
- #22 BehaviourManager::Update()
- #23 InitPlayerLoopCallbacks()::UpdateScriptRunBehaviourUpdateRegistrator::Forward()
- #24 ExecutePlayerLoop(NativePlayerLoopSystem*)
- #25 ExecutePlayerLoop(NativePlayerLoopSystem*)
- #26 PlayerLoop()
- #27 EditorPlayerLoop::Execute()
- #28 PlayerLoopController::InternalUpdateScene(bool, bool)
- #29 PlayerLoopController::UpdateSceneIfNeededFromMainLoop()
- #30 Application::TickTimer()
- #31 -[EditorApplication TickTimer]
- #32 __NSFireTimer
- #33 __CFRUNLOOP_IS_CALLING_OUT_TO_A_TIMER_CALLBACK_FUNCTION__
- #34 __CFRunLoopDoTimer
- #35 __CFRunLoopDoTimers
- #36 __CFRunLoopRun
- #37 CFRunLoopRunSpecific
- #38 RunCurrentEventLoopInMode
- #39 ReceiveNextEventCommon
- #40 _BlockUntilNextEventMatchingListInModeWithFilter
- #41 _DPSNextEvent
- #42 -[NSApplication(NSEvent) _nextEventMatchingEventMask:untilDate:inMode:dequeue:]
- #43 -[NSApplication run]
- #44 NSApplicationMain
- #45 EditorMain(int, char const**)
- #46 main
- #47 start
- #48 ???
+MissingReferenceException: The object of type 'GameObject' has been destroyed but you are still trying to access it.
+Your script should either check if it is null or you should not destroy the object.
+MidManStudio.Core.Pools.LocalObjectPool.GetObject (MidManStudio.Core.Pools.PoolableObjectType type, UnityEngine.Vector3 position, UnityEngine.Quaternion rotation) (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/LocalObjectPool.cs:102)
+MidManStudio.Projectiles.Managers.PhysicsProjectileBase.SpawnPoolVisual () (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectileBase.cs:334)
+MidManStudio.Projectiles.Managers.PhysicsProjectileBase.OnNetworkSpawn () (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectileBase.cs:80)
+Unity.Netcode.NetworkBehaviour.VisibleOnNetworkSpawn () (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkBehaviour.cs:506)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkBehaviour:VisibleOnNetworkSpawn() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkBehaviour.cs:510)
+Unity.Netcode.NetworkObject:InvokeBehaviourNetworkSpawn() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkObject.cs:1237)
+Unity.Netcode.NetworkSpawnManager:SpawnNetworkObjectLocallyCommon(NetworkObject, UInt64, Boolean, Boolean, UInt64, Boolean) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Spawning/NetworkSpawnManager.cs:606)
+Unity.Netcode.NetworkSpawnManager:SpawnNetworkObjectLocally(NetworkObject, SceneObject&, Boolean) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Spawning/NetworkSpawnManager.cs:525)
+Unity.Netcode.NetworkObject:AddSceneObject(SceneObject&, FastBufferReader, NetworkManager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkObject.cs:1744)
+Unity.Netcode.CreateObjectMessage:Handle(NetworkContext&) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/CreateObjectMessage.cs:37)
+Unity.Netcode.NetworkMessageManager:ReceiveMessage(FastBufferReader, NetworkContext&, NetworkMessageManager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkManager:NetworkUpdate(NetworkUpdateStage) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:45)
+Unity.Netcode.NetworkUpdateLoop:RunNetworkUpdateStage(NetworkUpdateStage) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkUpdateLoop.cs:185)
+Unity.Netcode.<>c:<CreateLoopSystem>b__0_0() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkUpdateLoop.cs:208)
 
-Receive queue is full, some packets could be dropped, consider increase its size (256).
- #1 DefaultBurstRuntimeLogCallback(void*, BurstLogType, char const*, char const*, int)
- #2 Unity.Jobs.IJobExtensions.JobStruct`1<Unity.Networking.Transport.TopLayer.CompleteReceiveJob>.Execute(ref Unity.Networking.Transport.TopLayer.CompleteReceiveJob data, System.IntPtr additionalPtr, System.IntPtr bufferRangePatchData, ref Unity.Jobs.LowLevel.Unsafe.JobRanges ranges, int jobIndex) -> void_689e816c271b799ebd6b634ff47fa91d from UnityEngine.CoreModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null
- #3 d7d08c149e8ff16267f542be6f8a2420
- #4 ExecuteJob(ManagedJobData*, void (*)(void*, void*, void*, void*, int), int, unsigned char*)
- #5 ForwardJobToManaged(ManagedJobData*)
- #6 ujob_execute_job(ujob_control_t*, ujob_lane_t*, ujob_job_t*, ujob_handle_t, int)
- #7 lane_guts(ujob_control_t*, ujob_lane_t*, int, int)
- #8 worker_thread_routine(void*)
- #9 Thread::RunThreadWrapper(void*)
- #10 _pthread_start
- #11 thread_start
+MissingReferenceException: The object of type 'GameObject' has been destroyed but you are still trying to access it.
+Your script should either check if it is null or you should not destroy the object.
+MidManStudio.Core.Pools.LocalObjectPool.GetObject (MidManStudio.Core.Pools.PoolableObjectType type, UnityEngine.Vector3 position, UnityEngine.Quaternion rotation) (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/LocalObjectPool.cs:102)
+MidManStudio.Projectiles.Managers.PhysicsProjectileBase.SpawnPoolVisual () (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectileBase.cs:334)
+MidManStudio.Projectiles.Managers.PhysicsProjectileBase.OnNetworkSpawn () (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectileBase.cs:80)
+Unity.Netcode.NetworkBehaviour.VisibleOnNetworkSpawn () (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkBehaviour.cs:506)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkBehaviour:VisibleOnNetworkSpawn() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkBehaviour.cs:510)
+Unity.Netcode.NetworkObject:InvokeBehaviourNetworkSpawn() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkObject.cs:1237)
+Unity.Netcode.NetworkSpawnManager:SpawnNetworkObjectLocallyCommon(NetworkObject, UInt64, Boolean, Boolean, UInt64, Boolean) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Spawning/NetworkSpawnManager.cs:606)
+Unity.Netcode.NetworkSpawnManager:SpawnNetworkObjectLocally(NetworkObject, SceneObject&, Boolean) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Spawning/NetworkSpawnManager.cs:525)
+Unity.Netcode.NetworkObject:AddSceneObject(SceneObject&, FastBufferReader, NetworkManager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkObject.cs:1744)
+Unity.Netcode.CreateObjectMessage:Handle(NetworkContext&) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/CreateObjectMessage.cs:37)
+Unity.Netcode.NetworkMessageManager:ReceiveMessage(FastBufferReader, NetworkContext&, NetworkMessageManager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkManager:NetworkUpdate(NetworkUpdateStage) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:45)
+Unity.Netcode.NetworkUpdateLoop:RunNetworkUpdateStage(NetworkUpdateStage) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkUpdateLoop.cs:185)
+Unity.Netcode.<>c:<CreateLoopSystem>b__0_0() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkUpdateLoop.cs:208)
 
-Receive queue is full, some packets could be dropped, consider increase its size (256).
- #1 DefaultBurstRuntimeLogCallback(void*, BurstLogType, char const*, char const*, int)
- #2 Unity.Jobs.IJobExtensions.JobStruct`1<Unity.Networking.Transport.TopLayer.CompleteReceiveJob>.Execute(ref Unity.Networking.Transport.TopLayer.CompleteReceiveJob data, System.IntPtr additionalPtr, System.IntPtr bufferRangePatchData, ref Unity.Jobs.LowLevel.Unsafe.JobRanges ranges, int jobIndex) -> void_689e816c271b799ebd6b634ff47fa91d from UnityEngine.CoreModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null
- #3 d7d08c149e8ff16267f542be6f8a2420
- #4 ExecuteJob(ManagedJobData*, void (*)(void*, void*, void*, void*, int), int, unsigned char*)
- #5 ForwardJobToManaged(ManagedJobData*)
- #6 ujob_execute_job(ujob_control_t*, ujob_lane_t*, ujob_job_t*, ujob_handle_t, int)
- #7 lane_guts(ujob_control_t*, ujob_lane_t*, int, int)
- #8 ujob_wait_for(ujob_control_t*, ujob_handle_t, int)
- #9 CompleteFenceInternal(JobFence&, WorkStealMode)
- #10 ScheduleBatchedScriptingJobsAndComplete(JobFence&, ScriptingExceptionPtr*)
- #11 JobHandle_CUSTOM_ScheduleBatchedJobsAndComplete(JobFence&)
- #12  (Mono JIT Code) (wrapper managed-to-native) Unity.Jobs.JobHandle:ScheduleBatchedJobsAndComplete (Unity.Jobs.JobHandle&)
- #13  (Mono JIT Code) (wrapper runtime-invoke) object:runtime_invoke_void__this__ (object,intptr,intptr,intptr)
- #14 mono_jit_runtime_invoke
- #15 do_runtime_invoke
- #16 mono_runtime_invoke
- #17 scripting_method_invoke(ScriptingMethodPtr, ScriptingObjectPtr, ScriptingArguments&, ScriptingExceptionPtr*, bool)
- #18 ScriptingInvocation::Invoke(ScriptingExceptionPtr*, bool)
- #19 MonoBehaviour::CallMethodIfAvailable(int)
- #20 MonoBehaviour::CallUpdateMethod(int)
- #21 void BaseBehaviourManager::CommonUpdate<BehaviourManager>()
- #22 BehaviourManager::Update()
- #23 InitPlayerLoopCallbacks()::UpdateScriptRunBehaviourUpdateRegistrator::Forward()
- #24 ExecutePlayerLoop(NativePlayerLoopSystem*)
- #25 ExecutePlayerLoop(NativePlayerLoopSystem*)
- #26 PlayerLoop()
- #27 EditorPlayerLoop::Execute()
- #28 PlayerLoopController::InternalUpdateScene(bool, bool)
- #29 PlayerLoopController::UpdateSceneIfNeededFromMainLoop()
- #30 Application::TickTimer()
- #31 -[EditorApplication TickTimer]
- #32 __NSFireTimer
- #33 __CFRUNLOOP_IS_CALLING_OUT_TO_A_TIMER_CALLBACK_FUNCTION__
- #34 __CFRunLoopDoTimer
- #35 __CFRunLoopDoTimers
- #36 __CFRunLoopRun
- #37 CFRunLoopRunSpecific
- #38 RunCurrentEventLoopInMode
- #39 ReceiveNextEventCommon
- #40 _BlockUntilNextEventMatchingListInModeWithFilter
- #41 _DPSNextEvent
- #42 -[NSApplication(NSEvent) _nextEventMatchingEventMask:untilDate:inMode:dequeue:]
- #43 -[EditorApplication checkForFocusChange:]
- #44 __NSFireTimer
- #45 __CFRUNLOOP_IS_CALLING_OUT_TO_A_TIMER_CALLBACK_FUNCTION__
- #46 __CFRunLoopDoTimer
- #47 __CFRunLoopDoTimers
- #48 __CFRunLoopRun
- #49 CFRunLoopRunSpecific
- #50 RunCurrentEventLoopInMode
- #51 ReceiveNextEventCommon
- #52 _BlockUntilNextEventMatchingListInModeWithFilter
- #53 _DPSNextEvent
- #54 -[NSApplication(NSEvent) _nextEventMatchingEventMask:untilDate:inMode:dequeue:]
- #55 -[NSApplication run]
- #56 NSApplicationMain
- #57 EditorMain(int, char const**)
- #58 main
- #59 start
- #60 ???
+MissingReferenceException: The object of type 'GameObject' has been destroyed but you are still trying to access it.
+Your script should either check if it is null or you should not destroy the object.
+MidManStudio.Core.Pools.LocalObjectPool.GetObject (MidManStudio.Core.Pools.PoolableObjectType type, UnityEngine.Vector3 position, UnityEngine.Quaternion rotation) (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/LocalObjectPool.cs:102)
+MidManStudio.Projectiles.Managers.PhysicsProjectileBase.SpawnPoolVisual () (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectileBase.cs:334)
+MidManStudio.Projectiles.Managers.PhysicsProjectileBase.OnNetworkSpawn () (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectileBase.cs:80)
+Unity.Netcode.NetworkBehaviour.VisibleOnNetworkSpawn () (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkBehaviour.cs:506)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkBehaviour:VisibleOnNetworkSpawn() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkBehaviour.cs:510)
+Unity.Netcode.NetworkObject:InvokeBehaviourNetworkSpawn() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkObject.cs:1237)
+Unity.Netcode.NetworkSpawnManager:SpawnNetworkObjectLocallyCommon(NetworkObject, UInt64, Boolean, Boolean, UInt64, Boolean) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Spawning/NetworkSpawnManager.cs:606)
+Unity.Netcode.NetworkSpawnManager:SpawnNetworkObjectLocally(NetworkObject, SceneObject&, Boolean) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Spawning/NetworkSpawnManager.cs:525)
+Unity.Netcode.NetworkObject:AddSceneObject(SceneObject&, FastBufferReader, NetworkManager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkObject.cs:1744)
+Unity.Netcode.CreateObjectMessage:Handle(NetworkContext&) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/CreateObjectMessage.cs:37)
+Unity.Netcode.NetworkMessageManager:ReceiveMessage(FastBufferReader, NetworkContext&, NetworkMessageManager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkManager:NetworkUpdate(NetworkUpdateStage) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:45)
+Unity.Netcode.NetworkUpdateLoop:RunNetworkUpdateStage(NetworkUpdateStage) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkUpdateLoop.cs:185)
+Unity.Netcode.<>c:<CreateLoopSystem>b__0_0() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkUpdateLoop.cs:208)
 
-Receive queue is full, some packets could be dropped, consider increase its size (256).
- #1 DefaultBurstRuntimeLogCallback(void*, BurstLogType, char const*, char const*, int)
- #2 Unity.Jobs.IJobExtensions.JobStruct`1<Unity.Networking.Transport.TopLayer.CompleteReceiveJob>.Execute(ref Unity.Networking.Transport.TopLayer.CompleteReceiveJob data, System.IntPtr additionalPtr, System.IntPtr bufferRangePatchData, ref Unity.Jobs.LowLevel.Unsafe.JobRanges ranges, int jobIndex) -> void_689e816c271b799ebd6b634ff47fa91d from UnityEngine.CoreModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null
- #3 d7d08c149e8ff16267f542be6f8a2420
- #4 ExecuteJob(ManagedJobData*, void (*)(void*, void*, void*, void*, int), int, unsigned char*)
- #5 ForwardJobToManaged(ManagedJobData*)
- #6 ujob_execute_job(ujob_control_t*, ujob_lane_t*, ujob_job_t*, ujob_handle_t, int)
- #7 lane_guts(ujob_control_t*, ujob_lane_t*, int, int)
- #8 ujob_wait_for(ujob_control_t*, ujob_handle_t, int)
- #9 CompleteFenceInternal(JobFence&, WorkStealMode)
- #10 ScheduleBatchedScriptingJobsAndComplete(JobFence&, ScriptingExceptionPtr*)
- #11 JobHandle_CUSTOM_ScheduleBatchedJobsAndComplete(JobFence&)
- #12  (Mono JIT Code) (wrapper managed-to-native) Unity.Jobs.JobHandle:ScheduleBatchedJobsAndComplete (Unity.Jobs.JobHandle&)
- #13  (Mono JIT Code) (wrapper runtime-invoke) object:runtime_invoke_void__this__ (object,intptr,intptr,intptr)
- #14 mono_jit_runtime_invoke
- #15 do_runtime_invoke
- #16 mono_runtime_invoke
- #17 scripting_method_invoke(ScriptingMethodPtr, ScriptingObjectPtr, ScriptingArguments&, ScriptingExceptionPtr*, bool)
- #18 ScriptingInvocation::Invoke(ScriptingExceptionPtr*, bool)
- #19 MonoBehaviour::CallMethodIfAvailable(int)
- #20 MonoBehaviour::CallUpdateMethod(int)
- #21 void BaseBehaviourManager::CommonUpdate<BehaviourManager>()
- #22 BehaviourManager::Update()
- #23 InitPlayerLoopCallbacks()::UpdateScriptRunBehaviourUpdateRegistrator::Forward()
- #24 ExecutePlayerLoop(NativePlayerLoopSystem*)
- #25 ExecutePlayerLoop(NativePlayerLoopSystem*)
- #26 PlayerLoop()
- #27 EditorPlayerLoop::Execute()
- #28 PlayerLoopController::InternalUpdateScene(bool, bool)
- #29 PlayerLoopController::UpdateSceneIfNeededFromMainLoop()
- #30 Application::TickTimer()
- #31 -[EditorApplication TickTimer]
- #32 __NSFireTimer
- #33 __CFRUNLOOP_IS_CALLING_OUT_TO_A_TIMER_CALLBACK_FUNCTION__
- #34 __CFRunLoopDoTimer
- #35 __CFRunLoopDoTimers
- #36 __CFRunLoopRun
- #37 CFRunLoopRunSpecific
- #38 RunCurrentEventLoopInMode
- #39 ReceiveNextEventCommon
- #40 _BlockUntilNextEventMatchingListInModeWithFilter
- #41 _DPSNextEvent
- #42 -[NSApplication(NSEvent) _nextEventMatchingEventMask:untilDate:inMode:dequeue:]
- #43 -[NSApplication run]
- #44 NSApplicationMain
- #45 EditorMain(int, char const**)
- #46 main
- #47 start
- #48 ???
+MissingReferenceException: The object of type 'GameObject' has been destroyed but you are still trying to access it.
+Your script should either check if it is null or you should not destroy the object.
+MidManStudio.Core.Pools.LocalObjectPool.GetObject (MidManStudio.Core.Pools.PoolableObjectType type, UnityEngine.Vector3 position, UnityEngine.Quaternion rotation) (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/LocalObjectPool.cs:102)
+MidManStudio.Projectiles.Managers.PhysicsProjectileBase.SpawnPoolVisual () (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectileBase.cs:334)
+MidManStudio.Projectiles.Managers.PhysicsProjectileBase.OnNetworkSpawn () (at /Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectileBase.cs:80)
+Unity.Netcode.NetworkBehaviour.VisibleOnNetworkSpawn () (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkBehaviour.cs:506)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkBehaviour:VisibleOnNetworkSpawn() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkBehaviour.cs:510)
+Unity.Netcode.NetworkObject:InvokeBehaviourNetworkSpawn() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkObject.cs:1237)
+Unity.Netcode.NetworkSpawnManager:SpawnNetworkObjectLocallyCommon(NetworkObject, UInt64, Boolean, Boolean, UInt64, Boolean) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Spawning/NetworkSpawnManager.cs:606)
+Unity.Netcode.NetworkSpawnManager:SpawnNetworkObjectLocally(NetworkObject, SceneObject&, Boolean) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Spawning/NetworkSpawnManager.cs:525)
+Unity.Netcode.NetworkObject:AddSceneObject(SceneObject&, FastBufferReader, NetworkManager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkObject.cs:1744)
+Unity.Netcode.CreateObjectMessage:Handle(NetworkContext&) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/CreateObjectMessage.cs:37)
+Unity.Netcode.NetworkMessageManager:ReceiveMessage(FastBufferReader, NetworkContext&, NetworkMessageManager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkManager:NetworkUpdate(NetworkUpdateStage) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:45)
+Unity.Netcode.NetworkUpdateLoop:RunNetworkUpdateStage(NetworkUpdateStage) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkUpdateLoop.cs:185)
+Unity.Netcode.<>c:<CreateLoopSystem>b__0_0() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkUpdateLoop.cs:208)
 
-Receive queue is full, some packets could be dropped, consider increase its size (256).
- #1 DefaultBurstRuntimeLogCallback(void*, BurstLogType, char const*, char const*, int)
- #2 Unity.Jobs.IJobExtensions.JobStruct`1<Unity.Networking.Transport.TopLayer.CompleteReceiveJob>.Execute(ref Unity.Networking.Transport.TopLayer.CompleteReceiveJob data, System.IntPtr additionalPtr, System.IntPtr bufferRangePatchData, ref Unity.Jobs.LowLevel.Unsafe.JobRanges ranges, int jobIndex) -> void_689e816c271b799ebd6b634ff47fa91d from UnityEngine.CoreModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null
- #3 d7d08c149e8ff16267f542be6f8a2420
- #4 ExecuteJob(ManagedJobData*, void (*)(void*, void*, void*, void*, int), int, unsigned char*)
- #5 ForwardJobToManaged(ManagedJobData*)
- #6 ujob_execute_job(ujob_control_t*, ujob_lane_t*, ujob_job_t*, ujob_handle_t, int)
- #7 lane_guts(ujob_control_t*, ujob_lane_t*, int, int)
- #8 ujob_wait_for(ujob_control_t*, ujob_handle_t, int)
- #9 CompleteFenceInternal(JobFence&, WorkStealMode)
- #10 ScheduleBatchedScriptingJobsAndComplete(JobFence&, ScriptingExceptionPtr*)
- #11 JobHandle_CUSTOM_ScheduleBatchedJobsAndComplete(JobFence&)
- #12  (Mono JIT Code) (wrapper managed-to-native) Unity.Jobs.JobHandle:ScheduleBatchedJobsAndComplete (Unity.Jobs.JobHandle&)
- #13  (Mono JIT Code) (wrapper runtime-invoke) object:runtime_invoke_void__this__ (object,intptr,intptr,intptr)
- #14 mono_jit_runtime_invoke
- #15 do_runtime_invoke
- #16 mono_runtime_invoke
- #17 scripting_method_invoke(ScriptingMethodPtr, ScriptingObjectPtr, ScriptingArguments&, ScriptingExceptionPtr*, bool)
- #18 ScriptingInvocation::Invoke(ScriptingExceptionPtr*, bool)
- #19 MonoBehaviour::CallMethodIfAvailable(int)
- #20 MonoBehaviour::CallUpdateMethod(int)
- #21 void BaseBehaviourManager::CommonUpdate<BehaviourManager>()
- #22 BehaviourManager::Update()
- #23 InitPlayerLoopCallbacks()::UpdateScriptRunBehaviourUpdateRegistrator::Forward()
- #24 ExecutePlayerLoop(NativePlayerLoopSystem*)
- #25 ExecutePlayerLoop(NativePlayerLoopSystem*)
- #26 PlayerLoop()
- #27 EditorPlayerLoop::Execute()
- #28 PlayerLoopController::InternalUpdateScene(bool, bool)
- #29 PlayerLoopController::UpdateSceneIfNeededFromMainLoop()
- #30 Application::TickTimer()
- #31 -[EditorApplication TickTimer]
- #32 __NSFireTimer
- #33 __CFRUNLOOP_IS_CALLING_OUT_TO_A_TIMER_CALLBACK_FUNCTION__
- #34 __CFRunLoopDoTimer
- #35 __CFRunLoopDoTimers
- #36 __CFRunLoopRun
- #37 CFRunLoopRunSpecific
- #38 RunCurrentEventLoopInMode
- #39 ReceiveNextEventCommon
- #40 _BlockUntilNextEventMatchingListInModeWithFilter
- #41 _DPSNextEvent
- #42 -[NSApplication(NSEvent) _nextEventMatchingEventMask:untilDate:inMode:dequeue:]
- #43 -[EditorApplication checkForFocusChange:]
- #44 __NSFireTimer
- #45 __CFRUNLOOP_IS_CALLING_OUT_TO_A_TIMER_CALLBACK_FUNCTION__
- #46 __CFRunLoopDoTimer
- #47 __CFRunLoopDoTimers
- #48 __CFRunLoopRun
- #49 CFRunLoopRunSpecific
- #50 RunCurrentEventLoopInMode
- #51 ReceiveNextEventCommon
- #52 _BlockUntilNextEventMatchingListInModeWithFilter
- #53 _DPSNextEvent
- #54 -[NSApplication(NSEvent) _nextEventMatchingEventMask:untilDate:inMode:dequeue:]
- #55 -[NSApplication run]
- #56 NSApplicationMain
- #57 EditorMain(int, char const**)
- #58 main
- #59 start
- #60 ???
+NullReferenceException: Object reference not set to an instance of an object
+Unity.Netcode.NamedMessage.Handle (Unity.Netcode.NetworkContext& context) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/NamedMessage.cs:30)
+Unity.Netcode.NetworkMessageManager.ReceiveMessage[T] (Unity.Netcode.FastBufferReader reader, Unity.Netcode.NetworkContext& context, Unity.Netcode.NetworkMessageManager manager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager.HandleMessage (Unity.Netcode.NetworkMessageHeader& header, Unity.Netcode.FastBufferReader reader, System.UInt64 senderId, System.Single timestamp, System.Int32 serializedHeaderSize) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:438)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkConnectionManager:DisconnectEventHandler(UInt64) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:356)
+Unity.Netcode.NetworkConnectionManager:HandleNetworkEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:264)
+Unity.Netcode.NetworkTransport:InvokeOnTransportEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/NetworkTransport.cs:49)
+Unity.Netcode.Transports.UTP.UnityTransport:DisconnectLocalClient() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/UTP/UnityTransport.cs:1149)
+Unity.Netcode.NetworkConnectionManager:Shutdown() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:984)
+Unity.Netcode.NetworkManager:ShutdownInternal() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:1043)
+Unity.Netcode.NetworkManager:ModeChanged(PlayModeStateChange) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:516)
+UnityEngine.GUIUtility:ProcessEvent(Int32, IntPtr, Boolean&) (at /Users/bokken/build/output/unity/unity/Modules/IMGUI/GUIUtility.cs:190)
 
-Receive queue is full, some packets could be dropped, consider increase its size (256).
- #1 DefaultBurstRuntimeLogCallback(void*, BurstLogType, char const*, char const*, int)
- #2 Unity.Jobs.IJobExtensions.JobStruct`1<Unity.Networking.Transport.TopLayer.CompleteReceiveJob>.Execute(ref Unity.Networking.Transport.TopLayer.CompleteReceiveJob data, System.IntPtr additionalPtr, System.IntPtr bufferRangePatchData, ref Unity.Jobs.LowLevel.Unsafe.JobRanges ranges, int jobIndex) -> void_689e816c271b799ebd6b634ff47fa91d from UnityEngine.CoreModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null
- #3 d7d08c149e8ff16267f542be6f8a2420
- #4 ExecuteJob(ManagedJobData*, void (*)(void*, void*, void*, void*, int), int, unsigned char*)
- #5 ForwardJobToManaged(ManagedJobData*)
- #6 ujob_execute_job(ujob_control_t*, ujob_lane_t*, ujob_job_t*, ujob_handle_t, int)
- #7 lane_guts(ujob_control_t*, ujob_lane_t*, int, int)
- #8 ujob_wait_for(ujob_control_t*, ujob_handle_t, int)
- #9 CompleteFenceInternal(JobFence&, WorkStealMode)
- #10 ScheduleBatchedScriptingJobsAndComplete(JobFence&, ScriptingExceptionPtr*)
- #11 JobHandle_CUSTOM_ScheduleBatchedJobsAndComplete(JobFence&)
- #12  (Mono JIT Code) (wrapper managed-to-native) Unity.Jobs.JobHandle:ScheduleBatchedJobsAndComplete (Unity.Jobs.JobHandle&)
- #13  (Mono JIT Code) (wrapper runtime-invoke) object:runtime_invoke_void__this__ (object,intptr,intptr,intptr)
- #14 mono_jit_runtime_invoke
- #15 do_runtime_invoke
- #16 mono_runtime_invoke
- #17 scripting_method_invoke(ScriptingMethodPtr, ScriptingObjectPtr, ScriptingArguments&, ScriptingExceptionPtr*, bool)
- #18 ScriptingInvocation::Invoke(ScriptingExceptionPtr*, bool)
- #19 MonoBehaviour::CallMethodIfAvailable(int)
- #20 MonoBehaviour::CallUpdateMethod(int)
- #21 void BaseBehaviourManager::CommonUpdate<BehaviourManager>()
- #22 BehaviourManager::Update()
- #23 InitPlayerLoopCallbacks()::UpdateScriptRunBehaviourUpdateRegistrator::Forward()
- #24 ExecutePlayerLoop(NativePlayerLoopSystem*)
- #25 ExecutePlayerLoop(NativePlayerLoopSystem*)
- #26 PlayerLoop()
- #27 EditorPlayerLoop::Execute()
- #28 PlayerLoopController::InternalUpdateScene(bool, bool)
- #29 PlayerLoopController::UpdateSceneIfNeededFromMainLoop()
- #30 Application::TickTimer()
- #31 -[EditorApplication TickTimer]
- #32 __NSFireTimer
- #33 __CFRUNLOOP_IS_CALLING_OUT_TO_A_TIMER_CALLBACK_FUNCTION__
- #34 __CFRunLoopDoTimer
- #35 __CFRunLoopDoTimers
- #36 __CFRunLoopRun
- #37 CFRunLoopRunSpecific
- #38 RunCurrentEventLoopInMode
- #39 ReceiveNextEventCommon
- #40 _BlockUntilNextEventMatchingListInModeWithFilter
- #41 _DPSNextEvent
- #42 -[NSApplication(NSEvent) _nextEventMatchingEventMask:untilDate:inMode:dequeue:]
- #43 -[EditorApplication checkForFocusChange:]
- #44 __NSFireTimer
- #45 __CFRUNLOOP_IS_CALLING_OUT_TO_A_TIMER_CALLBACK_FUNCTION__
- #46 __CFRunLoopDoTimer
- #47 __CFRunLoopDoTimers
- #48 __CFRunLoopRun
- #49 CFRunLoopRunSpecific
- #50 RunCurrentEventLoopInMode
- #51 ReceiveNextEventCommon
- #52 _BlockUntilNextEventMatchingListInModeWithFilter
- #53 _DPSNextEvent
- #54 -[NSApplication(NSEvent) _nextEventMatchingEventMask:untilDate:inMode:dequeue:]
- #55 -[NSApplication run]
- #56 NSApplicationMain
- #57 EditorMain(int, char const**)
- #58 main
- #59 start
- #60 ???
+NullReferenceException: Object reference not set to an instance of an object
+Unity.Netcode.NamedMessage.Handle (Unity.Netcode.NetworkContext& context) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/NamedMessage.cs:30)
+Unity.Netcode.NetworkMessageManager.ReceiveMessage[T] (Unity.Netcode.FastBufferReader reader, Unity.Netcode.NetworkContext& context, Unity.Netcode.NetworkMessageManager manager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager.HandleMessage (Unity.Netcode.NetworkMessageHeader& header, Unity.Netcode.FastBufferReader reader, System.UInt64 senderId, System.Single timestamp, System.Int32 serializedHeaderSize) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:438)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkConnectionManager:DisconnectEventHandler(UInt64) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:356)
+Unity.Netcode.NetworkConnectionManager:HandleNetworkEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:264)
+Unity.Netcode.NetworkTransport:InvokeOnTransportEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/NetworkTransport.cs:49)
+Unity.Netcode.Transports.UTP.UnityTransport:DisconnectLocalClient() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/UTP/UnityTransport.cs:1149)
+Unity.Netcode.NetworkConnectionManager:Shutdown() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:984)
+Unity.Netcode.NetworkManager:ShutdownInternal() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:1043)
+Unity.Netcode.NetworkManager:ModeChanged(PlayModeStateChange) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:516)
+UnityEngine.GUIUtility:ProcessEvent(Int32, IntPtr, Boolean&) (at /Users/bokken/build/output/unity/unity/Modules/IMGUI/GUIUtility.cs:190)
 
-Receive queue is full, some packets could be dropped, consider increase its size (256).
- #1 DefaultBurstRuntimeLogCallback(void*, BurstLogType, char const*, char const*, int)
- #2 Unity.Jobs.IJobExtensions.JobStruct`1<Unity.Networking.Transport.TopLayer.CompleteReceiveJob>.Execute(ref Unity.Networking.Transport.TopLayer.CompleteReceiveJob data, System.IntPtr additionalPtr, System.IntPtr bufferRangePatchData, ref Unity.Jobs.LowLevel.Unsafe.JobRanges ranges, int jobIndex) -> void_689e816c271b799ebd6b634ff47fa91d from UnityEngine.CoreModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null
- #3 d7d08c149e8ff16267f542be6f8a2420
- #4 ExecuteJob(ManagedJobData*, void (*)(void*, void*, void*, void*, int), int, unsigned char*)
- #5 ForwardJobToManaged(ManagedJobData*)
- #6 ujob_execute_job(ujob_control_t*, ujob_lane_t*, ujob_job_t*, ujob_handle_t, int)
- #7 lane_guts(ujob_control_t*, ujob_lane_t*, int, int)
- #8 worker_thread_routine(void*)
- #9 Thread::RunThreadWrapper(void*)
- #10 _pthread_start
- #11 thread_start
+NullReferenceException: Object reference not set to an instance of an object
+Unity.Netcode.NamedMessage.Handle (Unity.Netcode.NetworkContext& context) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/NamedMessage.cs:30)
+Unity.Netcode.NetworkMessageManager.ReceiveMessage[T] (Unity.Netcode.FastBufferReader reader, Unity.Netcode.NetworkContext& context, Unity.Netcode.NetworkMessageManager manager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager.HandleMessage (Unity.Netcode.NetworkMessageHeader& header, Unity.Netcode.FastBufferReader reader, System.UInt64 senderId, System.Single timestamp, System.Int32 serializedHeaderSize) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:438)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkConnectionManager:DisconnectEventHandler(UInt64) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:356)
+Unity.Netcode.NetworkConnectionManager:HandleNetworkEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:264)
+Unity.Netcode.NetworkTransport:InvokeOnTransportEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/NetworkTransport.cs:49)
+Unity.Netcode.Transports.UTP.UnityTransport:DisconnectLocalClient() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/UTP/UnityTransport.cs:1149)
+Unity.Netcode.NetworkConnectionManager:Shutdown() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:984)
+Unity.Netcode.NetworkManager:ShutdownInternal() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:1043)
+Unity.Netcode.NetworkManager:ModeChanged(PlayModeStateChange) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:516)
+UnityEngine.GUIUtility:ProcessEvent(Int32, IntPtr, Boolean&) (at /Users/bokken/build/output/unity/unity/Modules/IMGUI/GUIUtility.cs:190)
 
+NullReferenceException: Object reference not set to an instance of an object
+Unity.Netcode.NamedMessage.Handle (Unity.Netcode.NetworkContext& context) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/NamedMessage.cs:30)
+Unity.Netcode.NetworkMessageManager.ReceiveMessage[T] (Unity.Netcode.FastBufferReader reader, Unity.Netcode.NetworkContext& context, Unity.Netcode.NetworkMessageManager manager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager.HandleMessage (Unity.Netcode.NetworkMessageHeader& header, Unity.Netcode.FastBufferReader reader, System.UInt64 senderId, System.Single timestamp, System.Int32 serializedHeaderSize) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:438)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkConnectionManager:DisconnectEventHandler(UInt64) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:356)
+Unity.Netcode.NetworkConnectionManager:HandleNetworkEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:264)
+Unity.Netcode.NetworkTransport:InvokeOnTransportEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/NetworkTransport.cs:49)
+Unity.Netcode.Transports.UTP.UnityTransport:DisconnectLocalClient() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/UTP/UnityTransport.cs:1149)
+Unity.Netcode.NetworkConnectionManager:Shutdown() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:984)
+Unity.Netcode.NetworkManager:ShutdownInternal() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:1043)
+Unity.Netcode.NetworkManager:ModeChanged(PlayModeStateChange) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:516)
+UnityEngine.GUIUtility:ProcessEvent(Int32, IntPtr, Boolean&) (at /Users/bokken/build/output/unity/unity/Modules/IMGUI/GUIUtility.cs:190)
 
+NullReferenceException: Object reference not set to an instance of an object
+Unity.Netcode.NamedMessage.Handle (Unity.Netcode.NetworkContext& context) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/NamedMessage.cs:30)
+Unity.Netcode.NetworkMessageManager.ReceiveMessage[T] (Unity.Netcode.FastBufferReader reader, Unity.Netcode.NetworkContext& context, Unity.Netcode.NetworkMessageManager manager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager.HandleMessage (Unity.Netcode.NetworkMessageHeader& header, Unity.Netcode.FastBufferReader reader, System.UInt64 senderId, System.Single timestamp, System.Int32 serializedHeaderSize) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:438)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkConnectionManager:DisconnectEventHandler(UInt64) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:356)
+Unity.Netcode.NetworkConnectionManager:HandleNetworkEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:264)
+Unity.Netcode.NetworkTransport:InvokeOnTransportEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/NetworkTransport.cs:49)
+Unity.Netcode.Transports.UTP.UnityTransport:DisconnectLocalClient() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/UTP/UnityTransport.cs:1149)
+Unity.Netcode.NetworkConnectionManager:Shutdown() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:984)
+Unity.Netcode.NetworkManager:ShutdownInternal() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:1043)
+Unity.Netcode.NetworkManager:ModeChanged(PlayModeStateChange) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:516)
+UnityEngine.GUIUtility:ProcessEvent(Int32, IntPtr, Boolean&) (at /Users/bokken/build/output/unity/unity/Modules/IMGUI/GUIUtility.cs:190)
+
+NullReferenceException: Object reference not set to an instance of an object
+Unity.Netcode.NamedMessage.Handle (Unity.Netcode.NetworkContext& context) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/NamedMessage.cs:30)
+Unity.Netcode.NetworkMessageManager.ReceiveMessage[T] (Unity.Netcode.FastBufferReader reader, Unity.Netcode.NetworkContext& context, Unity.Netcode.NetworkMessageManager manager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager.HandleMessage (Unity.Netcode.NetworkMessageHeader& header, Unity.Netcode.FastBufferReader reader, System.UInt64 senderId, System.Single timestamp, System.Int32 serializedHeaderSize) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:438)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkConnectionManager:DisconnectEventHandler(UInt64) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:356)
+Unity.Netcode.NetworkConnectionManager:HandleNetworkEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:264)
+Unity.Netcode.NetworkTransport:InvokeOnTransportEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/NetworkTransport.cs:49)
+Unity.Netcode.Transports.UTP.UnityTransport:DisconnectLocalClient() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/UTP/UnityTransport.cs:1149)
+Unity.Netcode.NetworkConnectionManager:Shutdown() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:984)
+Unity.Netcode.NetworkManager:ShutdownInternal() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:1043)
+Unity.Netcode.NetworkManager:ModeChanged(PlayModeStateChange) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:516)
+UnityEngine.GUIUtility:ProcessEvent(Int32, IntPtr, Boolean&) (at /Users/bokken/build/output/unity/unity/Modules/IMGUI/GUIUtility.cs:190)
+
+NullReferenceException: Object reference not set to an instance of an object
+Unity.Netcode.NamedMessage.Handle (Unity.Netcode.NetworkContext& context) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/NamedMessage.cs:30)
+Unity.Netcode.NetworkMessageManager.ReceiveMessage[T] (Unity.Netcode.FastBufferReader reader, Unity.Netcode.NetworkContext& context, Unity.Netcode.NetworkMessageManager manager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager.HandleMessage (Unity.Netcode.NetworkMessageHeader& header, Unity.Netcode.FastBufferReader reader, System.UInt64 senderId, System.Single timestamp, System.Int32 serializedHeaderSize) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:438)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkConnectionManager:DisconnectEventHandler(UInt64) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:356)
+Unity.Netcode.NetworkConnectionManager:HandleNetworkEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:264)
+Unity.Netcode.NetworkTransport:InvokeOnTransportEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/NetworkTransport.cs:49)
+Unity.Netcode.Transports.UTP.UnityTransport:DisconnectLocalClient() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/UTP/UnityTransport.cs:1149)
+Unity.Netcode.NetworkConnectionManager:Shutdown() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:984)
+Unity.Netcode.NetworkManager:ShutdownInternal() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:1043)
+Unity.Netcode.NetworkManager:ModeChanged(PlayModeStateChange) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:516)
+UnityEngine.GUIUtility:ProcessEvent(Int32, IntPtr, Boolean&) (at /Users/bokken/build/output/unity/unity/Modules/IMGUI/GUIUtility.cs:190)
+
+NullReferenceException: Object reference not set to an instance of an object
+Unity.Netcode.NamedMessage.Handle (Unity.Netcode.NetworkContext& context) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/NamedMessage.cs:30)
+Unity.Netcode.NetworkMessageManager.ReceiveMessage[T] (Unity.Netcode.FastBufferReader reader, Unity.Netcode.NetworkContext& context, Unity.Netcode.NetworkMessageManager manager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager.HandleMessage (Unity.Netcode.NetworkMessageHeader& header, Unity.Netcode.FastBufferReader reader, System.UInt64 senderId, System.Single timestamp, System.Int32 serializedHeaderSize) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:438)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkConnectionManager:DisconnectEventHandler(UInt64) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:356)
+Unity.Netcode.NetworkConnectionManager:HandleNetworkEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:264)
+Unity.Netcode.NetworkTransport:InvokeOnTransportEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/NetworkTransport.cs:49)
+Unity.Netcode.Transports.UTP.UnityTransport:DisconnectLocalClient() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/UTP/UnityTransport.cs:1149)
+Unity.Netcode.NetworkConnectionManager:Shutdown() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:984)
+Unity.Netcode.NetworkManager:ShutdownInternal() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:1043)
+Unity.Netcode.NetworkManager:ModeChanged(PlayModeStateChange) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:516)
+UnityEngine.GUIUtility:ProcessEvent(Int32, IntPtr, Boolean&) (at /Users/bokken/build/output/unity/unity/Modules/IMGUI/GUIUtility.cs:190)
+
+NullReferenceException: Object reference not set to an instance of an object
+Unity.Netcode.NamedMessage.Handle (Unity.Netcode.NetworkContext& context) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/NamedMessage.cs:30)
+Unity.Netcode.NetworkMessageManager.ReceiveMessage[T] (Unity.Netcode.FastBufferReader reader, Unity.Netcode.NetworkContext& context, Unity.Netcode.NetworkMessageManager manager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager.HandleMessage (Unity.Netcode.NetworkMessageHeader& header, Unity.Netcode.FastBufferReader reader, System.UInt64 senderId, System.Single timestamp, System.Int32 serializedHeaderSize) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:438)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkConnectionManager:DisconnectEventHandler(UInt64) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:356)
+Unity.Netcode.NetworkConnectionManager:HandleNetworkEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:264)
+Unity.Netcode.NetworkTransport:InvokeOnTransportEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/NetworkTransport.cs:49)
+Unity.Netcode.Transports.UTP.UnityTransport:DisconnectLocalClient() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/UTP/UnityTransport.cs:1149)
+Unity.Netcode.NetworkConnectionManager:Shutdown() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:984)
+Unity.Netcode.NetworkManager:ShutdownInternal() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:1043)
+Unity.Netcode.NetworkManager:ModeChanged(PlayModeStateChange) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:516)
+UnityEngine.GUIUtility:ProcessEvent(Int32, IntPtr, Boolean&) (at /Users/bokken/build/output/unity/unity/Modules/IMGUI/GUIUtility.cs:190)
+
+NullReferenceException: Object reference not set to an instance of an object
+Unity.Netcode.NamedMessage.Handle (Unity.Netcode.NetworkContext& context) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/NamedMessage.cs:30)
+Unity.Netcode.NetworkMessageManager.ReceiveMessage[T] (Unity.Netcode.FastBufferReader reader, Unity.Netcode.NetworkContext& context, Unity.Netcode.NetworkMessageManager manager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager.HandleMessage (Unity.Netcode.NetworkMessageHeader& header, Unity.Netcode.FastBufferReader reader, System.UInt64 senderId, System.Single timestamp, System.Int32 serializedHeaderSize) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:438)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkConnectionManager:DisconnectEventHandler(UInt64) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:356)
+Unity.Netcode.NetworkConnectionManager:HandleNetworkEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:264)
+Unity.Netcode.NetworkTransport:InvokeOnTransportEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/NetworkTransport.cs:49)
+Unity.Netcode.Transports.UTP.UnityTransport:DisconnectLocalClient() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/UTP/UnityTransport.cs:1149)
+Unity.Netcode.NetworkConnectionManager:Shutdown() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:984)
+Unity.Netcode.NetworkManager:ShutdownInternal() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:1043)
+Unity.Netcode.NetworkManager:ModeChanged(PlayModeStateChange) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:516)
+UnityEngine.GUIUtility:ProcessEvent(Int32, IntPtr, Boolean&) (at /Users/bokken/build/output/unity/unity/Modules/IMGUI/GUIUtility.cs:190)
+
+NullReferenceException: Object reference not set to an instance of an object
+Unity.Netcode.NamedMessage.Handle (Unity.Netcode.NetworkContext& context) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/NamedMessage.cs:30)
+Unity.Netcode.NetworkMessageManager.ReceiveMessage[T] (Unity.Netcode.FastBufferReader reader, Unity.Netcode.NetworkContext& context, Unity.Netcode.NetworkMessageManager manager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager.HandleMessage (Unity.Netcode.NetworkMessageHeader& header, Unity.Netcode.FastBufferReader reader, System.UInt64 senderId, System.Single timestamp, System.Int32 serializedHeaderSize) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:438)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkConnectionManager:DisconnectEventHandler(UInt64) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:356)
+Unity.Netcode.NetworkConnectionManager:HandleNetworkEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:264)
+Unity.Netcode.NetworkTransport:InvokeOnTransportEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/NetworkTransport.cs:49)
+Unity.Netcode.Transports.UTP.UnityTransport:DisconnectLocalClient() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/UTP/UnityTransport.cs:1149)
+Unity.Netcode.NetworkConnectionManager:Shutdown() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:984)
+Unity.Netcode.NetworkManager:ShutdownInternal() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:1043)
+Unity.Netcode.NetworkManager:ModeChanged(PlayModeStateChange) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:516)
+UnityEngine.GUIUtility:ProcessEvent(Int32, IntPtr, Boolean&) (at /Users/bokken/build/output/unity/unity/Modules/IMGUI/GUIUtility.cs:190)
+
+NullReferenceException: Object reference not set to an instance of an object
+Unity.Netcode.NamedMessage.Handle (Unity.Netcode.NetworkContext& context) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/NamedMessage.cs:30)
+Unity.Netcode.NetworkMessageManager.ReceiveMessage[T] (Unity.Netcode.FastBufferReader reader, Unity.Netcode.NetworkContext& context, Unity.Netcode.NetworkMessageManager manager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager.HandleMessage (Unity.Netcode.NetworkMessageHeader& header, Unity.Netcode.FastBufferReader reader, System.UInt64 senderId, System.Single timestamp, System.Int32 serializedHeaderSize) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:438)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkConnectionManager:DisconnectEventHandler(UInt64) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:356)
+Unity.Netcode.NetworkConnectionManager:HandleNetworkEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:264)
+Unity.Netcode.NetworkTransport:InvokeOnTransportEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/NetworkTransport.cs:49)
+Unity.Netcode.Transports.UTP.UnityTransport:DisconnectLocalClient() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/UTP/UnityTransport.cs:1149)
+Unity.Netcode.NetworkConnectionManager:Shutdown() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:984)
+Unity.Netcode.NetworkManager:ShutdownInternal() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:1043)
+Unity.Netcode.NetworkManager:ModeChanged(PlayModeStateChange) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:516)
+UnityEngine.GUIUtility:ProcessEvent(Int32, IntPtr, Boolean&) (at /Users/bokken/build/output/unity/unity/Modules/IMGUI/GUIUtility.cs:190)
+
+NullReferenceException: Object reference not set to an instance of an object
+Unity.Netcode.NamedMessage.Handle (Unity.Netcode.NetworkContext& context) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/NamedMessage.cs:30)
+Unity.Netcode.NetworkMessageManager.ReceiveMessage[T] (Unity.Netcode.FastBufferReader reader, Unity.Netcode.NetworkContext& context, Unity.Netcode.NetworkMessageManager manager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager.HandleMessage (Unity.Netcode.NetworkMessageHeader& header, Unity.Netcode.FastBufferReader reader, System.UInt64 senderId, System.Single timestamp, System.Int32 serializedHeaderSize) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:438)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkConnectionManager:DisconnectEventHandler(UInt64) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:356)
+Unity.Netcode.NetworkConnectionManager:HandleNetworkEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:264)
+Unity.Netcode.NetworkTransport:InvokeOnTransportEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/NetworkTransport.cs:49)
+Unity.Netcode.Transports.UTP.UnityTransport:DisconnectLocalClient() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/UTP/UnityTransport.cs:1149)
+Unity.Netcode.NetworkConnectionManager:Shutdown() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:984)
+Unity.Netcode.NetworkManager:ShutdownInternal() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:1043)
+Unity.Netcode.NetworkManager:ModeChanged(PlayModeStateChange) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:516)
+UnityEngine.GUIUtility:ProcessEvent(Int32, IntPtr, Boolean&) (at /Users/bokken/build/output/unity/unity/Modules/IMGUI/GUIUtility.cs:190)
+
+NullReferenceException: Object reference not set to an instance of an object
+Unity.Netcode.NamedMessage.Handle (Unity.Netcode.NetworkContext& context) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/NamedMessage.cs:30)
+Unity.Netcode.NetworkMessageManager.ReceiveMessage[T] (Unity.Netcode.FastBufferReader reader, Unity.Netcode.NetworkContext& context, Unity.Netcode.NetworkMessageManager manager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager.HandleMessage (Unity.Netcode.NetworkMessageHeader& header, Unity.Netcode.FastBufferReader reader, System.UInt64 senderId, System.Single timestamp, System.Int32 serializedHeaderSize) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:438)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkConnectionManager:DisconnectEventHandler(UInt64) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:356)
+Unity.Netcode.NetworkConnectionManager:HandleNetworkEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:264)
+Unity.Netcode.NetworkTransport:InvokeOnTransportEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/NetworkTransport.cs:49)
+Unity.Netcode.Transports.UTP.UnityTransport:DisconnectLocalClient() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/UTP/UnityTransport.cs:1149)
+Unity.Netcode.NetworkConnectionManager:Shutdown() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:984)
+Unity.Netcode.NetworkManager:ShutdownInternal() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:1043)
+Unity.Netcode.NetworkManager:ModeChanged(PlayModeStateChange) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:516)
+UnityEngine.GUIUtility:ProcessEvent(Int32, IntPtr, Boolean&) (at /Users/bokken/build/output/unity/unity/Modules/IMGUI/GUIUtility.cs:190)
+
+NullReferenceException: Object reference not set to an instance of an object
+Unity.Netcode.NamedMessage.Handle (Unity.Netcode.NetworkContext& context) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/NamedMessage.cs:30)
+Unity.Netcode.NetworkMessageManager.ReceiveMessage[T] (Unity.Netcode.FastBufferReader reader, Unity.Netcode.NetworkContext& context, Unity.Netcode.NetworkMessageManager manager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager.HandleMessage (Unity.Netcode.NetworkMessageHeader& header, Unity.Netcode.FastBufferReader reader, System.UInt64 senderId, System.Single timestamp, System.Int32 serializedHeaderSize) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:438)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkConnectionManager:DisconnectEventHandler(UInt64) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:356)
+Unity.Netcode.NetworkConnectionManager:HandleNetworkEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:264)
+Unity.Netcode.NetworkTransport:InvokeOnTransportEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/NetworkTransport.cs:49)
+Unity.Netcode.Transports.UTP.UnityTransport:DisconnectLocalClient() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/UTP/UnityTransport.cs:1149)
+Unity.Netcode.NetworkConnectionManager:Shutdown() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:984)
+Unity.Netcode.NetworkManager:ShutdownInternal() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:1043)
+Unity.Netcode.NetworkManager:ModeChanged(PlayModeStateChange) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:516)
+UnityEngine.GUIUtility:ProcessEvent(Int32, IntPtr, Boolean&) (at /Users/bokken/build/output/unity/unity/Modules/IMGUI/GUIUtility.cs:190)
+
+NullReferenceException: Object reference not set to an instance of an object
+Unity.Netcode.NamedMessage.Handle (Unity.Netcode.NetworkContext& context) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/NamedMessage.cs:30)
+Unity.Netcode.NetworkMessageManager.ReceiveMessage[T] (Unity.Netcode.FastBufferReader reader, Unity.Netcode.NetworkContext& context, Unity.Netcode.NetworkMessageManager manager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager.HandleMessage (Unity.Netcode.NetworkMessageHeader& header, Unity.Netcode.FastBufferReader reader, System.UInt64 senderId, System.Single timestamp, System.Int32 serializedHeaderSize) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:438)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkConnectionManager:DisconnectEventHandler(UInt64) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:356)
+Unity.Netcode.NetworkConnectionManager:HandleNetworkEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:264)
+Unity.Netcode.NetworkTransport:InvokeOnTransportEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/NetworkTransport.cs:49)
+Unity.Netcode.Transports.UTP.UnityTransport:DisconnectLocalClient() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/UTP/UnityTransport.cs:1149)
+Unity.Netcode.NetworkConnectionManager:Shutdown() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:984)
+Unity.Netcode.NetworkManager:ShutdownInternal() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:1043)
+Unity.Netcode.NetworkManager:ModeChanged(PlayModeStateChange) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:516)
+UnityEngine.GUIUtility:ProcessEvent(Int32, IntPtr, Boolean&) (at /Users/bokken/build/output/unity/unity/Modules/IMGUI/GUIUtility.cs:190)
+
+NullReferenceException: Object reference not set to an instance of an object
+Unity.Netcode.NamedMessage.Handle (Unity.Netcode.NetworkContext& context) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/NamedMessage.cs:30)
+Unity.Netcode.NetworkMessageManager.ReceiveMessage[T] (Unity.Netcode.FastBufferReader reader, Unity.Netcode.NetworkContext& context, Unity.Netcode.NetworkMessageManager manager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager.HandleMessage (Unity.Netcode.NetworkMessageHeader& header, Unity.Netcode.FastBufferReader reader, System.UInt64 senderId, System.Single timestamp, System.Int32 serializedHeaderSize) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:438)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkConnectionManager:DisconnectEventHandler(UInt64) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:356)
+Unity.Netcode.NetworkConnectionManager:HandleNetworkEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:264)
+Unity.Netcode.NetworkTransport:InvokeOnTransportEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/NetworkTransport.cs:49)
+Unity.Netcode.Transports.UTP.UnityTransport:DisconnectLocalClient() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/UTP/UnityTransport.cs:1149)
+Unity.Netcode.NetworkConnectionManager:Shutdown() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:984)
+Unity.Netcode.NetworkManager:ShutdownInternal() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:1043)
+Unity.Netcode.NetworkManager:ModeChanged(PlayModeStateChange) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:516)
+UnityEngine.GUIUtility:ProcessEvent(Int32, IntPtr, Boolean&) (at /Users/bokken/build/output/unity/unity/Modules/IMGUI/GUIUtility.cs:190)
+
+NullReferenceException: Object reference not set to an instance of an object
+Unity.Netcode.NamedMessage.Handle (Unity.Netcode.NetworkContext& context) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/NamedMessage.cs:30)
+Unity.Netcode.NetworkMessageManager.ReceiveMessage[T] (Unity.Netcode.FastBufferReader reader, Unity.Netcode.NetworkContext& context, Unity.Netcode.NetworkMessageManager manager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager.HandleMessage (Unity.Netcode.NetworkMessageHeader& header, Unity.Netcode.FastBufferReader reader, System.UInt64 senderId, System.Single timestamp, System.Int32 serializedHeaderSize) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:438)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkConnectionManager:DisconnectEventHandler(UInt64) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:356)
+Unity.Netcode.NetworkConnectionManager:HandleNetworkEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:264)
+Unity.Netcode.NetworkTransport:InvokeOnTransportEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/NetworkTransport.cs:49)
+Unity.Netcode.Transports.UTP.UnityTransport:DisconnectLocalClient() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/UTP/UnityTransport.cs:1149)
+Unity.Netcode.NetworkConnectionManager:Shutdown() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:984)
+Unity.Netcode.NetworkManager:ShutdownInternal() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:1043)
+Unity.Netcode.NetworkManager:ModeChanged(PlayModeStateChange) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:516)
+UnityEngine.GUIUtility:ProcessEvent(Int32, IntPtr, Boolean&) (at /Users/bokken/build/output/unity/unity/Modules/IMGUI/GUIUtility.cs:190)
+
+NullReferenceException: Object reference not set to an instance of an object
+Unity.Netcode.NamedMessage.Handle (Unity.Netcode.NetworkContext& context) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/NamedMessage.cs:30)
+Unity.Netcode.NetworkMessageManager.ReceiveMessage[T] (Unity.Netcode.FastBufferReader reader, Unity.Netcode.NetworkContext& context, Unity.Netcode.NetworkMessageManager manager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager.HandleMessage (Unity.Netcode.NetworkMessageHeader& header, Unity.Netcode.FastBufferReader reader, System.UInt64 senderId, System.Single timestamp, System.Int32 serializedHeaderSize) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:438)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkConnectionManager:DisconnectEventHandler(UInt64) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:356)
+Unity.Netcode.NetworkConnectionManager:HandleNetworkEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:264)
+Unity.Netcode.NetworkTransport:InvokeOnTransportEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/NetworkTransport.cs:49)
+Unity.Netcode.Transports.UTP.UnityTransport:DisconnectLocalClient() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/UTP/UnityTransport.cs:1149)
+Unity.Netcode.NetworkConnectionManager:Shutdown() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:984)
+Unity.Netcode.NetworkManager:ShutdownInternal() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:1043)
+Unity.Netcode.NetworkManager:ModeChanged(PlayModeStateChange) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:516)
+UnityEngine.GUIUtility:ProcessEvent(Int32, IntPtr, Boolean&) (at /Users/bokken/build/output/unity/unity/Modules/IMGUI/GUIUtility.cs:190)
+
+NullReferenceException: Object reference not set to an instance of an object
+Unity.Netcode.NamedMessage.Handle (Unity.Netcode.NetworkContext& context) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/NamedMessage.cs:30)
+Unity.Netcode.NetworkMessageManager.ReceiveMessage[T] (Unity.Netcode.FastBufferReader reader, Unity.Netcode.NetworkContext& context, Unity.Netcode.NetworkMessageManager manager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager.HandleMessage (Unity.Netcode.NetworkMessageHeader& header, Unity.Netcode.FastBufferReader reader, System.UInt64 senderId, System.Single timestamp, System.Int32 serializedHeaderSize) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:438)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkConnectionManager:DisconnectEventHandler(UInt64) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:356)
+Unity.Netcode.NetworkConnectionManager:HandleNetworkEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:264)
+Unity.Netcode.NetworkTransport:InvokeOnTransportEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/NetworkTransport.cs:49)
+Unity.Netcode.Transports.UTP.UnityTransport:DisconnectLocalClient() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/UTP/UnityTransport.cs:1149)
+Unity.Netcode.NetworkConnectionManager:Shutdown() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:984)
+Unity.Netcode.NetworkManager:ShutdownInternal() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:1043)
+Unity.Netcode.NetworkManager:ModeChanged(PlayModeStateChange) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:516)
+UnityEngine.GUIUtility:ProcessEvent(Int32, IntPtr, Boolean&) (at /Users/bokken/build/output/unity/unity/Modules/IMGUI/GUIUtility.cs:190)
+
+NullReferenceException: Object reference not set to an instance of an object
+Unity.Netcode.NamedMessage.Handle (Unity.Netcode.NetworkContext& context) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/NamedMessage.cs:30)
+Unity.Netcode.NetworkMessageManager.ReceiveMessage[T] (Unity.Netcode.FastBufferReader reader, Unity.Netcode.NetworkContext& context, Unity.Netcode.NetworkMessageManager manager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager.HandleMessage (Unity.Netcode.NetworkMessageHeader& header, Unity.Netcode.FastBufferReader reader, System.UInt64 senderId, System.Single timestamp, System.Int32 serializedHeaderSize) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:438)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkConnectionManager:DisconnectEventHandler(UInt64) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:356)
+Unity.Netcode.NetworkConnectionManager:HandleNetworkEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:264)
+Unity.Netcode.NetworkTransport:InvokeOnTransportEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/NetworkTransport.cs:49)
+Unity.Netcode.Transports.UTP.UnityTransport:DisconnectLocalClient() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/UTP/UnityTransport.cs:1149)
+Unity.Netcode.NetworkConnectionManager:Shutdown() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:984)
+Unity.Netcode.NetworkManager:ShutdownInternal() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:1043)
+Unity.Netcode.NetworkManager:ModeChanged(PlayModeStateChange) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:516)
+UnityEngine.GUIUtility:ProcessEvent(Int32, IntPtr, Boolean&) (at /Users/bokken/build/output/unity/unity/Modules/IMGUI/GUIUtility.cs:190)
+
+NullReferenceException: Object reference not set to an instance of an object
+Unity.Netcode.NamedMessage.Handle (Unity.Netcode.NetworkContext& context) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/NamedMessage.cs:30)
+Unity.Netcode.NetworkMessageManager.ReceiveMessage[T] (Unity.Netcode.FastBufferReader reader, Unity.Netcode.NetworkContext& context, Unity.Netcode.NetworkMessageManager manager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager.HandleMessage (Unity.Netcode.NetworkMessageHeader& header, Unity.Netcode.FastBufferReader reader, System.UInt64 senderId, System.Single timestamp, System.Int32 serializedHeaderSize) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:438)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkConnectionManager:DisconnectEventHandler(UInt64) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:356)
+Unity.Netcode.NetworkConnectionManager:HandleNetworkEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:264)
+Unity.Netcode.NetworkTransport:InvokeOnTransportEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/NetworkTransport.cs:49)
+Unity.Netcode.Transports.UTP.UnityTransport:DisconnectLocalClient() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/UTP/UnityTransport.cs:1149)
+Unity.Netcode.NetworkConnectionManager:Shutdown() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:984)
+Unity.Netcode.NetworkManager:ShutdownInternal() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:1043)
+Unity.Netcode.NetworkManager:ModeChanged(PlayModeStateChange) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:516)
+UnityEngine.GUIUtility:ProcessEvent(Int32, IntPtr, Boolean&) (at /Users/bokken/build/output/unity/unity/Modules/IMGUI/GUIUtility.cs:190)
+
+NullReferenceException: Object reference not set to an instance of an object
+Unity.Netcode.NamedMessage.Handle (Unity.Netcode.NetworkContext& context) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/NamedMessage.cs:30)
+Unity.Netcode.NetworkMessageManager.ReceiveMessage[T] (Unity.Netcode.FastBufferReader reader, Unity.Netcode.NetworkContext& context, Unity.Netcode.NetworkMessageManager manager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager.HandleMessage (Unity.Netcode.NetworkMessageHeader& header, Unity.Netcode.FastBufferReader reader, System.UInt64 senderId, System.Single timestamp, System.Int32 serializedHeaderSize) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:438)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkConnectionManager:DisconnectEventHandler(UInt64) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:356)
+Unity.Netcode.NetworkConnectionManager:HandleNetworkEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:264)
+Unity.Netcode.NetworkTransport:InvokeOnTransportEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/NetworkTransport.cs:49)
+Unity.Netcode.Transports.UTP.UnityTransport:DisconnectLocalClient() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/UTP/UnityTransport.cs:1149)
+Unity.Netcode.NetworkConnectionManager:Shutdown() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:984)
+Unity.Netcode.NetworkManager:ShutdownInternal() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:1043)
+Unity.Netcode.NetworkManager:ModeChanged(PlayModeStateChange) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:516)
+UnityEngine.GUIUtility:ProcessEvent(Int32, IntPtr, Boolean&) (at /Users/bokken/build/output/unity/unity/Modules/IMGUI/GUIUtility.cs:190)
+
+NullReferenceException: Object reference not set to an instance of an object
+Unity.Netcode.NamedMessage.Handle (Unity.Netcode.NetworkContext& context) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/NamedMessage.cs:30)
+Unity.Netcode.NetworkMessageManager.ReceiveMessage[T] (Unity.Netcode.FastBufferReader reader, Unity.Netcode.NetworkContext& context, Unity.Netcode.NetworkMessageManager manager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager.HandleMessage (Unity.Netcode.NetworkMessageHeader& header, Unity.Netcode.FastBufferReader reader, System.UInt64 senderId, System.Single timestamp, System.Int32 serializedHeaderSize) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:438)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkConnectionManager:DisconnectEventHandler(UInt64) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:356)
+Unity.Netcode.NetworkConnectionManager:HandleNetworkEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:264)
+Unity.Netcode.NetworkTransport:InvokeOnTransportEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/NetworkTransport.cs:49)
+Unity.Netcode.Transports.UTP.UnityTransport:DisconnectLocalClient() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/UTP/UnityTransport.cs:1149)
+Unity.Netcode.NetworkConnectionManager:Shutdown() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:984)
+Unity.Netcode.NetworkManager:ShutdownInternal() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:1043)
+Unity.Netcode.NetworkManager:ModeChanged(PlayModeStateChange) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:516)
+UnityEngine.GUIUtility:ProcessEvent(Int32, IntPtr, Boolean&) (at /Users/bokken/build/output/unity/unity/Modules/IMGUI/GUIUtility.cs:190)
+
+NullReferenceException: Object reference not set to an instance of an object
+Unity.Netcode.NamedMessage.Handle (Unity.Netcode.NetworkContext& context) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/NamedMessage.cs:30)
+Unity.Netcode.NetworkMessageManager.ReceiveMessage[T] (Unity.Netcode.FastBufferReader reader, Unity.Netcode.NetworkContext& context, Unity.Netcode.NetworkMessageManager manager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager.HandleMessage (Unity.Netcode.NetworkMessageHeader& header, Unity.Netcode.FastBufferReader reader, System.UInt64 senderId, System.Single timestamp, System.Int32 serializedHeaderSize) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:438)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkConnectionManager:DisconnectEventHandler(UInt64) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:356)
+Unity.Netcode.NetworkConnectionManager:HandleNetworkEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:264)
+Unity.Netcode.NetworkTransport:InvokeOnTransportEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/NetworkTransport.cs:49)
+Unity.Netcode.Transports.UTP.UnityTransport:DisconnectLocalClient() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/UTP/UnityTransport.cs:1149)
+Unity.Netcode.NetworkConnectionManager:Shutdown() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:984)
+Unity.Netcode.NetworkManager:ShutdownInternal() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:1043)
+Unity.Netcode.NetworkManager:ModeChanged(PlayModeStateChange) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:516)
+UnityEngine.GUIUtility:ProcessEvent(Int32, IntPtr, Boolean&) (at /Users/bokken/build/output/unity/unity/Modules/IMGUI/GUIUtility.cs:190)
+
+NullReferenceException: Object reference not set to an instance of an object
+Unity.Netcode.NamedMessage.Handle (Unity.Netcode.NetworkContext& context) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/NamedMessage.cs:30)
+Unity.Netcode.NetworkMessageManager.ReceiveMessage[T] (Unity.Netcode.FastBufferReader reader, Unity.Netcode.NetworkContext& context, Unity.Netcode.NetworkMessageManager manager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager.HandleMessage (Unity.Netcode.NetworkMessageHeader& header, Unity.Netcode.FastBufferReader reader, System.UInt64 senderId, System.Single timestamp, System.Int32 serializedHeaderSize) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:438)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkConnectionManager:DisconnectEventHandler(UInt64) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:356)
+Unity.Netcode.NetworkConnectionManager:HandleNetworkEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:264)
+Unity.Netcode.NetworkTransport:InvokeOnTransportEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/NetworkTransport.cs:49)
+Unity.Netcode.Transports.UTP.UnityTransport:DisconnectLocalClient() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/UTP/UnityTransport.cs:1149)
+Unity.Netcode.NetworkConnectionManager:Shutdown() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:984)
+Unity.Netcode.NetworkManager:ShutdownInternal() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:1043)
+Unity.Netcode.NetworkManager:ModeChanged(PlayModeStateChange) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:516)
+UnityEngine.GUIUtility:ProcessEvent(Int32, IntPtr, Boolean&) (at /Users/bokken/build/output/unity/unity/Modules/IMGUI/GUIUtility.cs:190)
+
+NullReferenceException: Object reference not set to an instance of an object
+Unity.Netcode.NamedMessage.Handle (Unity.Netcode.NetworkContext& context) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/Messages/NamedMessage.cs:30)
+Unity.Netcode.NetworkMessageManager.ReceiveMessage[T] (Unity.Netcode.FastBufferReader reader, Unity.Netcode.NetworkContext& context, Unity.Netcode.NetworkMessageManager manager) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:570)
+Unity.Netcode.NetworkMessageManager.HandleMessage (Unity.Netcode.NetworkMessageHeader& header, Unity.Netcode.FastBufferReader reader, System.UInt64 senderId, System.Single timestamp, System.Int32 serializedHeaderSize) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:434)
+UnityEngine.Debug:LogException(Exception)
+Unity.Netcode.NetworkMessageManager:HandleMessage(NetworkMessageHeader&, FastBufferReader, UInt64, Single, Int32) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:438)
+Unity.Netcode.NetworkMessageManager:ProcessIncomingMessageQueue() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Messaging/NetworkMessageManager.cs:460)
+Unity.Netcode.NetworkConnectionManager:DisconnectEventHandler(UInt64) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:356)
+Unity.Netcode.NetworkConnectionManager:HandleNetworkEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:264)
+Unity.Netcode.NetworkTransport:InvokeOnTransportEvent(NetworkEvent, UInt64, ArraySegment`1, Single) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/NetworkTransport.cs:49)
+Unity.Netcode.Transports.UTP.UnityTransport:DisconnectLocalClient() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Transports/UTP/UnityTransport.cs:1149)
+Unity.Netcode.NetworkConnectionManager:Shutdown() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Connection/NetworkConnectionManager.cs:984)
+Unity.Netcode.NetworkManager:ShutdownInternal() (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:1043)
+Unity.Netcode.NetworkManager:ModeChanged(PlayModeStateChange) (at ./Library/PackageCache/com.unity.netcode.gameobjects@1.7.1/Runtime/Core/NetworkManager.cs:516)
+UnityEngine.GUIUtility:ProcessEvent(Int32, IntPtr, Boolean&) (at /Users/bokken/build/output/unity/unity/Modules/IMGUI/GUIUtility.cs:190)
 
