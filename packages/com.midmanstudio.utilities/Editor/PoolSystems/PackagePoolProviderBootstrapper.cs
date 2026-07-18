@@ -57,6 +57,12 @@ namespace MidManStudio.Core.EditorUtils
                 comment        = "Pooled trail renderer object",
                 explicitOffset = 1
             });
+            so.entries.Add(new PoolEntryDefinition
+            {
+                entryName      = "FlipbookEffect",
+                comment        = "Pooled sprite-sheet flipbook effect (GlobalFXManager)",
+                explicitOffset = 2
+            });
 
             AssetDatabase.CreateAsset(so, path);
             return true;
