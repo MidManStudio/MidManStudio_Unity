@@ -360,13 +360,24 @@ namespace MidManStudio.Projectiles.Managers
             if (_networkObjectPool == null) return null;
             var netObj = _networkObjectPool.GetNetworkObject(type, position, rotation);
             if (netObj == null) return null;
-            netObj.Spawn();
 
             var physicsBase = netObj.GetComponent<PhysicsProjectileBase>();
+
+            // FIX: set the visual config id BEFORE Spawn() rather than after.
+            // _visualConfigId is now a NetworkVariable (see PhysicsProjectileBase) —
+            // writing it before Spawn() means the very first replicated state a
+            // remote client receives already carries the correct value, instead of
+            // spawning with the prefab default and only picking up the real config
+            // a tick later via OnValueChanged. Safe either way (OnValueChanged
+            // still covers the post-spawn case for any other caller), but this
+            // avoids a one-frame flash of the wrong visual.
+            if (physicsBase != null && configId != 0)
+                physicsBase.SetVisualConfigId(configId);
+
+            netObj.Spawn();
+
             if (physicsBase != null)
             {
-                if (configId != 0) physicsBase.SetVisualConfigId(configId);
-
                 // Safe against pooled reuse: this instance may have already been
                 // subscribed from a previous life in the pool. Unsubscribe first
                 // so we never end up with more than one subscription on it.
