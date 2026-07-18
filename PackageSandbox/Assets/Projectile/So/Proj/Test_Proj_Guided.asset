@@ -10,19 +10,19 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: b563e01704e2143cfb05d73e610df21b, type: 3}
-  m_Name: Test_Proj
+  m_Name: Test_Proj_Guided
   m_EditorClassIdentifier: 
   ConfigId: 0
   _is3D: 0
   _preferredSimMode: 1
-  _movementType: 4
+  _movementType: 2
   _minSpeed: 10
   _maxSpeed: 16
   _lifetime: 4
   _gravityScale: 0
   _maxRange: 50
-  _piercingType: 0
-  _maxCollisions: 1
+  _piercingType: 1
+  _maxCollisions: 3
   _hitLayers:
     serializedVersion: 2
     m_Bits: 320
@@ -59,7 +59,7 @@ MonoBehaviour:
   _critChance: 0
   _critMultiplier: 1.5
   _sprite: {fileID: 21300000, guid: a7b853de1bfff451e93ac9e509c082dd, type: 3}
-  _useSprite: 0
+  _useSprite: 1
   _customShape: {fileID: 11400000, guid: 7c99cd4d02d7d4ff998cdebcbe3f8592, type: 2}
   _hasTrail: 1
   _trailMaterial: {fileID: 2100000, guid: e3c04243093d246ad84824d194445a0d, type: 2}

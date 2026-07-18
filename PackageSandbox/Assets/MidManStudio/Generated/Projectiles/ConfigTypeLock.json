@@ -4,6 +4,36 @@
             "packageId": "com.midmanstudio.projectilesystem",
             "enumName": "Default",
             "value": 0
+        },
+        {
+            "packageId": "com.midmanstudio.projectilesystem",
+            "enumName": "Test_Proj_2D",
+            "value": 1
+        },
+        {
+            "packageId": "com.midmanstudio.projectilesystem",
+            "enumName": "Test_Proj_3D",
+            "value": 2
+        },
+        {
+            "packageId": "com.midmanstudio.projectilesystem",
+            "enumName": "Test_Proj_Circular",
+            "value": 3
+        },
+        {
+            "packageId": "com.midmanstudio.projectilesystem",
+            "enumName": "Test_Proj_Guided",
+            "value": 4
+        },
+        {
+            "packageId": "com.midmanstudio.projectilesystem",
+            "enumName": "Test_Proj_Teleport",
+            "value": 5
+        },
+        {
+            "packageId": "com.midmanstudio.projectilesystem",
+            "enumName": "Test_Proj_Wave",
+            "value": 6
         }
     ]
 }

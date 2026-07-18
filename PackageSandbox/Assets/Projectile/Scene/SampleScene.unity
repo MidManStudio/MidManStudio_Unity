@@ -3792,6 +3792,7 @@ MonoBehaviour:
   _autoRegister:
   - {fileID: 11400000, guid: 03b599bd62d0c433db903d79ef222655, type: 2}
   - {fileID: 11400000, guid: da620697f80fc4dca92e2e82274bfe14, type: 2}
+  - {fileID: 11400000, guid: 796fac2922fa241fa96fda6c598dc071, type: 2}
   _logLevel: 0
 --- !u!4 &1161390880
 Transform:
@@ -15147,6 +15148,68 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1746917848
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1746917850}
+  - component: {fileID: 1746917849}
+  m_Layer: 0
+  m_Name: _Note
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 0
+--- !u!114 &1746917849
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1746917848}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a1c3e7f2b5d8049a63e2f91d47b0c358, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _title: Scene Notes
+  _notes:
+  - Projectile systems test scene
+  - ... F
+  _textFile: {fileID: 0}
+  _theme: 0
+  _fontSize: 14
+  _useCustomTextColor: 0
+  _customTextColor: {r: 0, g: 0, b: 0, a: 1}
+  _width: 320
+  _maxBodyHeight: 360
+  _cornerPadding: 8
+  _anchor: 0
+  _margin: {x: 16, y: 16}
+  _draggable: 1
+  _sortingOrder: 500
+  _startVisible: 1
+  _buildInEditMode: 1
+--- !u!4 &1746917850
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1746917848}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1752741872
 GameObject:
   m_ObjectHideFlags: 0
@@ -16705,10 +16768,10 @@ MonoBehaviour:
   _cellSize3D: 4
   _snapshotIntervalTicks: 4
   _enableDistanceCulling: 1
-  _cullVisRange: 20
+  _cullVisRange: 16
   _renderer2D: {fileID: 1771295139}
   _renderer3D: {fileID: 100733518}
-  _enableLogs: 0
+  _enableLogs: 1
 --- !u!4 &1931811573
 Transform:
   m_ObjectHideFlags: 0
@@ -22699,3 +22762,4 @@ SceneRoots:
   - {fileID: 886188141}
   - {fileID: 1328414059}
   - {fileID: 1069281271}
+  - {fileID: 1746917850}

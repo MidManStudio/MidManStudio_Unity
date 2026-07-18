@@ -10,10 +10,10 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: b248fdc90d62a4b80bf4bd3d61a610f7, type: 3}
-  m_Name: BoxShap
+  m_Name: Arrow
   m_EditorClassIdentifier: 
-  Shape: 5
-  AspectRatio: 2
+  Shape: 3
+  AspectRatio: 1.6
   Vertices:
   - {x: 1, y: 0}
   - {x: 0.5, y: 1}

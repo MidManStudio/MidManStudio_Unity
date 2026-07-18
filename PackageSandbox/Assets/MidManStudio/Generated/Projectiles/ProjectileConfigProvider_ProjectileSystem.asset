@@ -20,3 +20,27 @@ MonoBehaviour:
     configSO: {fileID: 11400000, guid: f4b04dd9575fc41e99b500d03c3b1fc2, type: 2}
     comment: Default straight projectile
     explicitOffset: 0
+  - enumName: 
+    configSO: {fileID: 11400000, guid: 8e58172a408094bb8aef35fad0f936b2, type: 2}
+    comment: 
+    explicitOffset: 1
+  - enumName: 
+    configSO: {fileID: 11400000, guid: ad4e8716589af43ffaea1ab3cdc9d4dc, type: 2}
+    comment: 
+    explicitOffset: 2
+  - enumName: 
+    configSO: {fileID: 11400000, guid: 211593a035fff42259b8d86427ca755c, type: 2}
+    comment: 
+    explicitOffset: 3
+  - enumName: 
+    configSO: {fileID: 11400000, guid: 34309d28e70f54fb396eb1b737bb7305, type: 2}
+    comment: 
+    explicitOffset: 4
+  - enumName: 
+    configSO: {fileID: 11400000, guid: 14d268b5326084a64ad1ba53a29fab9d, type: 2}
+    comment: 
+    explicitOffset: 5
+  - enumName: 
+    configSO: {fileID: 11400000, guid: adbd1af95c9a0441190b5986e33216bf, type: 2}
+    comment: 
+    explicitOffset: 6

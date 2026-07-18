@@ -151,7 +151,7 @@ MonoBehaviour:
   _pitchMin: -80
   _pitchMax: 80
   _configTypeId2D: 0
-  _configTypeId3D: 0
+  _configTypeId3D: 2
   _fireRate: 5
   _pelletsPerShot: 1
   _spreadDeg: 5
