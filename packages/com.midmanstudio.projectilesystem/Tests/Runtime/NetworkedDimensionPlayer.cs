@@ -72,6 +72,7 @@ namespace TestGame
         [SerializeField] private float _fireRate = 5f;
         [SerializeField, Range(1, 64)]   private int   _pelletsPerShot = 1;
         [SerializeField, Range(0f, 45f)] private float _spreadDeg     = 0f;
+        [SerializeField, Range(1, 32)]   private int   _raycastPelletCount = 1;
         [SerializeField] private KeyCode _fireKey = KeyCode.Mouse0;
 
         [Header("Mobile Touch Input (optional)")]
@@ -625,6 +626,55 @@ namespace TestGame
             Transform sp   = ResolveShotPoint();
             Vector3 origin = sp != null ? sp.position : transform.position;
             Vector3 dir    = ResolveFireDir();
+
+            ushort patternId = _shotPattern != null ? _shotPattern.PatternId : (ushort)0;
+            bool   networked = MID_MasterProjectileSystem.Instance.IsNetworked && IsSpawned;
+
+            // PATTERN SUPPORT: no pattern (and no simple spread) — unchanged,
+            // exactly the original single-ray path.
+            if (patternId == 0 && _raycastPelletCount <= 1)
+            {
+                FireSingleRaycast(origin, dir, is3D, cfgId, networked);
+                return;
+            }
+
+            bool use3D = Use3DConvention() || is3D;
+
+            if (networked)
+            {
+                MID_MasterProjectileSystem.Instance.RegisterRaycastPatternFire(
+                    origin, dir, use3D, cfgId, patternId,
+                    patternId == 0 ? (byte)Mathf.Clamp(_raycastPelletCount, 1, 255) : (byte)0,
+                    _spreadDeg,
+                    new WeaponFireContext
+                    {
+                        FireRate               = _fireRate,
+                        IsRaycastWeapon        = true,
+                        IsNetworked            = true,
+                        OwnerMidId             = OwnerClientId,
+                        FiredByNetworkObjectId = NetworkObjectId,
+                        IsBotOwner             = false,
+                        WeaponLevel            = 1,
+                        DamageMultiplier       = 1f
+                    });
+                return;
+            }
+
+            // Offline/host multi-pellet: no server round-trip to optimize away,
+            // so just resolve directions locally and loop the existing
+            // single-shot path once per pellet — reuses the already-proven
+            // offline raycast + damage flow exactly as-is, N times.
+            var resolved = ProjectileDirectionResolver.Resolve(
+                patternId, origin, dir,
+                patternId == 0 ? Mathf.Clamp(_raycastPelletCount, 1, 255) : 1,
+                _spreadDeg, 1f, use3D);
+
+            foreach (var pt in resolved)
+                FireSingleRaycast(origin, pt.Direction, is3D, cfgId, networked: false);
+        }
+
+        private void FireSingleRaycast(Vector3 origin, Vector3 dir, bool is3D, ushort cfgId, bool networked)
+        {
             bool    hit    = false;
             Vector3 hitPt  = origin + dir * _raycastRange;
             ulong   netId  = 0;
@@ -668,7 +718,7 @@ namespace TestGame
                 {
                     FireRate               = _fireRate,
                     ProjectileCount        = 1,
-                    IsNetworked            = MID_MasterProjectileSystem.Instance.IsNetworked && IsSpawned,
+                    IsNetworked            = networked,
                     IsRaycastWeapon        = true,
                     OwnerMidId             = OwnerClientId,
                     FiredByNetworkObjectId = NetworkObjectId,
@@ -689,59 +739,85 @@ namespace TestGame
             Transform sp   = ResolveShotPoint();
             Vector3 origin = sp != null ? sp.position : transform.position;
             Vector3 dir    = ResolveFireDir();
+            ushort  cfgId  = ResolveConfigId();
 
             var poolType = is3D ? _physicsPoolType3D : _physicsPoolType2D;
             Quaternion rot = is3D
                 ? (dir.sqrMagnitude > 0.001f ? Quaternion.LookRotation(dir.normalized) : Quaternion.identity)
                 : Quaternion.Euler(0f, 0f, Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg);
 
+            // PATTERN SUPPORT: same PatternId/SpreadDeg reference the Rust-sim path
+            // sends — patternId 0 means "no pattern," single body, unchanged from
+            // before. _shotPattern is the same field FireSim() already reads.
+            ushort patternId  = _shotPattern != null ? _shotPattern.PatternId : (ushort)0;
+            byte   pelletCount = patternId == 0 ? (byte)1 : (byte)0; // pattern's own count is authoritative when set
+            bool   use3D       = Use3DConvention() || is3D;
+
             if (MID_MasterProjectileSystem.Instance.IsNetworked)
             {
                 if (!IsServer)
                 {
                     // Physics pool visual for firing client — travels locally during RPC round-trip
-                    ushort cfgId = ResolveConfigId();
                     MID_MasterProjectileSystem.Instance.GetPredictionManager()
                         ?.SpawnLocalPhysicsVisual(cfgId, origin, dir, _physicsProjectileSpeed);
                 }
 
                 MID_MasterProjectileSystem.Instance.GetBridge()?.FirePhysicsProjectileServerRpc(
-                    origin, rot, poolType,
+                    origin, dir, rot, poolType,
                     _physicsProjectileSpeed, _physicsDamageMultiplier,
-                    OwnerClientId, IsSpawned ? NetworkObjectId : 0UL);
+                    OwnerClientId, IsSpawned ? NetworkObjectId : 0UL,
+                    cfgId, patternId, pelletCount, _spreadDeg, use3D);
             }
             else
             {
-                SpawnPhysicsProjectileLocal(origin, dir, is3D);
+                SpawnPhysicsProjectileLocal(origin, dir, is3D, cfgId, patternId, use3D);
             }
         }
 
-        private void SpawnPhysicsProjectileLocal(Vector3 origin, Vector3 direction, bool is3D)
+        private void SpawnPhysicsProjectileLocal(
+            Vector3 origin, Vector3 direction, bool is3D,
+            ushort configId, ushort patternId, bool patternIs3D)
         {
             var poolType = is3D ? _physicsPoolType3D : _physicsPoolType2D;
-            Quaternion rot = is3D
-                ? (direction.sqrMagnitude > 0.001f
-                    ? Quaternion.LookRotation(direction.normalized)
-                    : Quaternion.identity)
-                : Quaternion.Euler(0f, 0f, Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg);
 
-            var netObj = MID_MasterProjectileSystem.Instance?.SpawnPhysicsProjectile(poolType, origin, rot);
-            if (netObj == null)
+            Vector3[] directions;
+            if (patternId != 0)
             {
-                MID_Logger.LogWarning(_logLevel,
-                    $"Pool null for {poolType}.", nameof(NetworkedDimensionPlayer));
-                return;
+                var resolved = ProjectileDirectionResolver.Resolve(
+                    patternId, origin, direction, 1, 0f, _physicsProjectileSpeed, patternIs3D);
+                directions = new Vector3[resolved.Length];
+                for (int i = 0; i < resolved.Length; i++) directions[i] = resolved[i].Direction;
+            }
+            else
+            {
+                directions = new[] { direction };
             }
 
-            var proj = netObj.GetComponent<PhysicsProjectileBase>();
-            if (proj != null)
+            foreach (var dir in directions)
             {
-                proj.SetOwnerContext(
-                    OwnerClientId, IsSpawned ? NetworkObjectId : 0UL,
-                    false, 1, _physicsDamageMultiplier);
-                proj.InitialiseProjectile(
-                    OwnerClientId, IsSpawned ? NetworkObjectId : 0UL,
-                    _physicsProjectileSpeed, false, 1);
+                Quaternion rot = is3D
+                    ? (dir.sqrMagnitude > 0.001f ? Quaternion.LookRotation(dir.normalized) : Quaternion.identity)
+                    : Quaternion.Euler(0f, 0f, Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg);
+
+                var netObj = MID_MasterProjectileSystem.Instance?.SpawnPhysicsProjectile(
+                    poolType, origin, rot, configId);
+                if (netObj == null)
+                {
+                    MID_Logger.LogWarning(_logLevel,
+                        $"Pool null for {poolType}.", nameof(NetworkedDimensionPlayer));
+                    continue;
+                }
+
+                var proj = netObj.GetComponent<PhysicsProjectileBase>();
+                if (proj != null)
+                {
+                    proj.SetOwnerContext(
+                        OwnerClientId, IsSpawned ? NetworkObjectId : 0UL,
+                        false, 1, _physicsDamageMultiplier);
+                    proj.InitialiseProjectile(
+                        OwnerClientId, IsSpawned ? NetworkObjectId : 0UL,
+                        _physicsProjectileSpeed, false, 1);
+                }
             }
         }
 
