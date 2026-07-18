@@ -89,6 +89,21 @@ namespace MidManStudio.Projectiles.Managers
 
         public int GetBridgeTick() => _networkBridge?.GetServerTick() ?? 0;
 
+        /// <summary>
+        /// BUG FIX (physics projectiles not damaging anything): PhysicsProjectileBase
+        /// fires OnHitServerConfirmed correctly on every real collision — that part
+        /// always worked. But that event lives on each individual spawned instance,
+        /// not on a session-wide singleton the way RustSimAdapter.OnProjectileHit and
+        /// RaycastProjectileHandler.OnServerHitConfirmed do, so there was nothing to
+        /// subscribe to once at session start and nobody ever heard it. This
+        /// re-raises every spawned instance's hit through one session-wide event —
+        /// SpawnPhysicsProjectile wires each new/reused pooled instance into it
+        /// automatically. Subscribe here exactly like the other two hit sources.
+        /// </summary>
+        public event Action<ProjectileHitPayload> OnPhysicsHit;
+
+        private void RelayPhysicsHit(ProjectileHitPayload payload) => OnPhysicsHit?.Invoke(payload);
+
         #endregion
 
         #region Initialisation
@@ -347,10 +362,16 @@ namespace MidManStudio.Projectiles.Managers
             if (netObj == null) return null;
             netObj.Spawn();
 
-            if (configId != 0)
+            var physicsBase = netObj.GetComponent<PhysicsProjectileBase>();
+            if (physicsBase != null)
             {
-                var physicsBase = netObj.GetComponent<PhysicsProjectileBase>();
-                physicsBase?.SetVisualConfigId(configId);
+                if (configId != 0) physicsBase.SetVisualConfigId(configId);
+
+                // Safe against pooled reuse: this instance may have already been
+                // subscribed from a previous life in the pool. Unsubscribe first
+                // so we never end up with more than one subscription on it.
+                physicsBase.OnHitServerConfirmed -= RelayPhysicsHit;
+                physicsBase.OnHitServerConfirmed += RelayPhysicsHit;
             }
 
             return netObj;
