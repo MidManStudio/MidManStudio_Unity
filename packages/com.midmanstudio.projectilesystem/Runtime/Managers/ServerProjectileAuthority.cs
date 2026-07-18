@@ -121,10 +121,12 @@ namespace MidManStudio.Projectiles.Managers
                  "ObserverProvider) — clients with no registered/resolvable observer " +
                  "position still get everything, unfiltered, as a safe fallback.")]
         [SerializeField] private bool  _enableDistanceCulling = false;
+        public bool EnableDistanceCulling => _enableDistanceCulling;
 
         [Tooltip("Radius around a client's observer position within which projectile " +
                  "snapshots are sent to them. Same units as your world (2D or 3D).")]
         [SerializeField] private float _cullVisRange = 60f;
+        public float CullVisRange => _cullVisRange;
 
         [Header("Rendering (Host / Offline)")]
         [Tooltip("Assign the scene ProjectileRenderer2D here.\n" +
