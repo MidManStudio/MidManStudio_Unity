@@ -127,6 +127,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Logging/ExampleScript.cs">
       <Link>Runtime/Logging/ExampleScript.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/FXSystems/MID_FlipbookEffect.cs">
+      <Link>Runtime/FXSystems/MID_FlipbookEffect.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/TickDispatcher/MID_TickDispatcher.cs">
       <Link>Runtime/TickDispatcher/MID_TickDispatcher.cs</Link>
     </Compile>

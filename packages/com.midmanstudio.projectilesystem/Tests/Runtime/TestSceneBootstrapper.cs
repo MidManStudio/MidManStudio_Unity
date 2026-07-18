@@ -12,6 +12,7 @@ using MidManStudio.Projectiles.Managers;
 using MidManStudio.Projectiles.Config;
 using MidManStudio.Projectiles.Core;
 using MidManStudio.Projectiles.Network;
+using MidManStudio.Core.FX;
 
 namespace TestGame
 {

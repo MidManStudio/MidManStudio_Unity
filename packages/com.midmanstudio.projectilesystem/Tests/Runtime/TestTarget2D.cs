@@ -5,6 +5,7 @@ using UnityEngine;
 using Unity.Netcode;
 using TMPro;
 using MidManStudio.Core.Audio;
+using MidManStudio.Core.FX;
 
 namespace TestGame
 {
