@@ -25,8 +25,19 @@ namespace MidManStudio.Projectiles.Managers
 
         [Header("Visual Pool")]
         [Tooltip("Config ID used to drive visual appearance AND damage curve.\n" +
-                 "Set this in the prefab inspector to match your registered ProjectileConfigSO.")]
-        [SerializeField] protected ushort _visualConfigId = 0;
+                 "Set this in the prefab inspector to match your registered ProjectileConfigSO.\n" +
+                 "NETWORKED: this is a server-authoritative NetworkVariable now — whatever the " +
+                 "server sets (inspector default, or SetVisualConfigId()) is auto-synced to every " +
+                 "client. It used to be a plain field, which is why only the host ever showed the " +
+                 "correct visual: writing a plain C# field on the server-side NetworkBehaviour " +
+                 "instance never reached remote clients at all.")]
+        [SerializeField] private NetworkVariable<ushort> n_VisualConfigId
+            = new NetworkVariable<ushort>(0,
+                NetworkVariableReadPermission.Everyone,
+                NetworkVariableWritePermission.Server);
+
+        /// <summary>Current visual/config id — synced from server to every client.</summary>
+        protected ushort VisualConfigId => n_VisualConfigId.Value;
 
         [Tooltip("Pool type for 2D visual (SpriteRenderer + trail).")]
         [SerializeField] protected PoolableObjectType _visual2DPoolType
@@ -76,6 +87,13 @@ namespace MidManStudio.Projectiles.Managers
         {
             base.OnNetworkSpawn();
             HasHit = false;
+
+            // Re-apply the visual whenever the server's config id changes —
+            // including the very first delta a remote client receives shortly
+            // after spawn, if SetVisualConfigId() was called after Spawn() rather
+            // than before it (see MID_MasterProjectileSystem.SpawnPhysicsProjectile).
+            n_VisualConfigId.OnValueChanged += HandleVisualConfigChanged;
+
             OnPhysicsSetup();
             SpawnPoolVisual();
             if (_poolVisualGO == null)
@@ -84,6 +102,8 @@ namespace MidManStudio.Projectiles.Managers
 
         public override void OnNetworkDespawn()
         {
+            n_VisualConfigId.OnValueChanged -= HandleVisualConfigChanged;
+
             if (_retryCoroutine != null)
             {
                 StopCoroutine(_retryCoroutine);
@@ -111,7 +131,7 @@ namespace MidManStudio.Projectiles.Managers
             if (_poolVisual == null) return;
             Vector3 dir = GetDefaultLaunchDir();
             _poolVisual.InitializeClientVisual(
-                _visualConfigId, transform.position, dir, BulletVelocity);
+                VisualConfigId, transform.position, dir, BulletVelocity);
         }
 
         protected override void OnProjectileInitialised()
@@ -128,7 +148,7 @@ namespace MidManStudio.Projectiles.Managers
             {
                 float speed = BulletVelocity > 0f ? BulletVelocity : 10f;
                 _poolVisual.InitializeClientVisual(
-                    _visualConfigId, transform.position, launchDir, speed);
+                    VisualConfigId, transform.position, launchDir, speed);
             }
             else if (_poolVisualGO != null)
             {
@@ -176,17 +196,25 @@ namespace MidManStudio.Projectiles.Managers
         /// directly — before/at spawn so the visual matches the real config.
         /// Safe to call after the visual has already been spawned too; it
         /// re-initialises it against the new config immediately.
+        ///
+        /// NETWORK FIX: this now writes a NetworkVariable instead of a plain
+        /// field, and only the server may write it — the value automatically
+        /// replicates to every client (immediately if called before Spawn(),
+        /// or as a delta shortly after if called post-spawn; either way
+        /// HandleVisualConfigChanged re-applies the visual when it arrives).
+        /// Calling this on a non-server instance is a safe no-op for the
+        /// network write, but still refreshes the LOCAL visual if one exists.
         /// </summary>
         public void SetVisualConfigId(ushort configId)
         {
-            _visualConfigId = configId;
+            if (IsServer) n_VisualConfigId.Value = configId;
 
             if (_poolVisual != null)
             {
                 Vector3 dir   = GetDefaultLaunchDir();
                 float   speed = BulletVelocity > 0f ? BulletVelocity : 10f;
                 _poolVisual.InitializeClientVisual(
-                    _visualConfigId, transform.position, dir, speed);
+                    VisualConfigId, transform.position, dir, speed);
             }
         }
 
@@ -267,7 +295,7 @@ namespace MidManStudio.Projectiles.Managers
         {
             if (ProjectileRegistry.HasInstance)
             {
-                var cfg = ProjectileRegistry.Instance.Get(_visualConfigId);
+                var cfg = ProjectileRegistry.Instance.Get(VisualConfigId);
                 if (cfg != null)
                 {
                     float travelDist = Vector3.Distance(_spawnPosition, hitPoint);
@@ -291,7 +319,7 @@ namespace MidManStudio.Projectiles.Managers
             OnHitServerConfirmed?.Invoke(new ProjectileHitPayload
             {
                 ProjId                 = 0,
-                ConfigId               = _visualConfigId,
+                ConfigId               = VisualConfigId,
                 Is3D                   = !is2D,
                 TargetId               = targetId,
                 Damage                 = damage,
@@ -322,7 +350,7 @@ namespace MidManStudio.Projectiles.Managers
             bool use3DVisual = !Is2D;
             if (ProjectileRegistry.HasInstance)
             {
-                var cfg = ProjectileRegistry.Instance.Get(_visualConfigId);
+                var cfg = ProjectileRegistry.Instance.Get(VisualConfigId);
                 if (cfg != null) use3DVisual = cfg.Is3D;
             }
 
@@ -343,12 +371,34 @@ namespace MidManStudio.Projectiles.Managers
                 return;
             }
 
+            // BUG FIX (MissingReferenceException in LocalObjectPool.GetObject on
+            // shoot): LocalPoolReturn's own auto-return timer (5s default) used to
+            // keep ticking on this instance even though PhysicsProjectileBase owns
+            // its whole lifecycle explicitly (ReturnPoolVisual() below, driven by
+            // OnNetworkDespawn / hit / impact). Any physics projectile that stayed
+            // alive longer than that timer — a gravity-lobbed grenade, a slow
+            // travel config, anything not instant-hit — got silently auto-returned
+            // to the pool WHILE this projectile still held live references to it
+            // and still had it parented under its own transform. The same
+            // GameObject then got handed to the next GetObject() caller and
+            // reparented out from under this one. If THIS projectile was later
+            // torn down by Netcode before its (already-stolen) visual reference
+            // got a chance to cleanly return, the object could end up enqueued in
+            // the pool twice — and the second GetObject() to dequeue it got a
+            // destroyed native reference, which is exactly the
+            // MissingReferenceException from the note. Disabling auto-return here
+            // removes the race at the source; LocalObjectPool.cs also got
+            // defensive dequeue/enqueue checks as a second line of defence for
+            // every other pool consumer.
+            var poolReturn = _poolVisualGO.GetComponent<LocalPoolReturn>();
+            poolReturn?.SetAutoReturn(false);
+
             _poolVisual = _poolVisualGO.GetComponent<ProjectileVisualBase>();
             if (_poolVisual != null)
             {
                 float speed = BulletVelocity > 0f ? BulletVelocity : 10f;
                 _poolVisual.InitializeClientVisual(
-                    _visualConfigId, transform.position, dir, speed);
+                    VisualConfigId, transform.position, dir, speed);
             }
 
             _poolVisualGO.transform.SetParent(transform);
@@ -378,7 +428,15 @@ namespace MidManStudio.Projectiles.Managers
             _poolVisualGO = null;
             _poolVisual   = null;
         }
-      
+
+        private void HandleVisualConfigChanged(ushort oldId, ushort newId)
+        {
+            if (_poolVisual == null) return;
+            Vector3 dir   = GetDefaultLaunchDir();
+            float   speed = BulletVelocity > 0f ? BulletVelocity : 10f;
+            _poolVisual.InitializeClientVisual(newId, transform.position, dir, speed);
+        }
+
         private Vector3 GetDefaultLaunchDir()
             => Is2D ? transform.right : transform.forward;
 
