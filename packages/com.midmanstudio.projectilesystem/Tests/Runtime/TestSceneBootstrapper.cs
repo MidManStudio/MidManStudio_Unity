@@ -421,6 +421,9 @@ namespace TestGame
             _cachedRaycastHandler = _projectileSystem?.GetRaycastHandler();
             if (_cachedRaycastHandler != null)
                 _cachedRaycastHandler.OnServerHitConfirmed += OnRaycastHitServer;
+
+            if (_projectileSystem != null)
+                _projectileSystem.OnPhysicsHit += OnProjectileHit;
         }
 
         private void UnsubscribeHitEvents()
@@ -436,6 +439,9 @@ namespace TestGame
                 _cachedRaycastHandler.OnServerHitConfirmed -= OnRaycastHitServer;
                 _cachedRaycastHandler = null;
             }
+
+            if (_projectileSystem != null)
+                _projectileSystem.OnPhysicsHit -= OnProjectileHit;
         }
 
         private void OnProjectileHit(ProjectileHitPayload payload)

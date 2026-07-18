@@ -89,6 +89,21 @@ namespace MidManStudio.Projectiles.Managers
 
         public int GetBridgeTick() => _networkBridge?.GetServerTick() ?? 0;
 
+        /// <summary>
+        /// BUG FIX (physics projectiles not damaging anything): PhysicsProjectileBase
+        /// fires OnHitServerConfirmed correctly on every real collision — that part
+        /// always worked. But that event lives on each individual spawned instance,
+        /// not on a session-wide singleton the way RustSimAdapter.OnProjectileHit and
+        /// RaycastProjectileHandler.OnServerHitConfirmed do, so there was nothing to
+        /// subscribe to once at session start and nobody ever heard it. This
+        /// re-raises every spawned instance's hit through one session-wide event —
+        /// SpawnPhysicsProjectile wires each new/reused pooled instance into it
+        /// automatically. Subscribe here exactly like the other two hit sources.
+        /// </summary>
+        public event Action<ProjectileHitPayload> OnPhysicsHit;
+
+        private void RelayPhysicsHit(ProjectileHitPayload payload) => OnPhysicsHit?.Invoke(payload);
+
         #endregion
 
         #region Initialisation
@@ -328,14 +343,37 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Public API — Physics Pool
 
+        /// <param name="configId">
+        /// The ProjectileConfigSO this spawn should visually represent — gets
+        /// pushed into the spawned instance's PhysicsProjectileBase.SetVisualConfigId
+        /// immediately after spawn. Previously there was no way to pass this at
+        /// all; every instance used whatever was hardcoded in the prefab's
+        /// Inspector (defaulting to 0), which is why the real sprite never showed
+        /// up regardless of which config was actually fired. Pass 0 to
+        /// deliberately keep the prefab's own Inspector default (back-compat).
+        /// </param>
         public NetworkObject SpawnPhysicsProjectile(
-            PoolableNetworkObjectType type, Vector3 position, Quaternion rotation)
+            PoolableNetworkObjectType type, Vector3 position, Quaternion rotation,
+            ushort configId = 0)
         {
             if (!IsServer) return null;
             if (_networkObjectPool == null) return null;
             var netObj = _networkObjectPool.GetNetworkObject(type, position, rotation);
             if (netObj == null) return null;
             netObj.Spawn();
+
+            var physicsBase = netObj.GetComponent<PhysicsProjectileBase>();
+            if (physicsBase != null)
+            {
+                if (configId != 0) physicsBase.SetVisualConfigId(configId);
+
+                // Safe against pooled reuse: this instance may have already been
+                // subscribed from a previous life in the pool. Unsubscribe first
+                // so we never end up with more than one subscription on it.
+                physicsBase.OnHitServerConfirmed -= RelayPhysicsHit;
+                physicsBase.OnHitServerConfirmed += RelayPhysicsHit;
+            }
+
             return netObj;
         }
 
@@ -348,6 +386,52 @@ namespace MidManStudio.Projectiles.Managers
         #endregion
 
         #region Public API — Raycast
+
+        /// <summary>
+        /// PATTERN SUPPORT for raycast fire (networked path only — offline/local
+        /// multi-pellet raycasts are simpler to just loop through the existing
+        /// single-shot RegisterRaycastFire from the caller, which is exactly what
+        /// NetworkedDimensionPlayer.FireRaycast does; no server round-trip exists
+        /// to optimize away in that case, so there's nothing this method would
+        /// add). Routes to RaycastProjectileHandler.ServerHandleFirePattern
+        /// directly when this instance IS the server/host, or to
+        /// RaycastPatternFireServerRpc when it's a remote client — same
+        /// IsServer branch RegisterRaycastFire already uses.
+        /// </summary>
+        public void RegisterRaycastPatternFire(
+            Vector3 origin, Vector3 baseDirection, bool is3D,
+            ushort configId, ushort patternId, byte pelletCount, float spreadDeg,
+            WeaponFireContext context)
+        {
+            if (!_initialised) return;
+            var cfg = _registry?.Get(configId);
+            if (cfg == null) return;
+
+            if (IsServer)
+            {
+                _raycastHandler?.ServerHandleFirePattern(
+                    patternId, origin, baseDirection, pelletCount, spreadDeg, is3D,
+                    context, configId, ulong.MaxValue);
+                return;
+            }
+
+            _networkBridge?.RaycastPatternFireServerRpc(new ProjectileFireRequest
+            {
+                ConfigId               = configId,
+                Origin                 = origin,
+                Direction              = baseDirection,
+                PatternId              = patternId,
+                ProjectileCount        = pelletCount,
+                SpreadDeg              = spreadDeg,
+                PatternIs3D            = is3D,
+                OwnerMidId             = context.OwnerMidId,
+                FiredByNetworkObjectId = context.FiredByNetworkObjectId,
+                IsBotOwner             = context.IsBotOwner,
+                WeaponLevel            = context.WeaponLevel,
+                DamageMultiplier       = context.DamageMultiplier,
+                ClientFireTick         = _networkBridge.GetServerTick()
+            });
+        }
 
         public void RegisterRaycastFire(
             RaycastFireResult result, ushort configId, WeaponFireContext context)

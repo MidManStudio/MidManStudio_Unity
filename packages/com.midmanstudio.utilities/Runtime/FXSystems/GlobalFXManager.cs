@@ -15,8 +15,9 @@ using MidManStudio.Core.Logging;
 using MidManStudio.Core.Singleton;
 using MidManStudio.Core.FX;
 using MidManStudio.Core.EditorUtils;
+using MidManStudio.Core.Pools;
 
-namespace MidManStudio.Core.Audio
+namespace MidManStudio.Core.FX
 {
     /// <summary>
     /// Global fx manager ,Unified CPU-based visual + audio effect manager.
@@ -105,6 +106,14 @@ namespace MidManStudio.Core.Audio
                 }
             }
 
+            if (entry.IsFlipbook)
+            {
+                EmitFlipbook(entry, position, normal);
+                RecordEmission((EffectCategory)category, position);
+                PlayCategoryAudio((EffectCategory)category, audioVolume);
+                return;
+            }
+
             if (entry.particleSystem == null) return;
 
             int count = particleCount >= 0 ? particleCount : entry.defaultParticleCount;
@@ -119,6 +128,39 @@ namespace MidManStudio.Core.Audio
 
             RecordEmission((EffectCategory)category, position);
             PlayCategoryAudio((EffectCategory)category, audioVolume);
+        }
+
+        /// <summary>
+        /// Plays an FXEntry's flipbookFrames via a pooled MID_FlipbookEffect instead of
+        /// emitting particles. Silently no-ops (with a warning) if the pool type isn't
+        /// registered yet — same "not set up" handling as the rest of this manager.
+        /// </summary>
+        private void EmitFlipbook(FXEntry entry, Vector3 position, Vector3 normal)
+        {
+            if (!LocalObjectPool.HasInstance ||
+                !LocalObjectPool.Instance.IsRegistered(PoolableObjectType.FlipbookEffect))
+            {
+                MID_Logger.LogWarning(_logLevel,
+                    $"FXEntry '{entry.Name}' wants a flipbook but PoolableObjectType.FlipbookEffect " +
+                    "isn't registered in LocalObjectPool.",
+                    nameof(GlobalFXManager));
+                return;
+            }
+
+            Quaternion rot = normal != Vector3.zero ? Quaternion.LookRotation(normal) : Quaternion.identity;
+            var go = LocalObjectPool.Instance.GetObject(PoolableObjectType.FlipbookEffect, position, rot);
+            if (go == null) return;
+
+            var flipbook = go.GetComponent<MID_FlipbookEffect>();
+            if (flipbook == null)
+            {
+                MID_Logger.LogWarning(_logLevel,
+                    "Pooled FlipbookEffect object has no MID_FlipbookEffect component.",
+                    nameof(GlobalFXManager));
+                return;
+            }
+
+            flipbook.Play(entry.flipbookFrames, entry.flipbookFps, position, rot);
         }
 
         // ── Public API — with EffectType (explicit) ───────────────────────────
@@ -252,10 +294,10 @@ namespace MidManStudio.Core.Audio
 
             foreach (var entry in _effects)
             {
-                if (entry.particleSystem == null)
+                if (entry.particleSystem == null && !entry.IsFlipbook)
                 {
                     MID_Logger.LogWarning(_logLevel,
-                        $"FXEntry '{entry.Name}' has null ParticleSystem — skipping.",
+                        $"FXEntry '{entry.Name}' has neither a ParticleSystem nor flipbookFrames — skipping.",
                         nameof(GlobalFXManager));
                     continue;
                 }
@@ -283,6 +325,7 @@ namespace MidManStudio.Core.Audio
         {
             foreach (var entry in _effects)
             {
+                if (entry.IsFlipbook) continue; // flipbook entries have no ParticleSystem to validate
                 if (entry.particleSystem == null) continue;
                 var main = entry.particleSystem.main;
 

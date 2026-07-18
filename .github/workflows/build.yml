@@ -128,6 +128,16 @@ jobs:
 
       - name: Build — ${{ matrix.targetPlatform }}
         if: steps.gate.outputs.should_build == 'true'
+        id: unity_build
+        # FIX: the Linux Unity Editor is known to segfault during its own
+        # process shutdown (CleanupMono/domainUnloadComplete) AFTER a build
+        # has already completed successfully — see game-ci/unity-builder#625.
+        # continue-on-error keeps the job alive so the "Verify build output"
+        # step below can check whether this was that harmless shutdown crash
+        # (APK exists → treat as success) or a genuine build failure (no
+        # APK → we explicitly fail the job in "Fail if build genuinely
+        # failed" below). Nothing here silently swallows a real failure.
+        continue-on-error: true
         uses: game-ci/unity-builder@v4
         env:
           UNITY_LICENSE:  ${{ secrets.UNITY_LICENSE }}
@@ -139,9 +149,38 @@ jobs:
           unityVersion: 2022.3.13f1
           buildName: PackageSandbox
           customParameters: -disable-assembly-updater -maxConcurrentShaderCompilers 1
+          # Grab Editor.log / licensing logs unconditionally so we have real
+          # diagnostics on hand if this ever turns out NOT to be the benign
+          # shutdown crash (e.g. it starts happening WITH a missing APK).
+          collectUnityLogs: true
+
+      - name: Verify build output exists
+        if: steps.gate.outputs.should_build == 'true'
+        id: verify_output
+        run: |
+          OUT_DIR="build/${{ matrix.targetPlatform }}"
+          if [ -d "$OUT_DIR" ] && [ -n "$(find "$OUT_DIR" -type f 2>/dev/null | head -n 1)" ]; then
+            echo "output_exists=true" >> "$GITHUB_OUTPUT"
+            echo "✅ Build output found in $OUT_DIR:"
+            ls -la "$OUT_DIR"
+          else
+            echo "output_exists=false" >> "$GITHUB_OUTPUT"
+            echo "❌ No build output found in $OUT_DIR"
+          fi
+
+      - name: Note known post-build shutdown crash
+        if: steps.gate.outputs.should_build == 'true' && steps.unity_build.outcome == 'failure' && steps.verify_output.outputs.output_exists == 'true'
+        run: |
+          echo "::warning::Unity step reported failure (likely exit 139 / segfault), but a valid build output was found in build/${{ matrix.targetPlatform }}. This matches the known game-ci/unity-builder Linux Editor shutdown-crash class of issue (https://github.com/game-ci/unity-builder/issues/625) — the build itself succeeded; only the Editor's own process teardown crashed afterward. Continuing and uploading the artifact."
+
+      - name: Fail if build genuinely failed
+        if: steps.gate.outputs.should_build == 'true' && steps.unity_build.outcome == 'failure' && steps.verify_output.outputs.output_exists != 'true'
+        run: |
+          echo "::error::Unity build step failed AND no output was produced in build/${{ matrix.targetPlatform }} — this is a real build failure, not the known post-build Editor shutdown crash. Failing the job."
+          exit 1
 
       - name: Upload
-        if: steps.gate.outputs.should_build == 'true' && success()
+        if: steps.gate.outputs.should_build == 'true' && steps.verify_output.outputs.output_exists == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: PackageSandbox-${{ matrix.targetPlatform }}-${{ github.run_number }}
@@ -149,13 +188,14 @@ jobs:
           retention-days: 14
 
       - name: Upload crash diagnostics
-        if: failure()
+        if: steps.gate.outputs.should_build == 'true' && steps.unity_build.outcome == 'failure'
         uses: actions/upload-artifact@v4
         with:
           name: unity-crash-diagnostics-${{ matrix.targetPlatform }}-${{ github.run_number }}
           path: |
             ~/.local/share/unity3d/Editor/Crash.log
             ~/.config/unity3d/Editor.log
+            Logs/UnityDiagnostics/
           retention-days: 3
 
       - name: Skipped

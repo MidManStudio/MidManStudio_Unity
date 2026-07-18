@@ -1,4 +1,3 @@
-
 using System;
 using System.Collections;
 using UnityEngine;
@@ -164,6 +163,31 @@ namespace MidManStudio.Projectiles.Managers
             _isBotOwner             = isBotOwner;
             _weaponLevel            = weaponLevel;
             _damageMultiplier       = damageMultiplier;
+        }
+
+        /// <summary>
+        /// BUG FIX: _visualConfigId was previously only ever set from the
+        /// Inspector default on the prefab (0) — nothing in the fire pipeline
+        /// ever told a spawned instance which config it was actually
+        /// representing, so every instance of a given physics prefab used
+        /// whatever ProjectileConfigSO happened to be registered under id 0
+        /// (or none, falling back to a placeholder sprite) regardless of what
+        /// was actually fired. Call this from SpawnPhysicsProjectile — or
+        /// directly — before/at spawn so the visual matches the real config.
+        /// Safe to call after the visual has already been spawned too; it
+        /// re-initialises it against the new config immediately.
+        /// </summary>
+        public void SetVisualConfigId(ushort configId)
+        {
+            _visualConfigId = configId;
+
+            if (_poolVisual != null)
+            {
+                Vector3 dir   = GetDefaultLaunchDir();
+                float   speed = BulletVelocity > 0f ? BulletVelocity : 10f;
+                _poolVisual.InitializeClientVisual(
+                    _visualConfigId, transform.position, dir, speed);
+            }
         }
 
         #endregion
