@@ -457,12 +457,51 @@ namespace MidManStudio.Projectiles.Network
                 }
             });
 
-            // Send spawn to all other connected clients
+            // Send spawn to all other connected clients — distance-filtered if
+            // culling is on. This is the actual mechanism that matters: once a
+            // client spawns a projectile locally (via this RPC), its own local
+            // sim keeps it moving and rendering independently — it does NOT need
+            // further snapshot updates to stay alive or visible. Culling only the
+            // periodic SendSnapshotClientRpc and not this one meant every shot
+            // still reached every client at the moment of firing regardless of
+            // distance, and just kept running from there — the snapshot culling
+            // from a previous pass never had anything visible left to prevent.
             var otherClients = new List<ulong>(
                 NetworkManager.Singleton.ConnectedClientsIds.Count);
+
+            bool culling = Authority != null && Authority.EnableDistanceCulling
+                                               && Authority.ObserverProvider != null;
+            float rangeSq = culling ? Authority.CullVisRange * Authority.CullVisRange : 0f;
+
             foreach (ulong id in NetworkManager.Singleton.ConnectedClientsIds)
             {
-                if (id != senderClientId) otherClients.Add(id);
+                if (id == senderClientId) continue;
+
+                if (!culling)
+                {
+                    otherClients.Add(id);
+                    continue;
+                }
+
+                // No resolvable position for this client — same safe fallback as
+                // SendSnapshotsCulled: never silently withhold data just because
+                // we don't know where they are yet.
+                if (!Authority.ObserverProvider.TryGetObserverPosition(id, out Vector3 observerPos))
+                {
+                    otherClients.Add(id);
+                    continue;
+                }
+
+                float dx = request.Origin.x - observerPos.x;
+                float dy = request.Origin.y - observerPos.y;
+                float distSq = dx * dx + dy * dy;
+                if (cfg.Is3D)
+                {
+                    float dz = request.Origin.z - observerPos.z;
+                    distSq += dz * dz;
+                }
+                if (distSq <= rangeSq)
+                    otherClients.Add(id);
             }
 
             if (otherClients.Count > 0)
@@ -509,36 +548,114 @@ namespace MidManStudio.Projectiles.Network
             }, request.ConfigId, rpcParams.Receive.SenderClientId);
         }
 
+        /// <summary>
+        /// PATTERN SUPPORT: raycast fire previously had no pattern concept at all —
+        /// only ever a single ray. This resolves request.PatternId (or
+        /// ProjectileCount/SpreadDeg for the no-pattern spread case) into N
+        /// directions via the same ProjectileDirectionResolver every other fire
+        /// path uses, and has the server independently cast all N rays itself.
+        /// Unlike RaycastFireServerRpc above, there's no client hit-claim to
+        /// validate against here — for a multi-pellet spread weapon, fully
+        /// server-authoritative is both simpler and a perfectly reasonable trust
+        /// model (a shotgun's pellets don't need the same tight validation a
+        /// precision single-ray weapon does). request.Direction is the raw,
+        /// un-rotated aim direction — same convention as the Rust-sim path.
+        /// </summary>
+        [ServerRpc(RequireOwnership = false)]
+        public void RaycastPatternFireServerRpc(
+            ProjectileFireRequest request,
+            ServerRpcParams rpcParams = default)
+        {
+            if (!IsServer || !IsSpawned || _isShuttingDown || RaycastHandler == null) return;
+
+            RaycastHandler.ServerHandleFirePattern(
+                request.PatternId, request.Origin, request.Direction,
+                request.ProjectileCount, request.SpreadDeg, request.PatternIs3D,
+                new WeaponFireContext
+                {
+                    IsRaycastWeapon        = true,
+                    IsNetworked            = true,
+                    OwnerMidId             = request.OwnerMidId,
+                    FiredByNetworkObjectId = request.FiredByNetworkObjectId,
+                    IsBotOwner             = request.IsBotOwner,
+                    WeaponLevel            = request.WeaponLevel,
+                    DamageMultiplier       = request.DamageMultiplier
+                },
+                request.ConfigId, rpcParams.Receive.SenderClientId);
+        }
+
         // ── Client → Server: Physics ──────────────────────────────────────────
 
+        /// <summary>
+        /// BUG FIX: configId was never part of this RPC at all — SpawnPhysicsProjectile
+        /// had no way to know which config it was representing, so every physics
+        /// projectile used whatever was hardcoded in its prefab's Inspector
+        /// (_visualConfigId defaulting to 0) regardless of what was actually fired.
+        /// That's why the real sprite never showed up.
+        ///
+        /// PATTERN SUPPORT: patternId != 0 (or spreadCount > 1) resolves multiple
+        /// directions via the same ProjectileDirectionResolver every other fire
+        /// path already uses, and spawns one physics NetworkObject per direction —
+        /// same deterministic regeneration principle as the Rust-sim path, just
+        /// producing N discrete physics bodies instead of N entries in a batch
+        /// buffer. No raw direction data crosses the wire here either.
+        /// </summary>
         [ServerRpc(RequireOwnership = false)]
         public void FirePhysicsProjectileServerRpc(
-            Vector3 origin, Quaternion rotation,
+            Vector3 origin, Vector3 baseDirection, Quaternion rotation,
             PoolableNetworkObjectType poolType,
             float speed, float damageMultiplier,
             ulong ownerMidId, ulong firedByNetObjId,
+            ushort configId = 0,
+            ushort patternId = 0, byte spreadCount = 1, float spreadDeg = 0f, bool patternIs3D = false,
             ServerRpcParams rpcParams = default)
         {
             if (!IsServer || !IsSpawned || _isShuttingDown) return;
             if (!MID_MasterProjectileSystem.HasInstance) return;
 
-            var netObj = MID_MasterProjectileSystem.Instance
-                .SpawnPhysicsProjectile(poolType, origin, rotation);
-
-            if (netObj == null)
+            Vector3[] directions;
+            if (patternId != 0 || spreadCount > 1)
             {
-                MID_Logger.LogWarning(_logLevel,
-                    $"FirePhysicsProjectileServerRpc: pool null for {poolType}.",
-                    nameof(MID_ProjectileNetworkBridge));
-                return;
+                var resolved = ProjectileDirectionResolver.Resolve(
+                    patternId, origin, baseDirection, spreadCount, spreadDeg, speed, patternIs3D);
+                directions = new Vector3[resolved.Length];
+                for (int i = 0; i < resolved.Length; i++) directions[i] = resolved[i].Direction;
+            }
+            else
+            {
+                directions = new[] { baseDirection.sqrMagnitude > 0.001f ? baseDirection.normalized : Vector3.forward };
             }
 
-            var proj = netObj.GetComponent<PhysicsProjectileBase>();
-            if (proj != null)
+            for (int i = 0; i < directions.Length; i++)
             {
-                proj.SetOwnerContext(ownerMidId, firedByNetObjId, false, 1, damageMultiplier);
-                proj.InitialiseProjectile(ownerMidId, firedByNetObjId, speed, false, 1);
+                Quaternion rot = directions.Length == 1 ? rotation : DirectionToRotation(directions[i], patternIs3D);
+
+                var netObj = MID_MasterProjectileSystem.Instance
+                    .SpawnPhysicsProjectile(poolType, origin, rot, configId);
+
+                if (netObj == null)
+                {
+                    MID_Logger.LogWarning(_logLevel,
+                        $"FirePhysicsProjectileServerRpc: pool null for {poolType}.",
+                        nameof(MID_ProjectileNetworkBridge));
+                    continue;
+                }
+
+                var proj = netObj.GetComponent<PhysicsProjectileBase>();
+                if (proj != null)
+                {
+                    proj.SetOwnerContext(ownerMidId, firedByNetObjId, false, 1, damageMultiplier);
+                    proj.InitialiseProjectile(ownerMidId, firedByNetObjId, speed, false, 1);
+                }
             }
+        }
+
+        private static Quaternion DirectionToRotation(Vector3 dir, bool is3D)
+        {
+            if (dir.sqrMagnitude < 0.001f) return Quaternion.identity;
+            return is3D
+                ? Quaternion.LookRotation(dir.normalized)
+                : Quaternion.Euler(0f, 0f, Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg);
         }
 
         // ── Server → Clients ──────────────────────────────────────────────────
