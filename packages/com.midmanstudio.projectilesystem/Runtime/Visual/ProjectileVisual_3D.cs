@@ -20,7 +20,10 @@ namespace MidManStudio.Projectiles.Visuals
         [SerializeField] private float _scaleMultiplier = 1f;
 
         [Header("Material Fallback")]
-        [Tooltip("Used when config has no sprite/atlas. Assign a simple Lit or Unlit material.")]
+        [Tooltip("Used when config has no sprite/atlas. Assign a simple Lit or Unlit material.\n" +
+                 "If left empty, a shared default material is generated lazily at runtime (see " +
+                 "GetDefaultFallbackMaterial) so the visual is never left with whatever material " +
+                 "happened to already be on the renderer.")]
         [SerializeField] private Material _fallbackMaterial;
 
         #endregion
@@ -33,7 +36,10 @@ namespace MidManStudio.Projectiles.Visuals
         // this causes Unity's "Leak Detected : Persistent allocates N individual
         // allocations" warning on the next domain reload, and why the fix below
         // (destroy before reload, via AssemblyReloadEvents) is the correct one.
-        private static Mesh _defaultCapsuleMesh;
+        private static Mesh     _defaultCapsuleMesh;
+        // Same pattern, same reasoning — see GetDefaultFallbackMaterial below.
+        private static Material _defaultFallbackMaterial;
+
         private Material    _instancedMaterial;
         private bool        _trailConfigured;
         private ushort      _cachedConfigId;
@@ -151,7 +157,7 @@ namespace MidManStudio.Projectiles.Visuals
             {
                 if (_instancedMaterial == null)
                 {
-                    var src = _meshRenderer.sharedMaterial ?? _fallbackMaterial;
+                    var src = _meshRenderer.sharedMaterial ?? _fallbackMaterial ?? GetDefaultFallbackMaterial();
                     if (src != null) _instancedMaterial = new Material(src);
                 }
                 if (_instancedMaterial != null)
@@ -160,9 +166,22 @@ namespace MidManStudio.Projectiles.Visuals
                     _meshRenderer.material = _instancedMaterial;
                 }
             }
-            else if (_fallbackMaterial != null)
+            else
             {
-                _meshRenderer.sharedMaterial = _fallbackMaterial;
+                // BUG FIX ("3D visual is not being set" when a config has no
+                // sprite/atlas, or configId hasn't resolved to a registered
+                // config yet): this branch used to be
+                // `else if (_fallbackMaterial != null) sharedMaterial = _fallbackMaterial;`
+                // with NO final else — if the prefab had no _fallbackMaterial
+                // assigned, the renderer just kept whatever material it already
+                // had (often none, or an error-shader magenta), so an unset
+                // config visually read as "nothing happened", whereas 2D's
+                // GetFallbackSprite() always renders *something* even when
+                // wrong. This mirrors that: fall back to a lazily-generated
+                // shared default material so 3D always shows something too.
+                _meshRenderer.sharedMaterial = _fallbackMaterial != null
+                    ? _fallbackMaterial
+                    : GetDefaultFallbackMaterial();
             }
 
             _meshRenderer.enabled           = true;
@@ -225,7 +244,7 @@ namespace MidManStudio.Projectiles.Visuals
 
         #endregion
 
-        #region Default Capsule Mesh
+        #region Default Capsule Mesh / Default Fallback Material
 
 #if UNITY_EDITOR
         // See ProjectileVisual_2D for the full explanation. Same pattern: release
@@ -241,6 +260,11 @@ namespace MidManStudio.Projectiles.Visuals
             {
                 UnityEngine.Object.DestroyImmediate(_defaultCapsuleMesh);
                 _defaultCapsuleMesh = null;
+            }
+            if (_defaultFallbackMaterial != null)
+            {
+                UnityEngine.Object.DestroyImmediate(_defaultFallbackMaterial);
+                _defaultFallbackMaterial = null;
             }
         }
 #endif
@@ -294,6 +318,27 @@ namespace MidManStudio.Projectiles.Visuals
             _defaultCapsuleMesh.RecalculateNormals();
             _defaultCapsuleMesh.RecalculateBounds();
             return _defaultCapsuleMesh;
+        }
+
+        /// <summary>
+        /// Shared, lazily-created fallback material used when a config has no
+        /// sprite/atlas AND no per-prefab _fallbackMaterial is assigned. Mirrors
+        /// ProjectileVisual_2D.GetFallbackSprite() — same "always show something"
+        /// intent, just for the 3D mesh path. Tries URP Lit first, then Built-in
+        /// Standard, then Sprites/Default as a last resort so this never silently
+        /// no-ops on a render pipeline this project doesn't happen to use.
+        /// </summary>
+        private static Material GetDefaultFallbackMaterial()
+        {
+            if (_defaultFallbackMaterial != null) return _defaultFallbackMaterial;
+
+            Shader shader = Shader.Find("Universal Render Pipeline/Lit")
+                         ?? Shader.Find("Standard")
+                         ?? Shader.Find("Sprites/Default");
+            if (shader == null) return null;
+
+            _defaultFallbackMaterial = new Material(shader) { name = "DefaultProjectile3D_Fallback" };
+            return _defaultFallbackMaterial;
         }
 
         #endregion
