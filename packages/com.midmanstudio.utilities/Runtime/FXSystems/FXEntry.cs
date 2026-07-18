@@ -29,16 +29,31 @@ namespace MidManStudio.Core.FX
         public string displayName;
 
         [Tooltip("The ParticleSystem already placed in the scene (or prefab child).\n" +
-                 "Must have Simulation Space = World for EmitParams positioning to work.")]
+                 "Must have Simulation Space = World for EmitParams positioning to work.\n" +
+                 "Leave null if this entry uses flipbookFrames instead.")]
         public ParticleSystem particleSystem;
 
         [Tooltip("Number of particles emitted per trigger when caller passes -1.")]
         [Min(1)]
         public int defaultParticleCount = 6;
 
+        [Tooltip("Sprite-sheet flipbook frames — alternative to particleSystem for hand-drawn " +
+                 "effects (e.g. a muzzle flash flipbook) that a ParticleSystem can't reproduce. " +
+                 "Requires PoolableObjectType.FlipbookEffect registered in LocalObjectPool. " +
+                 "If both this and particleSystem are set, flipbookFrames takes priority.")]
+        public Sprite[] flipbookFrames;
+
+        [Tooltip("Playback speed for flipbookFrames, in frames per second.")]
+        [Min(1f)]
+        public float flipbookFps = 24f;
+
+        /// <summary>True if this entry should play as a flipbook rather than emit particles.</summary>
+        public bool IsFlipbook => flipbookFrames != null && flipbookFrames.Length > 0;
+
         // IArrayElementTitle — shown as the list element label
         public string Name =>
             !string.IsNullOrWhiteSpace(displayName) ? displayName :
+            IsFlipbook ? $"{category}/{effectType} (flipbook)" :
             particleSystem != null ? $"{category}/{particleSystem.name}" :
                                      $"{category}/{effectType}";
     }
