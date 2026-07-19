@@ -150,6 +150,50 @@ namespace MidManStudio.Projectiles.Network
             _physicsVisuals.Remove(physicsVisualId);
         }
 
+        /// <summary>
+        /// FIX: this was the missing other half of SpawnLocalPhysicsVisual /
+        /// KillPhysicsVisual — nothing ever called KillPhysicsVisual, so the
+        /// prediction visual always lived out its full cfg.Lifetime regardless
+        /// of whether the real, server-confirmed PhysicsProjectileBase had
+        /// already arrived and spawned its own pooled visual for the same
+        /// shot. Two pooled visuals ended up representing one shot on the
+        /// firing client — the straight-line prediction (it doesn't run real
+        /// physics, so no gravity/bounce) and the real physics-simulated one —
+        /// overlapping and drifting apart until the prediction's timer expired.
+        /// Under rapid fire this roughly doubles LocalObjectPool churn per shot
+        /// and is very likely what read as "wrong/default visual": the two
+        /// visuals disagree the moment real physics takes the authoritative
+        /// one off the straight line the prediction is still blindly walking.
+        ///
+        /// Call from PhysicsProjectileBase.OnNetworkSpawn() on the firing
+        /// client (IsOwner == true) once the real NetworkObject arrives.
+        /// Physics visuals have no shared ID to match against directly, so
+        /// this uses the same nearest-by-position matching OnHitConfirmed
+        /// above already relies on — compared against each entry's Origin
+        /// (the shot's muzzle point), which stays fixed regardless of how many
+        /// Update() ticks the prediction has already taken.
+        /// </summary>
+        public void OnRealPhysicsProjectileSpawned(Vector3 spawnPosition)
+        {
+            if (_physicsVisuals.Count == 0) return;
+
+            uint  bestId   = 0;
+            float bestDist = float.MaxValue;
+
+            foreach (var kv in _physicsVisuals)
+            {
+                if (kv.Value.Obj == null) continue;
+                float d = Vector3.Distance(kv.Value.Origin, spawnPosition);
+                if (d < bestDist) { bestDist = d; bestId = kv.Key; }
+            }
+
+            // Small threshold on purpose — this is meant to catch "the shot I
+            // just fired", not accidentally reconcile against some unrelated
+            // still-in-flight earlier prediction.
+            if (bestId != 0 && bestDist < 0.5f)
+                KillPhysicsVisual(bestId);
+        }
+
         #endregion
 
         #region Public API — Bridge Callbacks
