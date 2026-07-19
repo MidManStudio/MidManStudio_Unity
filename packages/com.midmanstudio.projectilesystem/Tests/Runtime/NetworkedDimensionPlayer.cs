@@ -439,7 +439,19 @@ namespace TestGame
                 }
             }
 
-            if (!Use3DConvention())
+            // FIX: branch on the Rigidbody's ACTUAL kinematic state (set by
+            // ApplyRigidbodyConstraints, tied to _currentDimension) instead of
+            // Use3DConvention(), which also reads true for a 3D SHOOT MODE
+            // (RustSim3D/Raycast3D/Physics3D) regardless of dimension. Pressing
+            // a 3D shoot-mode hotkey while still in the 2D dimension left this
+            // reading the velocity-based 3D branch while the rigidbody was
+            // still kinematic from 2D's ApplyRigidbodyConstraints —
+            // "Setting linear velocity of a kinematic body is not supported"
+            // every FixedUpdate, and since the exception aborts the rest of
+            // the method, movement just stops dead for whoever hit the combo.
+            // Matches the dash branch above, which already checks
+            // _rb.isKinematic directly instead of trusting a proxy flag.
+            if (_rb.isKinematic)
             {
                 _rb.MovePosition(_rb.position +
                     new Vector3(h * _moveSpeed2D, v * _moveSpeed2D, 0f) * Time.fixedDeltaTime);
