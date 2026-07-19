@@ -545,7 +545,7 @@ namespace MidManStudio.Projectiles.Network
                 IsBotOwner             = request.IsBotOwner,
                 WeaponLevel            = request.WeaponLevel,
                 DamageMultiplier       = request.DamageMultiplier
-            }, request.ConfigId, rpcParams.Receive.SenderClientId);
+            }, request.ConfigId, rpcParams.Receive.SenderClientId, request.ClientFireTick);
         }
 
         /// <summary>
@@ -581,7 +581,7 @@ namespace MidManStudio.Projectiles.Network
                     WeaponLevel            = request.WeaponLevel,
                     DamageMultiplier       = request.DamageMultiplier
                 },
-                request.ConfigId, rpcParams.Receive.SenderClientId);
+                request.ConfigId, rpcParams.Receive.SenderClientId, request.ClientFireTick);
         }
 
         // ── Client → Server: Physics ──────────────────────────────────────────
