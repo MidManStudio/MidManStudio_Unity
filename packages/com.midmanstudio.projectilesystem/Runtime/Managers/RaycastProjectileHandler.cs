@@ -9,6 +9,7 @@ using MidManStudio.Projectiles.Adapters;
 using MidManStudio.Projectiles.Data;
 using MidManStudio.Projectiles.Visuals;
 using MidManStudio.Projectiles.Network;
+using MidManStudio.Netcode.LagCompensation;
 
 namespace MidManStudio.Projectiles.Managers
 {
@@ -109,12 +110,17 @@ namespace MidManStudio.Projectiles.Managers
         /// <paramref name="senderClientId"/>: the NGO client who fired. SpawnVisualClientRpc
         /// will exclude this client because they already spawned their own local visual.
         /// Pass ulong.MaxValue (default) when the server itself fires (host path).
+        /// <paramref name="clientFireTick"/>: the shooter's fire tick (see
+        /// ProjectileFireRequest.ClientFireTick) — 0 means "no lag compensation"
+        /// (e.g. an offline path), and is passed straight through to
+        /// MID_LagCompensator.BeginRewind, which itself treats &lt;= 0 as a no-op.
         /// </summary>
         public void ServerHandleFire(
             RaycastFireResult clientResult,
             WeaponFireContext  context,
             ushort             configId,
-            ulong              senderClientId = ulong.MaxValue)
+            ulong              senderClientId = ulong.MaxValue,
+            int                clientFireTick = 0)
         {
             if (!IsServer) return;
 
@@ -135,7 +141,7 @@ namespace MidManStudio.Projectiles.Managers
             if (clientResult.DidHit)
             {
                 serverConfirmed = ValidateHitServer(
-                    clientResult, clientResult.Is3D,
+                    clientResult, clientResult.Is3D, clientFireTick,
                     out serverHitPoint, out serverTargetId, out serverHeadshot);
             }
 
@@ -200,7 +206,8 @@ namespace MidManStudio.Projectiles.Managers
             ushort patternId, Vector3 origin, Vector3 baseDirection,
             byte pelletCount, float spreadDeg, bool is3D,
             WeaponFireContext context, ushort configId,
-            ulong senderClientId = ulong.MaxValue)
+            ulong senderClientId = ulong.MaxValue,
+            int clientFireTick = 0)
         {
             if (!IsServer) return;
 
@@ -220,36 +227,42 @@ namespace MidManStudio.Projectiles.Managers
             int n = resolved.Length;
             var hitPoints = new Vector3[n];
 
-            for (int i = 0; i < n; i++)
+            // All N pellets in one shot share the same fire tick, so they all
+            // need to see the SAME historical world state — one rewind for the
+            // whole loop, not one per pellet.
+            using (MID_LagCompensator.BeginRewind(clientFireTick))
             {
-                bool didHit = CastServerRay(
-                    origin, resolved[i].Direction, is3D, maxRange,
-                    out Vector3 hitPoint, out ulong targetId);
-
-                hitPoints[i] = hitPoint;
-
-                if (didHit && targetId != 0)
+                for (int i = 0; i < n; i++)
                 {
-                    bool  isCrit = UnityEngine.Random.value < cfg.CritChance;
-                    float damage = cfg.EvaluateDamage(0f) * (isCrit ? cfg.CritMultiplier : 1f)
-                                   * context.DamageMultiplier;
+                    bool didHit = CastServerRay(
+                        origin, resolved[i].Direction, is3D, maxRange,
+                        out Vector3 hitPoint, out ulong targetId);
 
-                    OnServerHitConfirmed?.Invoke(new ProjectileHitPayload
+                    hitPoints[i] = hitPoint;
+
+                    if (didHit && targetId != 0)
                     {
-                        ProjId                 = 0,
-                        ConfigId               = configId,
-                        Is3D                   = is3D,
-                        TargetId               = (uint)targetId,
-                        Damage                 = damage,
-                        IsHeadshot             = false,
-                        IsCrit                 = isCrit,
-                        HitPosition            = hitPoint,
-                        OwnerMidId             = context.OwnerMidId,
-                        FiredByNetworkObjectId = context.FiredByNetworkObjectId,
-                        IsBotOwner             = context.IsBotOwner,
-                        WeaponLevel            = context.WeaponLevel,
-                        GameData               = BuildRaycastGameData(context, configId, cfg)
-                    });
+                        bool  isCrit = UnityEngine.Random.value < cfg.CritChance;
+                        float damage = cfg.EvaluateDamage(0f) * (isCrit ? cfg.CritMultiplier : 1f)
+                                       * context.DamageMultiplier;
+
+                        OnServerHitConfirmed?.Invoke(new ProjectileHitPayload
+                        {
+                            ProjId                 = 0,
+                            ConfigId               = configId,
+                            Is3D                   = is3D,
+                            TargetId               = (uint)targetId,
+                            Damage                 = damage,
+                            IsHeadshot             = false,
+                            IsCrit                 = isCrit,
+                            HitPosition            = hitPoint,
+                            OwnerMidId             = context.OwnerMidId,
+                            FiredByNetworkObjectId = context.FiredByNetworkObjectId,
+                            IsBotOwner             = context.IsBotOwner,
+                            WeaponLevel            = context.WeaponLevel,
+                            GameData               = BuildRaycastGameData(context, configId, cfg)
+                        });
+                    }
                 }
             }
 
@@ -307,6 +320,7 @@ namespace MidManStudio.Projectiles.Managers
         private bool ValidateHitServer(
             RaycastFireResult clientResult,
             bool              is3D,
+            int               clientFireTick,
             out Vector3       serverHitPoint,
             out ulong         serverTargetId,
             out bool          serverHeadshot)
@@ -317,6 +331,13 @@ namespace MidManStudio.Projectiles.Managers
 
             if (!clientResult.DidHit) return false;
 
+            // Whole method body wrapped in one scope — both branches below have
+            // several early `return`s (raycast hit, tolerance fallback, miss),
+            // and `using` guarantees every registered target gets restored to
+            // its real current pose on every one of those paths, not just the
+            // happy one.
+            using (MID_LagCompensator.BeginRewind(clientFireTick))
+            {
             if (is3D)
             {
                 // ── 3D: server does its own raycast ────────────────────────────
@@ -431,6 +452,7 @@ namespace MidManStudio.Projectiles.Managers
                     return true;
                 }
                 return false;
+            }
             }
         }
 
