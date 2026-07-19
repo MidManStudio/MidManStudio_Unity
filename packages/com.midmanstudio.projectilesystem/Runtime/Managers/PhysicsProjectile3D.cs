@@ -52,7 +52,7 @@ namespace MidManStudio.Projectiles.Managers
             bool useGravity = _useGravity;
             if (ProjectileRegistry.HasInstance)
             {
-                var cfg = ProjectileRegistry.Instance.Get(_visualConfigId);
+                var cfg = ProjectileRegistry.Instance.Get(VisualConfigId);
                 if (cfg != null)
                 {
                     if (cfg.GravityScale > 0f)

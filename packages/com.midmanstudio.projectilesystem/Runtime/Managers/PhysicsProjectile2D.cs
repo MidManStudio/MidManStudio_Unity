@@ -46,7 +46,7 @@ namespace MidManStudio.Projectiles.Managers
             float gravity = _gravityScale;
             if (ProjectileRegistry.HasInstance)
             {
-                var cfg = ProjectileRegistry.Instance.Get(_visualConfigId);
+                var cfg = ProjectileRegistry.Instance.Get(VisualConfigId);
                 if (cfg != null) gravity = cfg.GravityScale;
             }
 
