@@ -94,6 +94,16 @@ namespace MidManStudio.Projectiles.Managers
             // than before it (see MID_MasterProjectileSystem.SpawnPhysicsProjectile).
             n_VisualConfigId.OnValueChanged += HandleVisualConfigChanged;
 
+            // FIX: reconcile away the firing client's own predicted visual now
+            // that the real, server-confirmed projectile has arrived — see
+            // ClientPredictionManager.OnRealPhysicsProjectileSpawned for the
+            // full explanation. Only the firing client (IsOwner) ever has a
+            // matching prediction visual to clean up; everyone else never
+            // spawned one for this shot.
+            if (IsOwner && MID_MasterProjectileSystem.HasInstance)
+                MID_MasterProjectileSystem.Instance.GetPredictionManager()
+                    ?.OnRealPhysicsProjectileSpawned(transform.position);
+
             OnPhysicsSetup();
             SpawnPoolVisual();
             if (_poolVisualGO == null)
