@@ -191,7 +191,15 @@ namespace MidManStudio.Projectiles.Visuals
                 // Disable shape renderer — it may have been created on a previous pool cycle
                 if (_shapeMeshRenderer != null) _shapeMeshRenderer.enabled = false;
                 _usingShapeMesh = false;
-                ApplySpriteOptimised(cfg?.ProjectileSprite);
+
+                // FIX: previously passed cfg?.ProjectileSprite unconditionally —
+                // a config with UseSprite = false (ProjectileRenderer2D/3D and
+                // ProjectileRegistry.GetUVRect both already treat this as "use
+                // the plain fallback, ignore whatever's in ProjectileSprite")
+                // would still show its sprite field here if one happened to be
+                // assigned. Matches the Rust-sim renderers' own gate.
+                bool useSprite = cfg != null && cfg.UseSprite;
+                ApplySpriteOptimised(useSprite ? cfg.ProjectileSprite : null);
             }
 
             ApplyTrailOptimised(cfg);
@@ -284,6 +292,35 @@ namespace MidManStudio.Projectiles.Visuals
         /// _shapeMeshChild keeps identity local scale, so it inherits this size
         /// through normal Unity parent/child transform propagation — no behavior
         /// change from isolating the mesh onto its own object.
+        ///
+        /// BUG FIX: this used to set _MainTex only, and only inside an
+        /// `if (texture != null)` guard — meaning two separate bugs at once:
+        ///
+        ///  1. _UVRect was never set at all. InstancedProjectile(_URP).shader —
+        ///     the shader this component's own header comment says to assign as
+        ///     _fallbackShapeMaterial "for correct atlas UV support" — declares
+        ///     BOTH _MainTex and _UVRect as material properties, and per that
+        ///     shader file's own comment, the shipped material's baked-in
+        ///     default _UVRect is (0.24, 0, 4.08, 1.2) — a corrupted, very much
+        ///     not-full-texture sub-rect, left over from when it was authored
+        ///     for the shared-atlas batch renderer (ProjectileRenderer2D, which
+        ///     DOES set _UVRect every frame via ProjectileRegistry.GetUVRect).
+        ///     Nothing here ever overrode it, so every shape-mesh projectile
+        ///     sampled that same broken corner of whatever texture got bound —
+        ///     which reads as "the material/sprite is never (correctly) set".
+        ///     Fix: always compute and set _UVRect too, via the exact same
+        ///     ProjectileRegistry.GetUVRect used by the Rust-sim renderers —
+        ///     one source of truth for "which part of this texture to sample"
+        ///     instead of reimplementing it here.
+        ///
+        ///  2. The property block was only touched when a texture existed —
+        ///     skip the call entirely (no sprite this config, or config not
+        ///     found) and this pooled instance's renderer keeps showing
+        ///     whatever _MainTex/_UVRect its PREVIOUS pool cycle left bound.
+        ///     Fix: always set the property block, falling back to
+        ///     Texture2D.whiteTexture + the full (0,0,1,1) rect — exactly what
+        ///     ProjectileRenderer2D/3D fall back to for a no-sprite config —
+        ///     so every call leaves this instance in a fully-defined state.
         /// </summary>
         private void ApplyShapeMeshOptimised(ProjectileConfigSO cfg, Mesh mesh)
         {
@@ -291,13 +328,17 @@ namespace MidManStudio.Projectiles.Visuals
 
             transform.localScale = new Vector3(cfg.FullSizeX, cfg.FullSizeY, 1f);
 
-            // Apply sprite texture via MPB — avoids material instance allocation
-            if (cfg.ProjectileSprite?.texture != null)
-            {
-                if (_shapeMpb == null) _shapeMpb = new MaterialPropertyBlock();
-                _shapeMpb.SetTexture("_MainTex", cfg.ProjectileSprite.texture);
-                _shapeMeshRenderer.SetPropertyBlock(_shapeMpb);
-            }
+            bool hasSprite = cfg.UseSprite && cfg.ProjectileSprite?.texture != null;
+
+            Texture2D tex = hasSprite ? cfg.ProjectileSprite.texture : Texture2D.whiteTexture;
+            Vector4   uv  = hasSprite && ProjectileRegistry.HasInstance
+                ? ProjectileRegistry.Instance.GetUVRect(ConfigId)
+                : new Vector4(0f, 0f, 1f, 1f);
+
+            if (_shapeMpb == null) _shapeMpb = new MaterialPropertyBlock();
+            _shapeMpb.SetTexture("_MainTex", tex);
+            _shapeMpb.SetVector("_UVRect", uv);
+            _shapeMeshRenderer.SetPropertyBlock(_shapeMpb);
 
             _shapeMeshRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             _shapeMeshRenderer.receiveShadows     = false;
