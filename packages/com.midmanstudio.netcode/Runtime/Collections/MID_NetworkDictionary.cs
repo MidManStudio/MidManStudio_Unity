@@ -1,9 +1,9 @@
 // MID_NetworkDictionary<TKey, TValue> — event-based NetworkVariable container
 // for syncing Dictionaries over Netcode for GameObjects.
 //
-// Based on the community NetworkDictionary from
+// Based on the community MID_NetworkDictionary from
 // Unity-Technologies/multiplayer-community-contributions
-// (com.community.netcode.extensions/Runtime/NetworkDictionary/NetworkDictionary.cs),
+// (com.community.netcode.extensions/Runtime/MID_NetworkDictionary/MID_NetworkDictionary.cs),
 // adapted into MidManStudio.Netcode with one real bug fixed and naming aligned
 // to this package's conventions:
 //

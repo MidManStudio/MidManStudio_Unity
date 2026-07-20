@@ -58,7 +58,7 @@ MonoBehaviour:
   _headshotMultiplier: 2
   _critChance: 0
   _critMultiplier: 1.5
-  _sprite: {fileID: 21300000, guid: aa71786292cdc4e62b9e6e705956df55, type: 3}
+  _sprite: {fileID: 21300000, guid: 8b4ca29d7d2c64fbca76b8e907a4e3f0, type: 3}
   _useSprite: 1
   _customShape: {fileID: 11400000, guid: 7c99cd4d02d7d4ff998cdebcbe3f8592, type: 2}
   _hasTrail: 1
@@ -66,7 +66,7 @@ MonoBehaviour:
   _useGradientOverride: 1
   _trailGradient:
     serializedVersion: 2
-    key0: {r: 0.6082635, g: 1, b: 0, a: 1}
+    key0: {r: 0.25866938, g: 0, b: 1, a: 1}
     key1: {r: 1, g: 1, b: 1, a: 0}
     key2: {r: 0, g: 0, b: 0, a: 0}
     key3: {r: 0, g: 0, b: 0, a: 0}

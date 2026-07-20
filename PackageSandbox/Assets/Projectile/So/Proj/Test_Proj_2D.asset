@@ -59,7 +59,7 @@ MonoBehaviour:
   _critChance: 0
   _critMultiplier: 1.5
   _sprite: {fileID: 21300000, guid: a7b853de1bfff451e93ac9e509c082dd, type: 3}
-  _useSprite: 0
+  _useSprite: 1
   _customShape: {fileID: 11400000, guid: c0c5ccacaa6f24813804d493805ee4af, type: 2}
   _hasTrail: 1
   _trailMaterial: {fileID: 2100000, guid: e3c04243093d246ad84824d194445a0d, type: 2}

@@ -154,7 +154,7 @@ namespace MidManStudio.Netcode.LocalMultiplayer
         }
 #endif
 
-        private void OnApplicationQuit()
+        protected override void OnApplicationQuit()
         {
             // Same proactive/synchronous shutdown as the editor hook above, for
             // standalone builds (EditorApplication doesn't exist outside the Editor).

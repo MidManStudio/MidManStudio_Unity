@@ -58,9 +58,9 @@ MonoBehaviour:
   _headshotMultiplier: 2
   _critChance: 0
   _critMultiplier: 1.5
-  _sprite: {fileID: 21300000, guid: a7b853de1bfff451e93ac9e509c082dd, type: 3}
-  _useSprite: 0
-  _customShape: {fileID: 11400000, guid: c8a791f388f0a4ec38b67b8cefc1bd58, type: 2}
+  _sprite: {fileID: 21300000, guid: 0d96b08b66aeb4467a0306215bf4af1c, type: 3}
+  _useSprite: 1
+  _customShape: {fileID: 11400000, guid: 7c99cd4d02d7d4ff998cdebcbe3f8592, type: 2}
   _hasTrail: 1
   _trailMaterial: {fileID: 2100000, guid: e3c04243093d246ad84824d194445a0d, type: 2}
   _useGradientOverride: 1
