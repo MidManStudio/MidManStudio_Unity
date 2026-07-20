@@ -18,6 +18,7 @@ GameObject:
   - component: {fileID: 8186125018304576148}
   - component: {fileID: -2736053443366106284}
   - component: {fileID: 419237172794114043}
+  - component: {fileID: 1142272591970055286}
   m_Layer: 3
   m_Name: Player
   m_TagString: Untagged
@@ -155,6 +156,7 @@ MonoBehaviour:
   _fireRate: 5
   _pelletsPerShot: 1
   _spreadDeg: 5
+  _raycastPelletCount: 1
   _fireKey: 102
   _touchMoveJoystick: {fileID: 8754258797574061484}
   _touchShootButton: {fileID: 299879736753308955}
@@ -362,6 +364,20 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f6c0be61502bb534f922ebb746851216, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+--- !u!114 &1142272591970055286
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 575136194035172725}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7afcadf5664bf4146b4364044d885ab6, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _hitboxRoot: {fileID: 2550342618729332517}
+  _historyCapacity: 64
 --- !u!1 &1323191611866806830
 GameObject:
   m_ObjectHideFlags: 0
