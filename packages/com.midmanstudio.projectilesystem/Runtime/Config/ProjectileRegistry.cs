@@ -129,6 +129,47 @@ namespace MidManStudio.Projectiles.Config
                     "for this config.");
             }
 
+            // FIX ("physics-based projectile visuals only show correctly after
+            // firing several times", reported for both 2D and 3D — this repo's
+            // Runtime/Shaders and PackageSandbox/.../PROJECTILE_SPRITE_ATLAS just
+            // moved from the legacy .spriteatlas format to .spriteatlasv2):
+            //
+            // Unity's Sprite Atlas system resolves a packed Sprite's `.texture`
+            // LAZILY — the first access(es) can still be mid-redirect from the
+            // sprite's original individual texture to the shared packed atlas
+            // texture, and `.texture`/`.rect` only report the atlas's FINAL,
+            // correct values once that resolution has actually completed. This
+            // is a background/on-enter-Play-Mode process, not something that's
+            // guaranteed finished by the time any particular script's Awake/
+            // Start runs.
+            //
+            // ProjectileVisual_2D/3D's ApplyMaterial/ApplyShapeMeshOptimised
+            // already re-read `sprite.texture` fresh on every single fire (see
+            // those files), so they DO self-correct — but only once some fire
+            // happens to land AFTER Unity's atlas resolution has caught up. If
+            // the very first access ever made to a given sprite is that
+            // projectile's first live shot, "self-correct" means "the first
+            // several shots of actual gameplay show the wrong/stale texture."
+            //
+            // Fix: touch every registered sprite's .texture right here, at
+            // registration — which normally happens during scene load, well
+            // before the player ever fires — so Unity's one-time atlas
+            // resolution cost lands on load, not on gameplay. This does NOT
+            // help the underlying async timing at all; it just moves WHEN that
+            // timing cost gets paid to a moment nobody is watching.
+            //
+            // For 2D configs that don't need a CustomShape mesh at all, pair
+            // this with ProjectileVisual_2D's new _forceSpriteRendererOnly
+            // inspector override — SpriteRenderer resolves atlas textures
+            // through Unity's own built-in, continuously-re-resolved rendering
+            // path every frame (not a one-time snapshot the way this manual
+            // mesh/shader/UVRect path works), so it isn't subject to this
+            // timing window at all and needs no warm-up to be reliable.
+            if (config.UseSprite && config.ProjectileSprite != null)
+            {
+                _ = config.ProjectileSprite.texture; // access is the trigger — see above
+            }
+
             return id;
         }
 
