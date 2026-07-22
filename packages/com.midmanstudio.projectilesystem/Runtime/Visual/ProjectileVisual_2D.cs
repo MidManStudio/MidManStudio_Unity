@@ -15,6 +15,21 @@ namespace MidManStudio.Projectiles.Visuals
         [SerializeField] private int _spriteSortingOrder = 1;
         [SerializeField] private int _trailSortingOrder  = 0;
 
+        [Header("Rendering Mode Override")]
+        [Tooltip("Force this instance to ALWAYS render through the SpriteRenderer, " +
+                 "ignoring the config's CustomShape entirely — for a projectile that " +
+                 "never needs a mesh shape, just a sprite. No shape mesh child is ever " +
+                 "created or used while this is on.\n\n" +
+                 "Also the more reliable choice re: atlas timing: SpriteRenderer resolves " +
+                 "a packed sprite's texture through Unity's own built-in rendering path, " +
+                 "which re-resolves it continuously every frame at the engine level. The " +
+                 "shape-mesh path below instead manually snapshots sprite.texture + a " +
+                 "computed UV rect into a MaterialPropertyBlock once per OnInitialise call " +
+                 "— correct once the atlas has finished (re)binding, but until then it can " +
+                 "visibly lag a few shots behind. Turn this on for any prefab variant that " +
+                 "should just be a plain sprite.")]
+        [SerializeField] private bool _forceSpriteRendererOnly = false;
+
         [Header("Shape Mesh (CustomShape configs only)")]
         [Tooltip("Isolated on its own child GameObject, auto-created at runtime when a " +
                  "CustomShape config first needs it — never on this GameObject directly. " +
@@ -168,8 +183,9 @@ namespace MidManStudio.Projectiles.Visuals
                 _configInitialised = true;
             }
 
-            // Resolve shape first
-            bool hasCustomShape = cfg != null && cfg.CustomShape != null;
+            // Resolve shape first — _forceSpriteRendererOnly (see Inspector) skips
+            // the shape mesh entirely regardless of what the config specifies.
+            bool hasCustomShape = !_forceSpriteRendererOnly && cfg != null && cfg.CustomShape != null;
             Mesh shapeMesh      = hasCustomShape ? cfg.CustomShape.GetMesh() : null;
             bool needsShapeMesh = hasCustomShape && shapeMesh != null && shapeMesh.vertexCount > 0;
 
