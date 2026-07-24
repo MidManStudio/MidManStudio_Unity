@@ -17,6 +17,46 @@ namespace MidManStudio.Core.Pools
         Projectile_Explosion_Medium = 102, // Medium explosion [pinned]
         Projectile_Explosion_Large = 103, // Large explosion [pinned]
         Projectile_Headshot = 104, // Headshot / critical hit particle [pinned]
-        Projectile_Tracer = 105, // Tracer round particle [pinned]
-    }
-}
+            Projectile_Tracer = 105, // Tracer round particle [pinned]    // ===== WALK EFFECTS (0-99) =====
+        WalkDust = 200,
+        WalkGrass = 201,
+        PlayerWalkSnow = 202,
+        KingWalkIce = 203,
+        EsmeraldaWalkHalo = 204,
+
+        // ===== LANDING EFFECTS  =====
+        BigFallDust = 300,
+        BigFallGrass = 301,
+        HeavyLandSnow = 302,
+
+        // ===== PROJECTILE IMPACTS =====
+        BasicProjectileImpact = 400,
+        CrimsonVortex_Impact = 401,
+        Hades_Impact = 402,
+        BloodSmith_Impact = 403,
+        Discharge_Impact = 404,
+        RedRose_Impact = 405,
+        AdamsAle_Impact = 406,
+        EmeralHalo_Impact = 407,
+
+        // ===== EXPLOSIONS  =====
+        BasicExplosion = 500,
+        ExplosionBurst = 501,
+        MegaExplosion = 502,
+
+        // ===== COMBAT EFFECTS  =====
+        MuzzleFlash = 600,
+        BloodSpray = 601,
+        ImpactSparks = 602,
+        SlashEffect = 603,
+
+        // ===== ENVIRONMENTAL  =====
+        SmokeTrail = 700,
+        MagicBurst = 701,
+        FireTrail = 702,
+        ElectricDischarge = 703,
+        WaterSplash = 704,
+        DustCloud = 705,
+        JetpackBoost = 706
+    }   
+}   

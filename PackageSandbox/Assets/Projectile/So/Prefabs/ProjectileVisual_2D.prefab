@@ -206,7 +206,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _logLevel: 0
   config:
-    autoReturn: 1
+    autoReturn: 0
     duration: 5
     useAutoDestruct: 1
   originalType: 100
@@ -228,6 +228,8 @@ MonoBehaviour:
   projectileTrailRend: {fileID: 6227975117751516752}
   _spriteSortingOrder: 1
   _trailSortingOrder: 0
+  _forceSpriteRendererOnly: 0
+  _shapeMeshChild: {fileID: 0}
   _shapeMeshFilter: {fileID: 0}
   _shapeMeshRenderer: {fileID: 0}
   _shapeSortingOrder: 1

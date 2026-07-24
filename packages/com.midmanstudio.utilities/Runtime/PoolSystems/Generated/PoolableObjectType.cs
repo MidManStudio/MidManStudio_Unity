@@ -16,6 +16,30 @@ namespace MidManStudio.Core.Pools
         // ── MidMan Projectile System  [com.midmanstudio.projectilesystem]  (block 100–199)  priority=10  ──────────────────────────
         Projectile_Visual2D = 100, // 2D projectile sprite visual [pinned]
         Projectile_Visual3D = 101, // 3D projectile visual [pinned]
-        Projectile_Flipbook = 102, // Sprite-sheet flipbook for impact explosions [pinned]
+        Projectile_Flipbook = 102, // Sprite-sheet flipbook for impact explosions [pinned]   //=============== Projectile Visuals ===============//
+       
+        BulletShell = 200,
+
+        //=============== Blueprints ===============//
+        GrenadeBlueprint = 201,
+
+        //=============== Visual Effects ===============//
+        MuzzulFlashSprite = 300,
+
+        //=============== Extra Items - Weapons ===============//
+        WeaponExtraItems = 400,
+        MeleeExtraItems = 401,
+        PowerWeaponExtraItems = 402,
+        GrenadeExtraItems = 403,
+
+        //=============== Extra Items - Equipment ===============//
+        JetpackExtraItems = 510,
+
+        //=============== Extra Items - Summons ===============//
+        SummonExtraItems = 520,
+
+        //=============== Extra Items - Player ===============//
+        PlayerExtraItems = 630,
+        PlayerArmExtraItems = 631
     }
 }
