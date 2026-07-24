@@ -613,6 +613,12 @@ namespace MidManStudio.Projectiles.Network
             if (!IsServer || !IsSpawned || _isShuttingDown) return;
             if (!MID_MasterProjectileSystem.HasInstance) return;
 
+            // BUG FIX ("physics projectile fires twice on client"): this is the
+            // actual NGO id of whoever called this RPC — see the firingClientId
+            // doc on MID_MasterProjectileSystem.SpawnPhysicsProjectile for why it
+            // needs to be passed through instead of spawning server-owned.
+            ulong firingClientId = rpcParams.Receive.SenderClientId;
+
             Vector3[] directions;
             if (patternId != 0 || spreadCount > 1)
             {
@@ -631,7 +637,7 @@ namespace MidManStudio.Projectiles.Network
                 Quaternion rot = directions.Length == 1 ? rotation : DirectionToRotation(directions[i], patternIs3D);
 
                 var netObj = MID_MasterProjectileSystem.Instance
-                    .SpawnPhysicsProjectile(poolType, origin, rot, configId);
+                    .SpawnPhysicsProjectile(poolType, origin, rot, configId, firingClientId);
 
                 if (netObj == null)
                 {
