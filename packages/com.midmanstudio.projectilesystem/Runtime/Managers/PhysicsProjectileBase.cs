@@ -1,14 +1,18 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using Unity.Netcode;
 using MidManStudio.Core.Logging;
 using MidManStudio.Core.Pools;
 using MidManStudio.Projectiles.Adapters;
 using MidManStudio.Projectiles.Config;
+using MidManStudio.Projectiles.Core;
 using MidManStudio.Projectiles.Network;
 using MidManStudio.Projectiles.Visuals;
 using MidManStudio.Netcode.Pools;
+using System.Diagnostics;
+
 namespace MidManStudio.Projectiles.Managers
 {
     [DisallowMultipleComponent]
@@ -77,6 +81,14 @@ namespace MidManStudio.Projectiles.Managers
         private PoolableObjectType   _usedPoolType;
         private Coroutine            _retryCoroutine;
 
+        // Piercing (mirrors RustSimAdapter.HandlePiercing so a physics-based
+        // projectile and a raycast/rust-sim one behave identically for the
+        // same ProjectileConfigSO). Non-piercing configs (the common case)
+        // are unaffected — _collisionsRemaining starts at 1 and any single
+        // hit ends the projectile exactly as before this was added.
+        private byte _collisionsRemaining = 1;
+        private readonly HashSet<uint> _hitTargetIds = new HashSet<uint>();
+
         #endregion
 
         protected override bool ShouldAutoSpawnVisual => false;
@@ -100,6 +112,18 @@ namespace MidManStudio.Projectiles.Managers
             // full explanation. Only the firing client (IsOwner) ever has a
             // matching prediction visual to clean up; everyone else never
             // spawned one for this shot.
+            //
+            // TEMP DIAG: confirms whether IsOwner is actually true for the
+            // firing client here (proves/disproves the SpawnWithOwnership fix
+            // took effect — requires BOTH host and client running the updated
+            // MID_MasterProjectileSystem.cs/MID_ProjectileNetworkBridge.cs,
+            // since the Spawn call happens server-side) and, separately,
+            // whether OnRealPhysicsProjectileSpawned actually found and killed
+            // a matching prediction visual or silently found nothing within its
+            // 0.5-unit match tolerance. Remove once the double-fire issue is
+            // confirmed fixed.
+            Debug.LogError(
+                $"[PHYSDIAG] OnNetworkSpawn IsOwner={IsOwner} OwnerClientId={OwnerClientId} pos={transform.position}");
             if (IsOwner && MID_MasterProjectileSystem.HasInstance)
                 MID_MasterProjectileSystem.Instance.GetPredictionManager()
                     ?.OnRealPhysicsProjectileSpawned(transform.position);
@@ -149,6 +173,21 @@ namespace MidManStudio.Projectiles.Managers
             HasHit = false;
             // FIX: record spawn position so we can compute travel distance for damage falloff
             _spawnPosition = transform.position;
+
+            // Piercing budget — read from the config registered under
+            // VisualConfigId, which SetVisualConfigId() must already have been
+            // called with by this point (see its own doc comment). Pooled
+            // projectiles are reused, so both the hit-target guard and the
+            // remaining-collisions counter MUST be reset here every time,
+            // not just once in OnNetworkSpawn.
+            _hitTargetIds.Clear();
+            _collisionsRemaining = 1;
+            if (ProjectileRegistry.HasInstance)
+            {
+                var cfg = ProjectileRegistry.Instance.Get(VisualConfigId);
+                if (cfg != null && cfg.PiercingType != ProjectilePiercingType.None)
+                    _collisionsRemaining = Math.Max(cfg.MaxCollisions, (byte)1);
+            }
 
             if (_poolVisualGO == null) SpawnPoolVisual();
 
@@ -235,23 +274,84 @@ namespace MidManStudio.Projectiles.Managers
         protected void HandleHit3D(GameObject hitGO, Vector3 hitPoint)
         {
             if (!IsServer || HasHit) return;
+
+            var targetNetObj = hitGO.GetComponentInParent<NetworkObject>();
+            // Physics can re-trigger a contact against the same collider across
+            // consecutive frames (e.g. a slow projectile still overlapping on
+            // FixedUpdate) — without this guard a piercing shot could burn
+            // multiple collision "charges" on one target instead of one.
+            if (targetNetObj != null && !_hitTargetIds.Add(targetNetObj.NetworkObjectId))
+                return;
+
+            bool destroyNow = ResolvePiercingAndDamage(targetNetObj, hitPoint, false);
+            if (!destroyNow) return;
+
             HasHit = true;
             StopPhysics();
-            if (_explosionRadius > 0.01f) ApplyExplosionDamage3D(hitPoint);
-            else ApplyDirectHit(
-                hitGO.GetComponentInParent<NetworkObject>(), hitPoint, false);
             DestroyProjectile();
         }
 
         protected void HandleHit2D(GameObject hitGO, Vector3 hitPoint)
         {
             if (!IsServer || HasHit) return;
+
+            var targetNetObj = hitGO.GetComponentInParent<NetworkObject>();
+            if (targetNetObj != null && !_hitTargetIds.Add(targetNetObj.NetworkObjectId))
+                return;
+
+            bool destroyNow = ResolvePiercingAndDamage(targetNetObj, hitPoint, true);
+            if (!destroyNow) return;
+
             HasHit = true;
             StopPhysics();
-            if (_explosionRadius > 0.01f) ApplyExplosionDamage2D(hitPoint);
-            else ApplyDirectHit(
-                hitGO.GetComponentInParent<NetworkObject>(), hitPoint, true);
             DestroyProjectile();
+        }
+
+        /// <summary>
+        /// Applies damage for one contact and returns whether the projectile has
+        /// exhausted its piercing budget (or has no piercing at all) and should
+        /// therefore stop and be destroyed. Mirrors
+        /// <see cref="RustSimAdapter"/>'s HandlePiercing so a physics-based
+        /// projectile and a raycast/rust-sim one behave identically for the
+        /// same <see cref="ProjectileConfigSO"/>.
+        ///
+        /// Explosion-radius configs always end the projectile on first contact
+        /// — an AoE blast and multi-target piercing aren't meant to combine;
+        /// author one or the other on a given ProjectileConfigSO, not both.
+        /// </summary>
+        private bool ResolvePiercingAndDamage(
+            NetworkObject targetNetObj, Vector3 hitPoint, bool is2D)
+        {
+            if (_explosionRadius > 0.01f)
+            {
+                if (is2D) ApplyExplosionDamage2D(hitPoint);
+                else      ApplyExplosionDamage3D(hitPoint);
+                return true;
+            }
+
+            if (targetNetObj == null)
+            {
+                // Hit something with no NetworkObject — environment/terrain.
+                // Piercing lets a shot punch through damageable targets, not
+                // walls; always stop here regardless of remaining budget.
+                // (Matches prior behaviour: ApplyDirectHit(null, ...) used to
+                // no-op and DestroyProjectile() ran unconditionally anyway.)
+                return true;
+            }
+
+            ApplyDirectHit(targetNetObj, hitPoint, is2D);
+
+            var pierceType = ProjectilePiercingType.None;
+            if (ProjectileRegistry.HasInstance)
+            {
+                var cfg = ProjectileRegistry.Instance.Get(VisualConfigId);
+                if (cfg != null) pierceType = cfg.PiercingType;
+            }
+
+            if (pierceType == ProjectilePiercingType.None) return true;
+
+            _collisionsRemaining--;
+            return _collisionsRemaining <= 0;
         }
 
         private void ApplyDirectHit(

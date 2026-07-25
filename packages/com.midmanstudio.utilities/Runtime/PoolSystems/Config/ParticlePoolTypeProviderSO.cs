@@ -31,7 +31,7 @@ namespace MidManStudio.Core.Pools.Generator
 
     [CreateAssetMenu(fileName = "ParticlePoolTypeProvider",
         menuName = "MidManStudio/Utilities/Pool Type Provider (Particle)", order = 170)]
-    public class ParticlePoolTypeProviderSO : ScriptableObject
+    public class ParticlePoolTypeProviderSO : ScriptableObject, IPoolEntryProviderSO
     {
         [Header("Identity")]
         public string packageId = "com.mygame";
@@ -45,5 +45,8 @@ namespace MidManStudio.Core.Pools.Generator
         public List<PoolEntryDefinition> entries = new List<PoolEntryDefinition>();
 
         public int EntryCount => entries?.Count ?? 0;
+
+        // IPoolEntryProviderSO — see ObjectPoolTypeProviderSO for why this exists.
+        List<PoolEntryDefinition> IPoolEntryProviderSO.Entries => entries;
     }
 }

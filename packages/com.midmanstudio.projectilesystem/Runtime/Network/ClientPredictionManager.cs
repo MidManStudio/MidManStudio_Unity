@@ -175,7 +175,11 @@ namespace MidManStudio.Projectiles.Network
         /// </summary>
         public void OnRealPhysicsProjectileSpawned(Vector3 spawnPosition)
         {
-            if (_physicsVisuals.Count == 0) return;
+            if (_physicsVisuals.Count == 0)
+            {
+                Debug.LogError("[PHYSDIAG] OnRealPhysicsProjectileSpawned: no local predicted visuals to match against");
+                return;
+            }
 
             uint  bestId   = 0;
             float bestDist = float.MaxValue;
@@ -190,7 +194,11 @@ namespace MidManStudio.Projectiles.Network
             // Small threshold on purpose — this is meant to catch "the shot I
             // just fired", not accidentally reconcile against some unrelated
             // still-in-flight earlier prediction.
-            if (bestId != 0 && bestDist < 0.5f)
+            bool matched = bestId != 0 && bestDist < 0.5f;
+            Debug.LogError(
+                $"[PHYSDIAG] OnRealPhysicsProjectileSpawned bestDist={bestDist} matched={matched} spawnPos={spawnPosition}");
+
+            if (matched)
                 KillPhysicsVisual(bestId);
         }
 

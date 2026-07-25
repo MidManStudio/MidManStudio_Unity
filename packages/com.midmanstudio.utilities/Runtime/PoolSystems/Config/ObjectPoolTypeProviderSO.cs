@@ -30,7 +30,7 @@ namespace MidManStudio.Core.Pools.Generator
 
 [CreateAssetMenu(fileName="PoolTypeProvider",
     menuName="MidManStudio/Utilities/Pool Type Provider (Object)", order=160)]
-    public class ObjectPoolTypeProviderSO : ScriptableObject
+    public class ObjectPoolTypeProviderSO : ScriptableObject, IPoolEntryProviderSO
     {
         [Header("Identity")]
         [Tooltip("Reverse-domain package ID. Must be unique across all providers.\n" +
@@ -53,6 +53,11 @@ namespace MidManStudio.Core.Pools.Generator
 
         // Convenience
         public int EntryCount => entries?.Count ?? 0;
+
+        // IPoolEntryProviderSO — lets the shared "Import from JSON" Inspector
+        // code (see PoolTypeProviderEditor.cs) read/write `entries` without
+        // knowing which concrete provider type it's looking at.
+        List<PoolEntryDefinition> IPoolEntryProviderSO.Entries => entries;
     }
 
 }

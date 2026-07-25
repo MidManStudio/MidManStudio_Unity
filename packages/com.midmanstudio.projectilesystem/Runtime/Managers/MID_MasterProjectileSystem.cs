@@ -481,6 +481,15 @@ namespace MidManStudio.Projectiles.Managers
         public void RegisterRaycastFire(
             RaycastFireResult result, ushort configId, WeaponFireContext context)
         {
+            // TEMP DIAG: confirms RegisterRaycastFire is even being reached, and
+            // with what state, before anything else has a chance to bail out
+            // silently. Remove once the client-can't-see-own-raycast issue is
+            // resolved.
+            Debug.LogError(
+                $"[RAYDIAG] RegisterRaycastFire ENTER cfg={configId} " +
+                $"initialised={_initialised} cfgFound={_registry?.Get(configId) != null} " +
+                $"isNetworked={IsNetworked} isServer={IsServer}");
+
             if (!_initialised) return;
             var cfg = _registry?.Get(configId);
             if (cfg == null) return;
@@ -498,22 +507,48 @@ namespace MidManStudio.Projectiles.Managers
             }
             else
             {
-                _networkBridge?.RaycastFireServerRpc(
-                    new ProjectileFireRequest
-                    {
-                        ConfigId               = configId,
-                        Origin                 = result.Origin,
-                        Direction              = result.Direction,
-                        OwnerMidId             = context.OwnerMidId,
-                        FiredByNetworkObjectId = context.FiredByNetworkObjectId,
-                        IsBotOwner             = context.IsBotOwner,
-                        WeaponLevel            = context.WeaponLevel,
-                        DamageMultiplier       = context.DamageMultiplier,
-                        ClientFireTick         = _networkBridge.GetServerTick()
-                    },
-                    result.HitPoint, result.DidHit,
-                    result.IsHeadshot, result.HitTargetNetworkId,
-                    result.Is3D);
+                // TEMP DIAG / DEFENSIVE FIX: this RPC send is wrapped in its own
+                // try/catch now. If ProjectileFireRequest's NetworkSerialize (or
+                // anything else in the send path) throws on this client, an
+                // uncaught exception here would abort this whole else-branch and
+                // skip OfflineHandleFire below it — which would explain a client
+                // never showing their own raycast visual while everything else
+                // (relayed shots from other players) keeps working fine, since
+                // those go through a completely separate receive path. Logging
+                // whatever exception (if any) shows up here, and moving
+                // OfflineHandleFire outside the try so the client's own visual
+                // shows regardless of whether the RPC send succeeds.
+                //
+                // IMPORTANT: if this DOES catch something, that's bigger than a
+                // missing visual — it means the server never received this fire
+                // event at all, so hit registration/damage for this client's
+                // shots is likely broken too, and the actual exception needs a
+                // real fix (not just this safety net). Remove this try/catch
+                // once that's confirmed either way.
+                try
+                {
+                    _networkBridge?.RaycastFireServerRpc(
+                        new ProjectileFireRequest
+                        {
+                            ConfigId               = configId,
+                            Origin                 = result.Origin,
+                            Direction              = result.Direction,
+                            OwnerMidId             = context.OwnerMidId,
+                            FiredByNetworkObjectId = context.FiredByNetworkObjectId,
+                            IsBotOwner             = context.IsBotOwner,
+                            WeaponLevel            = context.WeaponLevel,
+                            DamageMultiplier       = context.DamageMultiplier,
+                            ClientFireTick         = _networkBridge.GetServerTick()
+                        },
+                        result.HitPoint, result.DidHit,
+                        result.IsHeadshot, result.HitTargetNetworkId,
+                        result.Is3D);
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError(
+                        $"[RAYDIAG] RaycastFireServerRpc THREW: {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
+                }
 
                 _raycastHandler?.OfflineHandleFire(
                     result, configId, (uint)context.OwnerMidId, 1f);
