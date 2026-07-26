@@ -11,8 +11,6 @@ using MidManStudio.Projectiles.Core;
 using MidManStudio.Projectiles.Network;
 using MidManStudio.Projectiles.Visuals;
 using MidManStudio.Netcode.Pools;
-using System.Diagnostics;
-
 namespace MidManStudio.Projectiles.Managers
 {
     [DisallowMultipleComponent]
@@ -280,7 +278,7 @@ namespace MidManStudio.Projectiles.Managers
             // consecutive frames (e.g. a slow projectile still overlapping on
             // FixedUpdate) — without this guard a piercing shot could burn
             // multiple collision "charges" on one target instead of one.
-            if (targetNetObj != null && !_hitTargetIds.Add(targetNetObj.NetworkObjectId))
+            if (targetNetObj != null && !_hitTargetIds.Add((uint)targetNetObj.NetworkObjectId))
                 return;
 
             bool destroyNow = ResolvePiercingAndDamage(targetNetObj, hitPoint, false);
@@ -296,7 +294,7 @@ namespace MidManStudio.Projectiles.Managers
             if (!IsServer || HasHit) return;
 
             var targetNetObj = hitGO.GetComponentInParent<NetworkObject>();
-            if (targetNetObj != null && !_hitTargetIds.Add(targetNetObj.NetworkObjectId))
+            if (targetNetObj != null && !_hitTargetIds.Add((uint)targetNetObj.NetworkObjectId))
                 return;
 
             bool destroyNow = ResolvePiercingAndDamage(targetNetObj, hitPoint, true);

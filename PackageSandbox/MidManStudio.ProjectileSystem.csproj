@@ -121,9 +121,6 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Data/MID_AllProjectileNames.cs">
       <Link>Runtime/Data/MID_AllProjectileNames.cs</Link>
     </Compile>
-    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Network/ClientProjectileVisualManager.cs">
-      <Link>Runtime/Network/ClientProjectileVisualManager.cs</Link>
-    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Config/MathFormulaEvaluator.cs">
       <Link>Runtime/Config/MathFormulaEvaluator.cs</Link>
     </Compile>

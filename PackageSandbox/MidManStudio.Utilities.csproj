@@ -88,6 +88,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Events/MID_GameEventListener.cs">
       <Link>Runtime/Events/MID_GameEventListener.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/Config/IPoolEntryProviderSO.cs">
+      <Link>Runtime/PoolSystems/Config/IPoolEntryProviderSO.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/FXSystems/Config/EffectTypeProviderSO.cs">
       <Link>Runtime/FXSystems/Config/EffectTypeProviderSO.cs</Link>
     </Compile>

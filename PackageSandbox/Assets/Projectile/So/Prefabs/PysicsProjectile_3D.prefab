@@ -118,10 +118,10 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   SyncPositionX: 1
   SyncPositionY: 1
-  SyncPositionZ: 1
+  SyncPositionZ: 0
   SyncRotAngleX: 0
   SyncRotAngleY: 0
-  SyncRotAngleZ: 0
+  SyncRotAngleZ: 1
   SyncScaleX: 0
   SyncScaleY: 0
   SyncScaleZ: 0
@@ -149,7 +149,8 @@ MonoBehaviour:
   _damageLayerMask:
     serializedVersion: 2
     m_Bits: 4294967295
-  _visualConfigId: 0
+  n_VisualConfigId:
+    m_InternalValue: 0
   _visual2DPoolType: 100
   _visual3DPoolType: 101
   _logLevel: 2

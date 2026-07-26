@@ -15998,14 +15998,14 @@ MonoBehaviour:
     displayName: 
     prefab: {fileID: 6515030138356718256, guid: 22491bbceb1054b0d80857197f990b2e,
       type: 3}
-    prewarmCount: 5
-    maxPoolSize: 20
+    prewarmCount: 10
+    maxPoolSize: 30
   - objectType: 101
     displayName: 
     prefab: {fileID: 8989598825715357742, guid: 8f51b965d61fd4349b65dab6f124a789,
       type: 3}
-    prewarmCount: 5
-    maxPoolSize: 20
+    prewarmCount: 10
+    maxPoolSize: 30
   autoRegisterPrewarmCount: 10
   autoRegisterMaxPoolSize: 20
   enableAutoRegistration: 1

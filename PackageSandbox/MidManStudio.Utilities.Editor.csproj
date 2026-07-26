@@ -67,6 +67,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/HierarchyArranger/MID_HierarchyArranger.cs">
       <Link>Editor/HierarchyArranger/MID_HierarchyArranger.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/PoolSystems/PoolEntryJsonImporter.cs">
+      <Link>Editor/PoolSystems/PoolEntryJsonImporter.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/StickyNote/MID_StickyNoteEditor.cs">
       <Link>Editor/StickyNote/MID_StickyNoteEditor.cs</Link>
     </Compile>
@@ -114,6 +117,9 @@
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Logging/MID_LoggerEditorWindow.cs">
       <Link>Editor/Logging/MID_LoggerEditorWindow.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/PoolSystems/PoolTypeProviderEditor.cs">
+      <Link>Editor/PoolSystems/PoolTypeProviderEditor.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/HierarchyArranger/MID_HierarchyArrangerWindow.cs">
       <Link>Editor/HierarchyArranger/MID_HierarchyArrangerWindow.cs</Link>
