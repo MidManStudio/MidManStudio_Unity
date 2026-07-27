@@ -619,6 +619,98 @@ namespace MidManStudio.Projectiles.Managers
                 _nextVisualId++, playImpactOnArrival: result.DidHit, is3D: result.Is3D);
         }
 
+        /// <summary>
+        /// Client-side, non-authoritative visual prediction for a PATTERN
+        /// raycast shot — the pattern-path counterpart to OfflineHandleFire
+        /// above (which only ever covered the single-ray path; see
+        /// RegisterRaycastFire's defensive call into it). ServerHandleFirePattern
+        /// broadcasts its visuals via BuildTargetList(senderClientId), which
+        /// deliberately excludes the firing client on the assumption that the
+        /// firing client already has a local prediction — true for the
+        /// single-ray path, but there was never an equivalent for patterns, so
+        /// a client firing a pattern shot was excluded from the RPC AND had
+        /// nothing local to fall back on: nothing rendered for their own shot.
+        ///
+        /// Resolves the same directions ServerHandleFirePattern resolves
+        /// server-side, does a plain local raycast per pellet (no lag
+        /// compensation — this is cosmetic prediction, not a hit claim), and
+        /// reuses OfflineHandleFire per pellet for the actual visual + local
+        /// hit-feedback. The server's own authoritative resolution and
+        /// broadcast to every OTHER client is unchanged and still happens via
+        /// ServerHandleFirePattern / RaycastPatternFireServerRpc — this only
+        /// fills the gap BuildTargetList's sender-exclusion leaves for the
+        /// firing client.
+        /// </summary>
+        public void ClientPredictPatternLocal(
+            ushort patternId, Vector3 origin, Vector3 baseDirection,
+            byte pelletCount, float spreadDeg, bool is3D,
+            ushort configId, uint ownerLocalId, float damageMultiplier)
+        {
+            var cfg = ProjectileRegistry.Instance?.Get(configId);
+            if (cfg == null) return;
+
+            float maxRange = cfg.MaxRange > 0f ? cfg.MaxRange : 1000f;
+            var resolved = ProjectileDirectionResolver.Resolve(
+                patternId, origin, baseDirection, pelletCount, spreadDeg, 1f, is3D);
+
+            foreach (var dir in resolved)
+            {
+                bool didHit = CastLocalRay(
+                    origin, dir.Direction, is3D, maxRange,
+                    out Vector3 hitPoint, out ulong hitTargetId);
+
+                var result = new RaycastFireResult
+                {
+                    Origin             = origin,
+                    Direction          = dir.Direction,
+                    HitPoint           = hitPoint,
+                    DidHit             = didHit,
+                    HitTargetNetworkId = hitTargetId,
+                    IsHeadshot         = false,
+                    Is3D               = is3D
+                };
+
+                OfflineHandleFire(result, configId, ownerLocalId, damageMultiplier);
+            }
+        }
+
+        /// <summary>
+        /// Plain local raycast, 2D or 3D, no lag compensation and no
+        /// client-vs-server comparison — used only by ClientPredictPatternLocal
+        /// above for cosmetic prediction. Mirrors CastServerRay's logic exactly
+        /// (same layer masks/contact filter) so the predicted hit point lines
+        /// up with what the server will very likely also resolve.
+        /// </summary>
+        private bool CastLocalRay(
+            Vector3 origin, Vector3 direction, bool is3D, float maxDistance,
+            out Vector3 hitPoint, out ulong targetNetworkId)
+        {
+            hitPoint        = origin + direction * maxDistance;
+            targetNetworkId = 0;
+
+            if (is3D)
+            {
+                if (!Physics.Raycast(origin, direction, out RaycastHit hit, maxDistance,
+                        _serverRaycastLayers, QueryTriggerInteraction.Collide))
+                    return false;
+
+                hitPoint = hit.point;
+                var no = hit.collider.GetComponentInParent<NetworkObject>();
+                if (no != null) targetNetworkId = no.NetworkObjectId;
+                return true;
+            }
+
+            if (!_contactFilterInitialised) InitContactFilter2D();
+            var results = new RaycastHit2D[1];
+            int count = Physics2D.Raycast(origin, direction, _serverContactFilter2D, results, maxDistance);
+            if (count == 0) return false;
+
+            hitPoint = results[0].point;
+            var no2D = results[0].collider.GetComponentInParent<NetworkObject>();
+            if (no2D != null) targetNetworkId = no2D.NetworkObjectId;
+            return true;
+        }
+
         #endregion
 
         #region Helpers
