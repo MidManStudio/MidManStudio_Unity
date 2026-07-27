@@ -769,9 +769,37 @@ namespace TestGame
             {
                 if (!IsServer)
                 {
-                    // Physics pool visual for firing client — travels locally during RPC round-trip
-                    MID_MasterProjectileSystem.Instance.GetPredictionManager()
-                        ?.SpawnLocalPhysicsVisual(cfgId, origin, dir, _physicsProjectileSpeed);
+                    // FIX: predict the SAME number of ghosts the server will actually
+                    // spawn. This used to always predict exactly one straight-line
+                    // ghost regardless of pattern, while the server (via
+                    // FirePhysicsProjectileServerRpc -> SpawnPhysicsProjectile, once
+                    // per resolved direction) could spawn N pattern-shaped
+                    // projectiles. That mismatch is what read as "fires twice, one
+                    // shot without the pattern then the one with it" — reconciliation
+                    // only ever had one ghost to kill off against however many real
+                    // projectiles actually showed up. Resolving the same directions
+                    // here (mirroring what SpawnPhysicsProjectileLocal already does
+                    // for the offline path, just below) keeps the ghost count 1:1
+                    // with what the server will spawn.
+                    Vector3[] predictedDirs;
+                    if (patternId != 0)
+                    {
+                        var resolved = ProjectileDirectionResolver.Resolve(
+                            patternId, origin, dir, 1, 0f, _physicsProjectileSpeed, use3D);
+                        predictedDirs = new Vector3[resolved.Length];
+                        for (int i = 0; i < resolved.Length; i++) predictedDirs[i] = resolved[i].Direction;
+                    }
+                    else
+                    {
+                        predictedDirs = new[] { dir };
+                    }
+
+                    var predictionManager = MID_MasterProjectileSystem.Instance.GetPredictionManager();
+                    foreach (var pDir in predictedDirs)
+                    {
+                        predictionManager?.SpawnLocalPhysicsVisual(
+                            cfgId, origin, pDir, _physicsProjectileSpeed);
+                    }
                 }
 
                 MID_MasterProjectileSystem.Instance.GetBridge()?.FirePhysicsProjectileServerRpc(
