@@ -460,22 +460,46 @@ namespace MidManStudio.Projectiles.Managers
                 return;
             }
 
-            _networkBridge?.RaycastPatternFireServerRpc(new ProjectileFireRequest
+            // Same defensive shape as RegisterRaycastFire: wrap the RPC send so a
+            // throw in it can't skip the local fallback below, and log if it does
+            // (that would mean the server never got this fire event at all, which
+            // is bigger than a missing visual).
+            try
             {
-                ConfigId               = configId,
-                Origin                 = origin,
-                Direction              = baseDirection,
-                PatternId              = patternId,
-                ProjectileCount        = pelletCount,
-                SpreadDeg              = spreadDeg,
-                PatternIs3D            = is3D,
-                OwnerMidId             = context.OwnerMidId,
-                FiredByNetworkObjectId = context.FiredByNetworkObjectId,
-                IsBotOwner             = context.IsBotOwner,
-                WeaponLevel            = context.WeaponLevel,
-                DamageMultiplier       = context.DamageMultiplier,
-                ClientFireTick         = _networkBridge.GetServerTick()
-            });
+                _networkBridge?.RaycastPatternFireServerRpc(new ProjectileFireRequest
+                {
+                    ConfigId               = configId,
+                    Origin                 = origin,
+                    Direction              = baseDirection,
+                    PatternId              = patternId,
+                    ProjectileCount        = pelletCount,
+                    SpreadDeg              = spreadDeg,
+                    PatternIs3D            = is3D,
+                    OwnerMidId             = context.OwnerMidId,
+                    FiredByNetworkObjectId = context.FiredByNetworkObjectId,
+                    IsBotOwner             = context.IsBotOwner,
+                    WeaponLevel            = context.WeaponLevel,
+                    DamageMultiplier       = context.DamageMultiplier,
+                    ClientFireTick         = _networkBridge.GetServerTick()
+                });
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError(
+                    $"[RAYDIAG] RaycastPatternFireServerRpc THREW: {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
+            }
+
+            // FIX: this was the missing counterpart to RegisterRaycastFire's
+            // defensive OfflineHandleFire call — ServerHandleFirePattern's
+            // ClientRpc deliberately excludes the firing client
+            // (BuildTargetList(senderClientId)) on the assumption a local
+            // prediction already exists for it, which was true for the
+            // single-ray path and never true here. Without this, a client
+            // firing a pattern shot was excluded from the RPC and had nothing
+            // local to fall back on — nothing rendered for their own shot.
+            _raycastHandler?.ClientPredictPatternLocal(
+                patternId, origin, baseDirection, pelletCount, spreadDeg, is3D,
+                configId, (uint)context.OwnerMidId, 1f);
         }
 
         public void RegisterRaycastFire(
