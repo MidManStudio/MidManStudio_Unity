@@ -281,7 +281,7 @@ namespace MidManStudio.Projectiles.Managers
             if (targetNetObj != null && !_hitTargetIds.Add((uint)targetNetObj.NetworkObjectId))
                 return;
 
-            bool destroyNow = ResolvePiercingAndDamage(targetNetObj, hitPoint, false);
+            bool destroyNow = ResolvePiercingAndDamage(targetNetObj, hitPoint, false, hitGO);
             if (!destroyNow) return;
 
             HasHit = true;
@@ -297,7 +297,7 @@ namespace MidManStudio.Projectiles.Managers
             if (targetNetObj != null && !_hitTargetIds.Add((uint)targetNetObj.NetworkObjectId))
                 return;
 
-            bool destroyNow = ResolvePiercingAndDamage(targetNetObj, hitPoint, true);
+            bool destroyNow = ResolvePiercingAndDamage(targetNetObj, hitPoint, true, hitGO);
             if (!destroyNow) return;
 
             HasHit = true;
@@ -318,7 +318,7 @@ namespace MidManStudio.Projectiles.Managers
         /// author one or the other on a given ProjectileConfigSO, not both.
         /// </summary>
         private bool ResolvePiercingAndDamage(
-            NetworkObject targetNetObj, Vector3 hitPoint, bool is2D)
+            NetworkObject targetNetObj, Vector3 hitPoint, bool is2D, GameObject hitGO)
         {
             if (_explosionRadius > 0.01f)
             {
@@ -337,7 +337,7 @@ namespace MidManStudio.Projectiles.Managers
                 return true;
             }
 
-            ApplyDirectHit(targetNetObj, hitPoint, is2D);
+            ApplyDirectHit(targetNetObj, hitPoint, is2D, hitGO);
 
             var pierceType = ProjectilePiercingType.None;
             if (ProjectileRegistry.HasInstance)
@@ -353,14 +353,14 @@ namespace MidManStudio.Projectiles.Managers
         }
 
         private void ApplyDirectHit(
-            NetworkObject targetNetObj, Vector3 hitPoint, bool is2D)
+            NetworkObject targetNetObj, Vector3 hitPoint, bool is2D, GameObject hitGO)
         {
             if (targetNetObj == null) return;
             float damage = ComputeConfigDamage(hitPoint);
             FireHitEvent(
                 (uint)targetNetObj.NetworkObjectId,
                 damage,
-                hitPoint, is2D);
+                hitPoint, is2D, hitGO);
         }
 
         private void ApplyExplosionDamage3D(Vector3 centre)
@@ -375,7 +375,7 @@ namespace MidManStudio.Projectiles.Managers
                 float dist    = Vector3.Distance(centre, cols[i].transform.position);
                 float falloff = 1f - Mathf.Clamp01(dist / _explosionRadius);
                 float damage  = ComputeConfigDamage(cols[i].transform.position) * falloff;
-                FireHitEvent((uint)no.NetworkObjectId, damage, centre, false);
+                FireHitEvent((uint)no.NetworkObjectId, damage, centre, false, cols[i].gameObject);
             }
         }
 
@@ -391,7 +391,7 @@ namespace MidManStudio.Projectiles.Managers
                 float dist    = Vector2.Distance((Vector2)centre, (Vector2)cols[i].transform.position);
                 float falloff = 1f - Mathf.Clamp01(dist / _explosionRadius);
                 float damage  = ComputeConfigDamage(cols[i].transform.position) * falloff;
-                FireHitEvent((uint)no.NetworkObjectId, damage, centre, true);
+                FireHitEvent((uint)no.NetworkObjectId, damage, centre, true, cols[i].gameObject);
             }
         }
 
@@ -422,7 +422,7 @@ namespace MidManStudio.Projectiles.Managers
         }
 
         private void FireHitEvent(
-            uint targetId, float damage, Vector3 hitPoint, bool is2D)
+            uint targetId, float damage, Vector3 hitPoint, bool is2D, GameObject hitGO = null)
         {
             OnHitServerConfirmed?.Invoke(new ProjectileHitPayload
             {
@@ -438,6 +438,8 @@ namespace MidManStudio.Projectiles.Managers
                 FiredByNetworkObjectId = _firedByNetworkObjectId,
                 IsBotOwner             = _isBotOwner,
                 WeaponLevel            = _weaponLevel,
+                DamageMultiplier        = _damageMultiplier,
+                HitObject              = hitGO,
             });
         }
 
