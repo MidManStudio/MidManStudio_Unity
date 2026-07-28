@@ -12,7 +12,7 @@ namespace MidManStudio.Projectiles.Managers
 {
     [RequireComponent(typeof(Rigidbody))]
     [RequireComponent(typeof(SphereCollider))]
-    public sealed class PhysicsProjectile3D : PhysicsProjectileBase
+    public class PhysicsProjectile3D : PhysicsProjectileBase
     {
         #region Inspector
 
