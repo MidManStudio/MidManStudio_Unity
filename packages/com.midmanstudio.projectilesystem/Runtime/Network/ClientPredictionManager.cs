@@ -151,27 +151,27 @@ namespace MidManStudio.Projectiles.Network
         }
 
         /// <summary>
-        /// FIX: this was the missing other half of SpawnLocalPhysicsVisual /
-        /// KillPhysicsVisual — nothing ever called KillPhysicsVisual, so the
-        /// prediction visual always lived out its full cfg.Lifetime regardless
-        /// of whether the real, server-confirmed PhysicsProjectileBase had
-        /// already arrived and spawned its own pooled visual for the same
-        /// shot. Two pooled visuals ended up representing one shot on the
-        /// firing client — the straight-line prediction (it doesn't run real
-        /// physics, so no gravity/bounce) and the real physics-simulated one —
-        /// overlapping and drifting apart until the prediction's timer expired.
-        /// Under rapid fire this roughly doubles LocalObjectPool churn per shot
-        /// and is very likely what read as "wrong/default visual": the two
-        /// visuals disagree the moment real physics takes the authoritative
-        /// one off the straight line the prediction is still blindly walking.
+        /// OBSOLETE — no longer called from anywhere. This reconciled the
+        /// firing client's own predicted visual against the real, server-
+        /// confirmed PhysicsProjectileBase once it arrived on that client,
+        /// which was the wrong fix for "physics projectile fires twice on
+        /// client": the firing client was never supposed to receive the real
+        /// object at all. MID_MasterProjectileSystem.SpawnPhysicsProjectile now
+        /// NetworkHides it from the firing client entirely instead, so
+        /// PhysicsProjectileBase.OnNetworkSpawn no longer has anything to call
+        /// this with (IsOwner is no longer meaningful there either, since
+        /// ownership is no longer transferred to the firing client).
         ///
-        /// Call from PhysicsProjectileBase.OnNetworkSpawn() on the firing
-        /// client (IsOwner == true) once the real NetworkObject arrives.
-        /// Physics visuals have no shared ID to match against directly, so
-        /// this uses the same nearest-by-position matching OnHitConfirmed
-        /// above already relies on — compared against each entry's Origin
-        /// (the shot's muzzle point), which stays fixed regardless of how many
-        /// Update() ticks the prediction has already taken.
+        /// The prediction ghost this would have killed instead lives out its
+        /// own MaxLifetime and glides to the confirmed hit point on its own via
+        /// HitConfirmedClientRpc -> OnHitConfirmed below, which already
+        /// broadcasts to every client including the firer.
+        ///
+        /// Left in place rather than deleted in case a future projectile type
+        /// genuinely wants the "let the real object reach the firer and
+        /// reconcile" approach instead of "hide it and let the ghost play out
+        /// on its own" — the nearest-by-Origin matching below is still valid
+        /// for that use case, just unused by anything today.
         /// </summary>
         public void OnRealPhysicsProjectileSpawned(Vector3 spawnPosition)
         {

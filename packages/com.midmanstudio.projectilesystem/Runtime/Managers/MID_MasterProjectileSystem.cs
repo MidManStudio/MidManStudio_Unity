@@ -353,32 +353,33 @@ namespace MidManStudio.Projectiles.Managers
         /// deliberately keep the prefab's own Inspector default (back-compat).
         /// </param>
         /// <param name="firingClientId">
-        /// BUG FIX ("physics projectile fires twice on client, once on host"):
-        /// this always spawned server-owned (plain NetworkObject.Spawn()),
-        /// regardless of who actually fired it. PhysicsProjectileBase.OnNetworkSpawn()
-        /// only calls ClientPredictionManager.OnRealPhysicsProjectileSpawned() —
-        /// which kills the firing client's local predicted visual spawned by
-        /// NetworkedDimensionPlayer.FirePhysics's SpawnLocalPhysicsVisual — when
-        /// IsOwner is true on that client's copy of this object. Since ownership
-        /// was never transferred, IsOwner was only ever true on the server/host,
-        /// so a firing client's predicted visual was never reconciled/killed and
-        /// lived out its full Lifetime alongside the real, server-replicated one:
-        /// two visible projectiles for one shot, client-side only (the host never
-        /// spawns a local prediction to begin with — see FirePhysics's
-        /// `if (!IsServer)` guard around SpawnLocalPhysicsVisual — so it was never
-        /// affected).
+        /// REVISED FIX ("physics projectile fires twice on client — a split
+        /// second after the firing client's own shot, another batch shows up"):
+        /// the previous fix (SpawnWithOwnership + PhysicsProjectileBase.
+        /// OnNetworkSpawn calling ClientPredictionManager.
+        /// OnRealPhysicsProjectileSpawned when IsOwner) was solving the wrong
+        /// problem. The firing client was never supposed to see this real,
+        /// server-simulated object at all — it already has its own local
+        /// prediction ghost (NetworkedDimensionPlayer.FirePhysics's
+        /// SpawnLocalPhysicsVisual), which lives out its own MaxLifetime and
+        /// glides to the confirmed hit point on its own via
+        /// HitConfirmedClientRpc -> ClientPredictionManager.OnHitConfirmed —
+        /// that ClientRpc is a plain broadcast with no target list, so it
+        /// already reaches the firer. The ghost never needed the real object
+        /// to arrive; reconciling against it was actively the bug, since
+        /// under any latency/ordering variance both ended up visible at once.
         ///
-        /// Pass the actual firing client's NGO id (ServerRpcParams.Receive.SenderClientId
-        /// from FirePhysicsProjectileServerRpc) to spawn with SpawnWithOwnership
-        /// instead of Spawn. This only fixes the IsOwner check — it does NOT hand
-        /// authority over the projectile's transform to the client:
-        /// NetworkProjectileBase (the NetworkTransform subclass every physics
-        /// projectile uses) never overrides OnIsServerAuthoritative(), so position
-        /// sync stays server-authoritative regardless of who owns the object.
+        /// Fix: this object is server-owned as always, but gets NetworkHidden
+        /// from the firing client specifically, so it's never replicated to
+        /// them at all — only to every OTHER connected client, which is who
+        /// actually needs to see the real simulated projectile. The host is
+        /// exempt: FirePhysics's `if (!IsServer)` guard means the host never
+        /// spawns a prediction ghost for its own shot in the first place, so
+        /// it still needs to see this real object normally.
         ///
-        /// Default (ulong.MaxValue) preserves the old server-owned Spawn() for
-        /// any caller with no specific client to own it (e.g. the fully
-        /// offline/non-networked local-fire path).
+        /// Default (ulong.MaxValue) hides from nobody — for the fully
+        /// offline/non-networked local-fire path, or any caller with no
+        /// specific firing client to exclude.
         /// </param>
         public NetworkObject SpawnPhysicsProjectile(
             PoolableNetworkObjectType type, Vector3 position, Quaternion rotation,
@@ -402,13 +403,17 @@ namespace MidManStudio.Projectiles.Managers
             if (physicsBase != null && configId != 0)
                 physicsBase.SetVisualConfigId(configId);
 
-            // See firingClientId doc above: SpawnWithOwnership makes IsOwner true
-            // on the actual firing client so its predicted visual gets reconciled
-            // away instead of doubling up with this real one.
-            if (firingClientId != ulong.MaxValue)
-                netObj.SpawnWithOwnership(firingClientId);
-            else
-                netObj.Spawn();
+            // Always server-owned now — see firingClientId doc above. Ownership
+            // is no longer how the firing client is told apart; NetworkHide below
+            // does that instead (and NetworkHide cannot target an object's own
+            // owner anyway, which is exactly why SpawnWithOwnership had to go).
+            netObj.Spawn();
+
+            bool firerIsHost = NetworkManager != null && NetworkManager.IsHost
+                && firingClientId == NetworkManager.LocalClientId;
+
+            if (firingClientId != ulong.MaxValue && !firerIsHost)
+                netObj.NetworkHide(firingClientId);
 
             if (physicsBase != null)
             {
