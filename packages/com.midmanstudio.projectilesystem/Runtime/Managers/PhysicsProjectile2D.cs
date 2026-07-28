@@ -17,7 +17,7 @@ using MidManStudio.Projectiles.Config;
 namespace MidManStudio.Projectiles.Managers
 {
     [RequireComponent(typeof(Rigidbody2D))]
-    public sealed class PhysicsProjectile2D : PhysicsProjectileBase
+    public class PhysicsProjectile2D : PhysicsProjectileBase
     {
         [Header("2D Physics Settings")]
         [Tooltip("Overridden by config.GravityScale if a config is registered for _visualConfigId.")]
