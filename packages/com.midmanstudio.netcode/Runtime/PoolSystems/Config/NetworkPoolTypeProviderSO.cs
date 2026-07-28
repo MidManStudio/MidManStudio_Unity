@@ -18,7 +18,7 @@ namespace MidManStudio.Netcode.Generator
     [CreateAssetMenu(
         fileName = "NetworkPoolTypeProvider",
         menuName = "MidManStudio/Netcode/Pool Type Provider (Network Object)", order = 0)]
-    public class NetworkPoolTypeProviderSO : ScriptableObject
+    public class NetworkPoolTypeProviderSO : ScriptableObject, IPoolEntryProviderSO
     {
         [Header("Identity")]
         [Tooltip("Reverse-domain package ID. Must be unique across all network pool providers.")]
@@ -35,5 +35,10 @@ namespace MidManStudio.Netcode.Generator
         public List<PoolEntryDefinition> entries = new List<PoolEntryDefinition>();
 
         public int EntryCount => entries?.Count ?? 0;
+
+        // IPoolEntryProviderSO — lets PoolTypeProviderEditorBase (defined in
+        // com.midmanstudio.utilities, already referenced by this package's
+        // Editor asmdef) drive this provider's JSON-import panel too.
+        List<PoolEntryDefinition> IPoolEntryProviderSO.Entries => entries;
     }
 }
