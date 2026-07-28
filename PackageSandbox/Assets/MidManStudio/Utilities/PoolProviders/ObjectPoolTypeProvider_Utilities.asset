@@ -22,3 +22,6 @@ MonoBehaviour:
   - entryName: Trail
     comment: Pooled trail renderer object
     explicitOffset: 1
+  - entryName: FlipbookEffect
+    comment: Pooled sprite-sheet flipbook effect (GlobalFXManager)
+    explicitOffset: 2
