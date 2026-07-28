@@ -104,27 +104,17 @@ namespace MidManStudio.Projectiles.Managers
             // than before it (see MID_MasterProjectileSystem.SpawnPhysicsProjectile).
             n_VisualConfigId.OnValueChanged += HandleVisualConfigChanged;
 
-            // FIX: reconcile away the firing client's own predicted visual now
-            // that the real, server-confirmed projectile has arrived — see
-            // ClientPredictionManager.OnRealPhysicsProjectileSpawned for the
-            // full explanation. Only the firing client (IsOwner) ever has a
-            // matching prediction visual to clean up; everyone else never
-            // spawned one for this shot.
-            //
-            // TEMP DIAG: confirms whether IsOwner is actually true for the
-            // firing client here (proves/disproves the SpawnWithOwnership fix
-            // took effect — requires BOTH host and client running the updated
-            // MID_MasterProjectileSystem.cs/MID_ProjectileNetworkBridge.cs,
-            // since the Spawn call happens server-side) and, separately,
-            // whether OnRealPhysicsProjectileSpawned actually found and killed
-            // a matching prediction visual or silently found nothing within its
-            // 0.5-unit match tolerance. Remove once the double-fire issue is
-            // confirmed fixed.
-            Debug.LogError(
-                $"[PHYSDIAG] OnNetworkSpawn IsOwner={IsOwner} OwnerClientId={OwnerClientId} pos={transform.position}");
-            if (IsOwner && MID_MasterProjectileSystem.HasInstance)
-                MID_MasterProjectileSystem.Instance.GetPredictionManager()
-                    ?.OnRealPhysicsProjectileSpawned(transform.position);
+            // SUPERSEDED: this used to reconcile away the firing client's own
+            // predicted visual once the real, server-confirmed projectile
+            // arrived (IsOwner check + ClientPredictionManager.
+            // OnRealPhysicsProjectileSpawned). That was solving the wrong
+            // problem — the firing client was never supposed to receive this
+            // object at all. MID_MasterProjectileSystem.SpawnPhysicsProjectile
+            // now NetworkHides it from the firing client entirely (their local
+            // prediction ghost lives out its own MaxLifetime and glides to the
+            // confirmed hit point via HitConfirmedClientRpc on its own), so
+            // IsOwner is no longer meaningful here and this class no longer
+            // needs to do anything owner-specific on spawn.
 
             OnPhysicsSetup();
             SpawnPoolVisual();
