@@ -25,7 +25,18 @@ namespace MidManStudio.Projectiles.Adapters
         public ulong  FiredByNetworkObjectId;
         public bool   IsBotOwner;
         public byte   WeaponLevel;
+        public float  DamageMultiplier;
         public ServerProjectileData GameData;
+
+        // The actual GameObject that was hit (whatever was passed into
+        // HandleHit2D/HandleHit3D — i.e. the collider's own object, not
+        // necessarily the NetworkObject root). The package itself never reads
+        // this; it exists purely so game-specific OnHitServerConfirmed
+        // subscribers can pull whatever component they need off the exact
+        // thing that was hit (a hitbox's CapsuleCollider2D for headshot
+        // detection, for example) without the package needing to know why.
+        // Null for explosion damage where there's no single "the" hit object.
+        public GameObject HitObject;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
