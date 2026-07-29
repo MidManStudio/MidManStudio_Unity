@@ -68,11 +68,11 @@ namespace MidManStudio.Projectiles.Managers
         // Recorded at launch for travel-distance damage falloff
         private Vector3 _spawnPosition;
 
-        private ulong _ownerMidId;
-        private ulong _firedByNetworkObjectId;
-        private bool  _isBotOwner;
-        private byte  _weaponLevel;
-        private float _damageMultiplier = 1f;
+        protected ulong _ownerMidId;
+        protected ulong _firedByNetworkObjectId;
+        protected bool  _isBotOwner;
+        protected byte  _weaponLevel;
+        protected float _damageMultiplier = 1f;
 
         private GameObject           _poolVisualGO;
         private ProjectileVisualBase _poolVisual;

@@ -446,7 +446,7 @@ namespace MidManStudio.Core.Pools.Generator
                 {
                     foreach (var entry in blk.Entries)
                     {
-                        string pinTag  = entry.WasPinned ? " [pinned]" : "";
+                        string pinTag  = entry.WasPinned ? " //[pinned]" : "";
                         string comment = string.IsNullOrWhiteSpace(entry.Comment)
                             ? pinTag : $" // {entry.Comment}{pinTag}";
                         sb.AppendLine($"        {entry.Name} = {entry.Value},{comment}");

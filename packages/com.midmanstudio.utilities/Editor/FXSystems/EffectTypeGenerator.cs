@@ -241,7 +241,7 @@ namespace MidManStudio.Core.EditorUtils.FX
                 if (blk.Entries.Count == 0) { sb.AppendLine("        // (no entries defined)"); }
                 else foreach (var (name, value, comment, pinned) in blk.Entries)
                 {
-                    string pin  = pinned ? " [pinned]" : "";
+                    string pin  = pinned ? " //[pinned]" : "";
                     string cmt  = string.IsNullOrWhiteSpace(comment) ? pin : $" // {comment}{pin}";
                     sb.AppendLine($"        {name} = {value},{cmt}");
                 }

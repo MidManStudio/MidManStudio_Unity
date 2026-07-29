@@ -140,7 +140,7 @@ namespace MidManStudio.Projectiles.Managers
             MID_ProjectileNetworkBridge.ConfigureTransportForHighThroughput();
 
             if (_localManager == null)
-                _localManager = FindObjectOfType<LocalProjectileManager>();
+                _localManager = FindAnyObjectByType<LocalProjectileManager>();
 
             if (_authority != null)
             {
@@ -409,8 +409,8 @@ namespace MidManStudio.Projectiles.Managers
             // owner anyway, which is exactly why SpawnWithOwnership had to go).
             netObj.Spawn();
 
-            bool firerIsHost = NetworkManager != null && NetworkManager.IsHost
-                && firingClientId == NetworkManager.LocalClientId;
+            bool firerIsHost = NetworkManager.Singleton != null && NetworkManager.Singleton.IsHost
+                && firingClientId == NetworkManager.Singleton.LocalClientId;
 
             if (firingClientId != ulong.MaxValue && !firerIsHost)
                 netObj.NetworkHide(firingClientId);

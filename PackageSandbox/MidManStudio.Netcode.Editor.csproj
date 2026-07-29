@@ -64,6 +64,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.netcode/Editor/NetcodePoolProviderBootstrapper.cs">
       <Link>Editor/NetcodePoolProviderBootstrapper.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.netcode/Editor/NetworkPoolTypeProviderEditor.cs">
+      <Link>Editor/NetworkPoolTypeProviderEditor.cs</Link>
+    </Compile>
   </ItemGroup>
   <ItemGroup>
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.netcode/Editor/MidManStudio.Netcode.Editor.asmdef">
