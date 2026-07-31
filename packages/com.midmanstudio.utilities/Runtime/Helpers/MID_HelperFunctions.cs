@@ -8,7 +8,6 @@ using System.Linq;
 using System.Reflection;
 using System.Text;
 using UnityEngine;
-using UnityEngine.UI;
 using MidManStudio.Core.Logging;
 
 namespace MidManStudio.Core.HelperFunctions
@@ -25,7 +24,7 @@ namespace MidManStudio.Core.HelperFunctions
     ///   - Generic functional helpers (Map, Filter, Reduce, GroupBy)
     ///   - JSON / XML serialisation via Unity's built-in JsonUtility + System.Xml
     /// </summary>
-    public static class MID_HelperFunctions
+    public  static partial class MID_HelperFunctions
     {
         // ── Logging shims ─────────────────────────────────────────────────────
         // Kept for API compatibility with existing callers.
@@ -268,7 +267,7 @@ namespace MidManStudio.Core.HelperFunctions
     // ── Generic functional helpers ────────────────────────────────────────────
 
     /// <summary>Map / Filter / Reduce / GroupBy helpers for List&lt;T&gt;.</summary>
-    public static class MID_HelperFunctionsWithType<T>
+    public static partial class MID_HelperFunctionsWithType<T>
     {
         public static List<U> Map<U>(List<T> items, Func<T, U> fn)
         {

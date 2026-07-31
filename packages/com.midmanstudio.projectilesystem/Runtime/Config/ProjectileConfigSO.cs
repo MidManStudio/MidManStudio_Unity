@@ -3,6 +3,7 @@ using System;
 using MidManStudio.Core.Pools;
 using MidManStudio.Projectiles.Core;
 using SimulationMode = MidManStudio.Projectiles.Core.SimulationMode;
+using MidManStudio.Core;
 
 namespace MidManStudio.Projectiles.Config
 {
@@ -10,7 +11,7 @@ namespace MidManStudio.Projectiles.Config
         fileName = "ProjectileConfig",
         menuName  = "MidManStudio/Projectile System/Projectile Config",
         order     = 10)]
-    public class ProjectileConfigSO : ScriptableObject
+    public class ProjectileConfigSO : MID_BaseSO
     {
         // ── Identity ──────────────────────────────────────────────────────────
         [HideInInspector] public ushort ConfigId;

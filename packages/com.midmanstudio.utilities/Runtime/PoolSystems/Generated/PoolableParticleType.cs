@@ -19,46 +19,5 @@ namespace MidManStudio.Core.Pools
         Projectile_Headshot = 104, // Headshot / critical hit particle //[pinned]
         Projectile_Tracer = 105, // Tracer round particle //[pinned]
 
-        // ── Player Walk Effects  [com.midmanstudio.sttd.playerwalkeffects]  (block 200–299)  priority=20  ──────────────────────────
-        WalkDust = 200, //[pinned]
-        WalkGrass = 201, //[pinned]
-        PlayerWalkSnow = 202, //[pinned]
-        KingWalkIce = 203, //[pinned]
-        EsmeraldaWalkHalo = 204, //[pinned]
-
-        // ── Player Land Effects  [com.midmanstudio.sttd.playerlandeffects]  (block 300–399)  priority=30  ──────────────────────────
-        BigFallDust = 300, //[pinned]
-        BigFallGrass = 301, //[pinned]
-        HeavyLandSnow = 302, //[pinned]
-
-        // ── Impact Effects  [com.midmanstudio.sttd.impacteffects]  (block 400–499)  priority=40  ──────────────────────────
-        BasicProjectileImpact = 400, //[pinned]
-        CrimsonVortex_Impact = 401, //[pinned]
-        Hades_Impact = 402, //[pinned]
-        BloodSmith_Impact = 403, //[pinned]
-        Discharge_Impact = 404, //[pinned]
-        RedRose_Impact = 405, //[pinned]
-        AdamsAle_Impact = 406, //[pinned]
-        EmeralHalo_Impact = 407, //[pinned]
-
-        // ── Explosion Effects  [com.midmanstudio.sttd.explosioneffects]  (block 500–599)  priority=50  ──────────────────────────
-        BasicExplosion = 500, //[pinned]
-        ExplosionBurst = 501, //[pinned]
-        MegaExplosion = 502, //[pinned]
-
-        // ── Combat Effects  [com.midmanstudio.sttd.combateffects]  (block 600–699)  priority=60  ──────────────────────────
-        MuzzleFlash = 600, //[pinned]
-        BloodSpray = 601, //[pinned]
-        ImpactSparks = 602, //[pinned]
-        SlashEffect = 603, //[pinned]
-
-        // ── Enviroment Effects  [com.midmanstudio.sttd.enviromenteffects]  (block 700–799)  priority=70  ──────────────────────────
-        SmokeTrail = 700, //[pinned]
-        MagicBurst = 701, //[pinned]
-        FireTrail = 702, //[pinned]
-        ElectricDischarge = 703, //[pinned]
-        WaterSplash = 704, //[pinned]
-        DustCloud = 705, //[pinned]
-        JetpackBoost = 706, //[pinned]
     }
 }

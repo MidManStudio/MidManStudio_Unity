@@ -17,9 +17,9 @@
     "netcode", "ngo", "networking", "multiplayer",
     "singleton", "pool", "lobby", "lan", "wifi", "scene"
   ],
-  "author": {
-    "name": "MidMan Studio",
-    "email": "",
-    "url": "https://github.com/MidManStudio/MidManStudio_Unity"
-  }
+    "author": {
+        "name": "MidMan Studio",
+        "email": "midmanstudio@proton.me",
+        "url": "https://github.com/MidManStudio/MidManStudio_Unity"
+    }
 }

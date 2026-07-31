@@ -18,21 +18,5 @@ namespace MidManStudio.Core.Pools
         Projectile_Visual3D = 101, // 3D projectile visual //[pinned]
         Projectile_Flipbook = 102, // Sprite-sheet flipbook for impact explosions //[pinned]
 
-        // ── Vfx  [com.midmanstudio.Sttd.vfx]  (block 200–299)  priority=30  ──────────────────────────
-        MuzzulFlashSprite = 200, // Muzzle flash sprite //[pinned]
-
-        // ── Weapon Extras  [com.midmanstudio.Sttd.weaponextras]  (block 300–399)  priority=40  ──────────────────────────
-        GunExtraItems = 300, //[pinned]
-        MeleeExtraItems = 301, //[pinned]
-        PowerWeaponExtraItems = 302, //[pinned]
-        GrenadeExtraItems = 303, //[pinned]
-
-        // ── Item Extras  [com.midmanstudio.Sttd.itemextras]  (block 400–499)  priority=50  ──────────────────────────
-        JetpackExtraItems = 410, //[pinned]
-        SummonExtraItems = 420, //[pinned]
-
-        // ── Player Extras  [com.midmanstudio.Sttd.playerextras]  (block 500–599)  priority=60  ──────────────────────────
-        PlayerExtraItems = 530, //[pinned]
-        PlayerArmExtraItems = 531, //[pinned]
     }
 }

@@ -15,16 +15,5 @@ namespace MidManStudio.Core.Pools
         BaseProjectileBlueprint_2D = 100, // 2D Base Network Projectile Blueprint for Managed Projectiles //[pinned]
         BaseProjectileBlueprint_3D = 101, // 3D Base Network Projectile Blueprint for Managed Projectiles //[pinned]
 
-        // ── Net Blueprints  [com.midmanstudio.sttd.netblueprints]  (block 200–299)  priority=100  ──────────────────────────
-        PrimaryWeapon_Blueprint = 200, //[pinned]
-        SecondaryWeapon_Blueprint = 201, //[pinned]
-        MeleeWeapon_Blueprint = 202, //[pinned]
-        PowerWeapon_Blueprint = 203, //[pinned]
-        Jetpack_Blueprint = 210, //[pinned]
-        Grenade_Blueprint = 220, //[pinned]
-        MeleeClone_Blueprint = 232, //[pinned]
-        Summon_Blueprint = 240, //[pinned]
-        SummonMinion_Blueprint = 241, //[pinned]
-        DroppedWeapon = 250, //[pinned]
     }
 }

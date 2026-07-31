@@ -509,14 +509,7 @@ namespace MidManStudio.Projectiles.Managers
                 return;
             }
 
-            // TEMP DIAG: confirms the pooled object actually exists, is active,
-            // and where it landed. Remove once the client-can't-see-own-raycast
-            // issue is resolved.
-            Debug.LogError(
-                $"[RAYDIAG] obj created type={poolType} active={obj.activeInHierarchy} " +
-                $"layer={obj.layer} pos={obj.transform.position} " +
-                $"hasVisualComp={obj.GetComponent<ProjectileVisualBase>() != null}");
-
+          
             var vis = obj.GetComponent<ProjectileVisualBase>();
             vis?.InitializeClientVisual(configId, origin, dir, _visualTravelSpeed);
 
@@ -582,14 +575,7 @@ namespace MidManStudio.Projectiles.Managers
             RaycastFireResult result, ushort configId,
             uint ownerLocalId, float damageMultiplier)
         {
-            // TEMP DIAG: confirms this method is actually being reached for the
-            // firing client's own shot, and with what data. Remove once the
-            // client-can't-see-own-raycast issue is resolved.
-            Debug.LogError(
-                $"[RAYDIAG] OfflineHandleFire CALLED cfg={configId} " +
-                $"origin={result.Origin} hit={result.HitPoint} " +
-                $"hasCfg={ProjectileRegistry.Instance?.Get(configId) != null} is3D={result.Is3D}");
-
+         
             var cfg = ProjectileRegistry.Instance.Get(configId);
             if (cfg == null) return;
 

@@ -404,7 +404,7 @@ namespace MidManStudio.Core.EditorUtils.FX
                         $"Type blocks: {_lastResult.TypeBlocksWritten}", "OK");
             }
             GUI.backgroundColor = old; GUI.enabled = true;
-            if (GUILayout.Button("📂  Open Output Folder", GUILayout.Height(36)))
+            if (GUILayout.Button("  Open Output Folder", GUILayout.Height(36)))
             {
                 var dir = _settings != null ? Path.GetDirectoryName(_settings.categoryEnumOutputPath) : "packages/com.midmanstudio.utilities/Runtime/FXSystems/Generated";
                 EditorUtility.RevealInFinder(string.IsNullOrEmpty(dir) ? "Assets" : dir);

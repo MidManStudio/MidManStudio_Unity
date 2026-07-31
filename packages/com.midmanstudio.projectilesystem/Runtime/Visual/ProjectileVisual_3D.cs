@@ -148,32 +148,6 @@ namespace MidManStudio.Projectiles.Visuals
             _meshFilter.sharedMesh = mesh;
         }
 
-        /// <summary>
-        /// BUG FIX (round 2 — "3D material never gets set" / only sticks after
-        /// several tries): the round-1 fix here added a fallback material so
-        /// there was always SOMETHING to show, but missed the actual cause,
-        /// which is the same bug just found and fixed in ProjectileVisual_2D's
-        /// ApplyShapeMeshOptimised: this clones whatever sits in
-        /// _meshRenderer.sharedMaterial / _fallbackMaterial via `new Material(src)`
-        /// and sets .mainTexture on the clone — but if that source material is
-        /// built on InstancedProjectile(_URP).shader (the shared shader family
-        /// this package uses for atlas-based projectile rendering — see
-        /// ProjectileRenderer2D/3D, which both read ProjectileRegistry.GetUVRect
-        /// every frame), `new Material(src)` copies EVERY baked-in property from
-        /// src, including whatever _UVRect that source material shipped with.
-        /// Per that shader file's own comment, the shipped material's default
-        /// _UVRect is (0.24, 0, 4.08, 1.2) — not the full texture. Setting
-        /// .mainTexture alone never touches _UVRect, so the clone kept
-        /// sampling that same corrupted corner of whatever texture got bound,
-        /// exactly as it did for the 2D shape mesh. "Only after several tries"
-        /// happened for the same reason too: which pooled instance you drew
-        /// determined whether its cloned material's source even had that
-        /// shader/property in the first place.
-        /// Fix: after setting mainTexture, also set _UVRect on the instance —
-        /// guarded by HasProperty so this is a total no-op on a plain
-        /// Standard/URP-Lit material that doesn't declare it — sourced from
-        /// the same ProjectileRegistry.GetUVRect the Rust-sim renderers use.
-        /// </summary>
         private void ApplyMaterial(ProjectileConfigSO cfg)
         {
             if (_meshRenderer == null) return;

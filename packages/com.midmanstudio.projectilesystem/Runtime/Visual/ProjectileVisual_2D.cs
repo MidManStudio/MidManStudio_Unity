@@ -66,19 +66,7 @@ namespace MidManStudio.Projectiles.Visuals
 
         private MaterialPropertyBlock _shapeMpb;
 
-        // Shared across all instances — created once, lazily, on first use.
-        // FIX (native leak on domain reload): this used to be "created once, never
-        // destroyed". The Texture2D + Sprite are native engine objects. Unity's
-        // domain reload (assembly recompile, or Enter Play Mode with "Reload
-        // Domain" enabled — the default) wipes the *managed* static field back to
-        // null, but it does NOT destroy the underlying native object, because that
-        // requires an explicit Object.Destroy/DestroyImmediate call that nothing
-        // was making. The orphaned native allocations are exactly what Unity's
-        // post-reload leak detector reports as
-        // "Leak Detected : Persistent allocates 8 individual allocations."
-        // Fix: explicitly release both native objects right before each domain
-        // reload via AssemblyReloadEvents (editor-only — builds never reload the
-        // domain at runtime, so there is nothing to leak there).
+     
         private static Sprite    _fallbackSprite;
         private static Texture2D _fallbackTexture;
 

@@ -159,7 +159,7 @@ namespace MidManStudio.Projectiles.Managers
         protected override void OnProjectileInitialised()
         {
             HasHit = false;
-            // FIX: record spawn position so we can compute travel distance for damage falloff
+            //  record spawn position so we can compute travel distance for damage falloff
             _spawnPosition = transform.position;
 
             // Piercing budget — read from the config registered under
@@ -471,25 +471,6 @@ namespace MidManStudio.Projectiles.Managers
                 return;
             }
 
-            // BUG FIX (MissingReferenceException in LocalObjectPool.GetObject on
-            // shoot): LocalPoolReturn's own auto-return timer (5s default) used to
-            // keep ticking on this instance even though PhysicsProjectileBase owns
-            // its whole lifecycle explicitly (ReturnPoolVisual() below, driven by
-            // OnNetworkDespawn / hit / impact). Any physics projectile that stayed
-            // alive longer than that timer — a gravity-lobbed grenade, a slow
-            // travel config, anything not instant-hit — got silently auto-returned
-            // to the pool WHILE this projectile still held live references to it
-            // and still had it parented under its own transform. The same
-            // GameObject then got handed to the next GetObject() caller and
-            // reparented out from under this one. If THIS projectile was later
-            // torn down by Netcode before its (already-stolen) visual reference
-            // got a chance to cleanly return, the object could end up enqueued in
-            // the pool twice — and the second GetObject() to dequeue it got a
-            // destroyed native reference, which is exactly the
-            // MissingReferenceException from the note. Disabling auto-return here
-            // removes the race at the source; LocalObjectPool.cs also got
-            // defensive dequeue/enqueue checks as a second line of defence for
-            // every other pool consumer.
             var poolReturn = _poolVisualGO.GetComponent<LocalPoolReturn>();
             poolReturn?.SetAutoReturn(false);
 
