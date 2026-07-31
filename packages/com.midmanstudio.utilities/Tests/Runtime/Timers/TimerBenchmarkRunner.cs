@@ -16,7 +16,7 @@ using System.Collections;
 using UnityEngine;
 using MidManStudio.Core.Timers;
 
-namespace MidManStudio.Core.Tests
+namespace BenchTests
 {
     public class TimerBenchmarkRunner : MonoBehaviour
     {

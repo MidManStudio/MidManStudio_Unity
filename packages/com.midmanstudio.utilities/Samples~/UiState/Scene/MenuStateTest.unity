@@ -175,7 +175,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 277cccc18ab5b47028664c976ce30042, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _context: {fileID: 11400000, guid: 9b65d1f13b1bb4e7bbfdb326b342b7d8, type: 2}
+  _context: {fileID: 11400000, guid: 78653b1ebbe854b19a8a539d3d960917, type: 2}
   _showWhenMask: 4
   _logLevel: 0
 --- !u!114 &23285020
@@ -600,7 +600,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 68e010fadb23348ae8540b172a8943ce, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _context: {fileID: 11400000, guid: 9b65d1f13b1bb4e7bbfdb326b342b7d8, type: 2}
+  _context: {fileID: 11400000, guid: 78653b1ebbe854b19a8a539d3d960917, type: 2}
   _targetStateMask: 2
   _disableWhenActive: 1
   _logLevel: 0
@@ -768,7 +768,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 277cccc18ab5b47028664c976ce30042, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _context: {fileID: 11400000, guid: 9b65d1f13b1bb4e7bbfdb326b342b7d8, type: 2}
+  _context: {fileID: 11400000, guid: 78653b1ebbe854b19a8a539d3d960917, type: 2}
   _showWhenMask: 1
   _logLevel: 0
 --- !u!114 &820140747
@@ -889,7 +889,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 68e010fadb23348ae8540b172a8943ce, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _context: {fileID: 11400000, guid: 9b65d1f13b1bb4e7bbfdb326b342b7d8, type: 2}
+  _context: {fileID: 11400000, guid: 78653b1ebbe854b19a8a539d3d960917, type: 2}
   _targetStateMask: 8
   _disableWhenActive: 1
   _logLevel: 0
@@ -1159,7 +1159,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 277cccc18ab5b47028664c976ce30042, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _context: {fileID: 11400000, guid: 9b65d1f13b1bb4e7bbfdb326b342b7d8, type: 2}
+  _context: {fileID: 11400000, guid: 78653b1ebbe854b19a8a539d3d960917, type: 2}
   _showWhenMask: 2
   _logLevel: 0
 --- !u!114 &1130364588
@@ -1414,7 +1414,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 68e010fadb23348ae8540b172a8943ce, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _context: {fileID: 11400000, guid: 9b65d1f13b1bb4e7bbfdb326b342b7d8, type: 2}
+  _context: {fileID: 11400000, guid: 78653b1ebbe854b19a8a539d3d960917, type: 2}
   _targetStateMask: 4
   _disableWhenActive: 1
   _logLevel: 0
@@ -1529,7 +1529,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d2229a67a5f7f46039e596ecf25cb362, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _context: {fileID: 11400000, guid: 9b65d1f13b1bb4e7bbfdb326b342b7d8, type: 2}
+  _context: {fileID: 11400000, guid: 78653b1ebbe854b19a8a539d3d960917, type: 2}
   _initialState: 1
   _configurations: []
   _logLevel: 2
@@ -1832,7 +1832,6 @@ GameObject:
   - component: {fileID: 1536026605}
   - component: {fileID: 1536026604}
   - component: {fileID: 1536026603}
-  - component: {fileID: 1536026602}
   m_Layer: 5
   m_Name: BackButton
   m_TagString: Untagged
@@ -1860,21 +1859,6 @@ RectTransform:
   m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 60, y: 60}
   m_Pivot: {x: 0, y: 1}
---- !u!114 &1536026602
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1536026600}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 277cccc18ab5b47028664c976ce30042, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  _context: {fileID: 11400000, guid: 9b65d1f13b1bb4e7bbfdb326b342b7d8, type: 2}
-  _showWhenMask: 14
-  _logLevel: 0
 --- !u!114 &1536026603
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1915,7 +1899,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6abb5f24c51054006958164d699ae11e, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _context: {fileID: 11400000, guid: 9b65d1f13b1bb4e7bbfdb326b342b7d8, type: 2}
+  _context: {fileID: 11400000, guid: 78653b1ebbe854b19a8a539d3d960917, type: 2}
+  _showWhenMask: 15
   _disableWhenNoHistory: 0
   _logLevel: 0
 --- !u!114 &1536026606
@@ -2072,7 +2057,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 277cccc18ab5b47028664c976ce30042, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _context: {fileID: 11400000, guid: 9b65d1f13b1bb4e7bbfdb326b342b7d8, type: 2}
+  _context: {fileID: 11400000, guid: 78653b1ebbe854b19a8a539d3d960917, type: 2}
   _showWhenMask: 8
   _logLevel: 0
 --- !u!114 &1665654769

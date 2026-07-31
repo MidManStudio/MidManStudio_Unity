@@ -34,7 +34,7 @@ using System.Runtime.InteropServices;
 using UnityEditor;
 #endif
 
-namespace MidManStudio.Core.Benchmarks
+namespace BenchTests
 {
     // ── Result structs ────────────────────────────────────────────────────────
 

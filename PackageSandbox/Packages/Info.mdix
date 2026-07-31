@@ -1,41 +1,4 @@
 ﻿
 @data(
 
-error = "Leak Detected : Persistent allocates 8 individual allocations.
- #0 GetStacktrace(int)
- #1 DebugStringToFile(DebugStringToFileData const&)
- #2 LeakDetection::CheckForLeaks()
- #3 CallbackArray::Invoke()
- #4 ProfilerCallbackInvoke<CallbackArray, &(GlobalCallbacks::domainUnloadComplete)>::Invoke(char const*)
- #5 MonoManager::CreateAndSetChildDomain()
- #6 MonoManager::BeginReloadAssembly(DomainReloadingData&)
- #7 MonoManager::ReloadAssembly()
- #8 Internal_ADB_Only_ReloadAllUsedAssemblies()
- #9 RefreshInternalV2(AssetDatabase::UpdateAssetOptions, ScanFilter const&, InternalRefreshFlagsV2)
- #10 StopAssetImportingV2Internal(AssetDatabase::UpdateAssetOptions, InternalRefreshFlagsV2, ScanFilter const*, char const*)
- #11 EditorSceneManager::RestoreSceneBackups(dynamic_array<EditorSceneBackup, 0ul>&, EditorSceneManager::PlayModeChange)
- #12 PlayerLoopController::EnterPlayMode()
- #13 PlayerLoopController::SetIsPlaying(bool)
- #14 Application::TickTimer()
- #15 -[EditorApplication TickTimer]
- #16 __NSFireTimer
- #17 __CFRUNLOOP_IS_CALLING_OUT_TO_A_TIMER_CALLBACK_FUNCTION__
- #18 __CFRunLoopDoTimer
- #19 __CFRunLoopDoTimers
- #20 __CFRunLoopRun
- #21 CFRunLoopRunSpecific
- #22 RunCurrentEventLoopInMode
- #23 ReceiveNextEventCommon
- #24 _BlockUntilNextEventMatchingListInModeWithFilter
- #25 _DPSNextEvent
- #26 -[NSApplication(NSEvent) _nextEventMatchingEventMask:untilDate:inMode:dequeue:]
- #27 -[NSApplication run]
- #28 NSApplicationMain
- #29 EditorMain(int, char const**)
- #30 main
- #31 start
- #32 ???
-
-"
-
 )

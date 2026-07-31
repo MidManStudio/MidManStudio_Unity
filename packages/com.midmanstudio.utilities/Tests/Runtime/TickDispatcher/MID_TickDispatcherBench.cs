@@ -24,7 +24,7 @@ using Debug = UnityEngine.Debug;
 using UnityEditor;
 #endif
 
-namespace MidManStudio.Core.Benchmarks
+namespace BenchTests
 {
     // ── Simulated MonoBehaviour Update loop ───────────────────────────────────
     // Models the managed-side cost of Unity's internal Update() dispatch.

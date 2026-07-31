@@ -1,33 +1,70 @@
 {
-  "name": "com.midmanstudio.utilities",
-  "version": "1.0.0",
-  "displayName": "MidMan Studio Utilities",
-  "description": "Core runtime utilities for Unity 2022.3+. Tick dispatcher, zero-alloc tick delay, logger, object/particle pools, trail renderer pool, singletons, observable values, event bus, audio manager, timers, library system, scene management, UI state system, and editor tools. No game-specific dependencies.",
-  "unity": "2022.3",
-  "unityRelease": "0f1",
-  "documentationUrl": "",
-  "changelogUrl": "",
-  "licensesUrl": "",
-  "dependencies": {
-    "com.unity.burst": "1.8.9",
-    "com.unity.collections": "2.2.1",
-    "com.unity.mathematics": "1.3.1"
-  },
-  "keywords": [
-    "utilities", "tick", "dispatcher", "delay", "logger",
-    "pool", "singleton", "audio", "trail", "observable",
-    "events", "scene", "ui-state", "library", "netcode"
-  ],
-  "author": {
-    "name": "MidMan Studio",
-    "email": "",
-    "url": "https://github.com/MidManStudio/MidManStudio_Unity"
-  },
-  "samples": [
-    {
-      "displayName": "Setup Demo",
-      "description": "Manager prefab hierarchy and example scene wiring for the Tick Dispatcher, Pool System, Audio System, Library System, and UI State System. Follow Documentation~/scenesetup.md for step-by-step setup.",
-      "path": "Samples~/SetupDemo"
-    }
-  ]
+    "name": "com.midmanstudio.utilities",
+    "version": "1.0.0",
+    "displayName": "MidMan Studio Utilities",
+    "description": "Core runtime utilities for Unity 2022.3+. Tick dispatcher, zero-alloc tick delay, logger, object/particle pools, trail renderer pool, singletons, observable values, event bus, audio manager, timers, library system, scene management, UI state system, and editor tools. No game-specific dependencies.",
+    "unity": "2022.3",
+    "unityRelease": "0f1",
+    "documentationUrl": "",
+    "changelogUrl": "",
+    "licensesUrl": "",
+    "dependencies": {
+        "com.unity.burst": "1.8.9",
+        "com.unity.collections": "2.2.1",
+        "com.unity.mathematics": "1.3.1"
+    },
+    "keywords": [
+        "utilities",
+        "tick",
+        "dispatcher",
+        "delay",
+        "logger",
+        "pool",
+        "singleton",
+        "audio",
+        "trail",
+        "observable",
+        "events",
+        "scene",
+        "ui-state",
+        "library",
+        "netcode"
+    ],
+    "author": {
+        "name": "MidMan Studio",
+        "email": "",
+        "url": "https://github.com/MidManStudio/MidManStudio_Unity"
+    },
+    "samples": [
+        {
+            "displayName": "Benchmarks",
+            "description": "Test native autio,tick system and timers, benchmark and see numbers",
+            "path": "Samples~/BenchMarks"
+        },
+        {
+            "displayName": "Auto Ref",
+            "description": "Test Auto refrence component",
+            "path": "Samples~/OtherStuff"
+        },
+        {
+            "displayName": "PoolSystem",
+            "description": "Test the pool system both local object pool and particle pool",
+            "path": "Samples~/PoolSystem"
+        },
+        {
+            "displayName": "Ui State",
+            "description": "Test the Ui state manger, to go from menu to menu",
+            "path": "Samples~/UiState"
+        },
+        {
+            "displayName": "Tick Test",
+            "description": "Test the Tick system with a continious repeting test",
+            "path": "Samples~/TickTest"
+        },
+        {
+            "displayName": "Visual Effects",
+            "description": "Test the Vglobal fx manager, and native audio, as well as the local object pool for spawnable audio",
+            "path": "Samples~/VisualEffects"
+        }
+    ]
 }

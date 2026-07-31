@@ -67,6 +67,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Editor/ProjectileSystemPoolProviderBootstrapper.cs">
       <Link>Editor/ProjectileSystemPoolProviderBootstrapper.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Editor/ProjectileConfigEntryJsonImporter.cs">
+      <Link>Editor/ProjectileConfigEntryJsonImporter.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Editor/ProjectileShapeEditor.cs">
       <Link>Editor/ProjectileShapeEditor.cs</Link>
     </Compile>
@@ -75,6 +78,9 @@
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Editor/ProjectileConfigGenerator.cs">
       <Link>Editor/ProjectileConfigGenerator.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Editor/ProjectileConfigProviderEditor.cs">
+      <Link>Editor/ProjectileConfigProviderEditor.cs</Link>
     </Compile>
   </ItemGroup>
   <ItemGroup>

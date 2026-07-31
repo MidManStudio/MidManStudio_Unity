@@ -1,25 +1,32 @@
 {
-  "name": "com.midmanstudio.projectilesystem",
-  "version": "1.1.0",
-  "displayName": "MidMan Projectile System",
-  "description": "High-performance server-authoritative projectile system. Rust simulation core, spatial-grid collision, client prediction, snapshot reconciliation, 2D and 3D projectile buffers.",
-  "unity": "2022.3",
-  "unityRelease": "0f1",
-  "documentationUrl": "",
-  "changelogUrl": "",
-  "licensesUrl": "",
-  "dependencies": {
-    "com.midmanstudio.utilities": "1.0.0",
-    "com.midmanstudio.netcode": "1.0.0",
-    "com.unity.netcode.gameobjects": "1.7.1",
-    "com.unity.burst": "1.8.9",
-    "com.unity.collections": "2.2.1",
-    "com.unity.mathematics": "1.3.1"
-  },
-  "keywords": ["projectile", "networking", "rust", "simulation", "server-authoritative"],
-  "author": {
-    "name": "MidMan Studio",
-    "email": "",
-    "url": "https://github.com/MidManStudio/MidManStudio_Unity"
-  }
+    "name": "com.midmanstudio.projectilesystem",
+    "version": "1.0.0",
+    "displayName": "MidMan Projectile System",
+    "description": "High-performance server-authoritative projectile system. Rust simulation core, spatial-grid collision, client prediction, snapshot reconciliation, 2D and 3D projectile buffers.",
+    "unity": "2022.3",
+    "unityRelease": "0f1",
+    "documentationUrl": "",
+    "changelogUrl": "",
+    "licensesUrl": "",
+    "dependencies": {
+        "com.midmanstudio.utilities": "1.0.0",
+        "com.midmanstudio.netcode": "1.0.0",
+        "com.unity.netcode.gameobjects": "1.7.1",
+        "com.unity.burst": "1.8.9",
+        "com.unity.collections": "2.2.1",
+        "com.unity.mathematics": "1.3.1"
+    },
+    "keywords": [ "projectile", "networking", "rust", "simulation", "server-authoritative" ],
+    "author": {
+        "name": "MidMan Studio",
+        "email": "",
+        "url": "https://github.com/MidManStudio/MidManStudio_Unity"
+    },
+    "samples": [
+        {
+            "displayName": "Projectile System Test",
+            "description": "Full Projectile system test scene, along with testing local lobby from netcode utils, showcases the use of both 2d,3d projectiles with firing modes for raycast,rust sim, and physics based projectiles and projectile firing shapes and patterns configure the configsSOs and use F to fire, everything synced across the net, ps. use the profiler to see the amount of data sent across[ull need multiplayer tools installed though].",
+            "path": "Samples~/ProjectileSystemTest"
+        }
+    ]
 }

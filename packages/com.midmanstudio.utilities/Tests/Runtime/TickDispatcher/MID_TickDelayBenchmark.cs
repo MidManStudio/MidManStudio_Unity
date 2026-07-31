@@ -45,7 +45,7 @@ using MidManStudio.Core.Logging;
 using UnityEditor;
 #endif
 
-namespace MidManStudio.Core.Benchmarks
+namespace BenchTests
 {
     [Serializable]
     public struct DelayBenchGCResult
