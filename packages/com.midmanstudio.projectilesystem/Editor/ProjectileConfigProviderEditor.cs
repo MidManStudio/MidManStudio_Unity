@@ -10,10 +10,11 @@
 // — this file is UI only, same split PoolTypeProviderEditor.cs /
 // PoolEntryJsonImporter.cs use.
 
+using MidManStudio.Projectiles.Config;
 using UnityEditor;
 using UnityEngine;
 
-namespace MidManStudio.Projectiles.Config
+namespace MidManStudio.Projectiles.EditorUtils
 {
     [CustomEditor(typeof(ProjectileConfigProviderSO))]
     public sealed class ProjectileConfigProviderEditor : Editor

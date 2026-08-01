@@ -1,7 +1,6 @@
-// Custom editor for MID_BaseSO. Applies the resolved icon to the asset in
-// the Project window whenever the SO is selected or the icon field changes.
-//
-// Also draws a small preview of the active icon at the top of the inspector.
+// Custom editor for MID_BaseSO. Draws a preview of the resolved icon at the
+// top of the inspector. The actual Project window thumbnail is handled
+// separately by MID_BaseSOProjectIconDrawer — see that file for why.
 
 #if UNITY_EDITOR
 using UnityEditor;
@@ -14,12 +13,10 @@ namespace MidManStudio.Core.EditorUtils
     public class MID_BaseSOEditor : UnityEditor.Editor
     {
         private SerializedProperty _iconProp;
-        private Texture2D          _lastAppliedIcon;
 
         private void OnEnable()
         {
             _iconProp = serializedObject.FindProperty("_customIcon");
-            ApplyIcon();
         }
 
         public override void OnInspectorGUI()
@@ -80,7 +77,11 @@ namespace MidManStudio.Core.EditorUtils
             if (EditorGUI.EndChangeCheck())
             {
                 serializedObject.ApplyModifiedProperties();
-                ApplyIcon();
+
+                string path = AssetDatabase.GetAssetPath(target);
+                string guid = AssetDatabase.AssetPathToGUID(path);
+                MID_BaseSOProjectIconDrawer.InvalidateCache(guid);
+                EditorApplication.RepaintProjectWindow();
             }
 
             if (_iconProp.objectReferenceValue == null &&
@@ -98,23 +99,6 @@ namespace MidManStudio.Core.EditorUtils
             DrawPropertiesExcluding(serializedObject, "_customIcon");
 
             serializedObject.ApplyModifiedProperties();
-        }
-
-        private void ApplyIcon()
-        {
-            if (target == null) return;
-            var so   = (MID_BaseSO)target;
-            var icon = so.ResolveIcon();
-
-            // Only call SetIconForObject if the icon actually changed — avoids
-            // unnecessary asset database writes on every inspector repaint.
-            if (icon == _lastAppliedIcon) return;
-            _lastAppliedIcon = icon;
-
-            // EditorGUIUtility.SetIconForObject applies the icon to the asset's
-            // thumbnail in the Project window. Null resets to the default.
-            EditorGUIUtility.SetIconForObject(target, icon);
-            EditorUtility.SetDirty(target);
         }
     }
 }

@@ -106,6 +106,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/SceneDependencyInjector.cs">
       <Link>Editor/Helpers/SceneDependencyInjector.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/MID_BaseSOProjectIconDrawer.cs">
+      <Link>Editor/Helpers/MID_BaseSOProjectIconDrawer.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/PoolSystems/PoolTypeGenerator.cs">
       <Link>Editor/PoolSystems/PoolTypeGenerator.cs</Link>
     </Compile>

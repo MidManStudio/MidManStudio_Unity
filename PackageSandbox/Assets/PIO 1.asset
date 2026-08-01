@@ -10,9 +10,9 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: b563e01704e2143cfb05d73e610df21b, type: 3}
-  m_Name: PIO
+  m_Name: PIO 1
   m_EditorClassIdentifier: 
-  _customIcon: {fileID: 2800000, guid: 3a1ace75760334d4b8171bb01b551d25, type: 3}
+  _customIcon: {fileID: 2800000, guid: 0d96b08b66aeb4467a0306215bf4af1c, type: 3}
   ConfigId: 0
   _is3D: 0
   _preferredSimMode: 1

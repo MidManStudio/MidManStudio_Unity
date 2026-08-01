@@ -23,11 +23,12 @@
 using UnityEditor;
 using UnityEngine;
 
-namespace MidManStudio.Projectiles.Editor
+namespace MidManStudio.Projectiles.EditorUtils
 {
-    [CustomEditor(typeof(ProjectileConfigScriptableObject))]
+
+    [CustomEditor(typeof(ProjectileShapeSO))]
     [CanEditMultipleObjects]
-    public sealed class ProjectileConfigScriptableObjectEditor : UnityEditor.Editor
+    public sealed partial class ProjectileConfigScriptableObjectEditor : UnityEditor.Editor
     {
         private string _jsonInput;
         private string _lastMessage;

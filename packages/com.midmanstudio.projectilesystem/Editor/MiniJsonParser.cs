@@ -14,7 +14,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 
-namespace MidManStudio.Projectiles.Editor
+namespace MidManStudio.Projectiles.EditorUtils
 {
     public static class MiniJsonParser
     {

@@ -61,11 +61,20 @@
     <Analyzer Include="/Applications/Unity/Hub/Editor/2022.3.13f1/Unity.app/Contents/Tools/Unity.SourceGenerators/Unity.Properties.SourceGenerator.dll" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Editor/ProjectileConfigScriptableObjectEditor.cs">
+      <Link>Editor/ProjectileConfigScriptableObjectEditor.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Editor/ProjectileConfigBootstrapper.cs">
       <Link>Editor/ProjectileConfigBootstrapper.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Editor/ProjectileSystemPoolProviderBootstrapper.cs">
       <Link>Editor/ProjectileSystemPoolProviderBootstrapper.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Editor/MiniJsonParser.cs">
+      <Link>Editor/MiniJsonParser.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Editor/ScriptableObjectJsonApplier.cs">
+      <Link>Editor/ScriptableObjectJsonApplier.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Editor/ProjectileConfigEntryJsonImporter.cs">
       <Link>Editor/ProjectileConfigEntryJsonImporter.cs</Link>

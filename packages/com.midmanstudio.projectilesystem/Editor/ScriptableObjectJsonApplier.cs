@@ -25,7 +25,7 @@ using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 
-namespace MidManStudio.Projectiles.Editor
+namespace MidManStudio.Projectiles.EditorUtils
 {
     public static class ScriptableObjectJsonApplier
     {
