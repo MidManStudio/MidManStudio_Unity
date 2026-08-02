@@ -73,11 +73,17 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.netcode/Runtime/Singleton/NetworkSingleton.cs">
       <Link>Runtime/Singleton/NetworkSingleton.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.netcode/Runtime/Collections/MID_NetworkEvent.cs">
+      <Link>Runtime/Collections/MID_NetworkEvent.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.netcode/Runtime/LocalMultiplayer/PlayerOfflineIdentity.cs">
       <Link>Runtime/LocalMultiplayer/PlayerOfflineIdentity.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.netcode/Runtime/Collections/MID_BitPacker.cs">
       <Link>Runtime/Collections/MID_BitPacker.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.netcode/Runtime/Collections/MID_NetworkString.cs">
+      <Link>Runtime/Collections/MID_NetworkString.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.netcode/Runtime/LocalMultiplayer/LocalLobbyManager.cs">
       <Link>Runtime/LocalMultiplayer/LocalLobbyManager.cs</Link>
