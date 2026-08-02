@@ -59,6 +59,7 @@ namespace MidManStudio.Netcode.Collections
         public MID_NetworkString(string value)
         {
             _value = default;
+            WasTruncated = false;
             CopyFromTruncated(value);
         }
 
