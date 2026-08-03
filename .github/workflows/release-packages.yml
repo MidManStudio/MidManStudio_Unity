@@ -22,26 +22,31 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+
       - name: Determine package
         id: pkg
         run: |
-          TAG="${GITHUB_REF##*/}"
+          TAG="${{ github.ref_name }}"
           INPUT="${{ github.event.inputs.package }}"
           if [[ "$TAG" == utilities* || "$INPUT" == "utilities" ]]; then
-            echo "name=com.midmanstudio.utilities" >> $GITHUB_OUTPUT
-            echo "path=packages/com.midmanstudio.utilities" >> $GITHUB_OUTPUT
+            echo "name=com.midmanstudio.utilities" >> "$GITHUB_OUTPUT"
+            echo "path=packages/com.midmanstudio.utilities" >> "$GITHUB_OUTPUT"
           elif [[ "$TAG" == netcode* || "$INPUT" == "netcode" ]]; then
-            echo "name=com.midmanstudio.netcode" >> $GITHUB_OUTPUT
-            echo "path=packages/com.midmanstudio.netcode" >> $GITHUB_OUTPUT
+            echo "name=com.midmanstudio.netcode" >> "$GITHUB_OUTPUT"
+            echo "path=packages/com.midmanstudio.netcode" >> "$GITHUB_OUTPUT"
+          elif [[ "$TAG" == projectilesystem* || "$INPUT" == "projectilesystem" ]]; then
+            echo "name=com.midmanstudio.projectilesystem" >> "$GITHUB_OUTPUT"
+            echo "path=packages/com.midmanstudio.projectilesystem" >> "$GITHUB_OUTPUT"
           else
-            echo "name=com.midmanstudio.projectilesystem" >> $GITHUB_OUTPUT
-            echo "path=packages/com.midmanstudio.projectilesystem" >> $GITHUB_OUTPUT
+            echo "::error::Could not determine package from tag '$TAG' or input '$INPUT'"
+            exit 1
           fi
+
       - name: Create release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.ref_name }}
           name: "${{ steps.pkg.outputs.name }} ${{ github.ref_name }}"
-          body: "See CHANGELOG.md"
+          body_path: ${{ steps.pkg.outputs.path }}/CHANGELOG.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
