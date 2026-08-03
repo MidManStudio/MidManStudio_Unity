@@ -42,24 +42,11 @@ jobs:
             exit 1
           fi
 
-      - name: Extract release notes from CHANGELOG.md
-        id: notes
-        run: |
-          CHANGELOG="${{ steps.pkg.outputs.path }}/CHANGELOG.md"
-          NOTES_FILE="release-notes.md"
-          if [[ -f "$CHANGELOG" ]]; then
-            awk '/^## \[/ { if (found) exit; found=1 } found { print }' "$CHANGELOG" > "$NOTES_FILE"
-          fi
-          if [[ ! -s "$NOTES_FILE" ]]; then
-            echo "See [CHANGELOG.md](${{ steps.pkg.outputs.path }}/CHANGELOG.md) for details." > "$NOTES_FILE"
-          fi
-          echo "path=$NOTES_FILE" >> "$GITHUB_OUTPUT"
-
       - name: Create release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.ref_name }}
           name: "${{ steps.pkg.outputs.name }} ${{ github.ref_name }}"
-          body_path: ${{ steps.notes.outputs.path }}
+          body_path: ${{ steps.pkg.outputs.path }}/CHANGELOG.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
