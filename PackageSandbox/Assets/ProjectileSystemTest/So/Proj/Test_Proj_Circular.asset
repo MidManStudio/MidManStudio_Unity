@@ -10,28 +10,28 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: b563e01704e2143cfb05d73e610df21b, type: 3}
-  m_Name: DefaultProjectile
+  m_Name: Test_Proj_Circular
   m_EditorClassIdentifier: 
-  _customIcon: {fileID: 2800000, guid: 1cfaa41a0011d43269b071cec12edc90, type: 3}
-  ConfigId: 7
+  _customIcon: {fileID: 2800000, guid: 6aa6615e292274d89bbea0d4f2262d53, type: 3}
+  ConfigId: 3
   _is3D: 0
   _preferredSimMode: 1
-  _movementType: 0
+  _movementType: 5
   _minSpeed: 10
-  _maxSpeed: 20
-  _lifetime: 3
+  _maxSpeed: 16
+  _lifetime: 4
   _gravityScale: 0
   _maxRange: 50
   _piercingType: 0
-  _maxCollisions: 2
+  _maxCollisions: 1
   _hitLayers:
     serializedVersion: 2
     m_Bits: 320
-  _fullSizeX: 0.2
-  _fullSizeY: 0.08
-  _useScaleGrowth: 0
-  _spawnScaleFraction: 0.2
-  _growthSpeed: 8
+  _fullSizeX: 2
+  _fullSizeY: 1
+  _useScaleGrowth: 1
+  _spawnScaleFraction: 0.1
+  _growthSpeed: 1
   _damageCurve:
     serializedVersion: 2
     m_Curve:
@@ -59,11 +59,11 @@ MonoBehaviour:
   _headshotMultiplier: 2
   _critChance: 0
   _critMultiplier: 1.5
-  _sprite: {fileID: 21300000, guid: 1cfaa41a0011d43269b071cec12edc90, type: 3}
-  _useSprite: 0
-  _customShape: {fileID: 0}
+  _sprite: {fileID: 21300000, guid: fe6a55db2dffd4b24b8b1be97338d4ef, type: 3}
+  _useSprite: 1
+  _customShape: {fileID: 11400000, guid: 381173ff0d26f43a599e4ee9de44605f, type: 2}
   _hasTrail: 1
-  _trailMaterial: {fileID: 0}
+  _trailMaterial: {fileID: 2100000, guid: 7fcbf8115d48546aeb9536fad446ca36, type: 2}
   _useGradientOverride: 1
   _trailGradient:
     serializedVersion: 2
@@ -105,7 +105,7 @@ MonoBehaviour:
   _waveAmplitude: 1
   _waveFrequency: 1
   _wavePhaseOffset: 0
-  _waveVertical: 0
+  _waveVertical: 1
   _circularRadius: 0.5
   _circularAngularSpeed: 180
   _circularStartAngle: 0

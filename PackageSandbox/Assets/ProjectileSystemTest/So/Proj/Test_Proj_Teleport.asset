@@ -10,46 +10,46 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: b563e01704e2143cfb05d73e610df21b, type: 3}
-  m_Name: DefaultProjectile
+  m_Name: Test_Proj_Teleport
   m_EditorClassIdentifier: 
-  _customIcon: {fileID: 2800000, guid: 1cfaa41a0011d43269b071cec12edc90, type: 3}
-  ConfigId: 7
+  _customIcon: {fileID: 0}
+  ConfigId: 0
   _is3D: 0
   _preferredSimMode: 1
-  _movementType: 0
-  _minSpeed: 10
-  _maxSpeed: 20
-  _lifetime: 3
+  _movementType: 3
+  _minSpeed: 20.27
+  _maxSpeed: 39
+  _lifetime: 4
   _gravityScale: 0
   _maxRange: 50
   _piercingType: 0
-  _maxCollisions: 2
+  _maxCollisions: 1
   _hitLayers:
     serializedVersion: 2
     m_Bits: 320
   _fullSizeX: 0.2
-  _fullSizeY: 0.08
+  _fullSizeY: 0.2
   _useScaleGrowth: 0
-  _spawnScaleFraction: 0.2
-  _growthSpeed: 8
+  _spawnScaleFraction: 0.1
+  _growthSpeed: 1.8
   _damageCurve:
     serializedVersion: 2
     m_Curve:
     - serializedVersion: 3
       time: 0
-      value: 25
-      inSlope: 0
-      outSlope: 0
-      tangentMode: 0
+      value: 0
+      inSlope: 1
+      outSlope: 1
+      tangentMode: 34
       weightedMode: 0
       inWeight: 0
       outWeight: 0
     - serializedVersion: 3
       time: 1
-      value: 25
-      inSlope: 0
-      outSlope: 0
-      tangentMode: 0
+      value: 1
+      inSlope: 1
+      outSlope: 1
+      tangentMode: 34
       weightedMode: 0
       inWeight: 0
       outWeight: 0
@@ -59,15 +59,15 @@ MonoBehaviour:
   _headshotMultiplier: 2
   _critChance: 0
   _critMultiplier: 1.5
-  _sprite: {fileID: 21300000, guid: 1cfaa41a0011d43269b071cec12edc90, type: 3}
-  _useSprite: 0
-  _customShape: {fileID: 0}
+  _sprite: {fileID: 21300000, guid: 7eba7a6c2ef0848b392b35c10066b535, type: 3}
+  _useSprite: 1
+  _customShape: {fileID: 11400000, guid: b33cfb9f02941402f9f740ff7871b558, type: 2}
   _hasTrail: 1
-  _trailMaterial: {fileID: 0}
+  _trailMaterial: {fileID: 2100000, guid: 7fcbf8115d48546aeb9536fad446ca36, type: 2}
   _useGradientOverride: 1
   _trailGradient:
     serializedVersion: 2
-    key0: {r: 0.25866938, g: 0, b: 1, a: 1}
+    key0: {r: 0.6082635, g: 1, b: 0, a: 1}
     key1: {r: 1, g: 1, b: 1, a: 0}
     key2: {r: 0, g: 0, b: 0, a: 0}
     key3: {r: 0, g: 0, b: 0, a: 0}
@@ -105,7 +105,7 @@ MonoBehaviour:
   _waveAmplitude: 1
   _waveFrequency: 1
   _wavePhaseOffset: 0
-  _waveVertical: 0
+  _waveVertical: 1
   _circularRadius: 0.5
   _circularAngularSpeed: 180
   _circularStartAngle: 0

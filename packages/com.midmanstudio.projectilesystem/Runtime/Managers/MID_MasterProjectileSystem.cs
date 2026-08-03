@@ -510,15 +510,7 @@ namespace MidManStudio.Projectiles.Managers
         public void RegisterRaycastFire(
             RaycastFireResult result, ushort configId, WeaponFireContext context)
         {
-            // TEMP DIAG: confirms RegisterRaycastFire is even being reached, and
-            // with what state, before anything else has a chance to bail out
-            // silently. Remove once the client-can't-see-own-raycast issue is
-            // resolved.
-            Debug.LogError(
-                $"[RAYDIAG] RegisterRaycastFire ENTER cfg={configId} " +
-                $"initialised={_initialised} cfgFound={_registry?.Get(configId) != null} " +
-                $"isNetworked={IsNetworked} isServer={IsServer}");
-
+         
             if (!_initialised) return;
             var cfg = _registry?.Get(configId);
             if (cfg == null) return;

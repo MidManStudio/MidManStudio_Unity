@@ -20,13 +20,14 @@
 //     "_minHeadShotDamage": 20, "_maxHeadShotDamage": 28
 //   }
 
+using MidManStudio.Projectiles.Config;
 using UnityEditor;
 using UnityEngine;
 
 namespace MidManStudio.Projectiles.EditorUtils
 {
 
-    [CustomEditor(typeof(ProjectileShapeSO))]
+    [CustomEditor(typeof(ProjectileConfigSO))]
     [CanEditMultipleObjects]
     public sealed partial class ProjectileConfigScriptableObjectEditor : UnityEditor.Editor
     {
