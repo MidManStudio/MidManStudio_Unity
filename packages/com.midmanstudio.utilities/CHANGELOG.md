@@ -1,11 +1,5 @@
-# Changelog
+# com.midmanstudio.utilities
 
-All notable changes to `com.midmanstudio.utilities` are documented here.
-Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
-
-## [Unreleased]
-
-### Added
 - **Auto Reference system** — attribute-driven auto-wiring of Component/GameObject/interface
   fields on MonoBehaviours. Scans self + children (+ optional external search root) and
   disambiguates multi-candidate fields via a fuzzy name-match scorer (Levenshtein + token
@@ -21,26 +15,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     "Auto-Add Missing Components on Scan" toggle (off by default).
   - Custom inspector for `MID_AutoRef` with a one-click "Resolve Now" button.
 
-### Fixed
-- **Sticky Note** — `MID_StickyNote` no longer spawns duplicate `EventSystem` objects in the
-  scene. The auto-created EventSystem is now reference-counted and only destroyed once no
-  sticky note instance still needs it; a pre-existing user-placed EventSystem is never touched.
-- **Sticky Note** — building the Canvas hierarchy from `OnEnable()` in edit mode no longer
-  triggers Unity's "SendMessage cannot be called during Awake, CheckConsistency, or OnValidate"
-  warning. The build is now deferred one editor tick via `EditorApplication.delayCall` in edit
-  mode (Play Mode is unaffected — it stays synchronous).
-
-### Documentation
-- Rewrote this file — it previously contained duplicated API-audit content instead of version
-  history.
-- Added `Documentation~/index.md` (was empty) and reformatted `Documentation~/scenesetup.md`
-  from `//`-comment-styled text into proper Markdown.
-- Added an `Auto Reference Window` entry to `APICATALOG.md §18 Editor Tools`, and fix notes to
-  `§17 Sticky Note`.
-
-## [1.0.0] - 2026-06-15
-
-### Added
 - **Tick Dispatcher** — shared interval dispatcher replacing per-MonoBehaviour `Update()`.
   Nine tick rates from `Tick_0_01` (100/sec) to `Tick_5` (0.2/sec).
 - **Tick Delay** — zero-allocation delayed and repeating actions built on the Tick Dispatcher.
