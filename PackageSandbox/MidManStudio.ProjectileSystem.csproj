@@ -154,6 +154,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Config/ProjectilePatternRegistry.cs">
       <Link>Runtime/Config/ProjectilePatternRegistry.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/ProjectileVisualWarmupManager.cs">
+      <Link>Runtime/Managers/ProjectileVisualWarmupManager.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/ServerProjectileAuthority.cs">
       <Link>Runtime/Managers/ServerProjectileAuthority.cs</Link>
     </Compile>

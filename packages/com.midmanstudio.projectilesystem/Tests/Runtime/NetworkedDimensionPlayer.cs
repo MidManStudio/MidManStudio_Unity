@@ -10,6 +10,7 @@ using MidManStudio.Projectiles.Adapters;
 using MidManStudio.Projectiles.Config;
 using MidManStudio.Core.Pools;
 using MidManStudio.Projectiles.Network;
+using MidManStudio.Netcode.Collections;
 
 namespace TestGame
 {
@@ -162,13 +163,12 @@ namespace TestGame
         #endregion
 
         #region Unity Lifecycle
-
         private void Awake()
         {
             _rb        = GetComponent<Rigidbody>();
             _shootMode = _defaultShootMode;
             EnsureHeadPivot();
-            EnsureShotPoints();
+            EnsureShotPoints(); 
         }
 
         #endregion
@@ -180,7 +180,6 @@ namespace TestGame
             base.OnNetworkSpawn();
 
             _netShootMode.OnValueChanged += OnShootModeChanged;
-
             if (IsOwner)
             {
                 _netShootMode.Value = (int)_defaultShootMode;
@@ -212,7 +211,6 @@ namespace TestGame
                 _yaw = transform.eulerAngles.y;
                 ApplyCursorState(startDim);
                 UpdateModeText();
-
                 MID_Logger.LogInfo(_logLevel,
                     $"Local player spawned. OwnerClientId={OwnerClientId} IsServer={IsServer}",
                     nameof(NetworkedDimensionPlayer));
@@ -268,7 +266,7 @@ namespace TestGame
                     _headPivot.localRotation = Quaternion.Euler(_netPitch.Value, 0f, 0f);
                 return;
             }
-
+           
             if (Input.GetKeyDown(_dimensionKey)) HandleDimensionButtonPressed();
 
             if (Input.GetKeyDown(KeyCode.Alpha1)) ChangeMode(PlayerShootMode.LocalOnly);

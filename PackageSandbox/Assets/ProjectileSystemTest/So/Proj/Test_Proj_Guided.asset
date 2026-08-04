@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: Test_Proj_Guided
   m_EditorClassIdentifier: 
   _customIcon: {fileID: 0}
-  ConfigId: 0
+  ConfigId: 4
   _is3D: 0
   _preferredSimMode: 1
   _movementType: 2

@@ -117,6 +117,7 @@ namespace MidManStudio.Projectiles.Managers
             // needs to do anything owner-specific on spawn.
 
             OnPhysicsSetup();
+            ApplyConfigScale(ResolveVisualConfig());
             SpawnPoolVisual();
             if (_poolVisualGO == null)
                 _retryCoroutine = StartCoroutine(RetrySpawnVisual());
@@ -143,6 +144,61 @@ namespace MidManStudio.Projectiles.Managers
         protected abstract Vector3 OnLaunch(float bulletVelocity);
         protected abstract void StopPhysics();
         protected abstract bool Is2D { get; }
+
+        /// <summary>
+        /// SCALING FIX ("physics-based projectiles do not support scaling"):
+        /// this NetworkObject's collider was always whatever fixed size the
+        /// prefab happened to be authored with, completely independent of
+        /// ProjectileConfigSO.FullSizeX/FullSizeY — every physics projectile
+        /// hit-tested at the same size regardless of which config fired it,
+        /// even though the cosmetic visual (ProjectileVisual_2D/3D — a
+        /// *different*, separately LocalObjectPool-managed GameObject, see
+        /// SpawnPoolVisual below) already reads FullSizeX/Y for its own
+        /// rendering. Override per-subclass to resize whichever collider
+        /// type that subclass actually uses.
+        ///
+        /// Called:
+        ///   • right after OnPhysicsSetup() in OnNetworkSpawn (best-effort
+        ///     immediate size, using whatever VisualConfigId already
+        ///     resolves to at that point)
+        ///   • from SetVisualConfigId() / HandleVisualConfigChanged() —
+        ///     self-corrects once the real, server-authoritative config id
+        ///     lands, exactly the same pattern already used to refresh the
+        ///     pool visual (see those methods' own doc comments for why the
+        ///     config isn't always known yet at spawn time)
+        ///
+        /// cfg may be null (registry not ready yet, or configId not
+        /// registered) — implementations must no-op safely in that case.
+        ///
+        /// Deliberately NOT implemented by scaling transform.localScale on
+        /// this object's own root: the pooled cosmetic visual is parented
+        /// under this transform and already applies its OWN
+        /// FullSizeX/FullSizeY-based scale independently (unconditionally for
+        /// ProjectileVisual_3D; for sprite-path ProjectileVisual_2D as of the
+        /// fix landing alongside this one) — scaling the root too would
+        /// compound both and double the visible size. Resizing the collider
+        /// component directly keeps hit-detection correctly sized without
+        /// touching the visual's own scale at all.
+        ///
+        /// No extra NetworkVariable/RPC needed for this either: every peer
+        /// (server and every client) resolves the same VisualConfigId to the
+        /// same shared ProjectileConfigSO project asset and computes the
+        /// same size locally — the config data itself is what's already
+        /// synced, the same way sprite/trail/material selection already work
+        /// without any per-instance network traffic.
+        /// </summary>
+        protected abstract void ApplyConfigScale(ProjectileConfigSO cfg);
+
+        /// <summary>
+        /// Resolves the ProjectileConfigSO currently referenced by
+        /// VisualConfigId, or null if not registered / registry not ready.
+        /// Small shared helper — this same two-line lookup was already
+        /// repeated in SpawnPoolVisual/ComputeConfigDamage/etc; new
+        /// ApplyConfigScale call sites reuse it too rather than adding a
+        /// fourth copy.
+        /// </summary>
+        private ProjectileConfigSO ResolveVisualConfig()
+            => ProjectileRegistry.HasInstance ? ProjectileRegistry.Instance.Get(VisualConfigId) : null;
 
         #endregion
 
@@ -253,6 +309,15 @@ namespace MidManStudio.Projectiles.Managers
                 _poolVisual.InitializeClientVisual(
                     VisualConfigId, transform.position, dir, speed);
             }
+
+            // SCALING FIX — see ApplyConfigScale's doc comment. Uses
+            // VisualConfigId (not the raw configId param) so this reads back
+            // whatever the NetworkVariable actually holds — on the server
+            // that's the value just written above; on a non-server instance
+            // (safe no-op for the network write, per this method's own
+            // existing doc comment) it's still whatever the last-synced
+            // value is, which is the correct thing to scale against.
+            ApplyConfigScale(ResolveVisualConfig());
         }
 
         #endregion
@@ -512,6 +577,12 @@ namespace MidManStudio.Projectiles.Managers
 
         private void HandleVisualConfigChanged(ushort oldId, ushort newId)
         {
+            // SCALING FIX — see ApplyConfigScale's doc comment. Runs even if
+            // _poolVisual isn't ready yet (unlike the visual refresh below,
+            // which needs it) since the collider is independent of the pool
+            // visual entirely.
+            ApplyConfigScale(ResolveVisualConfig());
+
             if (_poolVisual == null) return;
             Vector3 dir   = GetDefaultLaunchDir();
             float   speed = BulletVelocity > 0f ? BulletVelocity : 10f;

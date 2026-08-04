@@ -197,6 +197,15 @@ namespace MidManStudio.Projectiles.Config
         public int Count => _configs.Count;
 
         /// <summary>
+        /// All registered configs, in registration order (index == ConfigId).
+        /// Read-only — used by ProjectileVisualWarmupManager to iterate every
+        /// config for its pool/atlas warm-up pass instead of requiring a
+        /// second, separately-maintained list in the scene. Exposed as
+        /// IReadOnlyList so callers can't mutate registry internals.
+        /// </summary>
+        public IReadOnlyList<ProjectileConfigSO> AllConfigs => _configs;
+
+        /// <summary>
         /// Get the full config SO by ID.
         /// Returns null if ID is out of range.
         /// </summary>

@@ -20,6 +20,7 @@
 //     "_minHeadShotDamage": 20, "_maxHeadShotDamage": 28
 //   }
 
+using MidManStudio.Core.EditorUtils;
 using MidManStudio.Projectiles.Config;
 using UnityEditor;
 using UnityEngine;
@@ -38,7 +39,59 @@ namespace MidManStudio.Projectiles.EditorUtils
 
         public override void OnInspectorGUI()
         {
+            // ── Icon cache fix ───────────────────────────────────────────────
+            // ProjectileConfigSO extends MID_BaseSO, whose per-instance
+            // "custom icon" (_customIcon, a plain Texture2D field — this is
+            // what shows up as the Project window thumbnail/"custom sprite"
+            // for the asset) normally relies on MID_BaseSOEditor
+            // ([CustomEditor(typeof(MID_BaseSO), editorForChildClasses: true)])
+            // to invalidate MID_BaseSOProjectIconDrawer's per-GUID icon cache
+            // the moment that field changes, so the thumbnail updates
+            // immediately. Unity always resolves the MOST DERIVED
+            // [CustomEditor] match for a given type — since THIS class targets
+            // ProjectileConfigSO directly (an exact-type match beats
+            // MID_BaseSOEditor's editorForChildClasses match), MID_BaseSOEditor
+            // never runs for ProjectileConfigSO assets at all, and the plain
+            // DrawDefaultInspector() call below has no idea _customIcon needs
+            // special handling — it just writes the new value like any other
+            // field.
+            //
+            // Net effect (the reported bug): assigning/changing a custom
+            // icon/texture on a ProjectileConfigSO asset silently updates the
+            // underlying data, but MID_BaseSOProjectIconDrawer's cache is
+            // never invalidated, so the Project window keeps painting the
+            // stale/old icon. MID_BaseSOProjectIconDrawer.ClearCacheOnScriptReload()
+            // is [InitializeOnLoadMethod] — it fires after any domain reload,
+            // and entering Play Mode triggers one by default, which is why the
+            // correct icon only ever shows up once Play is hit. Configs that
+            // never set a custom icon (falling back to the MID_BaseSO
+            // default/GroupIconPath behaviour — "the MID_BaseSO thing") never
+            // populate the cache with a stale value in the first place, so
+            // they were never affected — matching the reported "regular
+            // configs update instantly" half of this.
+            //
+            // Fix: reproduce MID_BaseSOEditor's own invalidate+repaint step
+            // here too. EditorGUI.BeginChangeCheck/EndChangeCheck around
+            // DrawDefaultInspector() picks up ANY field edit (not just the
+            // icon) — cheap and harmless to invalidate a couple of extra
+            // times on an unrelated field change, and far simpler/more
+            // robust than trying to diff _customIcon specifically before vs.
+            // after the call. Loops over `targets` (not just `target`) since
+            // this editor supports multi-select ([CanEditMultipleObjects]).
+            EditorGUI.BeginChangeCheck();
             DrawDefaultInspector();
+            if (EditorGUI.EndChangeCheck())
+            {
+                foreach (var t in targets)
+                {
+                    if (t == null) continue;
+                    string path = AssetDatabase.GetAssetPath(t);
+                    string guid = AssetDatabase.AssetPathToGUID(path);
+                    if (!string.IsNullOrEmpty(guid))
+                        MID_BaseSOProjectIconDrawer.InvalidateCache(guid);
+                }
+                EditorApplication.RepaintProjectWindow();
+            }
 
             EditorGUILayout.Space(8);
             _foldout = EditorGUILayout.Foldout(_foldout, "Apply JSON", true);

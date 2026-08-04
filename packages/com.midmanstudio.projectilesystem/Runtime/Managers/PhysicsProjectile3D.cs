@@ -26,7 +26,8 @@ namespace MidManStudio.Projectiles.Managers
 
         #region State
 
-        private Rigidbody _rb;
+        private Rigidbody       _rb;
+        private SphereCollider  _sphereCollider;
 
         #endregion
 
@@ -41,6 +42,23 @@ namespace MidManStudio.Projectiles.Managers
                 MID_Logger.LogError(_logLevel,
                     $"PhysicsProjectile3D: Rigidbody missing on '{name}'.",
                     nameof(PhysicsProjectile3D));
+        }
+
+        /// <summary>
+        /// SCALING FIX — see PhysicsProjectileBase.ApplyConfigScale for the
+        /// full explanation. SphereCollider (this class's [RequireComponent],
+        /// so it's always present) has no directional axis, same situation as
+        /// PhysicsProjectile2D's CircleCollider2D fallback — radius tracks
+        /// FullSizeY (cross-section), not FullSizeX (travel-direction
+        /// length). Same judgement call noted there: tune against your actual
+        /// sprites/meshes if the hit-area feel is off.
+        /// </summary>
+        protected override void ApplyConfigScale(ProjectileConfigSO cfg)
+        {
+            if (_sphereCollider == null) _sphereCollider = GetComponent<SphereCollider>();
+            if (_sphereCollider == null || cfg == null) return;
+
+            _sphereCollider.radius = Mathf.Max(cfg.FullSizeY, 0.001f) * 0.5f;
         }
 
         protected override Vector3 OnLaunch(float bulletVelocity)

@@ -203,7 +203,7 @@ namespace MidManStudio.Projectiles.Visuals
                 // would still show its sprite field here if one happened to be
                 // assigned. Matches the Rust-sim renderers' own gate.
                 bool useSprite = cfg != null && cfg.UseSprite;
-                ApplySpriteOptimised(useSprite ? cfg.ProjectileSprite : null);
+                ApplySpriteOptimised(cfg, useSprite ? cfg.ProjectileSprite : null);
             }
 
             ApplyTrailOptimised(cfg);
@@ -354,8 +354,27 @@ namespace MidManStudio.Projectiles.Visuals
 
         #region Sprite
 
-        private void ApplySpriteOptimised(Sprite sprite)
+        /// <summary>
+        /// SCALING FIX ("physics-based projectiles do not support scaling"):
+        /// ApplyShapeMeshOptimised (below) has always set transform.localScale
+        /// from cfg.FullSizeX/FullSizeY — this plain-SpriteRenderer path never
+        /// did, so any config using a plain sprite (UseSprite = true, no
+        /// CustomShape — the common case, and the ONLY path physics
+        /// projectiles ever hit unless a CustomShape is assigned) rendered at
+        /// whatever scale the pooled prefab/parent already happened to have,
+        /// completely ignoring FullSizeX/Y. Mirrors the shape-mesh path's own
+        /// scale line exactly. Falls back to Vector3.one when cfg is null
+        /// (config not resolved yet) — same fallback OnReturnToPool already
+        /// uses, and LocalObjectPool.ReturnObject's own ResetObject() also
+        /// resets localScale to Vector3.one on every return regardless, so
+        /// there's no stale-scale risk between pool cycles either way.
+        /// </summary>
+        private void ApplySpriteOptimised(ProjectileConfigSO cfg, Sprite sprite)
         {
+            transform.localScale = cfg != null
+                ? new Vector3(cfg.FullSizeX, cfg.FullSizeY, 1f)
+                : Vector3.one;
+
             if (projectileSpriteRend == null) return;
 
             projectileSpriteRend.enabled     = true;

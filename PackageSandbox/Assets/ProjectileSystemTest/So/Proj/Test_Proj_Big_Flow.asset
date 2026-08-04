@@ -23,15 +23,15 @@ MonoBehaviour:
   _gravityScale: 0
   _maxRange: 50
   _piercingType: 0
-  _maxCollisions: 1
+  _maxCollisions: 4
   _hitLayers:
     serializedVersion: 2
     m_Bits: 320
-  _fullSizeX: 4
-  _fullSizeY: 4
-  _useScaleGrowth: 1
+  _fullSizeX: 1
+  _fullSizeY: 1
+  _useScaleGrowth: 0
   _spawnScaleFraction: 0.1
-  _growthSpeed: 1.8
+  _growthSpeed: 1
   _damageCurve:
     serializedVersion: 2
     m_Curve:

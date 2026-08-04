@@ -26,6 +26,14 @@ namespace MidManStudio.Projectiles.Managers
 
         private Rigidbody2D _rb;
 
+        // SCALING FIX (see PhysicsProjectileBase.ApplyConfigScale doc comment).
+        // Resolved once, lazily — whichever of the two the prefab actually has
+        // (see this file's own header comment: "CapsuleCollider2D added as
+        // alternative to CircleCollider2D").
+        private CapsuleCollider2D _capsuleCollider;
+        private CircleCollider2D  _circleCollider;
+        private bool              _colliderResolved;
+
         protected override bool Is2D => true;
 
 
@@ -36,6 +44,60 @@ namespace MidManStudio.Projectiles.Managers
                 MID_Logger.LogError(_logLevel,
                     $"PhysicsProjectile2D: No Rigidbody2D on '{name}'.",
                     nameof(PhysicsProjectile2D));
+        }
+
+        /// <summary>
+        /// SCALING FIX — see PhysicsProjectileBase.ApplyConfigScale for the
+        /// full explanation of why this exists and why it resizes the
+        /// collider directly instead of scaling transform.localScale.
+        ///
+        /// CapsuleCollider2D.size is (long-axis, cross-axis) relative to its
+        /// OWN .direction — this deliberately does not touch .direction
+        /// (whatever the prefab author set stays as-is), it just maps
+        /// FullSizeX (the travel-direction length — 2D convention here is
+        /// "fire along transform.right", see OnLaunch below) onto whichever
+        /// local axis is currently the capsule's long axis, so this is
+        /// correct regardless of prefab orientation.
+        ///
+        /// CircleCollider2D has no directional axis at all, so there's no
+        /// way to represent an elongated (FullSizeX != FullSizeY) shape
+        /// exactly — radius tracks FullSizeY (the cross-section/"width"),
+        /// not FullSizeX, so the hit area doesn't balloon out along the
+        /// travel axis for long/thin projectile sprites. This is a judgement
+        /// call, not a verified-correct mapping (couldn't render/compare
+        /// in-editor here) — tune it against your actual sprites if the feel
+        /// is off, or swap the prefab to CapsuleCollider2D for an exact fit.
+        /// </summary>
+        protected override void ApplyConfigScale(ProjectileConfigSO cfg)
+        {
+            if (!_colliderResolved)
+            {
+                _capsuleCollider  = GetComponent<CapsuleCollider2D>();
+                _circleCollider   = _capsuleCollider == null ? GetComponent<CircleCollider2D>() : null;
+                _colliderResolved = true;
+
+                if (_capsuleCollider == null && _circleCollider == null)
+                    MID_Logger.LogWarning(_logLevel,
+                        $"PhysicsProjectile2D: no CapsuleCollider2D or CircleCollider2D " +
+                        $"on '{name}' — cannot apply config scale.",
+                        nameof(PhysicsProjectile2D));
+            }
+
+            if (cfg == null) return;
+
+            float sizeX = Mathf.Max(cfg.FullSizeX, 0.001f);
+            float sizeY = Mathf.Max(cfg.FullSizeY, 0.001f);
+
+            if (_capsuleCollider != null)
+            {
+                _capsuleCollider.size = _capsuleCollider.direction == CapsuleDirection2D.Horizontal
+                    ? new Vector2(sizeX, sizeY)
+                    : new Vector2(sizeY, sizeX);
+            }
+            else if (_circleCollider != null)
+            {
+                _circleCollider.radius = sizeY * 0.5f;
+            }
         }
 
         protected override Vector3 OnLaunch(float bulletVelocity)

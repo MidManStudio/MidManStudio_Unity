@@ -183,7 +183,7 @@ MonoBehaviour:
   _fallbackPitchVariance: 0.1
   _muzzleFlashParticleCount: 4
   _muzzleFlashVolume: 0.8
-  _logLevel: 2
+  _logLevel: 4
 --- !u!23 &2361679234294197832
 MeshRenderer:
   m_ObjectHideFlags: 0
