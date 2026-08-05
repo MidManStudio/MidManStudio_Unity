@@ -48,27 +48,31 @@ namespace MidManStudio.Projectiles.Managers
 
         /// <summary>
         /// SCALING FIX — see PhysicsProjectileBase.ApplyConfigScale for the
-        /// full explanation of why this exists and why it resizes the
-        /// collider directly instead of scaling transform.localScale.
+        /// full explanation of why this exists, why it resizes the collider
+        /// directly instead of scaling transform.localScale, and why it's
+        /// called with a raw (sizeX, sizeY) pair rather than a config
+        /// (PhysicsProjectileBase owns deciding the target size and whether
+        /// to animate into it via GrowColliderRoutine — this method just
+        /// applies whatever size it's given).
         ///
         /// CapsuleCollider2D.size is (long-axis, cross-axis) relative to its
         /// OWN .direction — this deliberately does not touch .direction
         /// (whatever the prefab author set stays as-is), it just maps
-        /// FullSizeX (the travel-direction length — 2D convention here is
+        /// sizeX (the travel-direction length — 2D convention here is
         /// "fire along transform.right", see OnLaunch below) onto whichever
         /// local axis is currently the capsule's long axis, so this is
         /// correct regardless of prefab orientation.
         ///
         /// CircleCollider2D has no directional axis at all, so there's no
-        /// way to represent an elongated (FullSizeX != FullSizeY) shape
-        /// exactly — radius tracks FullSizeY (the cross-section/"width"),
-        /// not FullSizeX, so the hit area doesn't balloon out along the
-        /// travel axis for long/thin projectile sprites. This is a judgement
-        /// call, not a verified-correct mapping (couldn't render/compare
-        /// in-editor here) — tune it against your actual sprites if the feel
-        /// is off, or swap the prefab to CapsuleCollider2D for an exact fit.
+        /// way to represent an elongated (sizeX != sizeY) shape exactly —
+        /// radius tracks sizeY (the cross-section/"width"), not sizeX, so
+        /// the hit area doesn't balloon out along the travel axis for
+        /// long/thin projectile sprites. This is a judgement call, not a
+        /// verified-correct mapping (couldn't render/compare in-editor
+        /// here) — tune it against your actual sprites if the feel is off,
+        /// or swap the prefab to CapsuleCollider2D for an exact fit.
         /// </summary>
-        protected override void ApplyConfigScale(ProjectileConfigSO cfg)
+        protected override void ApplyColliderSize(float sizeX, float sizeY)
         {
             if (!_colliderResolved)
             {
@@ -82,11 +86,6 @@ namespace MidManStudio.Projectiles.Managers
                         $"on '{name}' — cannot apply config scale.",
                         nameof(PhysicsProjectile2D));
             }
-
-            if (cfg == null) return;
-
-            float sizeX = Mathf.Max(cfg.FullSizeX, 0.001f);
-            float sizeY = Mathf.Max(cfg.FullSizeY, 0.001f);
 
             if (_capsuleCollider != null)
             {
