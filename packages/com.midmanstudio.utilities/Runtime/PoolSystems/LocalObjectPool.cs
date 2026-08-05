@@ -275,6 +275,17 @@ namespace MidManStudio.Core.Pools
 
         public bool IsRegistered(PoolableObjectType type) => _registeredTypes.Contains(type);
 
+        /// <summary>
+        /// Number of instances currently idle in the queue for a type (i.e.
+        /// NOT counting instances presently checked out via GetObject).
+        /// Returns 0 for an unregistered type. Used by
+        /// ProjectileVisualWarmupManager to know exactly how many
+        /// Get/Return cycles are needed to touch every currently-pooled
+        /// instance once, instead of guessing a fixed number.
+        /// </summary>
+        public int GetQueuedCount(PoolableObjectType type)
+            => _pooledObjects.TryGetValue(type, out var pool) ? pool.Count : 0;
+
         public void ReturnAllActive()
         {
             int count = 0;
