@@ -78,6 +78,7 @@ namespace MidManStudio.Projectiles.Managers
         private ProjectileVisualBase _poolVisual;
         private PoolableObjectType   _usedPoolType;
         private Coroutine            _retryCoroutine;
+        private Coroutine            _colliderGrowthCoroutine;
 
         // Piercing (mirrors RustSimAdapter.HandlePiercing so a physics-based
         // projectile and a raycast/rust-sim one behave identically for the
@@ -132,6 +133,18 @@ namespace MidManStudio.Projectiles.Managers
                 StopCoroutine(_retryCoroutine);
                 _retryCoroutine = null;
             }
+
+            // GROWTH FIX companion — stop mid-flight collider growth
+            // explicitly (same reasoning as ProjectileVisualBase.
+            // ReturnToPoolImmediate's equivalent stop) rather than relying
+            // solely on the eventual SetActive(false) inside
+            // MID_NetworkObjectPool.ReturnNetworkObject to implicitly kill it.
+            if (_colliderGrowthCoroutine != null)
+            {
+                StopCoroutine(_colliderGrowthCoroutine);
+                _colliderGrowthCoroutine = null;
+            }
+
             ReturnPoolVisual();
             base.OnNetworkDespawn();
         }
@@ -154,8 +167,10 @@ namespace MidManStudio.Projectiles.Managers
         /// even though the cosmetic visual (ProjectileVisual_2D/3D — a
         /// *different*, separately LocalObjectPool-managed GameObject, see
         /// SpawnPoolVisual below) already reads FullSizeX/Y for its own
-        /// rendering. Override per-subclass to resize whichever collider
-        /// type that subclass actually uses.
+        /// rendering. Override ApplyColliderSize per-subclass to resize
+        /// whichever collider type that subclass actually uses; this method
+        /// is the shared, concrete orchestrator that decides WHAT size to
+        /// apply and WHEN — subclasses never need to read cfg directly.
         ///
         /// Called:
         ///   • right after OnPhysicsSetup() in OnNetworkSpawn (best-effort
@@ -168,7 +183,8 @@ namespace MidManStudio.Projectiles.Managers
         ///     config isn't always known yet at spawn time)
         ///
         /// cfg may be null (registry not ready yet, or configId not
-        /// registered) — implementations must no-op safely in that case.
+        /// registered) — no-ops in that case, leaving whatever size was
+        /// already applied (or the prefab default, pre-first-call).
         ///
         /// Deliberately NOT implemented by scaling transform.localScale on
         /// this object's own root: the pooled cosmetic visual is parented
@@ -180,14 +196,86 @@ namespace MidManStudio.Projectiles.Managers
         /// component directly keeps hit-detection correctly sized without
         /// touching the visual's own scale at all.
         ///
-        /// No extra NetworkVariable/RPC needed for this either: every peer
-        /// (server and every client) resolves the same VisualConfigId to the
-        /// same shared ProjectileConfigSO project asset and computes the
-        /// same size locally — the config data itself is what's already
-        /// synced, the same way sprite/trail/material selection already work
-        /// without any per-instance network traffic.
+        /// No extra NetworkVariable/RPC needed for the STATIC (non-growth)
+        /// case: every peer (server and every client) resolves the same
+        /// VisualConfigId to the same shared ProjectileConfigSO project
+        /// asset and computes the same size locally — the config data itself
+        /// is what's already synced.
+        ///
+        /// GROWTH ("gets spawned full scale rather than scaling up as
+        /// intended"): if cfg.UseScaleGrowth is set, the collider doesn't
+        /// jump straight to FullSizeX/Y — it animates from
+        /// FullSize*SpawnScaleFraction up to full size over GrowthSpeed,
+        /// using the exact same formula RustSim's native tick_scale already
+        /// uses (rust_lib/projectile_core/src/simulation.rs):
+        /// current += (target - current) * speed * dt. Only ever driven on
+        /// the SERVER — this object's Rigidbody/collider only has gameplay
+        /// consequence there (see NetworkProjectileBase's IsServer gate
+        /// around all the actual physics/launch logic); a non-server peer
+        /// just snaps straight to full size, which is harmless since nothing
+        /// there ever reads this collider for hit detection.
         /// </summary>
-        protected abstract void ApplyConfigScale(ProjectileConfigSO cfg);
+        private void ApplyConfigScale(ProjectileConfigSO cfg)
+        {
+            if (_colliderGrowthCoroutine != null)
+            {
+                StopCoroutine(_colliderGrowthCoroutine);
+                _colliderGrowthCoroutine = null;
+            }
+
+            if (cfg == null) return;
+
+            float targetX = Mathf.Max(cfg.FullSizeX, 0.001f);
+            float targetY = Mathf.Max(cfg.FullSizeY, 0.001f);
+
+            if (!cfg.UseScaleGrowth || !IsServer)
+            {
+                ApplyColliderSize(targetX, targetY);
+                return;
+            }
+
+            _colliderGrowthCoroutine = StartCoroutine(
+                GrowColliderRoutine(targetX, targetY, cfg.SpawnScaleFraction, cfg.GrowthSpeed));
+        }
+
+        private IEnumerator GrowColliderRoutine(
+            float targetX, float targetY, float spawnFraction, float speed)
+        {
+            float curX = targetX * spawnFraction;
+            float curY = targetY * spawnFraction;
+            ApplyColliderSize(curX, curY);
+
+            // Mirrors tick_scale in rust_lib/projectile_core/src/simulation.rs
+            // exactly, so physics-projectile growth looks the same as
+            // RustSim-driven growth: diff = target - current; if |diff| >
+            // 0.001, current += diff * speed * dt.
+            while (true)
+            {
+                float dt    = Time.deltaTime;
+                float diffX = targetX - curX;
+                float diffY = targetY - curY;
+                bool  doneX = Mathf.Abs(diffX) <= 0.001f;
+                bool  doneY = Mathf.Abs(diffY) <= 0.001f;
+                if (doneX && doneY) break;
+
+                if (!doneX) curX += diffX * speed * dt;
+                if (!doneY) curY += diffY * speed * dt;
+                ApplyColliderSize(curX, curY);
+                yield return null;
+            }
+
+            ApplyColliderSize(targetX, targetY);
+            _colliderGrowthCoroutine = null;
+        }
+
+        /// <summary>
+        /// Resizes whichever collider type this subclass actually uses to
+        /// the given world-unit dimensions. Called by ApplyConfigScale
+        /// above — either once (static size) or repeatedly across several
+        /// frames (growth animation) — subclasses don't need to know or
+        /// care which case is happening.
+        /// </summary>
+        protected abstract void ApplyColliderSize(float sizeX, float sizeY);
 
         /// <summary>
         /// Resolves the ProjectileConfigSO currently referenced by
