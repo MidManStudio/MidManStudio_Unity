@@ -101,6 +101,16 @@ namespace MidManStudio.Projectiles.Visuals
             ApplyMesh(cfg);
             ApplyMaterial(cfg);
             ApplyScale(cfg);
+
+            // GROWTH FIX ("gets spawned full scale rather than scaling up as
+            // intended") — no-ops immediately if cfg is null or
+            // UseScaleGrowth is false, leaving ApplyScale's one-shot value
+            // just above untouched. See ProjectileVisualBase's own section
+            // comment for the full explanation, and ApplyScaleAtSize below
+            // for how this reproduces ApplyScale's length/width mapping at
+            // each interpolated size during growth.
+            RefreshScaleGrowth(cfg);
+
             ApplyTrail(cfg);
             OnInitialise3D(cfg);
         }
@@ -204,6 +214,24 @@ namespace MidManStudio.Projectiles.Visuals
             float length = cfg != null ? cfg.FullSizeX * _scaleMultiplier : _scaleMultiplier;
             float width  = cfg != null && cfg.FullSizeX > 0.001f
                 ? (cfg.FullSizeY / cfg.FullSizeX) * length : length * 0.2f;
+            transform.localScale = new Vector3(width, width, length);
+        }
+
+        /// <summary>
+        /// GROWTH FIX companion — reproduces ApplyScale's own length/width/
+        /// aspect-ratio formula above, but driven by the growth coroutine's
+        /// interpolated (sizeX, sizeY) instead of always reading cfg's full
+        /// FullSizeX/FullSizeY directly. Because both sizeX and sizeY are
+        /// scaled down by the SAME growth fraction at any given moment
+        /// (ProjectileVisualBase.GrowScaleRoutine), their ratio sizeY/sizeX
+        /// always equals cfg.FullSizeY/cfg.FullSizeX exactly — so this
+        /// produces IDENTICAL output to ApplyScale(cfg) once sizeX/sizeY
+        /// reach the config's full values, and scales smoothly in between.
+        /// </summary>
+        protected override void ApplyScaleAtSize(float sizeX, float sizeY)
+        {
+            float length = sizeX * _scaleMultiplier;
+            float width  = sizeX > 0.001f ? (sizeY / sizeX) * length : length * 0.2f;
             transform.localScale = new Vector3(width, width, length);
         }
 
