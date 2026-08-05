@@ -163,6 +163,35 @@ namespace MidManStudio.Projectiles.Visuals
 
         protected override void OnInitialise(ProjectileConfigSO cfg)
         {
+            // DEFENSIVE FIX ("first fire shows the wrong visual, self-corrects
+            // on the second fire — reproduces whether or not CustomShape is
+            // assigned"): I traced the branch logic below exhaustively and it
+            // should always be deterministic from cfg alone, with no
+            // dependency on prior state — but you've now confirmed the bug
+            // reproduces regardless of CustomShape, which rules out the branch
+            // decision itself as the cause. I could not pin down the exact
+            // remaining mechanism through static reading (my leading
+            // suspicion: ProjectileVisual_2D.prefab's shape-mesh child saves
+            // with MeshRenderer.enabled=1 in the sandbox prefab, contradicting
+            // this file's own comment that it's "never on this GameObject
+            // directly" — Awake() should already disable it, but something
+            // about first-activation timing on a pooled instance may be
+            // slipping past that; I don't have a way to single-step Unity
+            // here to confirm).
+            //
+            // This is a defensive, not root-cause, fix: force BOTH renderers
+            // to a known-off state before any decision is made, so whichever
+            // one the branch below turns on is the only one active,
+            // regardless of what state either was already in coming in. If
+            // this DOESN'T resolve it, the bug isn't in this method's
+            // rendering logic at all — next place to look is whether
+            // OnInitialise is even being reached on the object's true first
+            // activation (add a one-off MID_Logger.LogDebug at the very top
+            // logging ConfigId + cfg?.name + Time.frameCount, compare across
+            // a first vs second fire of the same pooled instance).
+            if (_shapeMeshRenderer   != null) _shapeMeshRenderer.enabled   = false;
+            if (projectileSpriteRend != null) projectileSpriteRend.enabled = false;
+
             bool configChanged = !_configInitialised || _cachedConfigId != ConfigId;
             if (configChanged)
             {
