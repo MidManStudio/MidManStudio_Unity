@@ -206,6 +206,13 @@ namespace MidManStudio.Projectiles.Visuals
                 ApplySpriteOptimised(cfg, useSprite ? cfg.ProjectileSprite : null);
             }
 
+            // GROWTH FIX ("gets spawned full scale rather than scaling up as
+            // intended") — no-ops immediately if cfg is null or
+            // UseScaleGrowth is false, leaving the one-shot scale set just
+            // above untouched. See ProjectileVisualBase's own section
+            // comment for the full explanation.
+            RefreshScaleGrowth(cfg);
+
             ApplyTrailOptimised(cfg);
         }
 
