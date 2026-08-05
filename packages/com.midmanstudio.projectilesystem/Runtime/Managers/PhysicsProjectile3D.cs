@@ -46,19 +46,26 @@ namespace MidManStudio.Projectiles.Managers
 
         /// <summary>
         /// SCALING FIX — see PhysicsProjectileBase.ApplyConfigScale for the
-        /// full explanation. SphereCollider (this class's [RequireComponent],
-        /// so it's always present) has no directional axis, same situation as
+        /// full explanation of why this exists, why it resizes the collider
+        /// directly instead of scaling transform.localScale, and why it's
+        /// called with a raw (sizeX, sizeY) pair rather than a config
+        /// (PhysicsProjectileBase owns deciding the target size and whether
+        /// to animate into it via GrowColliderRoutine — this method just
+        /// applies whatever size it's given).
+        ///
+        /// SphereCollider (this class's [RequireComponent], so it's always
+        /// present) has no directional axis, same situation as
         /// PhysicsProjectile2D's CircleCollider2D fallback — radius tracks
-        /// FullSizeY (cross-section), not FullSizeX (travel-direction
-        /// length). Same judgement call noted there: tune against your actual
+        /// sizeY (cross-section), not sizeX (travel-direction length). Same
+        /// judgement call noted there: tune against your actual
         /// sprites/meshes if the hit-area feel is off.
         /// </summary>
-        protected override void ApplyConfigScale(ProjectileConfigSO cfg)
+        protected override void ApplyColliderSize(float sizeX, float sizeY)
         {
             if (_sphereCollider == null) _sphereCollider = GetComponent<SphereCollider>();
-            if (_sphereCollider == null || cfg == null) return;
+            if (_sphereCollider == null) return;
 
-            _sphereCollider.radius = Mathf.Max(cfg.FullSizeY, 0.001f) * 0.5f;
+            _sphereCollider.radius = sizeY * 0.5f;
         }
 
         protected override Vector3 OnLaunch(float bulletVelocity)
