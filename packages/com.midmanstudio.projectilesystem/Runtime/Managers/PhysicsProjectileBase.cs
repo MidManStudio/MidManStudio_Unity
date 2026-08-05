@@ -67,6 +67,7 @@ namespace MidManStudio.Projectiles.Managers
 
         // Recorded at launch for travel-distance damage falloff
         private Vector3 _spawnPosition;
+        private bool    _launched;
 
         protected ulong _ownerMidId;
         protected ulong _firedByNetworkObjectId;
@@ -118,7 +119,7 @@ namespace MidManStudio.Projectiles.Managers
             // needs to do anything owner-specific on spawn.
 
             OnPhysicsSetup();
-            ApplyConfigScale(ResolveVisualConfig());
+            RefreshConfigDependentState(ResolveVisualConfig());
             SpawnPoolVisual();
             if (_poolVisualGO == null)
                 _retryCoroutine = StartCoroutine(RetrySpawnVisual());
@@ -146,7 +147,42 @@ namespace MidManStudio.Projectiles.Managers
             }
 
             ReturnPoolVisual();
+            _launched = false;
             base.OnNetworkDespawn();
+        }
+
+        /// <summary>
+        /// MAXRANGE FIX ("check the whole config... this is more serious than
+        /// we thought"): MaxRange was only ever consumed by ComputeConfigDamage
+        /// for damage-falloff normalisation — nothing actually stopped a
+        /// physics projectile once it traveled past that distance, unlike a
+        /// raycast (inherently bounded by its own max distance) or a RustSim
+        /// projectile (native-side max-range cutoff). A physics projectile
+        /// with low/no drag and gravity disabled could travel indefinitely
+        /// past its configured range, still fully "alive" until TimeToLive
+        /// (see ApplyConfigLifetime) eventually catches it.
+        ///
+        /// Further-overrides NetworkProjectileBase.Update() (not sealed) —
+        /// base.Update() still runs first, so the existing TTL watchdog and
+        /// NetworkTransform interpolation are both unaffected; this just adds
+        /// an additional server-only distance check on top.
+        /// </summary>
+        protected override void Update()
+        {
+            base.Update();
+
+            if (!IsServer || !_launched || HasHit) return;
+
+            var cfg = ResolveVisualConfig();
+            if (cfg == null || cfg.MaxRange <= 0f) return;
+
+            float travelDist = Vector3.Distance(_spawnPosition, transform.position);
+            if (travelDist >= cfg.MaxRange)
+            {
+                HasHit = true;
+                StopPhysics();
+                DestroyProjectile();
+            }
         }
 
         #endregion
@@ -157,6 +193,107 @@ namespace MidManStudio.Projectiles.Managers
         protected abstract Vector3 OnLaunch(float bulletVelocity);
         protected abstract void StopPhysics();
         protected abstract bool Is2D { get; }
+
+        /// <summary>
+        /// Refreshes every piece of per-instance state that depends on the
+        /// resolved ProjectileConfigSO. Called from the three places
+        /// VisualConfigId is known/changes (OnNetworkSpawn, SetVisualConfigId,
+        /// HandleVisualConfigChanged) — centralised here so each new
+        /// config-driven fix only needs one call site added to those three
+        /// methods instead of one per fix.
+        /// </summary>
+        private void RefreshConfigDependentState(ProjectileConfigSO cfg)
+        {
+            ApplyConfigScale(cfg);
+            ApplyConfigLifetime(cfg);
+            ApplyConfigHitLayers(cfg);
+        }
+
+        /// <summary>
+        /// LIFETIME FIX ("lifetime doesn't get applied to physics
+        /// projectiles"): TimeToLive (NetworkProjectileBase, inherited) was
+        /// always just whatever fixed value the prefab's Inspector happened to
+        /// have (8f unless overridden per-prefab) — completely decoupled from
+        /// ProjectileConfigSO.Lifetime. Confirmed by grep: TimeToLive is
+        /// referenced nowhere else in this package, for ANY projectile type —
+        /// NetworkProjectileBase itself doesn't know ProjectileConfigSO exists
+        /// at all (deliberately generic), so nothing was ever bridging the two.
+        ///
+        /// The actual TTL enforcement (NetworkProjectileBase.Update()'s
+        /// NetworkManager.ServerTime.TimeAsFloat >= _endOfLifeTime check) was
+        /// already correct and already runs for physics projectiles — it was
+        /// just measuring against the wrong duration.
+        ///
+        /// This must run BEFORE InitialiseProjectile() is called, since that
+        /// method reads TimeToLive exactly once to compute _endOfLifeTime.
+        /// SetVisualConfigId() is already documented/established as being
+        /// called before Spawn() by the normal SpawnPhysicsProjectile flow,
+        /// and InitialiseProjectile() (the actual "launch") only ever happens
+        /// after that — so this ordering already holds without further changes.
+        /// </summary>
+        private void ApplyConfigLifetime(ProjectileConfigSO cfg)
+        {
+            if (cfg != null) TimeToLive = cfg.Lifetime;
+        }
+
+        /// <summary>
+        /// HITLAYERS FIX, explosion-damage half: ApplyExplosionDamage2D/3D
+        /// already correctly pass _damageLayerMask into
+        /// OverlapCircleNonAlloc/OverlapSphereNonAlloc — that part was never
+        /// broken. It just wasn't synced from cfg.HitLayers anywhere, so an
+        /// AoE config's HitLayers setting was silently ignored in favour of
+        /// whatever _damageLayerMask happened to default to on the prefab
+        /// (-1 / everything). See PassesConfigLayerMask for the equivalent
+        /// fix on the direct-hit path, which needed an explicit new check
+        /// rather than just a sync since it had no layer filtering at all.
+        /// </summary>
+        private void ApplyConfigHitLayers(ProjectileConfigSO cfg)
+        {
+            if (cfg != null) _damageLayerMask = cfg.HitLayers;
+        }
+
+        /// <summary>
+        /// SPEED FIX ("physics projectiles don't abide by the speed of the
+        /// config at all"): confirmed by grep across this entire package —
+        /// cfg.ResolveSpeed() (== MinSpeed/MaxSpeed) is called exactly ONCE,
+        /// in MID_MasterProjectileSystem.FireNetworkedSim for the
+        /// raycast/RustSim path. SpawnPhysicsProjectile never calls
+        /// InitialiseProjectile at all — launching a physics projectile is a
+        /// separate step the calling weapon script does itself, passing its
+        /// own bulletVelocity. There was no bridge from cfg's speed fields
+        /// into that value anywhere in this package.
+        ///
+        /// This override brings the physics path in line with
+        /// FireNetworkedSim's own established convention exactly:
+        /// `perSpawnPointOverride > 0 ? override : cfg.ResolveSpeed()` — here,
+        /// bulletVelocity <= 0 is treated as "caller didn't specify", and gets
+        /// resolved from VisualConfigId's config instead. Any caller already
+        /// passing a real velocity (> 0) is completely unaffected.
+        ///
+        /// CAVEAT: I don't have visibility into the actual calling weapon
+        /// script (NetworkedDimensionPlayer.FirePhysics, per
+        /// SpawnPhysicsProjectile's own doc comment, lives in the game
+        /// project, not this shared package). If it's already passing an
+        /// explicit non-zero bulletVelocity sourced from somewhere else
+        /// entirely, this fix won't override that — worth checking that call
+        /// site directly if projectiles still don't match config speed after
+        /// this.
+        /// </summary>
+        public override void InitialiseProjectile(
+            ulong ownerMidId, ulong firedByNetworkObjectId, float bulletVelocity,
+            bool isBotOwned = false, byte weaponLevel = 0,
+            bool serverIsActualOwner = false, bool enableVisualSynch = true)
+        {
+            if (bulletVelocity <= 0f)
+            {
+                var cfg = ResolveVisualConfig();
+                if (cfg != null) bulletVelocity = cfg.ResolveSpeed();
+            }
+
+            base.InitialiseProjectile(
+                ownerMidId, firedByNetworkObjectId, bulletVelocity,
+                isBotOwned, weaponLevel, serverIsActualOwner, enableVisualSynch);
+        }
 
         /// <summary>
         /// SCALING FIX ("physics-based projectiles do not support scaling"):
@@ -302,7 +439,8 @@ namespace MidManStudio.Projectiles.Managers
 
         protected override void OnProjectileInitialised()
         {
-            HasHit = false;
+            HasHit    = false;
+            _launched = true;
             //  record spawn position so we can compute travel distance for damage falloff
             _spawnPosition = transform.position;
 
@@ -343,8 +481,40 @@ namespace MidManStudio.Projectiles.Managers
 
         protected override void OnCollisionNotifiedClient() { }
 
+        /// <summary>
+        /// IMPACT VFX FIX ("check the whole config... this is more serious
+        /// than we thought"): confirmed by grep — cfg.ImpactEffectType was
+        /// never referenced anywhere in this file. This method used to be
+        /// just `=> ReturnPoolVisual();` — physics projectiles spawned NO
+        /// impact effect at all, regardless of what ImpactEffectType was set
+        /// to on the config. ProjectileImpactHandler.PlayImpact already
+        /// exists and is the exact mechanism MID_ProjectileNetworkBridge
+        /// already calls for the raycast/RustSim path's impact VFX (per that
+        /// class's own header comment: "MID_ProjectileNetworkBridge calls
+        /// PlayImpact() on HitConfirmedClientRpc") — this wires physics
+        /// projectiles into the same call.
+        ///
+        /// SCOPE NOTE: PlayImpact takes an optional isHeadshot flag for a
+        /// headshot-specific VFX variant, which I'm deliberately NOT
+        /// threading through here — doing so would mean changing
+        /// NetworkProjectileBase.OnSpawnImpactEffectClient's signature
+        /// (adding a parameter), which is a protected virtual method any
+        /// external game-specific subclass could already be overriding.
+        /// Changing its signature would silently break any such override
+        /// (parameter lists must match exactly for C# override resolution —
+        /// a default value doesn't help there) rather than just extend it,
+        /// and I have no visibility into whether anything outside this
+        /// package does that. Say if you want that threaded through too and
+        /// I'll do it properly with the signature change called out
+        /// explicitly rather than sneaking it in.
+        /// </summary>
         protected override void OnSpawnImpactEffectClient(Vector3 position)
-            => ReturnPoolVisual();
+        {
+            if (ProjectileImpactHandler.HasInstance)
+                ProjectileImpactHandler.Instance.PlayImpact(position, VisualConfigId);
+
+            ReturnPoolVisual();
+        }
 
         protected override void OnSpawnKillEffectClient(Vector3 position) { }
 
@@ -398,14 +568,14 @@ namespace MidManStudio.Projectiles.Managers
                     VisualConfigId, transform.position, dir, speed);
             }
 
-            // SCALING FIX — see ApplyConfigScale's doc comment. Uses
-            // VisualConfigId (not the raw configId param) so this reads back
-            // whatever the NetworkVariable actually holds — on the server
-            // that's the value just written above; on a non-server instance
-            // (safe no-op for the network write, per this method's own
-            // existing doc comment) it's still whatever the last-synced
-            // value is, which is the correct thing to scale against.
-            ApplyConfigScale(ResolveVisualConfig());
+            // SCALING FIX / LIFETIME FIX — see ApplyConfigScale/ApplyConfigLifetime
+            // doc comments. Uses VisualConfigId (not the raw configId param) so
+            // this reads back whatever the NetworkVariable actually holds — on
+            // the server that's the value just written above; on a non-server
+            // instance (safe no-op for the network write, per this method's own
+            // existing doc comment) it's still whatever the last-synced value
+            // is, which is the correct thing to apply.
+            RefreshConfigDependentState(ResolveVisualConfig());
         }
 
         #endregion
@@ -415,6 +585,7 @@ namespace MidManStudio.Projectiles.Managers
         protected void HandleHit3D(GameObject hitGO, Vector3 hitPoint)
         {
             if (!IsServer || HasHit) return;
+            if (!PassesConfigLayerMask(hitGO.layer)) return;
 
             var targetNetObj = hitGO.GetComponentInParent<NetworkObject>();
             // Physics can re-trigger a contact against the same collider across
@@ -435,6 +606,7 @@ namespace MidManStudio.Projectiles.Managers
         protected void HandleHit2D(GameObject hitGO, Vector3 hitPoint)
         {
             if (!IsServer || HasHit) return;
+            if (!PassesConfigLayerMask(hitGO.layer)) return;
 
             var targetNetObj = hitGO.GetComponentInParent<NetworkObject>();
             if (targetNetObj != null && !_hitTargetIds.Add((uint)targetNetObj.NetworkObjectId))
@@ -446,6 +618,36 @@ namespace MidManStudio.Projectiles.Managers
             HasHit = true;
             StopPhysics();
             DestroyProjectile();
+        }
+
+        /// <summary>
+        /// HITLAYERS FIX ("check the whole config, this is more serious than
+        /// we thought"): confirmed by grep — cfg.HitLayers was referenced
+        /// nowhere in this file at all. Direct physics hits (this method) hit
+        /// ANYTHING with a collider, completely ignoring HitLayers — the
+        /// tooltip on that field explicitly says "Exclude the 'Player' layer
+        /// to prevent friendly-fire or self-damage from pattern projectiles",
+        /// none of which was actually happening for physics projectiles.
+        ///
+        /// Mirrors LocalProjectileManager.PassesLayerMask's exact established
+        /// pattern (mask == -1 means "everything", matching HitLayers'
+        /// documented default) rather than inventing a new check — same
+        /// mask == -1 short-circuit, same bitwise membership test.
+        ///
+        /// NOTE: this only filters DAMAGE/hit-registration, matching the
+        /// tooltip's stated intent. The projectile still physically collides
+        /// (bounces, stops, etc.) with excluded-layer colliders exactly as
+        /// before — if you also want it to pass through them with no physical
+        /// response at all, that's a separate, deeper fix (Physics2D/
+        /// Physics.IgnoreCollision per-instance, or Trigger colliders +
+        /// manual movement) — say if you want that too.
+        /// </summary>
+        private bool PassesConfigLayerMask(int hitLayer)
+        {
+            var cfg = ResolveVisualConfig();
+            if (cfg == null) return true;
+            int mask = cfg.HitLayers.value;
+            return mask == -1 || (mask & (1 << hitLayer)) != 0;
         }
 
         /// <summary>
@@ -499,10 +701,10 @@ namespace MidManStudio.Projectiles.Managers
             NetworkObject targetNetObj, Vector3 hitPoint, bool is2D, GameObject hitGO)
         {
             if (targetNetObj == null) return;
-            float damage = ComputeConfigDamage(hitPoint);
+            float damage = ComputeConfigDamage(hitPoint, hitGO, out bool isCrit, out bool isHeadshot);
             FireHitEvent(
                 (uint)targetNetObj.NetworkObjectId,
-                damage,
+                damage, isCrit, isHeadshot,
                 hitPoint, is2D, hitGO);
         }
 
@@ -517,8 +719,12 @@ namespace MidManStudio.Projectiles.Managers
                 if (no == null) continue;
                 float dist    = Vector3.Distance(centre, cols[i].transform.position);
                 float falloff = 1f - Mathf.Clamp01(dist / _explosionRadius);
-                float damage  = ComputeConfigDamage(cols[i].transform.position) * falloff;
-                FireHitEvent((uint)no.NetworkObjectId, damage, centre, false, cols[i].gameObject);
+                float damage  = ComputeConfigDamage(
+                    cols[i].transform.position, cols[i].gameObject,
+                    out bool isCrit, out bool isHeadshot) * falloff;
+                FireHitEvent(
+                    (uint)no.NetworkObjectId, damage, isCrit, isHeadshot,
+                    centre, false, cols[i].gameObject);
             }
         }
 
@@ -533,17 +739,45 @@ namespace MidManStudio.Projectiles.Managers
                 if (no == null) continue;
                 float dist    = Vector2.Distance((Vector2)centre, (Vector2)cols[i].transform.position);
                 float falloff = 1f - Mathf.Clamp01(dist / _explosionRadius);
-                float damage  = ComputeConfigDamage(cols[i].transform.position) * falloff;
-                FireHitEvent((uint)no.NetworkObjectId, damage, centre, true, cols[i].gameObject);
+                float damage  = ComputeConfigDamage(
+                    cols[i].transform.position, cols[i].gameObject,
+                    out bool isCrit, out bool isHeadshot) * falloff;
+                FireHitEvent(
+                    (uint)no.NetworkObjectId, damage, isCrit, isHeadshot,
+                    centre, true, cols[i].gameObject);
             }
         }
 
         /// <summary>
-        /// Evaluates damage from the ProjectileConfigSO using travel distance + damage curve.
-        /// Falls back to _baseDamage when no config is registered for _visualConfigId.
+        /// Evaluates damage from the ProjectileConfigSO using travel distance +
+        /// damage curve. Falls back to _baseDamage when no config is
+        /// registered for VisualConfigId.
+        ///
+        /// CRIT FIX ("check the whole config, this is more serious than we
+        /// thought"): isCrit was already being computed right here, but the
+        /// caller (FireHitEvent) hardcoded IsCrit = false in the payload
+        /// instead of ever reading it — the computed value was silently
+        /// thrown away every time. Now returned via out param and threaded
+        /// through by both callers below.
+        ///
+        /// HEADSHOT SCAFFOLDING: cfg.HeadshotMultiplier was never referenced
+        /// anywhere in this file at all. LocalProjectileManager.
+        /// CheckHeadshotLocal (the equivalent hook for the offline/local
+        /// path) defaults to `=> false` and is meant to be overridden by a
+        /// game-specific subclass with real hitbox/head-zone knowledge this
+        /// shared package doesn't have — CheckHeadshotPhysics below mirrors
+        /// that exact pattern for the physics path. Wire it up in a
+        /// game-specific PhysicsProjectileBase subclass (or edit it directly
+        /// here if you'd rather keep it in-package) once you've got a way to
+        /// tell head hitboxes apart from body ones — I didn't want to guess
+        /// at that logic.
         /// </summary>
-        private float ComputeConfigDamage(Vector3 hitPoint)
+        private float ComputeConfigDamage(
+            Vector3 hitPoint, GameObject hitGO, out bool isCrit, out bool isHeadshot)
         {
+            isCrit     = false;
+            isHeadshot = false;
+
             if (ProjectileRegistry.HasInstance)
             {
                 var cfg = ProjectileRegistry.Instance.Get(VisualConfigId);
@@ -554,7 +788,10 @@ namespace MidManStudio.Projectiles.Managers
                         ? Mathf.Clamp01(travelDist / cfg.MaxRange) : 0f;
                     float damage = cfg.EvaluateDamage(normDist);
 
-                    bool isCrit = UnityEngine.Random.value < cfg.CritChance;
+                    isHeadshot = CheckHeadshotPhysics(hitGO, hitPoint);
+                    if (isHeadshot) damage *= cfg.HeadshotMultiplier;
+
+                    isCrit = UnityEngine.Random.value < cfg.CritChance;
                     if (isCrit) damage *= cfg.CritMultiplier;
 
                     return damage * _damageMultiplier;
@@ -564,8 +801,19 @@ namespace MidManStudio.Projectiles.Managers
             return _baseDamage * _damageMultiplier;
         }
 
+        /// <summary>
+        /// Headshot scaffolding — see ComputeConfigDamage's doc comment.
+        /// Defaults to false (no headshots), matching
+        /// LocalProjectileManager.CheckHeadshotLocal's own default. Override
+        /// in a game-specific subclass once head-hitbox detection is
+        /// available (e.g. checking hitGO's tag/layer/a HitboxType
+        /// component).
+        /// </summary>
+        protected virtual bool CheckHeadshotPhysics(GameObject hitGO, Vector3 hitPoint) => false;
+
         private void FireHitEvent(
-            uint targetId, float damage, Vector3 hitPoint, bool is2D, GameObject hitGO = null)
+            uint targetId, float damage, bool isCrit, bool isHeadshot,
+            Vector3 hitPoint, bool is2D, GameObject hitGO = null)
         {
             OnHitServerConfirmed?.Invoke(new ProjectileHitPayload
             {
@@ -574,8 +822,8 @@ namespace MidManStudio.Projectiles.Managers
                 Is3D                   = !is2D,
                 TargetId               = targetId,
                 Damage                 = damage,
-                IsHeadshot             = false,
-                IsCrit                 = false,
+                IsHeadshot             = isHeadshot,
+                IsCrit                 = isCrit,
                 HitPosition            = hitPoint,
                 OwnerMidId             = _ownerMidId,
                 FiredByNetworkObjectId = _firedByNetworkObjectId,
@@ -665,11 +913,12 @@ namespace MidManStudio.Projectiles.Managers
 
         private void HandleVisualConfigChanged(ushort oldId, ushort newId)
         {
-            // SCALING FIX — see ApplyConfigScale's doc comment. Runs even if
-            // _poolVisual isn't ready yet (unlike the visual refresh below,
-            // which needs it) since the collider is independent of the pool
-            // visual entirely.
-            ApplyConfigScale(ResolveVisualConfig());
+            // SCALING FIX / LIFETIME FIX — see ApplyConfigScale/
+            // ApplyConfigLifetime doc comments. Runs even if _poolVisual isn't
+            // ready yet (unlike the visual refresh below, which needs it)
+            // since neither the collider nor TimeToLive depend on the pool
+            // visual at all.
+            RefreshConfigDependentState(ResolveVisualConfig());
 
             if (_poolVisual == null) return;
             Vector3 dir   = GetDefaultLaunchDir();
