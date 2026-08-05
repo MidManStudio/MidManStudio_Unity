@@ -33,6 +33,7 @@
 //   The two systems are intentionally separate — pool visuals are fire-and-forget
 //   client cosmetics, network visuals are authority-driven.
 
+using System.Collections;
 using UnityEngine;
 using MidManStudio.Core.Logging;
 using MidManStudio.Core.Pools;
@@ -107,6 +108,17 @@ namespace MidManStudio.Projectiles.Visuals
         {
             if (this == null) return;
             IsActive = false;
+
+            // GROWTH FIX companion: stop mid-flight growth explicitly rather
+            // than relying solely on Unity auto-stopping coroutines when the
+            // GameObject deactivates later in this call chain — that timing
+            // is implicit/pool-internal, this is guaranteed.
+            if (_scaleGrowthCoroutine != null)
+            {
+                StopCoroutine(_scaleGrowthCoroutine);
+                _scaleGrowthCoroutine = null;
+            }
+
             OnReturnToPool();
             _poolReturn?.ReturnToPoolNow();
 
@@ -144,6 +156,97 @@ namespace MidManStudio.Projectiles.Visuals
 
             // Sub-classes override for 2D (Z-angle) vs 3D (LookRotation)
             // Default: identity — let sub-class handle it
+        }
+
+        // ── Scale growth ───────────────────────────────────────────────────────
+        // GROWTH FIX ("physics projectiles get spawned full scale rather than
+        // scaling up as intended"): ProjectileConfigSO.UseScaleGrowth /
+        // SpawnScaleFraction / GrowthSpeed already existed and were being
+        // applied for RustSim-driven projectiles (consumed natively — see
+        // GetRustSpawnParams and rust_lib/projectile_core/src/simulation.rs's
+        // tick_scale, whose exact formula this reproduces:
+        // current += (target - current) * speed * dt), but a pooled
+        // ProjectileVisualBase instance (used by physics projectiles' cosmetic
+        // visual, and as the raycast/RustSim path's own pooled visual) always
+        // jumped straight to full size in a single OnInitialise call — there
+        // was no per-frame growth loop here at all.
+        //
+        // Sub-classes call RefreshScaleGrowth(cfg) from their own OnInitialise,
+        // AFTER their own one-shot "jump to full size" scale application
+        // (ProjectileVisual_2D's ApplySpriteOptimised/ApplyShapeMeshOptimised,
+        // ProjectileVisual_3D's ApplyScale) — if cfg.UseScaleGrowth is false
+        // this immediately returns and that one-shot value stands unchanged,
+        // zero per-frame cost. If it's true, this coroutine takes over and
+        // animates from there. Coroutines execute synchronously up to their
+        // first yield, so the very first ApplyScaleAtSize call below runs in
+        // the same frame as the one-shot call it's overriding — no visible
+        // one-frame "flash" at full size.
+        //
+        // Purely cosmetic/local — every peer (server and every client) runs
+        // this independently off the same shared config data, the same way
+        // the rest of this class's rendering already works without any
+        // network traffic. For physics projectiles specifically, the ACTUAL
+        // collider (hit-detection, server-authoritative) is grown separately
+        // by PhysicsProjectileBase using the identical formula — see that
+        // class's GrowColliderRoutine.
+
+        private Coroutine _scaleGrowthCoroutine;
+
+        /// <summary>
+        /// Applies a given (possibly growth-interpolated) size to this visual.
+        /// Default matches the plain 2D convention (X/Y scale, Z=1) — this is
+        /// exactly what ProjectileVisual_2D's own scale lines already do, so
+        /// it doesn't need to override this. ProjectileVisual_3D overrides it
+        /// to reproduce its own length/width/aspect-ratio mapping (see that
+        /// class's ApplyScale, which this must match exactly when sizeX/sizeY
+        /// equal the config's full FullSizeX/FullSizeY).
+        /// </summary>
+        protected virtual void ApplyScaleAtSize(float sizeX, float sizeY)
+        {
+            transform.localScale = new Vector3(sizeX, sizeY, 1f);
+        }
+
+        /// <summary>(Re)starts or stops scale-growth for the given config — see the section comment above.</summary>
+        protected void RefreshScaleGrowth(ProjectileConfigSO cfg)
+        {
+            if (_scaleGrowthCoroutine != null)
+            {
+                StopCoroutine(_scaleGrowthCoroutine);
+                _scaleGrowthCoroutine = null;
+            }
+
+            if (cfg == null || !cfg.UseScaleGrowth) return;
+
+            _scaleGrowthCoroutine = StartCoroutine(GrowScaleRoutine(cfg));
+        }
+
+        private IEnumerator GrowScaleRoutine(ProjectileConfigSO cfg)
+        {
+            float targetX = Mathf.Max(cfg.FullSizeX, 0.001f);
+            float targetY = Mathf.Max(cfg.FullSizeY, 0.001f);
+            float speed   = cfg.GrowthSpeed;
+
+            float curX = targetX * cfg.SpawnScaleFraction;
+            float curY = targetY * cfg.SpawnScaleFraction;
+            ApplyScaleAtSize(curX, curY);
+
+            while (true)
+            {
+                float dt    = Time.deltaTime;
+                float diffX = targetX - curX;
+                float diffY = targetY - curY;
+                bool  doneX = Mathf.Abs(diffX) <= 0.001f;
+                bool  doneY = Mathf.Abs(diffY) <= 0.001f;
+                if (doneX && doneY) break;
+
+                if (!doneX) curX += diffX * speed * dt;
+                if (!doneY) curY += diffY * speed * dt;
+                ApplyScaleAtSize(curX, curY);
+                yield return null;
+            }
+
+            ApplyScaleAtSize(targetX, targetY);
+            _scaleGrowthCoroutine = null;
         }
     }
 }
