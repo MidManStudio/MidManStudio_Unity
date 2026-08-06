@@ -27,6 +27,8 @@ MonoBehaviour:
   _hitLayers:
     serializedVersion: 2
     m_Bits: 320
+  _sortingLayerName: Default
+  _sortingOrderInLayer: 0
   _fullSizeX: 0.2
   _fullSizeY: 0.2
   _useScaleGrowth: 0

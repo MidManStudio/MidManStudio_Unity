@@ -16,8 +16,8 @@ MonoBehaviour:
   ConfigId: 2
   _is3D: 0
   _preferredSimMode: 3
-  _movementType: 0
-  _minSpeed: 5
+  _movementType: 5
+  _minSpeed: 10
   _maxSpeed: 10
   _lifetime: 6
   _gravityScale: 0
@@ -27,6 +27,8 @@ MonoBehaviour:
   _hitLayers:
     serializedVersion: 2
     m_Bits: 320
+  _sortingLayerName: Default
+  _sortingOrderInLayer: 0
   _fullSizeX: 1
   _fullSizeY: 1
   _useScaleGrowth: 0

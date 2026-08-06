@@ -222,12 +222,13 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _poolReturn: {fileID: 2226204678829518539}
-  _logLevel: 0
+  _logLevel: 4
   projectileSpriteRend: {fileID: 8528035687696965095}
   projectileTrailRend: {fileID: 6227975117751516752}
+  _sortingLayerName: Default
   _spriteSortingOrder: 1
   _trailSortingOrder: 0
-  _forceSpriteRendererOnly: 0
+  _forceSpriteRendererOnly: 1
   _shapeMeshChild: {fileID: 0}
   _shapeMeshFilter: {fileID: 0}
   _shapeMeshRenderer: {fileID: 0}

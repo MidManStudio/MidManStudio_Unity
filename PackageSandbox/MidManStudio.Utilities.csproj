@@ -265,6 +265,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/FXSystems/Config/EffectCategoryProviderSO.cs">
       <Link>Runtime/FXSystems/Config/EffectCategoryProviderSO.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Helpers/MID_SortingLayerAttribute.cs">
+      <Link>Runtime/Helpers/MID_SortingLayerAttribute.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/AutoReference/MID_AutoReferenceResolver.cs">
       <Link>Runtime/AutoReference/MID_AutoReferenceResolver.cs</Link>
     </Compile>

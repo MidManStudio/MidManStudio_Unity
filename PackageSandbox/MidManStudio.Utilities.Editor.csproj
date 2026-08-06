@@ -79,6 +79,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/SceneManagement/SceneTypeGenerator.cs">
       <Link>Editor/SceneManagement/SceneTypeGenerator.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/SortingLayerDrawer.cs">
+      <Link>Editor/Helpers/SortingLayerDrawer.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/MID_BaseSOEditor.cs">
       <Link>Editor/Helpers/MID_BaseSOEditor.cs</Link>
     </Compile>
