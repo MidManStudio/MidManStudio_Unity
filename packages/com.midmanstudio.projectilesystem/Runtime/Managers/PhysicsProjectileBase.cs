@@ -38,6 +38,16 @@ namespace MidManStudio.Projectiles.Managers
                 NetworkVariableReadPermission.Everyone,
                 NetworkVariableWritePermission.Server);
 
+        [Tooltip("EDITOR-ONLY BOOKKEEPING — not read by any runtime code. n_VisualConfigId " +
+                 "above (a ushort) is the actual live value, and IDs are assigned dynamically " +
+                 "by ProjectileRegistry at runtime — session-stable, not something you can " +
+                 "look up from a fixed number at edit time. Drag the ProjectileConfigSO this " +
+                 "prefab is meant to represent in here purely so you can SEE it at a glance " +
+                 "in the Inspector instead of squinting at a raw ushort. If your spawn flow " +
+                 "always calls SetVisualConfigId() with the real id anyway, this is just a " +
+                 "label; it has zero effect on behaviour.")]
+        [SerializeField] private ProjectileConfigSO _configReferenceForEditorOnly;
+
         /// <summary>Current visual/config id — synced from server to every client.</summary>
         protected ushort VisualConfigId => n_VisualConfigId.Value;
 
@@ -272,32 +282,59 @@ namespace MidManStudio.Projectiles.Managers
         /// own bulletVelocity. There was no bridge from cfg's speed fields
         /// into that value anywhere in this package.
         ///
-        /// This override brings the physics path in line with
-        /// FireNetworkedSim's own established convention exactly:
-        /// `perSpawnPointOverride > 0 ? override : cfg.ResolveSpeed()` — here,
-        /// bulletVelocity <= 0 is treated as "caller didn't specify", and gets
-        /// resolved from VisualConfigId's config instead. Any caller already
-        /// passing a real velocity (> 0) is completely unaffected.
+        /// ORIGINAL FIX brought this in line with FireNetworkedSim's own
+        /// convention: `bulletVelocity <= 0 ? cfg.ResolveSpeed() : bulletVelocity`
+        /// — treating "<= 0" as "caller didn't specify". CONFIRMED (by testing)
+        /// this doesn't fix it: the calling weapon script
+        /// (NetworkedDimensionPlayer.FirePhysics — lives in the game project,
+        /// not this shared package, so I still can't see it directly) is
+        /// evidently always passing SOME non-zero bulletVelocity of its own —
+        /// just not one sourced from the config — so the <= 0f branch never
+        /// triggers at all, and cfg.ResolveSpeed() never actually gets
+        /// consulted.
         ///
-        /// CAVEAT: I don't have visibility into the actual calling weapon
-        /// script (NetworkedDimensionPlayer.FirePhysics, per
-        /// SpawnPhysicsProjectile's own doc comment, lives in the game
-        /// project, not this shared package). If it's already passing an
-        /// explicit non-zero bulletVelocity sourced from somewhere else
-        /// entirely, this fix won't override that — worth checking that call
-        /// site directly if projectiles still don't match config speed after
-        /// this.
+        /// FIX: cfg.ResolveSpeed() now takes priority by default whenever a
+        /// config resolves, full stop — matching what testing confirmed is
+        /// actually needed. _allowCallerVelocityOverride (Inspector, defaults
+        /// false) exists for the legitimate opposite case — a charged/power
+        /// shot or velocity-randomization weapon that DELIBERATELY wants to
+        /// override config speed per-shot — flip it per-prefab if you have a
+        /// weapon type that needs that. With it false (default), whatever the
+        /// caller passes is ONLY used as a fallback when no config resolves
+        /// (VisualConfigId not yet registered) — same as before.
         /// </summary>
+        [Header("Speed")]
+        [Tooltip("Default OFF: cfg.ResolveSpeed() always wins over whatever bulletVelocity " +
+                 "the calling weapon script passes, whenever VisualConfigId resolves to a " +
+                 "real config. Turn ON for a specific prefab if that weapon deliberately " +
+                 "needs to override config speed per-shot (charged shots, spread/randomised " +
+                 "velocity, etc.) — in that case the caller's value always wins instead, and " +
+                 "cfg.ResolveSpeed() is only used as a fallback when bulletVelocity <= 0.")]
+        [SerializeField] protected bool _allowCallerVelocityOverride = false;
+
         public override void InitialiseProjectile(
             ulong ownerMidId, ulong firedByNetworkObjectId, float bulletVelocity,
             bool isBotOwned = false, byte weaponLevel = 0,
             bool serverIsActualOwner = false, bool enableVisualSynch = true)
         {
-            if (bulletVelocity <= 0f)
+            var cfg = ResolveVisualConfig();
+
+            if (_allowCallerVelocityOverride)
             {
-                var cfg = ResolveVisualConfig();
-                if (cfg != null) bulletVelocity = cfg.ResolveSpeed();
+                // Old behaviour: caller's value wins whenever it's a real (> 0) speed;
+                // config is only the fallback when the caller didn't specify one.
+                if (bulletVelocity <= 0f && cfg != null)
+                    bulletVelocity = cfg.ResolveSpeed();
             }
+            else if (cfg != null)
+            {
+                // New default: config always wins when one resolves, regardless of
+                // what the caller passed — this is the branch that actually fixes
+                // the confirmed bug.
+                bulletVelocity = cfg.ResolveSpeed();
+            }
+            // else: no config resolved yet (VisualConfigId not registered) — fall
+            // through with whatever the caller passed, same safety net as before.
 
             base.InitialiseProjectile(
                 ownerMidId, firedByNetworkObjectId, bulletVelocity,
