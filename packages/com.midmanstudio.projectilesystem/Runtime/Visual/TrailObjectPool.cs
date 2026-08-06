@@ -129,12 +129,17 @@ namespace MidManStudio.Projectiles.Visuals
             Gradient gradient = cfg.UseGradientOverride ? cfg.TrailGradient : null;
             return new TrailConfig
             {
-                Material      = cfg.TrailMaterial,
-                ColorGradient = gradient,
-                Time          = cfg.TrailTime > 0f ? cfg.TrailTime : 0.25f,
-                StartWidth    = cfg.TrailStartWidth,
-                EndWidth      = cfg.TrailEndWidth,
-                CapVertices   = cfg.TrailCapVertices
+                Material       = cfg.TrailMaterial,
+                ColorGradient  = gradient,
+                Time           = cfg.TrailTime > 0f ? cfg.TrailTime : 0.25f,
+                StartWidth     = cfg.TrailStartWidth,
+                EndWidth       = cfg.TrailEndWidth,
+                CapVertices    = cfg.TrailCapVertices,
+                // TrailRenderer is a real Unity Renderer, so this sorts correctly
+                // against everything else in the scene — no depth-offset workaround
+                // needed here the way ProjectileRenderer2D needs one for the body.
+                SortingLayerID = SortingLayer.NameToID(cfg.SortingLayerName),
+                SortingOrder   = cfg.SortingOrderInLayer
             };
         }
     }

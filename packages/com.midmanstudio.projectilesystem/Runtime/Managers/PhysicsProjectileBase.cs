@@ -68,6 +68,7 @@ namespace MidManStudio.Projectiles.Managers
         // Recorded at launch for travel-distance damage falloff
         private Vector3 _spawnPosition;
         private bool    _launched;
+        private Coroutine _configRevalidateCoroutine;
 
         protected ulong _ownerMidId;
         protected ulong _firedByNetworkObjectId;
@@ -123,6 +124,8 @@ namespace MidManStudio.Projectiles.Managers
             SpawnPoolVisual();
             if (_poolVisualGO == null)
                 _retryCoroutine = StartCoroutine(RetrySpawnVisual());
+
+            _configRevalidateCoroutine = StartCoroutine(RevalidateConfigAfterSpawn());
         }
 
         public override void OnNetworkDespawn()
@@ -133,6 +136,12 @@ namespace MidManStudio.Projectiles.Managers
             {
                 StopCoroutine(_retryCoroutine);
                 _retryCoroutine = null;
+            }
+
+            if (_configRevalidateCoroutine != null)
+            {
+                StopCoroutine(_configRevalidateCoroutine);
+                _configRevalidateCoroutine = null;
             }
 
             // GROWTH FIX companion — stop mid-flight collider growth
@@ -897,6 +906,98 @@ namespace MidManStudio.Projectiles.Managers
                 "RetrySpawnVisual: pool wasn't ready, retrying.",
                 nameof(PhysicsProjectileBase));
             SpawnPoolVisual();
+        }
+
+        /// <summary>
+        /// SAFETY NET for "physics projectile visual/collider only becomes
+        /// correct on the SECOND fire of a given pooled instance, every time
+        /// — reproduces regardless of whether the config uses a CustomShape,
+        /// and regardless of whether ForceSpriteRendererOnly is set (in which
+        /// case the FIRST fire shows a real, valid, but WRONG config's sprite
+        /// — not a fallback)". That last detail is the key one: it means
+        /// VisualConfigId itself is resolving to the wrong (but registered)
+        /// config on the very first read, not that the rendering branch logic
+        /// is choosing wrong.
+        ///
+        /// I traced the two most likely explanations against actual source
+        /// and ruled BOTH out with certainty:
+        ///   • SetVisualConfigId() writes n_VisualConfigId.Value synchronously
+        ///     before Spawn() — verified against NetworkVariable.Value's
+        ///     setter in NGO 1.7.1: the write updates the backing field
+        ///     immediately, no deferred/staged commit, so a same-machine
+        ///     (server or host) read right after should already be correct.
+        ///   • On a genuinely remote client, verified against NGO 1.7.1's
+        ///     NetworkObject.AddSceneObject: SynchronizeNetworkBehaviours
+        ///     (which deserializes and applies incoming NetworkVariable data,
+        ///     including n_VisualConfigId) runs BEFORE SpawnNetworkObjectLocally
+        ///     (which is what eventually fires OnNetworkSpawn) — so the
+        ///     correct value should already be applied before OnNetworkSpawn
+        ///     ever runs there too.
+        ///
+        /// Neither NGO-level explanation holds up against the source, which
+        /// means the actual mechanism is still unidentified — either
+        /// somewhere else in this codebase, or in how the calling weapon
+        /// script sequences things. Rather than leave the symptom
+        /// unaddressed while that stays open, this re-checks VisualConfigId
+        /// a couple of frames after spawn and force-re-applies everything
+        /// config-dependent if it differs from what was read at spawn time —
+        /// independent of whether HandleVisualConfigChanged already fired for
+        /// that same transition (in case that subscription is somehow missing
+        /// it). This should mask the symptom regardless of the exact
+        /// mechanism, but it IS a safety net, not a confirmed root-cause fix.
+        ///
+        /// If projectiles still show the wrong visual on first fire after
+        /// this: the gap isn't "config settles a couple frames late" at all.
+        /// The MID_Logger.LogWarning below will tell you immediately whether
+        /// this safety net even triggered — if it never logs, the value was
+        /// already correct 2 frames in and the bug is happening somewhere
+        /// else entirely (next step: log VisualConfigId + Time.frameCount +
+        /// IsServer/IsClient right at the top of OnNetworkSpawn AND inside
+        /// SpawnPoolVisual, compare across a first vs. second fire of the
+        /// same pooled instance).
+        /// </summary>
+        private IEnumerator RevalidateConfigAfterSpawn()
+        {
+            ushort            configIdAtSpawn = VisualConfigId;
+            ProjectileConfigSO cfgAtSpawn      = ResolveVisualConfig();
+
+            yield return null;
+            yield return null;
+
+            ProjectileConfigSO cfgNow = ResolveVisualConfig();
+
+            // Covers TWO distinct possible causes, not just one: VisualConfigId
+            // itself reading a different (but registered) id a couple frames
+            // later (id-level mismatch), OR the id staying the same the whole
+            // time but ProjectileRegistry.Get() resolving to a DIFFERENT
+            // ProjectileConfigSO reference for it now than it did at spawn
+            // (registry-population-timing mismatch, distinct root cause).
+            bool idChanged  = VisualConfigId != configIdAtSpawn;
+            bool cfgChanged = cfgNow != cfgAtSpawn;
+
+            if (idChanged || cfgChanged)
+            {
+                MID_Logger.LogWarning(_logLevel,
+                    "PhysicsProjectileBase: config resolution changed within 2 " +
+                    $"frames of spawn (id {configIdAtSpawn}->{VisualConfigId}, " +
+                    $"cfg '{cfgAtSpawn?.name}'->'{cfgNow?.name}') — re-applying " +
+                    "config-dependent state. This confirms the config genuinely " +
+                    "wasn't settled at spawn time; please report this back so " +
+                    "the actual mechanism can be tracked down.",
+                    nameof(PhysicsProjectileBase));
+
+                RefreshConfigDependentState(cfgNow);
+
+                if (_poolVisual != null)
+                {
+                    Vector3 dir   = GetDefaultLaunchDir();
+                    float   speed = BulletVelocity > 0f ? BulletVelocity : 10f;
+                    _poolVisual.InitializeClientVisual(
+                        VisualConfigId, transform.position, dir, speed);
+                }
+            }
+
+            _configRevalidateCoroutine = null;
         }
 
         private void ReturnPoolVisual()

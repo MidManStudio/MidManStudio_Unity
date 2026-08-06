@@ -1069,6 +1069,67 @@ namespace MidManStudio.Projectiles.Managers
 
         #endregion
 
+        #region Public API — Guided
+        //
+        // BUG THIS CLOSES: MID_MasterProjectileSystem.SetHomingDirection2D/3D
+        // used to only ever forward into ServerProjectileAuthority. For a
+        // non-networked game, projectiles live in THIS buffer instead (same
+        // routing rule RegisterTarget2D/3D already follows: !IsNetworked ->
+        // here) — so every homing call was previously a silent no-op offline.
+        // MID_MasterProjectileSystem now calls these too.
+        //
+        // Also adds TryGetPosition2D/3D: ProjectileGuidanceTracker needs a
+        // projectile's current position each tick to compute a fresh
+        // direction-to-target before writing Ax/Ay via SetAcceleration2D/3D.
+
+        public void SetAcceleration2D(uint projId, Vector2 accelDir)
+        {
+            for (int i = 0; i < _count2D; i++)
+            {
+                if (_projs2D[i].ProjId != projId) continue;
+                Vector2 n = accelDir.normalized;
+                _projs2D[i].Ax = n.x; _projs2D[i].Ay = n.y;
+                return;
+            }
+        }
+
+        public void SetAcceleration3D(uint projId, Vector3 accelDir)
+        {
+            for (int i = 0; i < _count3D; i++)
+            {
+                if (_projs3D[i].ProjId != projId) continue;
+                Vector3 n = accelDir.normalized;
+                _projs3D[i].Ax = n.x; _projs3D[i].Ay = n.y; _projs3D[i].Az = n.z;
+                return;
+            }
+        }
+
+        public bool TryGetPosition2D(uint projId, out Vector2 pos)
+        {
+            for (int i = 0; i < _count2D; i++)
+            {
+                if (_projs2D[i].ProjId != projId) continue;
+                pos = new Vector2(_projs2D[i].X, _projs2D[i].Y);
+                return true;
+            }
+            pos = default;
+            return false;
+        }
+
+        public bool TryGetPosition3D(uint projId, out Vector3 pos)
+        {
+            for (int i = 0; i < _count3D; i++)
+            {
+                if (_projs3D[i].ProjId != projId) continue;
+                pos = new Vector3(_projs3D[i].X, _projs3D[i].Y, _projs3D[i].Z);
+                return true;
+            }
+            pos = default;
+            return false;
+        }
+
+        #endregion
+
         #region Internal Helpers
 
         private uint AllocateProjIds(int count)
