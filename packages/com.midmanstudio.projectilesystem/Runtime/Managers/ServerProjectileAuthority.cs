@@ -898,6 +898,38 @@ namespace MidManStudio.Projectiles.Managers
             }
         }
 
+        /// <summary>
+        /// Live position lookup by ProjId — added for ProjectileGuidanceTracker,
+        /// which needs "where is this projectile right now" every tick to compute
+        /// a fresh direction-to-target before calling SetAcceleration2D/3D. Linear
+        /// scan like every other by-ProjId lookup in this file (GetConfigId2D/3D,
+        /// IsOwnedBy) — fine at these buffer sizes, not worth a dictionary given
+        /// how often the whole buffer already gets scanned per tick anyway.
+        /// </summary>
+        public bool TryGetPosition2D(uint projId, out Vector2 pos)
+        {
+            for (int i = 0; i < _count2D; i++)
+            {
+                if (_projs2D[i].ProjId != projId) continue;
+                pos = new Vector2(_projs2D[i].X, _projs2D[i].Y);
+                return true;
+            }
+            pos = default;
+            return false;
+        }
+
+        public bool TryGetPosition3D(uint projId, out Vector3 pos)
+        {
+            for (int i = 0; i < _count3D; i++)
+            {
+                if (_projs3D[i].ProjId != projId) continue;
+                pos = new Vector3(_projs3D[i].X, _projs3D[i].Y, _projs3D[i].Z);
+                return true;
+            }
+            pos = default;
+            return false;
+        }
+
         #endregion
 
         #region State Save / Restore

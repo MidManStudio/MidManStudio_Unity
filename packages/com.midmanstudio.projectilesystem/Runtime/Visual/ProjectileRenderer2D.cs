@@ -17,6 +17,36 @@ namespace MidManStudio.Projectiles.Visuals
         [Tooltip("Force combined-mesh fallback path even on instancing-capable hardware.")]
         [SerializeField] private bool _forceDrawMesh;
 
+        // ── Sorting workaround ──────────────────────────────────────────────
+        //
+        // Graphics.DrawMesh / DrawMeshInstanced are immediate-mode calls — they
+        // don't go through a Renderer component, so there is no
+        // sortingLayerID/sortingOrder to set on them at all, full stop. That's
+        // a genuine Unity limitation of this API, not something this package
+        // was missing an accessor for.
+        //
+        // WORKAROUND: nudge each config-group's Z position by an amount derived
+        // from ProjectileConfigSO.SortingPriority (which folds SortingLayerName
+        // + SortingOrderInLayer into one comparable number). This DOES give you
+        // correct, stable ordering between RustSim-drawn projectiles.
+        //
+        // CAVEAT — please actually check this: whether it also sorts correctly
+        // against your OTHER SpriteRenderer-based objects (enemies, player, UI-
+        // in-world, etc.) depends on your 2D camera's "Transparency Sort Mode"
+        // (Camera Inspector, or Project Settings → Graphics for the project
+        // default). It needs to be set to sort by distance along an axis that
+        // this Z offset actually moves things along — e.g. Orthographic mode
+        // with sort axis (0,0,1), which is the standard 2D-camera setup. If
+        // your project's other sprites don't vary in Z at all today, this will
+        // still self-consistently order every RustSim projectile against every
+        // other RustSim projectile; the "does it also correctly land in front
+        // of / behind a specific enemy sprite" part is the piece I can't verify
+        // without seeing your camera/render pipeline settings.
+        [Header("Sorting Workaround")]
+        [Tooltip("World-Z distance per SortingPriority unit, used to fake sorting " +
+                 "layer/order for these DrawMesh calls. See the class header comment.")]
+        [SerializeField] private float _sortDepthStep = 0.0001f;
+
         // ── Instanced path ─────────────────────────────────────────────────
         private const int BATCH_SIZE = 1023;
         private Matrix4x4[]           _matrices;
@@ -158,6 +188,12 @@ namespace MidManStudio.Projectiles.Visuals
                 float aspectY = cfg.FullSizeX > 0.001f
                                 ? cfg.FullSizeY / cfg.FullSizeX : 1f;
 
+                // Same Z for every projectile in this group — they share cfg,
+                // so they share SortingPriority. Negated so a HIGHER priority
+                // (further-forward layer/order) gets a smaller/negative Z,
+                // i.e. nearer the camera under a standard orthographic 2D setup.
+                float z = -(float)cfg.SortingPriority * _sortDepthStep;
+
                 var idxList = kv.Value;
                 int start   = 0;
 
@@ -171,7 +207,7 @@ namespace MidManStudio.Projectiles.Visuals
                         ref var p = ref projs[idxList[j]];
 
                         _matrices[n] = Matrix4x4.TRS(
-                            new Vector3(p.X, p.Y, 0f),
+                            new Vector3(p.X, p.Y, z),
                             Quaternion.Euler(0f, 0f, p.AngleDeg),
                             new Vector3(p.ScaleX, p.ScaleX * aspectY, 1f));
 
@@ -251,6 +287,13 @@ namespace MidManStudio.Projectiles.Visuals
                 float sx      = p.ScaleX;
                 float sy      = p.ScaleX * aspectY;
 
+                // Unlike the instanced path, this loop mixes projectiles from
+                // several different configs into one combined mesh — so the Z
+                // offset has to be resolved per-projectile, not once per group.
+                // See the class header comment / the field above for the full
+                // explanation and the camera-setting caveat.
+                float z = -(float)cfg.SortingPriority * _sortDepthStep;
+
                 Vector4 uvRect = spritePass ? ComputeSpriteUVRect(cfg)
                                             : new Vector4(0f, 0f, 1f, 1f);
 
@@ -266,7 +309,7 @@ namespace MidManStudio.Projectiles.Visuals
                 for (int v = 0; v < vc; v++)
                 {
                     _verts[vBase + v] = RotateScale(
-                        p.X, p.Y,
+                        p.X, p.Y, z,
                         srcV[v].x * sx, srcV[v].y * sy,
                         cos, sin);
                     _uvs[vBase + v] = new Vector2(
@@ -342,9 +385,9 @@ namespace MidManStudio.Projectiles.Visuals
     }
 
     private static Vector3 RotateScale(
-        float cx, float cy, float lx, float ly, float cos, float sin)
+        float cx, float cy, float z, float lx, float ly, float cos, float sin)
         => new(cx + cos * lx - sin * ly,
-               cy + sin * lx + cos * ly, 0f);
+               cy + sin * lx + cos * ly, z);
 
     private static Vector4 ComputeTint(ref NativeProjectile p)
     {

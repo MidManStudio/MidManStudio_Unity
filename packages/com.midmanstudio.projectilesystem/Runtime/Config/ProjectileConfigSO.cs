@@ -1,6 +1,7 @@
 using UnityEngine;
 using System;
 using MidManStudio.Core.Pools;
+using MidManStudio.Core.EditorUtils;
 using MidManStudio.Projectiles.Core;
 using SimulationMode = MidManStudio.Projectiles.Core.SimulationMode;
 using MidManStudio.Core;
@@ -89,6 +90,44 @@ namespace MidManStudio.Projectiles.Config
         /// Value -1 (all bits set) means hit everything.
         /// </summary>
         public LayerMask HitLayers => _hitLayers;
+
+        // ── Rendering / Sorting ──────────────────────────────────────────────
+        //
+        // GAP THIS CLOSES: ProjectileRenderer2D draws every RustSim projectile
+        // via Graphics.DrawMeshInstanced/DrawMesh — immediate-mode calls with no
+        // SortingLayer/Order concept at all (that's a Renderer-component-only
+        // feature; DrawMesh doesn't go through one). So there was previously no
+        // way to control draw order between projectiles and the rest of a 2D
+        // scene's sprites.
+        //
+        // FIX: SortingPriority below is consumed by ProjectileRenderer2D as a
+        // Z-depth offset (see that file's own header comment for the full
+        // mechanism and, importantly, the camera setting it depends on).
+        // TrailObjectPool instead applies this directly as a real
+        // TrailRenderer.sortingLayerID/sortingOrder — trails need no workaround
+        // since TrailRenderer is a genuine Renderer component.
+        [Header("Rendering — Sorting")]
+        [Tooltip("Sorting layer for this projectile's body (RustSim renderer, via " +
+                 "a Z-depth offset) and its trail (real TrailRenderer.sortingLayerID).")]
+        [SerializeField, MID_SortingLayer] private string _sortingLayerName = "Default";
+
+        [Tooltip("Order within the sorting layer above. Same units/scale as any " +
+                 "normal Renderer.sortingOrder.")]
+        [SerializeField] private int _sortingOrderInLayer = 0;
+
+        public string SortingLayerName    => _sortingLayerName;
+        public int    SortingOrderInLayer => _sortingOrderInLayer;
+
+        /// <summary>
+        /// Combined (layer, order) priority collapsed into one comparable
+        /// number — higher sorts in front. Only meaningful as a relative
+        /// ordering between two ProjectileConfigSO's SortingPriority values;
+        /// the absolute magnitude has no independent meaning. See
+        /// ProjectileRenderer2D for how this becomes an actual Z offset.
+        /// </summary>
+        public long SortingPriority =>
+            (long)SortingLayer.GetLayerValueFromName(_sortingLayerName) * 100000L
+            + _sortingOrderInLayer;
 
         // ── Scale Growth ──────────────────────────────────────────────────────
         [Header("Size & Scale Growth")]

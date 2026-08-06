@@ -590,11 +590,32 @@ namespace MidManStudio.Projectiles.Managers
             if (!IsNetworked)   _localManager?.RegisterTarget2D(target, unityLayer);
         }
 
+        /// <summary>
+        /// Same as RegisterTarget2D(target, int), but reads the Unity layer
+        /// straight off <paramref name="sourceObject"/> so there's no
+        /// unityLayer argument to forget — the exact mistake that silently
+        /// defaults every unregistered target to layer 0 when using the
+        /// int-argument overload directly (RegisterTarget2D(target) with the
+        /// default 0 falls into the same trap, so prefer this one whenever
+        /// you have the target's GameObject at the call site).
+        /// </summary>
+        public void RegisterTarget2D(in CollisionTarget target, GameObject sourceObject)
+            => RegisterTarget2D(in target, sourceObject != null ? sourceObject.layer : 0);
+
+        public void RegisterTarget2D(in CollisionTarget target, Component sourceComponent)
+            => RegisterTarget2D(in target, sourceComponent != null ? sourceComponent.gameObject.layer : 0);
+
         public void RegisterTarget3D(in CollisionTarget3D target, int unityLayer = 0)
         {
             if (IsServer)       _authority?.RegisterTarget3D(target, unityLayer);
             if (!IsNetworked)   _localManager?.RegisterTarget3D(target, unityLayer);
         }
+
+        public void RegisterTarget3D(in CollisionTarget3D target, GameObject sourceObject)
+            => RegisterTarget3D(in target, sourceObject != null ? sourceObject.layer : 0);
+
+        public void RegisterTarget3D(in CollisionTarget3D target, Component sourceComponent)
+            => RegisterTarget3D(in target, sourceComponent != null ? sourceComponent.gameObject.layer : 0);
 
         public void DeactivateTarget2D(uint targetId)
         {
@@ -624,15 +645,55 @@ namespace MidManStudio.Projectiles.Managers
         #endregion
 
         #region Public API — Guided
+        //
+        // FIX: SetHomingDirection2D/3D used to write to _authority only, via
+        // "if (IsServer || !IsNetworked)" — a single combined condition. But
+        // every OTHER per-projectile call in this class (see RegisterTarget2D
+        // just above) treats IsServer and !IsNetworked as two SEPARATE targets
+        // to route to, because they're two different buffers: _authority holds
+        // server-authoritative/networked projectiles, _localManager holds
+        // non-networked ones. A non-networked game (!IsNetworked, IsServer
+        // always false with no NetworkManager) has all of its projectiles in
+        // _localManager — so this always wrote into the wrong, empty buffer,
+        // meaning SetHomingDirection2D/3D was a no-op offline. Split to match
+        // RegisterTarget2D/3D's own pattern below.
 
         public void SetHomingDirection2D(uint projId, Vector2 worldDir)
         {
-            if (IsServer || !IsNetworked) _authority?.SetAcceleration2D(projId, worldDir);
+            if (IsServer)     _authority?.SetAcceleration2D(projId, worldDir);
+            if (!IsNetworked) _localManager?.SetAcceleration2D(projId, worldDir);
         }
 
         public void SetHomingDirection3D(uint projId, Vector3 worldDir)
         {
-            if (IsServer || !IsNetworked) _authority?.SetAcceleration3D(projId, worldDir);
+            if (IsServer)     _authority?.SetAcceleration3D(projId, worldDir);
+            if (!IsNetworked) _localManager?.SetAcceleration3D(projId, worldDir);
+        }
+
+        /// <summary>
+        /// Live position lookup by ProjId. Added for ProjectileGuidanceTracker,
+        /// which needs a projectile's current position every frame to compute
+        /// a fresh direction-to-target before calling SetHomingDirection2D/3D.
+        /// Same IsServer/!IsNetworked routing as everything else here.
+        /// </summary>
+        public bool TryGetProjectilePosition2D(uint projId, out Vector2 pos)
+        {
+            if (IsServer && _authority != null && _authority.TryGetPosition2D(projId, out pos))
+                return true;
+            if (!IsNetworked && _localManager != null && _localManager.TryGetPosition2D(projId, out pos))
+                return true;
+            pos = default;
+            return false;
+        }
+
+        public bool TryGetProjectilePosition3D(uint projId, out Vector3 pos)
+        {
+            if (IsServer && _authority != null && _authority.TryGetPosition3D(projId, out pos))
+                return true;
+            if (!IsNetworked && _localManager != null && _localManager.TryGetPosition3D(projId, out pos))
+                return true;
+            pos = default;
+            return false;
         }
 
         #endregion

@@ -1,5 +1,6 @@
 using UnityEngine;
 using MidManStudio.Projectiles.Config;
+using MidManStudio.Core.EditorUtils;
 
 namespace MidManStudio.Projectiles.Visuals
 {
@@ -12,6 +13,12 @@ namespace MidManStudio.Projectiles.Visuals
         [SerializeField] public TrailRenderer  projectileTrailRend;
 
         [Header("Draw Order")]
+        [Tooltip("Sorting layer shared by the sprite, shape mesh, and trail on this " +
+                 "prefab. Previously there was no way to set this at all — only the " +
+                 "per-part sortingOrder fields below existed, so the sorting LAYER was " +
+                 "stuck at whatever the Renderer components happened to be authored " +
+                 "with in the prefab, invisibly, with no inspector control.")]
+        [SerializeField, MID_SortingLayer] private string _sortingLayerName = "Default";
         [SerializeField] private int _spriteSortingOrder = 1;
         [SerializeField] private int _trailSortingOrder  = 0;
 
@@ -382,6 +389,7 @@ namespace MidManStudio.Projectiles.Visuals
 
             _shapeMeshRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             _shapeMeshRenderer.receiveShadows     = false;
+            _shapeMeshRenderer.sortingLayerName   = _sortingLayerName;
             _shapeMeshRenderer.sortingOrder       = _shapeSortingOrder;
             _shapeMeshRenderer.enabled            = true;
         }
@@ -413,8 +421,9 @@ namespace MidManStudio.Projectiles.Visuals
 
             if (projectileSpriteRend == null) return;
 
-            projectileSpriteRend.enabled     = true;
-            projectileSpriteRend.sortingOrder = _spriteSortingOrder;
+            projectileSpriteRend.enabled       = true;
+            projectileSpriteRend.sortingLayerName = _sortingLayerName;
+            projectileSpriteRend.sortingOrder  = _spriteSortingOrder;
 
             Sprite toUse = sprite != null ? sprite : GetFallbackSprite();
             if (_cachedSprite != toUse)
@@ -464,6 +473,7 @@ namespace MidManStudio.Projectiles.Visuals
                 projectileTrailRend.generateLightingData       = false;
                 projectileTrailRend.motionVectorGenerationMode = MotionVectorGenerationMode.ForceNoMotion;
                 projectileTrailRend.alignment                  = LineAlignment.View;
+                projectileTrailRend.sortingLayerName           = _sortingLayerName;
                 projectileTrailRend.sortingOrder               = _trailSortingOrder;
 
                 _trailConfigured = true;

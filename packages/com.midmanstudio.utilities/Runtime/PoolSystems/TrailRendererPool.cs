@@ -30,6 +30,17 @@ namespace MidManStudio.Core.Pools
         public float     EndWidth;
         public int       CapVertices;    // 0 = flat, 2–4 = rounded
 
+        /// <summary>
+        /// Sorting layer ID to apply via TrailRenderer.sortingLayerID. 0 (the
+        /// default int value) resolves to whatever layer ID 0 actually is in
+        /// this project — pass SortingLayer.NameToID("Default") explicitly if
+        /// you want to be unambiguous rather than relying on that coincidence.
+        /// </summary>
+        public int       SortingLayerID;
+
+        /// <summary>Order within SortingLayerID. Mirrors TrailRenderer.sortingOrder directly.</summary>
+        public int       SortingOrder;
+
         /// <summary>Sensible defaults for a basic white trail.</summary>
         public static TrailConfig Default => new TrailConfig
         {
@@ -244,6 +255,12 @@ namespace MidManStudio.Core.Pools
             tr.startWidth = cfg.StartWidth >= 0f ? cfg.StartWidth : 0.1f;
             tr.endWidth   = cfg.EndWidth   >= 0f ? cfg.EndWidth   : 0f;
             tr.numCapVertices = Mathf.Clamp(cfg.CapVertices, 0, 4);
+
+            // TrailRenderer is a real Unity Renderer, so unlike the RustSim
+            // batch draw calls, this sorts correctly against every other
+            // SpriteRenderer/Renderer in the scene — no Z-depth workaround needed.
+            tr.sortingLayerID = cfg.SortingLayerID;
+            tr.sortingOrder   = cfg.SortingOrder;
         }
 
         private bool IsValidActiveSlot(int slot) =>
