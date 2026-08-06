@@ -64,6 +64,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Editor/ProjectileConfigScriptableObjectEditor.cs">
       <Link>Editor/ProjectileConfigScriptableObjectEditor.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Editor/NetworkProjectileBaseEditor.cs">
+      <Link>Editor/NetworkProjectileBaseEditor.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Editor/ProjectileConfigBootstrapper.cs">
       <Link>Editor/ProjectileConfigBootstrapper.cs</Link>
     </Compile>
@@ -1008,6 +1011,10 @@
     </Reference>
     <Reference Include="Unity.Netcode.Runtime">
       <HintPath>Library/ScriptAssemblies/Unity.Netcode.Runtime.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Unity.Netcode.Components">
+      <HintPath>Library/ScriptAssemblies/Unity.Netcode.Components.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="UnityEditor.UI">

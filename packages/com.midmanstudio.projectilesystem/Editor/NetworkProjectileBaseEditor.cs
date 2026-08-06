@@ -45,7 +45,7 @@ using MidManStudio.Projectiles.Network;
 using MidManStudio.Projectiles.Managers;
 using MidManStudio.Projectiles.Config;
 
-namespace MidManStudio.Projectiles.Editor
+namespace MidManStudio.Projectiles.EditorUtils
 {
     [CustomEditor(typeof(NetworkProjectileBase), true)]
     [CanEditMultipleObjects]

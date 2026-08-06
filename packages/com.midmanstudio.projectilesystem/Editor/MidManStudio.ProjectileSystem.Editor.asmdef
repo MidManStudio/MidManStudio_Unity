@@ -1,20 +1,23 @@
 {
-  "name": "MidManStudio.ProjectileSystem.Editor",
-  "rootNamespace": "MidManStudio.Projectiles.Editor",
-  "references": [
-    "MidManStudio.ProjectileSystem",
-    "MidManStudio.Utilities",
-    "MidManStudio.Utilities.Editor",
-    "MidManStudio.Netcode",
-    "Unity.Netcode.Runtime"
-  ],
-  "includePlatforms": ["Editor"],
-  "excludePlatforms": [],
-  "allowUnsafeCode": false,
-  "overrideReferences": false,
-  "precompiledReferences": [],
-  "autoReferenced": false,
-  "defineConstraints": [],
-  "versionDefines": [],
-  "noEngineReferences": false
+    "name": "MidManStudio.ProjectileSystem.Editor",
+    "rootNamespace": "MidManStudio.Projectiles.Editor",
+    "references": [
+        "MidManStudio.ProjectileSystem",
+        "MidManStudio.Utilities",
+        "MidManStudio.Utilities.Editor",
+        "MidManStudio.Netcode",
+        "Unity.Netcode.Runtime",
+        "Unity.Netcode.Components"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
 }
