@@ -5,7 +5,10 @@
 //   1. Generate enum + mapping SO: MidManStudio > Projectile System > Config Type Generator.
 //   2. Assign the generated ProjectileConfigMappingSO to _mapping in the Inspector.
 //   3. Place on the same persistent GameObject as ProjectileRegistry.
-//   4. Registration happens in Start() (after ProjectileRegistry.Awake()).
+//   4. Registration happens in Awake(), ordered explicitly (-150) to run
+//      after ProjectileRegistry's own Awake() (-200) — see the
+//      [DefaultExecutionOrder] on both classes and ProjectileRegistry.cs's
+//      doc comment for why this used to race and how it's fixed now.
 //
 // USAGE:
 //   ushort id = ProjectileConfigManager.Instance.GetConfigId((int)ProjectileConfigType.FireBall);
@@ -20,6 +23,21 @@ using MidManStudio.Projectiles.Managers;
 using MidManStudio.Core.Logging;
 namespace MidManStudio.Projectiles.Config
 {
+    /// <summary>
+    /// TIMING FIX ("the config that never gets set on the first fire — index
+    /// starts at 0, always the first fire") — see ProjectileRegistry.cs's own
+    /// updated doc comment for the full explanation of the race this closes.
+    /// Short version: RegisterAll() used to run in Start(), with no
+    /// execution-order guarantee relative to any other script that might
+    /// read a ConfigId (either via GetConfigId below, or — the actual root
+    /// cause per your testing — directly off a ProjectileConfigSO's own
+    /// .ConfigId field, which only ever gets assigned inside
+    /// ProjectileRegistry.Register()). Moved to Awake(), with an explicit
+    /// order placed right after ProjectileRegistry's (-200), so this always
+    /// runs early enough to matter but never before the registry it depends
+    /// on exists.
+    /// </summary>
+    [DefaultExecutionOrder(-150)]
     [AddComponentMenu("MidMan/Projectile System/Projectile Config Manager")]
     public sealed class ProjectileConfigManager : Singleton<ProjectileConfigManager>
     {
@@ -39,10 +57,10 @@ namespace MidManStudio.Projectiles.Config
 
         // ── Lifecycle ─────────────────────────────────────────────────────────
 
-        protected override void Awake() => base.Awake();
-
-        private void Start()
+        protected override void Awake()
         {
+            base.Awake();
+
             if (_mapping != null)
                 RegisterAll(_mapping);
         }

@@ -9,7 +9,34 @@ namespace MidManStudio.Projectiles.Config
     /// Runtime registry mapping ushort configId to ProjectileConfigSO.
     /// Assigned IDs are stable for the session — do not rely on them across sessions.
     /// Singleton — attach to a persistent GameObject (same one as ServerProjectileAuthority).
+    ///
+    /// TIMING FIX ("the config that never gets set on the first fire — index
+    /// starts at 0, always the first fire"): ROOT CAUSE FOUND (by you) —
+    /// ProjectileConfigSO.ConfigId is a plain field, only ever assigned inside
+    /// Register() below. Nothing in this class previously guaranteed WHEN
+    /// that assignment happens relative to any other script's Awake()/Start().
+    /// Unity's execution order between unrelated MonoBehaviours is otherwise
+    /// arbitrary — if a weapon script reads a ProjectileConfigSO's .ConfigId
+    /// directly (rather than going through ProjectileConfigManager.GetConfigId,
+    /// which at least warns and returns ushort.MaxValue instead of a silent
+    /// wrong value) before THIS registration has run, it reads 0 — whichever
+    /// config happens to occupy index 0 in _configs, completely unrelated to
+    /// the config it actually wanted. That matches "always the first fire":
+    /// if the very first shot of a session can happen in the same frame as
+    /// scene load, it can race ahead of registration; every later shot reads
+    /// the SO fresh and gets the now-correctly-assigned real id.
+    ///
+    /// [DefaultExecutionOrder(-200)] forces THIS class's Awake() (where
+    /// _autoRegister actually gets processed, below) to run before every
+    /// other script's Awake() — and since Unity always finishes every
+    /// Awake() across the whole scene before calling ANY Start(), that also
+    /// covers every script reading ConfigId from its own Start(). See
+    /// ProjectileConfigManager.cs for the companion fix — RegisterAll() used
+    /// to run in Start() (racing this exact same way) and has been moved to
+    /// Awake() with its own order (-150) placed after this one, since it
+    /// depends on ProjectileRegistry already existing.
     /// </summary>
+    [DefaultExecutionOrder(-200)]
     public sealed class ProjectileRegistry : Singleton<ProjectileRegistry>
     {
         // ─────────────────────────────────────────────────────────────────────
