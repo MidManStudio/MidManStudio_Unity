@@ -14,6 +14,7 @@
 using UnityEngine;
 using MidManStudio.Core.Logging;
 using MidManStudio.Projectiles.Config;
+using MidManStudio.Projectiles.Core;
 namespace MidManStudio.Projectiles.Managers
 {
     [RequireComponent(typeof(Rigidbody2D))]
@@ -108,7 +109,22 @@ namespace MidManStudio.Projectiles.Managers
             if (ProjectileRegistry.HasInstance)
             {
                 var cfg = ProjectileRegistry.Instance.Get(VisualConfigId);
-                if (cfg != null) gravity = cfg.GravityScale;
+                if (cfg != null)
+                {
+                    gravity = cfg.GravityScale;
+
+                    // MOVEMENT TYPE FIX ("it should offset the physics body"):
+                    // Wave/Circular drive velocity every FixedUpdate from
+                    // DeterministicMotionMath's closed-form formula (see
+                    // PhysicsProjectileBase.FixedUpdate) — that formula doesn't
+                    // account for gravity, matching RustSim's own tick_wave/
+                    // tick_circular, which don't combine with gravity either.
+                    // Disabling it here avoids an ill-defined combination of
+                    // "real" gravity fighting a deterministic curve.
+                    if (cfg.MovementType == ProjectileMovementType.Wave ||
+                        cfg.MovementType == ProjectileMovementType.Circular)
+                        gravity = 0f;
+                }
             }
 
             _rb.gravityScale = gravity;
@@ -132,6 +148,12 @@ namespace MidManStudio.Projectiles.Managers
             if (_rb == null) return;
             _rb.velocity    = Vector2.zero;
             _rb.isKinematic = true;
+        }
+
+        /// <summary>Wave/Circular FixedUpdate driver — see PhysicsProjectileBase.FixedUpdate.</summary>
+        protected override void ApplyMovementVelocity(Vector3 velocity)
+        {
+            if (_rb != null) _rb.velocity = (Vector2)velocity;
         }
 
         // Accept either CapsuleCollider2D (original) or CircleCollider2D
