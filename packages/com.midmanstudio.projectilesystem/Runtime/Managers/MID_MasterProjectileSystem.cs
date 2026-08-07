@@ -392,22 +392,16 @@ namespace MidManStudio.Projectiles.Managers
 
             var physicsBase = netObj.GetComponent<PhysicsProjectileBase>();
 
-            // FIX: set the visual config id BEFORE Spawn() rather than after.
-            // _visualConfigId is now a NetworkVariable (see PhysicsProjectileBase) —
-            // writing it before Spawn() means the very first replicated state a
-            // remote client receives already carries the correct value, instead of
-            // spawning with the prefab default and only picking up the real config
-            // a tick later via OnValueChanged. Safe either way (OnValueChanged
-            // still covers the post-spawn case for any other caller), but this
-            // avoids a one-frame flash of the wrong visual.
-            if (physicsBase != null && configId != 0)
-                physicsBase.SetVisualConfigId(configId);
+        
 
             // Always server-owned now — see firingClientId doc above. Ownership
             // is no longer how the firing client is told apart; NetworkHide below
             // does that instead (and NetworkHide cannot target an object's own
             // owner anyway, which is exactly why SpawnWithOwnership had to go).
             netObj.Spawn();
+
+            if (physicsBase != null)
+                physicsBase.SetVisualConfigId(configId);
 
             bool firerIsHost = NetworkManager.Singleton != null && NetworkManager.Singleton.IsHost
                 && firingClientId == NetworkManager.Singleton.LocalClientId;

@@ -3116,6 +3116,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _autoRegister:
+  - {fileID: 11400000, guid: f4b04dd9575fc41e99b500d03c3b1fc2, type: 2}
   - {fileID: 11400000, guid: 7c3da79c46e7646d3a5f4d95fe043d51, type: 2}
   - {fileID: 11400000, guid: e8ea63b2fd663478f80a4d261bbc4a34, type: 2}
   - {fileID: 11400000, guid: 615612a48fb0b43d58213472e91e9c87, type: 2}
@@ -15422,6 +15423,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _atlasMaterial: {fileID: 2100000, guid: 5c1045f9913e24d6db18d490ee03f9b3, type: 2}
   _forceDrawMesh: 0
+  _sortDepthStep: 0.0001
 --- !u!114 &1771295140
 MonoBehaviour:
   m_ObjectHideFlags: 0
