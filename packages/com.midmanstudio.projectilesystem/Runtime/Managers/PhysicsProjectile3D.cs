@@ -7,6 +7,7 @@
 using UnityEngine;
 using MidManStudio.Core.Logging;
 using MidManStudio.Projectiles.Config;
+using MidManStudio.Projectiles.Core;
 
 namespace MidManStudio.Projectiles.Managers
 {
@@ -84,6 +85,16 @@ namespace MidManStudio.Projectiles.Managers
                         useGravity = true;
                     else if (cfg.GravityScale == 0f && !_useGravity)
                         useGravity = false;
+
+                    // MOVEMENT TYPE FIX ("it should offset the physics body"):
+                    // same reasoning as PhysicsProjectile2D's OnLaunch — Wave/
+                    // Circular drive velocity every FixedUpdate from
+                    // DeterministicMotionMath's closed-form formula, which
+                    // doesn't account for gravity (matching RustSim's own
+                    // tick_wave_3d/tick_circular_3d).
+                    if (cfg.MovementType == ProjectileMovementType.Wave ||
+                        cfg.MovementType == ProjectileMovementType.Circular)
+                        useGravity = false;
                 }
             }
 
@@ -108,6 +119,12 @@ namespace MidManStudio.Projectiles.Managers
             if (_rb == null) return;
             _rb.velocity    = Vector3.zero;
             _rb.isKinematic = true;
+        }
+
+        /// <summary>Wave/Circular FixedUpdate driver — see PhysicsProjectileBase.FixedUpdate.</summary>
+        protected override void ApplyMovementVelocity(Vector3 velocity)
+        {
+            if (_rb != null) _rb.velocity = velocity;
         }
 
         #endregion

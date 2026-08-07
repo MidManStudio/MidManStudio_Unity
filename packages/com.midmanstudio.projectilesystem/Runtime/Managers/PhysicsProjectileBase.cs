@@ -80,6 +80,14 @@ namespace MidManStudio.Projectiles.Managers
         private bool    _launched;
         private Coroutine _configRevalidateCoroutine;
 
+        // ── Wave/Circular movement ("it should offset the physics body since
+        // the visual is meant to follow the physics body") — see
+        // SetupMovementType's doc comment below for the full explanation.
+        private ProjectileMovementType _movementType = ProjectileMovementType.Straight;
+        private Vector3                _movementLaunchVelocity;
+        private Vector3                _movementPerpAxis;
+        private float                  _movementStartServerTime;
+
         protected ulong _ownerMidId;
         protected ulong _firedByNetworkObjectId;
         protected bool  _isBotOwner;
@@ -202,6 +210,102 @@ namespace MidManStudio.Projectiles.Managers
                 StopPhysics();
                 DestroyProjectile();
             }
+        }
+
+        /// <summary>
+        /// WAVE/CIRCULAR FIX ("physics projectiles' movement types don't work
+        /// — it should offset the physics body since the visual is meant to
+        /// follow the physics body"): every FixedUpdate, sets the Rigidbody's
+        /// velocity directly to DeterministicMotionMath's closed-form output
+        /// for the elapsed time since launch — see SetupMovementType's doc
+        /// comment for the full explanation of why that's the correct/safe
+        /// thing to reuse here. A real Rigidbody, still integrating a real
+        /// velocity every physics step, so collision detection is completely
+        /// unaffected — only the velocity itself now follows the curve
+        /// instead of staying constant.
+        ///
+        /// Only ever runs on the server (the only place this Rigidbody is
+        /// physically authoritative — see the IsServer-gated logic
+        /// throughout this class), and only once launched and not yet hit —
+        /// same gating Update()'s MaxRange check above uses.
+        /// </summary>
+        protected virtual void FixedUpdate()
+        {
+            if (!IsServer || !_launched || HasHit) return;
+            if (_movementType != ProjectileMovementType.Wave &&
+                _movementType != ProjectileMovementType.Circular)
+                return;
+
+            var cfg = ResolveVisualConfig();
+            if (cfg == null) return;
+
+            float timeAlive = NetworkManager.ServerTime.TimeAsFloat - _movementStartServerTime;
+            Vector3 velocity;
+
+            if (_movementType == ProjectileMovementType.Wave)
+            {
+                velocity = Is2D
+                    ? DeterministicMotionMath.CalculateWave2DVelocityDirection(
+                        _movementLaunchVelocity.x, _movementLaunchVelocity.y,
+                        _movementLaunchVelocity.magnitude,
+                        cfg.WaveAmplitude, cfg.WaveFrequency, cfg.WavePhaseOffset,
+                        _movementPerpAxis.x, _movementPerpAxis.y, timeAlive)
+                    : DeterministicMotionMath.CalculateWave3DVelocityDirection(
+                        _movementLaunchVelocity, cfg.WaveAmplitude, cfg.WaveFrequency,
+                        cfg.WavePhaseOffset, _movementPerpAxis, timeAlive);
+            }
+            else // Circular
+            {
+                float omegaRad = cfg.CircularAngularSpeed * Mathf.Deg2Rad;
+                float startRad = cfg.CircularStartAngle   * Mathf.Deg2Rad;
+
+                velocity = Is2D
+                    ? DeterministicMotionMath.CalculateCircular2DVelocityDirection(
+                        _movementLaunchVelocity.x, _movementLaunchVelocity.y,
+                        omegaRad, startRad, timeAlive)
+                    : DeterministicMotionMath.CalculateCircular3DVelocityDirection(
+                        _movementLaunchVelocity, omegaRad, startRad,
+                        _movementPerpAxis, cfg.CircularRadius, timeAlive);
+            }
+
+            ApplyMovementVelocity(velocity);
+        }
+
+        /// <summary>
+        /// Captures the state FixedUpdate's movement-type driver needs, once,
+        /// right after launch. Called from OnProjectileInitialised.
+        ///
+        /// _movementLaunchVelocity is the exact velocity OnLaunch just
+        /// assigned (direction * bulletVelocity) — captured here from
+        /// launchDir + BulletVelocity rather than reading it back off the
+        /// Rigidbody, so this works identically for 2D/3D without the base
+        /// class needing Rigidbody access at all.
+        ///
+        /// _movementPerpAxis uses DeterministicMotionMath.ComputePerpAxis2D/3D
+        /// — verified (by that file's own header contract) to produce the
+        /// same axis BatchSpawnHelper.GetAccel2D/3D computes for a
+        /// RustSim-driven projectile with the same config, so a physics and a
+        /// RustSim projectile firing the same Wave/Circular config curve the
+        /// same way.
+        ///
+        /// Non-Wave/Circular configs return immediately — FixedUpdate's own
+        /// _movementType check makes the rest a no-op either way, but this
+        /// also avoids computing an axis nobody will read.
+        /// </summary>
+        private void SetupMovementType(Vector3 launchDir)
+        {
+            var cfg = ResolveVisualConfig();
+            _movementType = cfg != null ? cfg.MovementType : ProjectileMovementType.Straight;
+
+            if (_movementType != ProjectileMovementType.Wave &&
+                _movementType != ProjectileMovementType.Circular)
+                return;
+
+            _movementLaunchVelocity  = launchDir.normalized * BulletVelocity;
+            _movementStartServerTime = NetworkManager.ServerTime.TimeAsFloat;
+            _movementPerpAxis        = Is2D
+                ? DeterministicMotionMath.ComputePerpAxis2D(launchDir)
+                : DeterministicMotionMath.ComputePerpAxis3D(launchDir);
         }
 
         #endregion
@@ -461,6 +565,14 @@ namespace MidManStudio.Projectiles.Managers
         protected abstract void ApplyColliderSize(float sizeX, float sizeY);
 
         /// <summary>
+        /// Applies a computed velocity vector directly to whichever
+        /// Rigidbody type this subclass uses. Used by FixedUpdate's
+        /// Wave/Circular movement driver — see that method and
+        /// SetupMovementType for the full explanation.
+        /// </summary>
+        protected abstract void ApplyMovementVelocity(Vector3 velocity);
+
+        /// <summary>
         /// Resolves the ProjectileConfigSO currently referenced by
         /// VisualConfigId, or null if not registered / registry not ready.
         /// Small shared helper — this same two-line lookup was already
@@ -508,6 +620,7 @@ namespace MidManStudio.Projectiles.Managers
             if (_poolVisualGO == null) SpawnPoolVisual();
 
             Vector3 launchDir = OnLaunch(BulletVelocity);
+            SetupMovementType(launchDir);
 
             if (_poolVisual != null)
             {
