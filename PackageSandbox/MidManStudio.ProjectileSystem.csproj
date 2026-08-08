@@ -163,6 +163,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Core/RustSpawnParams.cs">
       <Link>Runtime/Core/RustSpawnParams.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/RustSimTargetRegistrar.cs">
+      <Link>Runtime/Managers/RustSimTargetRegistrar.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Config/ProjectileConfigSO.cs">
       <Link>Runtime/Config/ProjectileConfigSO.cs</Link>
     </Compile>

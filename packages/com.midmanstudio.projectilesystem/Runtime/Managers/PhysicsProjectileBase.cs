@@ -80,13 +80,24 @@ namespace MidManStudio.Projectiles.Managers
         private bool    _launched;
         private Coroutine _configRevalidateCoroutine;
 
-        // ── Wave/Circular movement ("it should offset the physics body since
-        // the visual is meant to follow the physics body") — see
-        // SetupMovementType's doc comment below for the full explanation.
+        // ── Wave/Circular/Guided/Teleport movement ("it should offset the
+        // physics body since the visual is meant to follow the physics
+        // body") — see SetupMovementType's doc comment below for the full
+        // explanation.
         private ProjectileMovementType _movementType = ProjectileMovementType.Straight;
         private Vector3                _movementLaunchVelocity;
         private Vector3                _movementPerpAxis;
         private float                  _movementStartServerTime;
+
+        // Guided — see SetGuidedTarget/ApplyGuided.
+        private bool      _hasGuidedTarget;
+        private Transform _guidedTargetTransform;
+        private Vector3   _guidedTargetPosition;
+        private const float GUIDED_TURN_RATE_RAD_PER_SEC = Mathf.PI; // matches tick_guided's hardcoded turn_rate exactly
+
+        // Teleport — see ApplyTeleport.
+        private float _teleportTimer;
+        private const float TELEPORT_INTERVAL_SECONDS = 0.12f; // matches tick_teleport's hardcoded INTERVAL exactly
 
         protected ulong _ownerMidId;
         protected ulong _firedByNetworkObjectId;
@@ -232,10 +243,28 @@ namespace MidManStudio.Projectiles.Managers
         protected virtual void FixedUpdate()
         {
             if (!IsServer || !_launched || HasHit) return;
-            if (_movementType != ProjectileMovementType.Wave &&
-                _movementType != ProjectileMovementType.Circular)
-                return;
 
+            switch (_movementType)
+            {
+                case ProjectileMovementType.Wave:
+                case ProjectileMovementType.Circular:
+                    ApplyWaveCircular();
+                    break;
+                case ProjectileMovementType.Guided:
+                    ApplyGuided();
+                    break;
+                case ProjectileMovementType.Teleport:
+                    ApplyTeleport();
+                    break;
+                // Straight/Arching: nothing to do here — real Rigidbody physics
+                // (velocity, gravity) already handles both. See OnLaunch's
+                // gravity-scale comment for why Arching specifically needs no
+                // code of its own.
+            }
+        }
+
+        private void ApplyWaveCircular()
+        {
             var cfg = ResolveVisualConfig();
             if (cfg == null) return;
 
@@ -272,40 +301,203 @@ namespace MidManStudio.Projectiles.Managers
         }
 
         /// <summary>
-        /// Captures the state FixedUpdate's movement-type driver needs, once,
+        /// GUIDED FIX ("didn't setup guided and way to set target for it"):
+        /// SetGuidedTarget/ClearGuidedTarget below are the missing "way to
+        /// set a target" — MID_MasterProjectileSystem.SetHomingDirection2D/3D
+        /// already existed as a low-level primitive for RustSim projectiles
+        /// (writes a direction once), but nothing tracked a target over time,
+        /// and nothing equivalent existed for physics projectiles at all.
+        ///
+        /// Every FixedUpdate this recomputes the direction to whatever target
+        /// is currently set (so a Transform target is followed live, a
+        /// static Vector3 stays fixed), then turns the Rigidbody's CURRENT
+        /// velocity toward it — direction only, speed is preserved exactly,
+        /// matching tick_guided/tick_guided_3d in
+        /// rust_lib/projectile_core/src/simulation.rs: a fixed PI rad/sec
+        /// (180°/sec) turn rate, clamped so a single tick never overshoots
+        /// past the target direction. That turn rate is a genuine hardcoded
+        /// engine constant in the native sim too (not a missing config
+        /// field) — GUIDED_TURN_RATE_RAD_PER_SEC matches it exactly rather
+        /// than inventing a new, RustSim-inconsistent value.
+        ///
+        /// Uses Vector3.Slerp along the geodesic between the current and
+        /// target direction, scaled so it advances exactly turnRate*dt
+        /// radians per tick — mathematically exact for "rotate by a fixed
+        /// angular amount toward a target", and unifies 2D/3D into one
+        /// implementation (a 2D projectile's velocity always has Z=0, and
+        /// Slerp between two Z=0 unit vectors stays in-plane) rather than
+        /// needing the atan2-based 2D-specific approach the native sim uses.
+        ///
+        /// No target set: falls through to whatever velocity real physics
+        /// already produced (gravity, drag, collision response) — Guided
+        /// with no target is just a normal physics projectile until
+        /// SetGuidedTarget is called.
+        /// </summary>
+        private void ApplyGuided()
+        {
+            if (!_hasGuidedTarget) return;
+
+            Vector3 targetPos = _guidedTargetTransform != null
+                ? _guidedTargetTransform.position
+                : _guidedTargetPosition;
+
+            Vector3 curVel = GetCurrentVelocity();
+            float   speed  = curVel.magnitude;
+            if (speed < 0.0001f) return; // no meaningful direction to turn from
+
+            Vector3 curDir   = curVel / speed;
+            Vector3 toTarget = targetPos - transform.position;
+            if (toTarget.sqrMagnitude < 0.0001f) return; // already at target position
+
+            Vector3 tgtDir = toTarget.normalized;
+            float   angle  = Vector3.Angle(curDir, tgtDir) * Mathf.Deg2Rad;
+            if (angle <= 0.0001f) return; // already aligned
+
+            float maxTurnThisTick = GUIDED_TURN_RATE_RAD_PER_SEC * Time.fixedDeltaTime;
+            float t = Mathf.Min(maxTurnThisTick / angle, 1f);
+
+            Vector3 newDir = Vector3.Slerp(curDir, tgtDir, t);
+            ApplyMovementVelocity(newDir * speed);
+        }
+
+        /// <summary>
+        /// Sets (or replaces) the target this physics projectile steers
+        /// toward while its config's MovementType is Guided. Safe to call
+        /// any time after the projectile has launched, including changing
+        /// targets mid-flight (e.g. retargeting onto whoever gets closest).
+        /// Has no effect on any other movement type — this only ever gets
+        /// read by ApplyGuided, itself only ever called when
+        /// MovementType == Guided.
+        /// </summary>
+        public void SetGuidedTarget(Transform target)
+        {
+            _guidedTargetTransform = target;
+            _hasGuidedTarget       = target != null;
+            if (target != null) _guidedTargetPosition = target.position;
+        }
+
+        /// <summary>
+        /// Sets a fixed point to steer toward instead of a live Transform —
+        /// e.g. a target's last-known position, or a static objective.
+        /// </summary>
+        public void SetGuidedTarget(Vector3 worldPosition)
+        {
+            _guidedTargetTransform = null;
+            _guidedTargetPosition  = worldPosition;
+            _hasGuidedTarget       = true;
+        }
+
+        /// <summary>Stops homing — reverts to flying whatever direction real physics already has it going.</summary>
+        public void ClearGuidedTarget()
+        {
+            _guidedTargetTransform = null;
+            _hasGuidedTarget       = false;
+        }
+
+        /// <summary>
+        /// TELEPORT FIX ("teleport which shifts to a specific forward... per
+        /// tick"): exact port of tick_teleport/tick_teleport_3d — every
+        /// TELEPORT_INTERVAL_SECONDS (0.12s, hardcoded in the native sim,
+        /// matched here exactly), the projectile jumps forward by
+        /// speed*interval in one instant rather than moving continuously.
+        /// Between jumps it doesn't move at all — matches the native sim,
+        /// which only touches position inside its own equivalent
+        /// "if timer >= INTERVAL" branch, with no per-tick integration in
+        /// between at all.
+        ///
+        /// Velocity is zeroed every tick this is active (real gravity/drag
+        /// is also disabled for Teleport in OnLaunch, same reasoning as
+        /// Wave/Circular) so nothing pushes the body around between hops —
+        /// only TeleportBody actually moves it, using the ORIGINAL launch
+        /// direction/speed captured in _movementLaunchVelocity, since
+        /// current velocity is deliberately kept at zero the rest of the
+        /// time.
+        ///
+        /// Uses Rigidbody(2D).MovePosition for the jump rather than setting
+        /// transform.position directly, so the physics engine stays aware of
+        /// where the body actually is.
+        ///
+        /// EXPECTED LIMITATION (inherited from the native behaviour, not
+        /// introduced here): teleporting skips the space between two
+        /// positions entirely, with no sweep/raycast along the way — thin
+        /// colliders can be tunnelled through at high enough speed/interval.
+        /// tick_teleport has the exact same characteristic natively (direct
+        /// position addition, no collision sweep at all), so this isn't a
+        /// new gap specific to the physics path.
+        /// </summary>
+        private void ApplyTeleport()
+        {
+            ApplyMovementVelocity(Vector3.zero); // frozen between hops, matches native
+
+            _teleportTimer += Time.fixedDeltaTime;
+            if (_teleportTimer < TELEPORT_INTERVAL_SECONDS) return;
+            _teleportTimer -= TELEPORT_INTERVAL_SECONDS;
+
+            float   speed = _movementLaunchVelocity.magnitude;
+            Vector3 dir   = _movementLaunchVelocity.sqrMagnitude > 0.0001f
+                ? _movementLaunchVelocity.normalized
+                : transform.forward;
+            float   jump  = speed * TELEPORT_INTERVAL_SECONDS;
+
+            TeleportBody(transform.position + dir * jump);
+        }
+
+        /// <summary>
+        /// Captures the state FixedUpdate's movement-type drivers need, once,
         /// right after launch. Called from OnProjectileInitialised.
         ///
         /// _movementLaunchVelocity is the exact velocity OnLaunch just
         /// assigned (direction * bulletVelocity) — captured here from
         /// launchDir + BulletVelocity rather than reading it back off the
         /// Rigidbody, so this works identically for 2D/3D without the base
-        /// class needing Rigidbody access at all.
+        /// class needing Rigidbody access at all. Used by Wave (direction
+        /// basis) and Teleport (jump direction/speed) — Circular and Guided
+        /// don't need it captured (Circular only needs the perp axis;
+        /// Guided reads CURRENT velocity live via GetCurrentVelocity each
+        /// tick instead).
         ///
         /// _movementPerpAxis uses DeterministicMotionMath.ComputePerpAxis2D/3D
         /// — verified (by that file's own header contract) to produce the
         /// same axis BatchSpawnHelper.GetAccel2D/3D computes for a
         /// RustSim-driven projectile with the same config, so a physics and a
         /// RustSim projectile firing the same Wave/Circular config curve the
-        /// same way.
+        /// same way. Only Wave/Circular read this, so it's only computed for
+        /// those two.
         ///
-        /// Non-Wave/Circular configs return immediately — FixedUpdate's own
-        /// _movementType check makes the rest a no-op either way, but this
-        /// also avoids computing an axis nobody will read.
+        /// Straight/Arching/Guided configs return immediately after resolving
+        /// _movementType — none of the three need any of this state (Guided
+        /// gets its state entirely from SetGuidedTarget instead).
         /// </summary>
         private void SetupMovementType(Vector3 launchDir)
         {
             var cfg = ResolveVisualConfig();
-            _movementType = cfg != null ? cfg.MovementType : ProjectileMovementType.Straight;
+            _movementType  = cfg != null ? cfg.MovementType : ProjectileMovementType.Straight;
+            _teleportTimer = 0f;
+
+            // Reset every new launch — a reused pooled instance must not
+            // silently inherit a target from whatever it was guided toward
+            // last time it fired. Callers set a fresh target per-shot via
+            // SetGuidedTarget after this runs (SpawnPhysicsProjectile →
+            // InitialiseProjectile, both of which happen before any caller
+            // has a chance to call SetGuidedTarget for THIS shot).
+            _hasGuidedTarget       = false;
+            _guidedTargetTransform = null;
 
             if (_movementType != ProjectileMovementType.Wave &&
-                _movementType != ProjectileMovementType.Circular)
+                _movementType != ProjectileMovementType.Circular &&
+                _movementType != ProjectileMovementType.Teleport)
                 return;
 
             _movementLaunchVelocity  = launchDir.normalized * BulletVelocity;
             _movementStartServerTime = NetworkManager.ServerTime.TimeAsFloat;
-            _movementPerpAxis        = Is2D
-                ? DeterministicMotionMath.ComputePerpAxis2D(launchDir)
-                : DeterministicMotionMath.ComputePerpAxis3D(launchDir);
+
+            if (_movementType == ProjectileMovementType.Wave ||
+                _movementType == ProjectileMovementType.Circular)
+            {
+                _movementPerpAxis = Is2D
+                    ? DeterministicMotionMath.ComputePerpAxis2D(launchDir)
+                    : DeterministicMotionMath.ComputePerpAxis3D(launchDir);
+            }
         }
 
         #endregion
@@ -571,6 +763,25 @@ namespace MidManStudio.Projectiles.Managers
         /// SetupMovementType for the full explanation.
         /// </summary>
         protected abstract void ApplyMovementVelocity(Vector3 velocity);
+
+        /// <summary>
+        /// Reads the Rigidbody's CURRENT velocity — used by ApplyGuided, which
+        /// (unlike Wave/Circular/Teleport) needs the live, continuously-updated
+        /// velocity each tick rather than a value captured once at launch,
+        /// since it turns whatever real physics currently has the body doing
+        /// rather than overriding it outright. Return Vector3.zero if the
+        /// Rigidbody reference isn't available for any reason.
+        /// </summary>
+        protected abstract Vector3 GetCurrentVelocity();
+
+        /// <summary>
+        /// Instantly repositions the Rigidbody — used by ApplyTeleport for its
+        /// per-interval jump. Implementations should set the Rigidbody's own
+        /// .position (not transform.position directly), so the physics engine
+        /// stays aware of where the body actually is rather than only finding
+        /// out on the next sync.
+        /// </summary>
+        protected abstract void TeleportBody(Vector3 position);
 
         /// <summary>
         /// Resolves the ProjectileConfigSO currently referenced by

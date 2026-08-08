@@ -114,15 +114,19 @@ namespace MidManStudio.Projectiles.Managers
                     gravity = cfg.GravityScale;
 
                     // MOVEMENT TYPE FIX ("it should offset the physics body"):
-                    // Wave/Circular drive velocity every FixedUpdate from
-                    // DeterministicMotionMath's closed-form formula (see
-                    // PhysicsProjectileBase.FixedUpdate) — that formula doesn't
-                    // account for gravity, matching RustSim's own tick_wave/
-                    // tick_circular, which don't combine with gravity either.
-                    // Disabling it here avoids an ill-defined combination of
-                    // "real" gravity fighting a deterministic curve.
+                    // Wave/Circular/Teleport all drive the body directly every
+                    // FixedUpdate (velocity for Wave/Circular, direct
+                    // reposition for Teleport — see PhysicsProjectileBase's
+                    // FixedUpdate/ApplyWaveCircular/ApplyTeleport), none of
+                    // which account for gravity, matching RustSim's own
+                    // tick_wave/tick_circular/tick_teleport, which don't
+                    // combine with gravity either. Guided is deliberately
+                    // excluded — it turns whatever velocity real physics is
+                    // already producing rather than overriding it, so gravity
+                    // stays on and a homing shot still arcs while it steers.
                     if (cfg.MovementType == ProjectileMovementType.Wave ||
-                        cfg.MovementType == ProjectileMovementType.Circular)
+                        cfg.MovementType == ProjectileMovementType.Circular ||
+                        cfg.MovementType == ProjectileMovementType.Teleport)
                         gravity = 0f;
                 }
             }
@@ -154,6 +158,16 @@ namespace MidManStudio.Projectiles.Managers
         protected override void ApplyMovementVelocity(Vector3 velocity)
         {
             if (_rb != null) _rb.velocity = (Vector2)velocity;
+        }
+
+        /// <summary>Guided FixedUpdate driver — see PhysicsProjectileBase.ApplyGuided.</summary>
+        protected override Vector3 GetCurrentVelocity()
+            => _rb != null ? (Vector3)_rb.velocity : Vector3.zero;
+
+        /// <summary>Teleport FixedUpdate driver — see PhysicsProjectileBase.ApplyTeleport.</summary>
+        protected override void TeleportBody(Vector3 position)
+        {
+            if (_rb != null) _rb.position = (Vector2)position;
         }
 
         // Accept either CapsuleCollider2D (original) or CircleCollider2D

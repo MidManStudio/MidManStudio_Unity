@@ -87,13 +87,16 @@ namespace MidManStudio.Projectiles.Managers
                         useGravity = false;
 
                     // MOVEMENT TYPE FIX ("it should offset the physics body"):
-                    // same reasoning as PhysicsProjectile2D's OnLaunch — Wave/
-                    // Circular drive velocity every FixedUpdate from
-                    // DeterministicMotionMath's closed-form formula, which
-                    // doesn't account for gravity (matching RustSim's own
-                    // tick_wave_3d/tick_circular_3d).
+                    // same reasoning as PhysicsProjectile2D's OnLaunch —
+                    // Wave/Circular/Teleport all drive the body directly every
+                    // FixedUpdate, none of which account for gravity (matching
+                    // RustSim's own tick_wave_3d/tick_circular_3d/
+                    // tick_teleport_3d). Guided is deliberately excluded — it
+                    // turns whatever velocity real physics is already
+                    // producing rather than overriding it, so gravity stays on.
                     if (cfg.MovementType == ProjectileMovementType.Wave ||
-                        cfg.MovementType == ProjectileMovementType.Circular)
+                        cfg.MovementType == ProjectileMovementType.Circular ||
+                        cfg.MovementType == ProjectileMovementType.Teleport)
                         useGravity = false;
                 }
             }
@@ -125,6 +128,16 @@ namespace MidManStudio.Projectiles.Managers
         protected override void ApplyMovementVelocity(Vector3 velocity)
         {
             if (_rb != null) _rb.velocity = velocity;
+        }
+
+        /// <summary>Guided FixedUpdate driver — see PhysicsProjectileBase.ApplyGuided.</summary>
+        protected override Vector3 GetCurrentVelocity()
+            => _rb != null ? _rb.velocity : Vector3.zero;
+
+        /// <summary>Teleport FixedUpdate driver — see PhysicsProjectileBase.ApplyTeleport.</summary>
+        protected override void TeleportBody(Vector3 position)
+        {
+            if (_rb != null) _rb.position = position;
         }
 
         #endregion
