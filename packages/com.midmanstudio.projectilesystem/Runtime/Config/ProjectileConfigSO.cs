@@ -277,6 +277,39 @@ namespace MidManStudio.Projectiles.Config
         public float CircularAngularSpeed => _circularAngularSpeed;
         public float CircularStartAngle   => _circularStartAngle;
 
+        [Header("Custom Curve Movement (only used when MovementType = CustomCurve — Physics projectiles only, not RustSim)")]
+        [Tooltip("X axis = normalized progress (0..1) through Custom Curve Duration " +
+                 "below (or through Lifetime if Duration is 0). Y = multiplier applied " +
+                 "to the shot's launch speed each tick — 1 = unchanged, 0 = momentarily " +
+                 "stopped, >1 = sped up. Default: flat line at 1 (no change from a " +
+                 "normal Straight shot until you shape this curve).")]
+        [SerializeField] private AnimationCurve _customCurveSpeedMultiplier
+            = AnimationCurve.Constant(0f, 1f, 1f);
+
+        [Tooltip("X axis = normalized progress (0..1), same timebase as Speed " +
+                 "Multiplier above. Y = offset amount along the launch-perpendicular " +
+                 "axis (same axis Wave uses) — shape an S-curve, a single juke, a " +
+                 "zigzag, whatever the authored curve describes. 0 = straight line.")]
+        [SerializeField] private AnimationCurve _customCurvePerpOffset
+            = AnimationCurve.Constant(0f, 1f, 0f);
+
+        [Tooltip("Duration (seconds) the curves' 0..1 X axis is stretched across. " +
+                 "0 = use this config's Lifetime instead (the common case — the curve " +
+                 "spans the shot's whole life). Set explicitly if you want the curve " +
+                 "to finish (or loop, see below) before the projectile actually expires.")]
+        [SerializeField] private float _customCurveDuration = 0f;
+
+        [Tooltip("When on, progress past 1.0 wraps back to 0 (Mathf.Repeat) instead " +
+                 "of clamping at the curve's last keyframe — for a movement that " +
+                 "should keep cycling (e.g. a repeating pulse) rather than settle " +
+                 "into a fixed offset for the rest of the shot's life.")]
+        [SerializeField] private bool _customCurveLoop = false;
+
+        public AnimationCurve CustomCurveSpeedMultiplier => _customCurveSpeedMultiplier;
+        public AnimationCurve CustomCurvePerpOffset       => _customCurvePerpOffset;
+        public float          CustomCurveDuration         => _customCurveDuration;
+        public bool           CustomCurveLoop             => _customCurveLoop;
+
         /// <summary>
         /// Registers this config's Wave/Circular movement parameters with the
         /// native sim. No-ops (with a logged warning) instead of throwing when

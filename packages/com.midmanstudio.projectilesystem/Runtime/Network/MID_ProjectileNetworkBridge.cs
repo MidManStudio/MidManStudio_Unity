@@ -6,6 +6,7 @@ using Unity.Netcode.Transports.UTP;
 using MidManStudio.Core.Logging;
 using MidManStudio.Core.Pools;
 using MidManStudio.Projectiles.Config;
+using MidManStudio.Projectiles.Core;
 using MidManStudio.Projectiles.Adapters;
 using MidManStudio.Projectiles.Data;
 using MidManStudio.Projectiles.Visuals;
@@ -29,6 +30,16 @@ namespace MidManStudio.Projectiles.Network
         public byte    WeaponLevel;
         public float   DamageMultiplier;
         public int     ClientFireTick;
+
+        /// <summary>
+        /// RUSTSIM GUIDED FIX ("guided doesn't work — dead wire"): 0 = no guided
+        /// target (the default — every fire request before this fix behaves
+        /// identically). Non-zero is resolved server-side in FireServerRpc back to
+        /// a live NetworkObject's Transform and handed to ProjectileGuidanceTracker
+        /// for every proj_id this request ends up spawning — same target for the
+        /// whole batch, including every pellet of a pattern/spread shot.
+        /// </summary>
+        public ulong   TargetNetworkObjectId;
 
         // NOTE: no direction/speed arrays here, and no RngSeed either — the old
         // RngSeed field was populated with a fresh UnityEngine.Random.Range() every
@@ -115,6 +126,11 @@ namespace MidManStudio.Projectiles.Network
             s.SerializeValue(ref WeaponLevel);
             s.SerializeValue(ref DamageMultiplier);
             s.SerializeValue(ref ClientFireTick);
+            // RUSTSIM GUIDED FIX: plain ulong, not compressed — a NetworkObjectId
+            // isn't a spatial/angular value WireCompression's lossy encodings apply
+            // to, and 0 (by far the common case: most fire requests aren't Guided)
+            // is only 8 bytes either way.
+            s.SerializeValue(ref TargetNetworkObjectId);
         }
     }
 
@@ -410,6 +426,29 @@ namespace MidManStudio.Projectiles.Network
 
             if (written <= 0) return;
 
+            // RUSTSIM GUIDED FIX ("guided doesn't work — dead wire"): baseId/written
+            // are exactly the proj_id range this request just spawned — the same
+            // values used for the confirmation below. ProjectileGuidanceTracker's
+            // own Update() loop then drives every one of them from here on; nothing
+            // further to do per-tick on this end. Server-only, deliberately — see
+            // ProjectileGuidanceTracker's file header for why a pure network client
+            // registering here would be a harmless no-op at best (it doesn't own
+            // the authoritative sim) and is skipped entirely rather than relying on
+            // that no-op.
+            if (request.TargetNetworkObjectId != 0 && cfg.MovementType == ProjectileMovementType.Guided
+                && NetworkManager.Singleton != null && NetworkManager.Singleton.SpawnManager != null
+                && NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(
+                    request.TargetNetworkObjectId, out var targetNetObj)
+                && targetNetObj != null)
+            {
+                var tracker = ProjectileGuidanceTracker.Instance;
+                var targetTransform = targetNetObj.transform;
+                if (cfg.Is3D)
+                    for (uint i = 0; i < written; i++) tracker.RegisterGuidedTarget3D(baseId + i, targetTransform);
+                else
+                    for (uint i = 0; i < written; i++) tracker.RegisterGuidedTarget2D(baseId + i, targetTransform);
+            }
+
             float serverNetworkTime = NetworkManager.Singleton != null
                 ? (float)NetworkManager.Singleton.ServerTime.TimeAsFloat
                 : 0f;
@@ -599,6 +638,18 @@ namespace MidManStudio.Projectiles.Network
         /// same deterministic regeneration principle as the Rust-sim path, just
         /// producing N discrete physics bodies instead of N entries in a batch
         /// buffer. No raw direction data crosses the wire here either.
+        ///
+        /// GUIDED FIX ("guided doesn't work for physics projectiles over the
+        /// network"): this RPC previously had no way to carry a homing target
+        /// across the wire at all — PhysicsProjectileBase.SetGuidedTarget()
+        /// existed and worked correctly, but nothing here ever called it, so
+        /// every networked physics projectile with MovementType.Guided just
+        /// flew straight. targetNetworkObjectId (0 = none) is resolved back to
+        /// a live NetworkObject via SpawnManager and handed to SetGuidedTarget
+        /// once the projectile exists. Only meaningful when the fired config's
+        /// MovementType is actually Guided — harmless no-op otherwise. Target
+        /// SELECTION (who to lock onto) is deliberately left to the caller;
+        /// this only plumbs an already-chosen target through.
         /// </summary>
         [ServerRpc(RequireOwnership = false)]
         public void FirePhysicsProjectileServerRpc(
@@ -608,6 +659,7 @@ namespace MidManStudio.Projectiles.Network
             ulong ownerMidId, ulong firedByNetObjId,
             ushort configId = 0,
             ushort patternId = 0, byte spreadCount = 1, float spreadDeg = 0f, bool patternIs3D = false,
+            ulong targetNetworkObjectId = 0,
             ServerRpcParams rpcParams = default)
         {
             if (!IsServer || !IsSpawned || _isShuttingDown) return;
@@ -618,6 +670,19 @@ namespace MidManStudio.Projectiles.Network
             // doc on MID_MasterProjectileSystem.SpawnPhysicsProjectile for why it
             // needs to be passed through instead of spawning server-owned.
             ulong firingClientId = rpcParams.Receive.SenderClientId;
+
+            // Resolved once, up-front — every direction/spread instance from this
+            // single fire call shares the same guided target (matches how a
+            // single ClientFireTick shares one origin/rotation too).
+            Transform guidedTarget = null;
+            if (targetNetworkObjectId != 0 && NetworkManager.Singleton != null
+                && NetworkManager.Singleton.SpawnManager != null
+                && NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(
+                    targetNetworkObjectId, out var targetNetObj)
+                && targetNetObj != null)
+            {
+                guidedTarget = targetNetObj.transform;
+            }
 
             Vector3[] directions;
             if (patternId != 0 || spreadCount > 1)
@@ -652,6 +717,13 @@ namespace MidManStudio.Projectiles.Network
                 {
                     proj.SetOwnerContext(ownerMidId, firedByNetObjId, false, 1, damageMultiplier);
                     proj.InitialiseProjectile(ownerMidId, firedByNetObjId, speed, false, 1);
+
+                    // Must run AFTER InitialiseProjectile — that call chain is what
+                    // resolves SetupMovementType(), which resets _hasGuidedTarget to
+                    // false for every fresh launch (see its doc comment). Setting the
+                    // target before that would just get silently wiped.
+                    if (guidedTarget != null)
+                        proj.SetGuidedTarget(guidedTarget);
                 }
             }
         }

@@ -4,7 +4,7 @@
 //   staleTime = (currentTick - T_snap) * tickInterval
 //
 //   Velocity at T_snap: reverse-integrate from current velocity
-//     Vx_snap = Vx_current              (no horizontal acceleration for straight/arching)
+//     Vx_snap = Vx_current              (no horizontal acceleration — Ax stays 0)
 //     Vy_snap = Vy_current - Ay * staleTime
 //
 //   Expected position at current time T_snap + staleTime:
@@ -20,10 +20,16 @@
 //     expectedY  = sy + 0.2*1 - 0.5*(-9.8)*1^2 = sy + 0.2 + 4.9 = sy + 5.1
 //     Explicit:   sy + 10*1 + 0.5*(-9.8)*1^2   = sy + 10 - 4.9  = sy + 5.1 ✓
 //
-//   For STRAIGHT (Ay=0): expectedY = sy + Vy_current * staleTime ✓
-//   For ARCHING:         the -0.5*Ay*t^2 term applies ✓
+//   For Ay=0 (a true straight line, no gravity): expectedY = sy + Vy_current * staleTime ✓
+//   For Ay≠0 (an arc — gravity set via Straight's constant Ay; see
+//     ProjectileMovementType.Straight's doc comment in ProjectileLib.cs for
+//     why this isn't a separate "Arching" mode): the -0.5*Ay*t^2 term applies ✓
 //   For GUIDED:          Ay≈0 for most configs, straight-line approx acceptable ✓
 //   For WAVE/CIRCULAR:   never sent in snapshots (filtered server-side) ✓
+//
+//   Note this formula was always keyed off p.Ay directly, never off movement
+//   type — see the Reconcile-style function below using it unconditionally.
+//   It's correct regardless of what movement type carries a nonzero Ay.
 
 
 using System;
@@ -78,6 +84,9 @@ namespace MidManStudio.Projectiles.Managers
         [SerializeField] private int _maxProjectiles2D = 2048;
         [SerializeField] private int _maxProjectiles3D = 512;
         [SerializeField] private int _maxTargets       = 128;
+        [Tooltip("Box/Capsule/Edge/Polygon shape colliders — see ShapeCollider2D/3D's " +
+                 "doc comment. Shared 2D/3D count here, same as _maxTargets above.")]
+        [SerializeField] private int _maxShapes        = 64;
         [SerializeField] private int _maxHitsPerTick   = 256;
 
         [Header("Collision")]
@@ -97,12 +106,15 @@ namespace MidManStudio.Projectiles.Managers
 
         private NativeProjectile[]  _projs2D;
         private CollisionTarget[]   _targets2D;
+        private ShapeCollider2D[]   _shapes2D;
         private HitResult[]         _hits2D;
         private int                 _count2D;
         private int                 _targetCount2D;
+        private int                 _shapeCount2D;
 
         private GCHandle _pinProjs2D;
         private GCHandle _pinTargets2D;
+        private GCHandle _pinShapes2D;
         private GCHandle _pinHits2D;
 
         #endregion
@@ -111,12 +123,15 @@ namespace MidManStudio.Projectiles.Managers
 
         private NativeProjectile3D[] _projs3D;
         private CollisionTarget3D[]  _targets3D;
+        private ShapeCollider3D[]    _shapes3D;
         private HitResult3D[]        _hits3D;
         private int                  _count3D;
         private int                  _targetCount3D;
+        private int                  _shapeCount3D;
 
         private GCHandle _pinProjs3D;
         private GCHandle _pinTargets3D;
+        private GCHandle _pinShapes3D;
         private GCHandle _pinHits3D;
 
         #endregion
@@ -232,7 +247,10 @@ namespace MidManStudio.Projectiles.Managers
         #region Movement type constants (mirror Rust values)
 
         private const byte MT_STRAIGHT = 0;
-        private const byte MT_ARCHING  = 1;
+        // MT_ARCHING (was 1) removed — see ProjectileMovementType.Straight's doc
+        // comment in ProjectileLib.cs. Straight now carries the "may have a
+        // constant Ay for an arc" responsibility below — see the two usages
+        // this used to be at, both updated accordingly.
         private const byte MT_GUIDED   = 2;
         private const byte MT_TELEPORT = 3;
         private const byte MT_WAVE     = 4;
@@ -275,16 +293,20 @@ namespace MidManStudio.Projectiles.Managers
         {
             _projs2D   = new NativeProjectile[_maxProjectiles2D];
             _targets2D = new CollisionTarget[_maxTargets];
+            _shapes2D  = new ShapeCollider2D[_maxShapes];
             _hits2D    = new HitResult[_maxHitsPerTick];
             _pinProjs2D   = GCHandle.Alloc(_projs2D,   GCHandleType.Pinned);
             _pinTargets2D = GCHandle.Alloc(_targets2D, GCHandleType.Pinned);
+            _pinShapes2D  = GCHandle.Alloc(_shapes2D,  GCHandleType.Pinned);
             _pinHits2D    = GCHandle.Alloc(_hits2D,    GCHandleType.Pinned);
 
             _projs3D   = new NativeProjectile3D[_maxProjectiles3D];
             _targets3D = new CollisionTarget3D[_maxTargets];
+            _shapes3D  = new ShapeCollider3D[_maxShapes];
             _hits3D    = new HitResult3D[_maxHitsPerTick];
             _pinProjs3D   = GCHandle.Alloc(_projs3D,   GCHandleType.Pinned);
             _pinTargets3D = GCHandle.Alloc(_targets3D, GCHandleType.Pinned);
+            _pinShapes3D  = GCHandle.Alloc(_shapes3D,  GCHandleType.Pinned);
             _pinHits3D    = GCHandle.Alloc(_hits3D,    GCHandleType.Pinned);
         }
 
@@ -292,9 +314,11 @@ namespace MidManStudio.Projectiles.Managers
         {
             if (_pinProjs2D.IsAllocated)   _pinProjs2D.Free();
             if (_pinTargets2D.IsAllocated) _pinTargets2D.Free();
+            if (_pinShapes2D.IsAllocated)  _pinShapes2D.Free();
             if (_pinHits2D.IsAllocated)    _pinHits2D.Free();
             if (_pinProjs3D.IsAllocated)   _pinProjs3D.Free();
             if (_pinTargets3D.IsAllocated) _pinTargets3D.Free();
+            if (_pinShapes3D.IsAllocated)  _pinShapes3D.Free();
             if (_pinHits3D.IsAllocated)    _pinHits3D.Free();
         }
 
@@ -311,14 +335,32 @@ namespace MidManStudio.Projectiles.Managers
                 ProjectileLib.tick_projectiles(
                     _pinProjs2D.AddrOfPinnedObject(), _count2D, dt);
 
-                if (_targetCount2D > 0)
+                if (_targetCount2D > 0 || _shapeCount2D > 0)
                 {
-                    ProjectileLib.check_hits_grid_ex(
-                        _pinProjs2D.AddrOfPinnedObject(),   _count2D,
-                        _pinTargets2D.AddrOfPinnedObject(), _targetCount2D,
-                        _pinHits2D.AddrOfPinnedObject(),    _hits2D.Length,
-                        _cellSize,
-                        out int hitCount2D);
+                    int hitCount2D = 0;
+
+                    if (_targetCount2D > 0)
+                    {
+                        ProjectileLib.check_hits_grid_ex(
+                            _pinProjs2D.AddrOfPinnedObject(),   _count2D,
+                            _pinTargets2D.AddrOfPinnedObject(), _targetCount2D,
+                            _pinHits2D.AddrOfPinnedObject(),    _hits2D.Length,
+                            _cellSize,
+                            out hitCount2D);
+                    }
+
+                    // SHAPE COLLIDERS: additive, appends into the same _hits2D
+                    // buffer — see ServerProjectileAuthority.Collision2D's
+                    // matching comment. ProcessHit2D below is completely
+                    // unmodified, keyed off HitResult.TargetId either way.
+                    if (_shapeCount2D > 0)
+                    {
+                        hitCount2D = ProjectileLib.check_hits_shapes_2d(
+                            _pinProjs2D.AddrOfPinnedObject(),  _count2D,
+                            _pinShapes2D.AddrOfPinnedObject(), _shapeCount2D,
+                            _pinHits2D.AddrOfPinnedObject(),   _hits2D.Length,
+                            hitCount2D);
+                    }
 
                     for (int i = 0; i < hitCount2D; i++)
                         ProcessHit2D(in _hits2D[i]);
@@ -333,14 +375,28 @@ namespace MidManStudio.Projectiles.Managers
                 ProjectileLib.tick_projectiles_3d(
                     _pinProjs3D.AddrOfPinnedObject(), _count3D, dt);
 
-                if (_targetCount3D > 0)
+                if (_targetCount3D > 0 || _shapeCount3D > 0)
                 {
-                    ProjectileLib.check_hits_grid_3d(
-                        _pinProjs3D.AddrOfPinnedObject(),   _count3D,
-                        _pinTargets3D.AddrOfPinnedObject(), _targetCount3D,
-                        _pinHits3D.AddrOfPinnedObject(),    _hits3D.Length,
-                        _cellSize,
-                        out int hitCount3D);
+                    int hitCount3D = 0;
+
+                    if (_targetCount3D > 0)
+                    {
+                        ProjectileLib.check_hits_grid_3d(
+                            _pinProjs3D.AddrOfPinnedObject(),   _count3D,
+                            _pinTargets3D.AddrOfPinnedObject(), _targetCount3D,
+                            _pinHits3D.AddrOfPinnedObject(),    _hits3D.Length,
+                            _cellSize,
+                            out hitCount3D);
+                    }
+
+                    if (_shapeCount3D > 0)
+                    {
+                        hitCount3D = ProjectileLib.check_hits_shapes_3d(
+                            _pinProjs3D.AddrOfPinnedObject(),  _count3D,
+                            _pinShapes3D.AddrOfPinnedObject(), _shapeCount3D,
+                            _pinHits3D.AddrOfPinnedObject(),   _hits3D.Length,
+                            hitCount3D);
+                    }
 
                     for (int i = 0; i < hitCount3D; i++)
                         ProcessHit3D(in _hits3D[i]);
@@ -549,9 +605,20 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Public API — Offline Spawn
 
+        /// <param name="guidedTarget">
+        /// RUSTSIM GUIDED FIX ("guided doesn't work — dead wire"): ProjectileConfigSO.
+        /// MovementType.Guided alone was never enough — ProjectileGuidanceTracker.
+        /// RegisterGuidedTarget2D existed, worked correctly, and self-drives its own
+        /// Update() loop once an entry exists, but nothing anywhere ever called it to
+        /// add one. Pass a target here and — only when configId's resolved cfg is
+        /// actually Guided — every proj_id in this batch gets registered right after
+        /// spawn, once, no different from how baseId/written are already computed
+        /// here. Null (default) preserves prior behavior exactly: no registration,
+        /// same as before this fix — not a regression for non-Guided fire.
+        /// </param>
         public void Spawn2D(
             SpawnPoint[] spawnPoints, int count, ushort configId,
-            uint ownerLocalId = 0, float damageMultiplier = 1f)
+            uint ownerLocalId = 0, float damageMultiplier = 1f, Transform guidedTarget = null)
         {
             if (_count2D >= _maxProjectiles2D)
             {
@@ -579,11 +646,19 @@ namespace MidManStudio.Projectiles.Managers
                 };
             }
             _count2D += written;
+
+            if (guidedTarget != null && cfg != null && cfg.MovementType == ProjectileMovementType.Guided)
+            {
+                var tracker = ProjectileGuidanceTracker.Instance;
+                for (int i = 0; i < written; i++)
+                    tracker.RegisterGuidedTarget2D(baseId + (uint)i, guidedTarget);
+            }
         }
 
+        /// <param name="guidedTarget">See Spawn2D's matching parameter doc — identical fix, 3D path.</param>
         public void Spawn3D(
             SpawnPoint[] spawnPoints, int count, ushort configId,
-            uint ownerLocalId = 0, float damageMultiplier = 1f)
+            uint ownerLocalId = 0, float damageMultiplier = 1f, Transform guidedTarget = null)
         {
             if (_count3D >= _maxProjectiles3D)
             {
@@ -611,6 +686,13 @@ namespace MidManStudio.Projectiles.Managers
                 };
             }
             _count3D += written;
+
+            if (guidedTarget != null && cfg != null && cfg.MovementType == ProjectileMovementType.Guided)
+            {
+                var tracker = ProjectileGuidanceTracker.Instance;
+                for (int i = 0; i < written; i++)
+                    tracker.RegisterGuidedTarget3D(baseId + (uint)i, guidedTarget);
+            }
         }
 
         #endregion
@@ -686,11 +768,18 @@ namespace MidManStudio.Projectiles.Managers
                     // Wave/Circular: Rust handles via registered params; skip Euler advance
                     if (p.MovementType == MT_WAVE || p.MovementType == MT_CIRCULAR)
                     { p.Lifetime -= t; if (p.Lifetime <= 0f) p.Alive = 0; continue; }
-                    // Straight and Guided: linear Euler
+                    // Straight and Guided: linear Euler position advance first...
                     p.X += p.Vx * t;
                     p.Y += p.Vy * t;
-                    // Arching: add quadratic gravity term
-                    if (p.MovementType == MT_ARCHING)
+                    // ...then Straight specifically adds the quadratic term for
+                    // whatever constant Ay it's carrying — gravity, if this config
+                    // wants an arc (see ProjectileMovementType.Straight's doc
+                    // comment on why arcs live here now, not on a separate
+                    // Arching mode this used to check for). Guided's Ax/Ay is a
+                    // steering heading, not a real acceleration, so it correctly
+                    // stays linear-only — this condition must NOT become "always
+                    // apply", only the MT_ARCHING → MT_STRAIGHT retarget.
+                    if (p.MovementType == MT_STRAIGHT)
                     { p.Y += 0.5f * p.Ay * t * t; p.Vy += p.Ay * t; }
                     p.Lifetime -= t;
                     if (p.Lifetime <= 0f) p.Alive = 0;
@@ -728,7 +817,10 @@ namespace MidManStudio.Projectiles.Managers
                     p.X += p.Vx * t;
                     p.Y += p.Vy * t;
                     p.Z += p.Vz * t;
-                    if (p.MovementType == MT_ARCHING)
+                    // Straight only — see the 2D SpawnNetworkBatch2D's matching
+                    // comment for why (Guided's Ax/Ay is a steering heading, not
+                    // acceleration; this used to check MT_ARCHING).
+                    if (p.MovementType == MT_STRAIGHT)
                     { p.Y += 0.5f * p.Ay * t * t; p.Vy += p.Ay * t; }
                     p.Lifetime -= t;
                     if (p.Lifetime <= 0f) p.Alive = 0;
@@ -1064,7 +1156,116 @@ namespace MidManStudio.Projectiles.Managers
         public void ClearAllTargets()
         {
             _targetCount2D = 0; _targetCount3D = 0;
+            _shapeCount2D  = 0; _shapeCount3D  = 0;
             _targets.Clear(); _targetLayers2D.Clear(); _targetLayers3D.Clear();
+        }
+
+        #endregion
+
+        #region Public API — Shape Colliders (Box/Capsule/Edge/Polygon, offline)
+        //
+        // Mirrors RegisterTarget2D/3D above exactly, including the self-healing
+        // _targets fallback (auto-creates a minimal LocalDamageTarget with
+        // SourceObject = null if one doesn't already exist, so ProcessHit2D/3D
+        // has something to key off — same reasoning as the target overloads).
+        // Position for a shape is its active points' centroid (a shape has no
+        // single position); Radius is its thickness (0 for a bare box/polygon
+        // edge) — both only matter for CheckHeadshotLocal's rough distance
+        // check, not for the actual hit test itself (that's Rust's exact
+        // segment-distance math, already precise).
+
+        public void RegisterShape2D(in ShapeCollider2D shape, int unityLayer = 0)
+        {
+            _targetLayers2D[shape.TargetId] = unityLayer;
+            for (int i = 0; i < _shapeCount2D; i++)
+            {
+                if (_shapes2D[i].TargetId != shape.TargetId) continue;
+                _shapes2D[i] = shape;
+                if (_targets.TryGetValue(shape.TargetId, out var ex))
+                {
+                    ex.Position = ShapeCentroid2D(in shape);
+                    ex.Radius = shape.Thickness; ex.Active = shape.Active != 0;
+                    ex.UnityLayer = unityLayer; _targets[shape.TargetId] = ex;
+                }
+                return;
+            }
+            if (_shapeCount2D >= _maxShapes)
+            {
+                MID_Logger.LogWarning(_logLevel, "2D shape buffer full.",
+                    nameof(LocalProjectileManager));
+                return;
+            }
+            _shapes2D[_shapeCount2D++] = shape;
+            if (!_targets.ContainsKey(shape.TargetId))
+                _targets[shape.TargetId] = new LocalDamageTarget
+                {
+                    LocalId = shape.TargetId, Position = ShapeCentroid2D(in shape),
+                    Radius = shape.Thickness, Active = shape.Active != 0,
+                    UnityLayer = unityLayer, SourceObject = null
+                };
+        }
+
+        public void RegisterShape3D(in ShapeCollider3D shape, int unityLayer = 0)
+        {
+            _targetLayers3D[shape.TargetId] = unityLayer;
+            for (int i = 0; i < _shapeCount3D; i++)
+            {
+                if (_shapes3D[i].TargetId != shape.TargetId) continue;
+                _shapes3D[i] = shape;
+                if (_targets.TryGetValue(shape.TargetId, out var ex))
+                {
+                    ex.Position = ShapeCentroid3D(in shape);
+                    ex.Radius = shape.Thickness; ex.Active = shape.Active != 0;
+                    ex.UnityLayer = unityLayer; _targets[shape.TargetId] = ex;
+                }
+                return;
+            }
+            if (_shapeCount3D >= _maxShapes)
+            {
+                MID_Logger.LogWarning(_logLevel, "3D shape buffer full.",
+                    nameof(LocalProjectileManager));
+                return;
+            }
+            _shapes3D[_shapeCount3D++] = shape;
+            if (!_targets.ContainsKey(shape.TargetId))
+                _targets[shape.TargetId] = new LocalDamageTarget
+                {
+                    LocalId = shape.TargetId, Position = ShapeCentroid3D(in shape),
+                    Radius = shape.Thickness, Active = shape.Active != 0,
+                    UnityLayer = unityLayer, SourceObject = null
+                };
+        }
+
+        public void DeactivateShape2D(uint targetId)
+        {
+            for (int i = 0; i < _shapeCount2D; i++)
+                if (_shapes2D[i].TargetId == targetId) { _shapes2D[i].Active = 0; break; }
+            if (_targets.TryGetValue(targetId, out var t))
+            { t.Active = false; _targets[targetId] = t; }
+        }
+
+        public void DeactivateShape3D(uint targetId)
+        {
+            for (int i = 0; i < _shapeCount3D; i++)
+                if (_shapes3D[i].TargetId == targetId) { _shapes3D[i].Active = 0; break; }
+            if (_targets.TryGetValue(targetId, out var t))
+            { t.Active = false; _targets[targetId] = t; }
+        }
+
+        private static Vector3 ShapeCentroid2D(in ShapeCollider2D shape)
+        {
+            int n = Mathf.Clamp(shape.PointCount, 1, ShapeCollider2D.MaxPoints);
+            Vector2 sum = Vector2.zero;
+            for (int i = 0; i < n; i++) sum += shape.GetPoint(i);
+            return new Vector3(sum.x / n, sum.y / n, 0f);
+        }
+
+        private static Vector3 ShapeCentroid3D(in ShapeCollider3D shape)
+        {
+            int n = Mathf.Clamp(shape.PointCount, 1, ShapeCollider3D.MaxPoints);
+            Vector3 sum = Vector3.zero;
+            for (int i = 0; i < n; i++) sum += shape.GetPoint(i);
+            return sum / n;
         }
 
         #endregion

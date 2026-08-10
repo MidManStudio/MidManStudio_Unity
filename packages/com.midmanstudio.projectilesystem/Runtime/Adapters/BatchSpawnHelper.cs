@@ -37,7 +37,10 @@ namespace MidManStudio.Projectiles.Adapters
     {
         // Mirror of Rust movement type constants — must stay in sync with simulation.rs
         private const byte MOVE_STRAIGHT = 0;
-        private const byte MOVE_ARCHING  = 1;
+        // MOVE_ARCHING (was 1) removed — see rust_lib's simulation.rs file header
+        // "REMOVED" note. It was dead here too: never actually referenced in this
+        // file, only MOVE_WAVE/MOVE_CIRCULAR are used below for perpendicular-axis
+        // spawn-time setup.
         private const byte MOVE_GUIDED   = 2;
         private const byte MOVE_TELEPORT = 3;
         private const byte MOVE_WAVE     = 4;

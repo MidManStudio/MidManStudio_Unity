@@ -14,8 +14,10 @@
 // WHAT CHANGED:
 //   - tick_all:          removed #[cfg] dispatch; single unified loop body.
 //   - tick_all_3d:       same.
-//   - tick_straight_arching_x4:    REPLACED raw SSE2 → Vec2x4/f32x4.
-//   - tick_straight_arching_x4_3d: REPLACED raw SSE2 → Vec3x4/f32x4.
+//   - tick_straight_x4:    REPLACED raw SSE2 → Vec2x4/f32x4. (Renamed from
+//                           tick_straight_arching_x4 when MOVE_ARCHING was
+//                           removed — see the REMOVED note further down.)
+//   - tick_straight_x4_3d: REPLACED raw SSE2 → Vec3x4/f32x4. Same rename.
 //   - tick_all_sse2:         REMOVED (SSE2-only entry point, no longer needed).
 //   - tick_all_3d_sse2:      REMOVED.
 //   - tick_all_scalar:       REMOVED (inlined into tick_all loop).
@@ -23,11 +25,25 @@
 //
 // WHAT DID NOT CHANGE:
 //   All scalar per-movement-type functions are byte-for-byte identical.
-//   Batch eligibility rule: alive_and == 1 && mt_or <= MOVE_ARCHING.
+//   Batch eligibility rule: alive_and == 1 && mt_or == MOVE_STRAIGHT.
 //   Semi-implicit Euler integration order: vel += accel*dt; pos += vel*dt.
 //   travel_dist accumulation uses updated velocity (same as old SSE2 path).
 //   All circular/wave/guided/teleport types still use the scalar path —
 //   these require config store reads and branching that defeats 4-wide batching.
+//
+// REMOVED: MOVE_ARCHING. tick_arching/tick_arching_3d were byte-for-byte
+// identical to tick_straight/tick_straight_3d — same vel += accel*dt;
+// pos += vel*dt integration, same accel-gather (which already handled
+// gravity via a nonzero Ay set at spawn time regardless of movement type).
+// The only thing Arching did that Straight didn't was increment curve_t/
+// timer_t, and nothing ever read either back for the Arching case specifically
+// (curve_t/timer_t are shared accumulators genuinely used by Teleport/Wave/
+// Circular's own ticks, not by Arching's). A gravity-affected arc is just
+// Straight with Ay set — there was no second mode here, just one mode with
+// a redundant name and a write-only counter nobody consumed. MOVE_ARCHING's
+// old byte value (1) is intentionally left unassigned rather than reused —
+// any old data still carrying it decodes through tick_scalar_one's default
+// arm as tick_straight, which is byte-for-byte what it always computed anyway.
 //
 // MATH VERIFICATION (see DeterministicMotionMath.cs cross-check comments):
 //   MOVE_CIRCULAR 2D:  velocity rotation by ω·dt → true arc, zero drift.
@@ -51,7 +67,10 @@ use crate::math::{Vec2x4, Vec3x4};
 const RAD2DEG: f32 = 57.295_779_51_f32;
 
 pub const MOVE_STRAIGHT: u8 = 0;
-pub const MOVE_ARCHING:  u8 = 1;
+// MOVE_ARCHING (was 1) removed — see file header "REMOVED" note. Left
+// unassigned, not reused, so old serialized data carrying byte value 1
+// still decodes sensibly (falls through tick_scalar_one's default arm to
+// tick_straight — the exact computation Arching always ran anyway).
 pub const MOVE_GUIDED:   u8 = 2;
 pub const MOVE_TELEPORT: u8 = 3;
 pub const MOVE_WAVE:     u8 = 4;
@@ -63,23 +82,23 @@ pub const MOVE_CIRCULAR: u8 = 5;
 
 /// Tick all 2D projectiles. Returns count that died this tick.
 ///
-/// Dispatches batches of 4 straight/arching projectiles to the wide
-/// (Vec2x4 / SIMD) path. All other movement types fall to scalar.
+/// Dispatches batches of 4 Straight projectiles to the wide (Vec2x4 / SIMD)
+/// path. All other movement types fall to scalar.
 pub fn tick_all(projs: &mut [NativeProjectile], dt: f32) -> i32 {
     let n        = projs.len();
     let mut died = 0_i32;
     let mut i    = 0_usize;
 
     while i + 4 <= n {
-        // Batch only when ALL 4 are alive and use Straight or Arching (mt ≤ 1).
+        // Batch only when ALL 4 are alive and use Straight (mt == 0).
         // Bitwise AND/OR avoids any branching on individual lane tests.
         let alive_and = projs[i].alive & projs[i+1].alive
                       & projs[i+2].alive & projs[i+3].alive;
         let mt_or     = projs[i].movement_type | projs[i+1].movement_type
                       | projs[i+2].movement_type | projs[i+3].movement_type;
 
-        if alive_and == 1 && mt_or <= MOVE_ARCHING {
-            tick_straight_arching_x4(&mut projs[i..i + 4], dt, &mut died);
+        if alive_and == 1 && mt_or == MOVE_STRAIGHT {
+            tick_straight_x4(&mut projs[i..i + 4], dt, &mut died);
             i += 4;
         } else {
             tick_scalar_one(&mut projs[i], dt, &mut died);
@@ -94,7 +113,7 @@ pub fn tick_all(projs: &mut [NativeProjectile], dt: f32) -> i32 {
 }
 
 // =============================================================================
-//  2D — 4-wide batch tick (straight / arching)
+//  2D — 4-wide batch tick (straight)
 //
 //  Vec2x4 dispatches internally to:
 //    x86/x86_64 → SSE2   (_mm_add_ps, _mm_mul_ps, rsqrt+NR, fast_atan2_x4)
@@ -102,11 +121,11 @@ pub fn tick_all(projs: &mut [NativeProjectile], dt: f32) -> i32 {
 //    others     → scalar 4-wide array (correct, no SIMD)
 // =============================================================================
 
-/// Process exactly 4 straight/arching 2D projectiles simultaneously.
+/// Process exactly 4 Straight 2D projectiles simultaneously.
 ///
 /// Preconditions (checked by tick_all):
-///   projs.len() == 4, all alive, movement_type ∈ {MOVE_STRAIGHT, MOVE_ARCHING}.
-fn tick_straight_arching_x4(projs: &mut [NativeProjectile], dt: f32, died: &mut i32) {
+///   projs.len() == 4, all alive, movement_type == MOVE_STRAIGHT.
+fn tick_straight_x4(projs: &mut [NativeProjectile], dt: f32, died: &mut i32) {
     debug_assert_eq!(projs.len(), 4);
 
     let dt4  = f32x4::splat(dt);
@@ -134,9 +153,10 @@ fn tick_straight_arching_x4(projs: &mut [NativeProjectile], dt: f32, died: &mut 
     lt_new.store_to(projs, 0, |p, v| p.lifetime = v);
 
     // ── Velocity integration: vel += accel * dt ───────────────────────────────
-    // For Straight: ax = 0, ay = gravityAy (set by C# at spawn via RustSpawnParams).
-    // For Arching:  same fields — identical integration, only curve_t differs.
-    // Both types share this path; the accel gather handles zero-accel correctly.
+    // ax = 0, ay = gravityAy when this config wants an arc — set by C# at
+    // spawn via RustSpawnParams. Nothing movement-type-specific here: Straight
+    // with a nonzero Ay already IS an arc, there's no separate mode for it.
+    // The accel gather handles zero-accel (a true straight line) correctly too.
     let accel   = Vec2x4::load_accel(projs, 0);
     let mut vel = Vec2x4::load_vel(projs, 0);
 
@@ -164,16 +184,13 @@ fn tick_straight_arching_x4(projs: &mut [NativeProjectile], dt: f32, died: &mut 
     vel.store_vel(projs, 0);
     pos.store_pos(projs, 0);
 
-    // ── Per-projectile tail: scale growth + arching accumulator ───────────────
+    // ── Per-projectile tail: scale growth ──────────────────────────────────────
     // scale_speed == 0 in the vast majority of projectiles (optimised out early
-    // inside tick_scale). curve_t only increments for MOVE_ARCHING.
-    // These are intentionally scalar — they operate on rarely-mutated fields
-    // and SIMD packing overhead would exceed the computation cost.
+    // inside tick_scale). This is intentionally scalar — it operates on a
+    // rarely-mutated field and SIMD packing overhead would exceed the
+    // computation cost.
     for j in 0..4 {
         tick_scale(&mut projs[j], dt);
-        if projs[j].movement_type == MOVE_ARCHING {
-            projs[j].curve_t += dt;
-        }
     }
 }
 
@@ -188,11 +205,12 @@ fn tick_scalar_one(p: &mut NativeProjectile, dt: f32, died: &mut i32) {
 
     match p.movement_type {
         MOVE_STRAIGHT => tick_straight(p, dt),
-        MOVE_ARCHING  => tick_arching(p, dt),
         MOVE_GUIDED   => tick_guided(p, dt),
         MOVE_TELEPORT => tick_teleport(p, dt),
         MOVE_WAVE     => tick_wave(p, dt),
         MOVE_CIRCULAR => tick_circular(p, dt),
+        // Default arm also catches old data still carrying the removed
+        // MOVE_ARCHING byte value (1) — see file header "REMOVED" note.
         _             => tick_straight(p, dt),
     }
 
@@ -218,15 +236,6 @@ fn tick_straight(p: &mut NativeProjectile, dt: f32) {
     p.vy += p.ay * dt;
     p.x  += p.vx * dt;
     p.y  += p.vy * dt;
-}
-
-#[inline(always)]
-fn tick_arching(p: &mut NativeProjectile, dt: f32) {
-    p.vy      += p.ay * dt;
-    p.vx      += p.ax * dt;
-    p.x       += p.vx * dt;
-    p.y       += p.vy * dt;
-    p.curve_t += dt;
 }
 
 #[inline(always)]
@@ -356,8 +365,8 @@ pub fn tick_all_3d(projs: &mut [NativeProjectile3D], dt: f32) -> i32 {
         let mt_or     = projs[i].movement_type | projs[i+1].movement_type
                       | projs[i+2].movement_type | projs[i+3].movement_type;
 
-        if alive_and == 1 && mt_or <= MOVE_ARCHING {
-            tick_straight_arching_x4_3d(&mut projs[i..i + 4], dt, &mut died);
+        if alive_and == 1 && mt_or == MOVE_STRAIGHT {
+            tick_straight_x4_3d(&mut projs[i..i + 4], dt, &mut died);
             i += 4;
         } else {
             tick_scalar_one_3d(&mut projs[i], dt, &mut died);
@@ -372,7 +381,7 @@ pub fn tick_all_3d(projs: &mut [NativeProjectile3D], dt: f32) -> i32 {
 }
 
 // =============================================================================
-//  3D — 4-wide batch tick (straight / arching)
+//  3D — 4-wide batch tick (straight)
 //
 //  Vec3x4 dispatches internally to:
 //    x86/x86_64 → SSE2  (3 × f32x4 SoA, same intrinsics as old path)
@@ -383,7 +392,7 @@ pub fn tick_all_3d(projs: &mut [NativeProjectile3D], dt: f32) -> i32 {
 //  in NativeProjectile3D.VisualRotation() (C# Quaternion.LookRotation).
 // =============================================================================
 
-fn tick_straight_arching_x4_3d(projs: &mut [NativeProjectile3D], dt: f32, died: &mut i32) {
+fn tick_straight_x4_3d(projs: &mut [NativeProjectile3D], dt: f32, died: &mut i32) {
     debug_assert_eq!(projs.len(), 4);
 
     let dt4  = f32x4::splat(dt);
@@ -408,8 +417,8 @@ fn tick_straight_arching_x4_3d(projs: &mut [NativeProjectile3D], dt: f32, died: 
     lt_new.store_to(projs, 0, |p, v| p.lifetime = v);
 
     // ── Velocity integration: vel += accel * dt ───────────────────────────────
-    // For Straight: (ax, ay, az) = (0, gravityAy, 0).
-    // For Arching:  same. Integration is identical; timer_t tracks arching state.
+    // (ax, ay, az) = (0, gravityAy, 0) when this config wants an arc. Nothing
+    // movement-type-specific here — see the 2D batch tick's matching comment.
     let accel   = Vec3x4::load_accel(projs, 0);
     let mut vel = Vec3x4::load_vel(projs, 0);
 
@@ -431,12 +440,9 @@ fn tick_straight_arching_x4_3d(projs: &mut [NativeProjectile3D], dt: f32, died: 
     vel.store_vel(projs, 0);
     pos.store_pos(projs, 0);
 
-    // ── Per-projectile tail: scale growth + arching timer ────────────────────
+    // ── Per-projectile tail: scale growth ──────────────────────────────────────
     for j in 0..4 {
         tick_scale_3d(&mut projs[j], dt);
-        if projs[j].movement_type == MOVE_ARCHING {
-            projs[j].timer_t += dt;
-        }
     }
 }
 
@@ -451,11 +457,12 @@ fn tick_scalar_one_3d(p: &mut NativeProjectile3D, dt: f32, died: &mut i32) {
 
     match p.movement_type {
         MOVE_STRAIGHT => tick_straight_3d(p, dt),
-        MOVE_ARCHING  => tick_arching_3d(p, dt),
         MOVE_GUIDED   => tick_guided_3d(p, dt),
         MOVE_TELEPORT => tick_teleport_3d(p, dt),
         MOVE_WAVE     => tick_wave_3d(p, dt),
         MOVE_CIRCULAR => tick_circular_3d(p, dt),
+        // Default arm also catches old data still carrying the removed
+        // MOVE_ARCHING byte value (1) — see file header "REMOVED" note.
         _             => tick_straight_3d(p, dt),
     }
 
@@ -475,13 +482,6 @@ fn tick_scalar_one_3d(p: &mut NativeProjectile3D, dt: f32, died: &mut i32) {
 fn tick_straight_3d(p: &mut NativeProjectile3D, dt: f32) {
     p.vx += p.ax * dt; p.vy += p.ay * dt; p.vz += p.az * dt;
     p.x  += p.vx * dt; p.y  += p.vy * dt; p.z  += p.vz * dt;
-}
-
-#[inline(always)]
-fn tick_arching_3d(p: &mut NativeProjectile3D, dt: f32) {
-    p.vx += p.ax * dt; p.vy += p.ay * dt; p.vz += p.az * dt;
-    p.x  += p.vx * dt; p.y  += p.vy * dt; p.z  += p.vz * dt;
-    p.timer_t += dt;
 }
 
 #[inline(always)]

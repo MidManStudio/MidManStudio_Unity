@@ -36,7 +36,7 @@ fn rand_pos(seed: &mut u32, range: f32) -> f32 {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Simulation — 2D straight/arching (SSE2 x4 hot path on x86_64)
+//  Simulation — 2D straight (SSE2 x4 hot path on x86_64)
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn bench_tick_2d(c: &mut Criterion) {
@@ -77,7 +77,7 @@ fn bench_tick_2d(c: &mut Criterion) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Simulation — 3D straight/arching (SSE2 x4 hot path on x86_64)
+//  Simulation — 3D straight (SSE2 x4 hot path on x86_64)
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn bench_tick_3d(c: &mut Criterion) {

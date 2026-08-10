@@ -256,10 +256,18 @@ namespace MidManStudio.Projectiles.Managers
                 case ProjectileMovementType.Teleport:
                     ApplyTeleport();
                     break;
-                // Straight/Arching: nothing to do here — real Rigidbody physics
-                // (velocity, gravity) already handles both. See OnLaunch's
-                // gravity-scale comment for why Arching specifically needs no
-                // code of its own.
+                case ProjectileMovementType.CustomCurve:
+                    ApplyCustomCurve();
+                    break;
+                // Straight: nothing to do here — real Rigidbody physics
+                // (velocity, gravity) already handles it, arc included. There's
+                // no separate Arching case: Rust's tick_arching was removed as a
+                // byte-for-byte duplicate of tick_straight (an "arc" is just
+                // Straight with gravity — see ProjectileMovementType.Straight's
+                // doc comment in ProjectileLib.cs), and the physics side never
+                // had distinct code for it to begin with — gravityScale already
+                // produced an arc for Straight the same way. See OnLaunch's
+                // gravity-scale comment for the details.
             }
         }
 
@@ -297,6 +305,52 @@ namespace MidManStudio.Projectiles.Managers
                         _movementPerpAxis, cfg.CircularRadius, timeAlive);
             }
 
+            ApplyMovementVelocity(velocity);
+        }
+
+        /// <summary>
+        /// CUSTOM CURVE MOVEMENT (physics projectiles only — see the enum member's
+        /// own doc comment for why RustSim never touches this): end users author two
+        /// AnimationCurves on the fired ProjectileConfigSO instead of being limited to
+        /// Wave's fixed sine shape — a speed-multiplier curve and a perpendicular-
+        /// offset curve, both sampled at the same normalized-progress X value each
+        /// tick. Structurally this mirrors ApplyWaveCircular exactly (same
+        /// _movementLaunchVelocity/_movementPerpAxis/_movementStartServerTime state,
+        /// same "compute a velocity, hand it to ApplyMovementVelocity" shape) — it's
+        /// not derived from a closed-form position function the way Wave/Circular are,
+        /// because there's no RustSim counterpart to stay numerically consistent with
+        /// here, so there's no reason to pay that complexity cost.
+        ///
+        /// protected virtual, not private, so a subclass can override just this one
+        /// movement type's behaviour without having to reimplement all of FixedUpdate
+        /// — end users are already free to override FixedUpdate itself for fully
+        /// custom logic (it's protected virtual too); this is the finer-grained hook
+        /// for "I just want different curve math, everything else about this class is
+        /// fine."
+        /// </summary>
+        protected virtual void ApplyCustomCurve()
+        {
+            var cfg = ResolveVisualConfig();
+            if (cfg == null) return;
+
+            float duration = cfg.CustomCurveDuration > 0f ? cfg.CustomCurveDuration : cfg.Lifetime;
+            if (duration <= 0f) return;
+
+            float timeAlive = NetworkManager.ServerTime.TimeAsFloat - _movementStartServerTime;
+            float t = timeAlive / duration;
+            t = cfg.CustomCurveLoop ? Mathf.Repeat(t, 1f) : Mathf.Clamp01(t);
+
+            float speedMul = cfg.CustomCurveSpeedMultiplier != null
+                ? cfg.CustomCurveSpeedMultiplier.Evaluate(t) : 1f;
+            float perpAmt  = cfg.CustomCurvePerpOffset != null
+                ? cfg.CustomCurvePerpOffset.Evaluate(t) : 0f;
+
+            float baseSpeed = _movementLaunchVelocity.magnitude;
+            Vector3 forwardDir = baseSpeed > 0.0001f
+                ? _movementLaunchVelocity / baseSpeed
+                : GetCurrentVelocity().normalized;
+
+            Vector3 velocity = forwardDir * (baseSpeed * speedMul) + _movementPerpAxis * perpAmt;
             ApplyMovementVelocity(velocity);
         }
 
@@ -464,9 +518,12 @@ namespace MidManStudio.Projectiles.Managers
         /// same way. Only Wave/Circular read this, so it's only computed for
         /// those two.
         ///
-        /// Straight/Arching/Guided configs return immediately after resolving
-        /// _movementType — none of the three need any of this state (Guided
-        /// gets its state entirely from SetGuidedTarget instead).
+        /// Straight/Guided configs return immediately after resolving
+        /// _movementType — neither needs any of this state (Guided gets its
+        /// state entirely from SetGuidedTarget instead). CustomCurve does NOT
+        /// return immediately — ApplyCustomCurve needs the same launch-velocity/
+        /// perp-axis/start-time state Wave does, just fed through a
+        /// user-authored curve instead of a fixed sine.
         /// </summary>
         private void SetupMovementType(Vector3 launchDir)
         {
@@ -485,14 +542,16 @@ namespace MidManStudio.Projectiles.Managers
 
             if (_movementType != ProjectileMovementType.Wave &&
                 _movementType != ProjectileMovementType.Circular &&
-                _movementType != ProjectileMovementType.Teleport)
+                _movementType != ProjectileMovementType.Teleport &&
+                _movementType != ProjectileMovementType.CustomCurve)
                 return;
 
             _movementLaunchVelocity  = launchDir.normalized * BulletVelocity;
             _movementStartServerTime = NetworkManager.ServerTime.TimeAsFloat;
 
             if (_movementType == ProjectileMovementType.Wave ||
-                _movementType == ProjectileMovementType.Circular)
+                _movementType == ProjectileMovementType.Circular ||
+                _movementType == ProjectileMovementType.CustomCurve)
             {
                 _movementPerpAxis = Is2D
                     ? DeterministicMotionMath.ComputePerpAxis2D(launchDir)

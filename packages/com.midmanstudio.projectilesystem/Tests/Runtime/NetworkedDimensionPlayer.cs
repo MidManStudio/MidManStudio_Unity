@@ -115,6 +115,19 @@ namespace TestGame
         [SerializeField] private float _physicsProjectileSpeed  = 20f;
         [SerializeField] private float _physicsDamageMultiplier = 1f;
 
+        [Header("Guided Target (Test)")]
+        [Tooltip(
+            "GUIDED FIX: whatever fired config's MovementType is Guided needs a target " +
+            "to home toward — that was true for both simulation paths and neither one " +
+            "had it wired anywhere. PhysicsProjectileBase.SetGuidedTarget() and " +
+            "ProjectileGuidanceTracker.RegisterGuidedTarget2D/3D (RustSim) both existed " +
+            "and worked correctly, but nothing called either. This one field now feeds " +
+            "both: FirePhysics wires it into the physics path, FireSim wires it into " +
+            "RustSim. Assign whatever this player should lock onto for a Guided test-fire " +
+            "(an enemy dummy, the other player, etc). Left null, Guided configs just fly " +
+            "straight — same as before this fix, not a regression.")]
+        [SerializeField] private Transform _guidedTestTarget;
+
         [Header("Audio")]
         [SerializeField] private int   _fireSoundClipIndex  = 0;
         [SerializeField, Range(0f,1f)] private float _fireSoundVolume = 0.7f;
@@ -618,7 +631,8 @@ namespace TestGame
             // and other clients would re-apply the FULL pattern rotation set on top of an
             // already-rotated direction instead of the true center.
             MID_MasterProjectileSystem.Instance.Fire(
-                cfgId, pts, pts.Length, context, patternId, _spreadDeg, dir, patternIs3D);
+                cfgId, pts, pts.Length, context, patternId, _spreadDeg, dir, patternIs3D,
+                _guidedTestTarget);
         }
 
         #endregion
@@ -800,11 +814,22 @@ namespace TestGame
                     }
                 }
 
+                // GUIDED FIX: resolved fresh per shot rather than cached — _guidedTestTarget
+                // can be reassigned at runtime (e.g. swapping which dummy to lock onto)
+                // and this always reflects whatever it's currently pointing at.
+                ulong guidedTargetNetId = 0UL;
+                if (_guidedTestTarget != null)
+                {
+                    var targetNetObj = _guidedTestTarget.GetComponentInParent<NetworkObject>();
+                    if (targetNetObj != null) guidedTargetNetId = targetNetObj.NetworkObjectId;
+                }
+
                 MID_MasterProjectileSystem.Instance.GetBridge()?.FirePhysicsProjectileServerRpc(
                     origin, dir, rot, poolType,
                     _physicsProjectileSpeed, _physicsDamageMultiplier,
                     OwnerClientId, IsSpawned ? NetworkObjectId : 0UL,
-                    cfgId, patternId, pelletCount, _spreadDeg, use3D);
+                    cfgId, patternId, pelletCount, _spreadDeg, use3D,
+                    guidedTargetNetId);
             }
             else
             {
@@ -855,6 +880,12 @@ namespace TestGame
                     proj.InitialiseProjectile(
                         OwnerClientId, IsSpawned ? NetworkObjectId : 0UL,
                         _physicsProjectileSpeed, false, 1);
+
+                    // GUIDED FIX: must run AFTER InitialiseProjectile — see the matching
+                    // comment in MID_ProjectileNetworkBridge.FirePhysicsProjectileServerRpc
+                    // for why (SetupMovementType resets the target on every fresh launch).
+                    if (_guidedTestTarget != null)
+                        proj.SetGuidedTarget(_guidedTestTarget);
                 }
             }
         }

@@ -1,0 +1,44 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements"
+         xmlns:uie="UnityEditor.UIElements"
+         editor-extension-mode="True">
+
+    <ui:VisualElement class="mid-root">
+
+        <ui:VisualElement name="header" class="mid-header">
+            <ui:VisualElement class="mid-header__text">
+                <ui:Label class="mid-header__title" text="Scriptable Object Viewer" />
+                <ui:Label class="mid-header__sub" text="Every SO asset in the project, categorized by class name" />
+            </ui:VisualElement>
+            <ui:Button name="refresh-btn" class="mid-header__refresh" text="⟳" />
+        </ui:VisualElement>
+
+        <ui:VisualElement name="filters" class="mid-filters">
+            <ui:DropdownField name="category-dropdown" label="Category" class="mid-filters__category" />
+            <ui:VisualElement class="mid-filters__row">
+                <uie:ToolbarSearchField name="search-field" class="mid-filters__search" />
+                <uie:ObjectField name="folder-scope-field" label="Folder Scope" class="mid-filters__folder" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <ui:VisualElement name="body" class="mid-body">
+            <ui:VisualElement name="results-panel" class="mid-panel mid-panel--results">
+                <ui:Label class="mid-panel__title" text="Assets" />
+                <ui:ListView name="results-list" class="mid-list" fixed-item-height="34" />
+            </ui:VisualElement>
+
+            <ui:VisualElement name="detail-panel" class="mid-panel mid-panel--detail">
+                <ui:Label name="detail-title" class="mid-panel__title" text="No Selection" />
+                <ui:VisualElement name="detail-empty" class="mid-detail__empty">
+                    <ui:Label text="Select an asset on the left to view and edit it here." />
+                </ui:VisualElement>
+                <ui:ScrollView name="detail-scroll" class="mid-detail__scroll" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <ui:VisualElement name="footer" class="mid-footer">
+            <ui:Label name="stats-label" class="mid-footer__label" text="No scan yet." />
+        </ui:VisualElement>
+
+    </ui:VisualElement>
+
+</ui:UXML>

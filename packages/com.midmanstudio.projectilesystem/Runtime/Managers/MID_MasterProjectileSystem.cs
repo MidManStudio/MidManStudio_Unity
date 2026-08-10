@@ -216,10 +216,20 @@ namespace MidManStudio.Projectiles.Managers
         /// re-derived from cfg.Is3D server-side, since the two can legitimately
         /// diverge (a 2D-configured weapon fired in 3D mode or vice versa).
         /// </param>
+        /// <param name="guidedTarget">
+        /// RUSTSIM GUIDED FIX ("guided doesn't work — dead wire"): see
+        /// LocalProjectileManager.Spawn2D's matching parameter doc for the full
+        /// story. Threaded through both branches below — LocalProjectileManager.
+        /// Spawn2D/3D directly for LocalOnly, and as a NetworkObjectId over the
+        /// wire (resolved back to a Transform server-side) for RustSim. Null
+        /// (default) is a complete no-op, identical to calling Fire() before this
+        /// fix existed.
+        /// </param>
         public void Fire(
             ushort configId, SpawnPoint[] spawnPoints, int count, WeaponFireContext context,
             ushort patternId = 0, float spreadDeg = 0f,
-            Vector3 baseDirection = default, bool patternIs3D = false)
+            Vector3 baseDirection = default, bool patternIs3D = false,
+            Transform guidedTarget = null)
         {
             if (!_initialised) return;
 
@@ -237,12 +247,12 @@ namespace MidManStudio.Projectiles.Managers
             switch (routing.Mode)
             {
                 case SimulationMode.LocalOnly:
-                    FireLocal(configId, spawnPoints, count, context, cfg);
+                    FireLocal(configId, spawnPoints, count, context, cfg, guidedTarget);
                     break;
 
                 case SimulationMode.RustSim:
                     FireNetworkedSim(configId, spawnPoints, count, context, cfg,
-                        patternId, spreadDeg, baseDirection, patternIs3D);
+                        patternId, spreadDeg, baseDirection, patternIs3D, guidedTarget);
                     break;
 
                 case SimulationMode.Raycast:
@@ -261,7 +271,7 @@ namespace MidManStudio.Projectiles.Managers
 
         private void FireLocal(
             ushort configId, SpawnPoint[] spawnPoints, int count,
-            WeaponFireContext context, ProjectileConfigSO cfg)
+            WeaponFireContext context, ProjectileConfigSO cfg, Transform guidedTarget = null)
         {
             if (_localManager == null)
             {
@@ -273,16 +283,17 @@ namespace MidManStudio.Projectiles.Managers
 
             if (cfg.Is3D)
                 _localManager.Spawn3D(spawnPoints, count, configId,
-                    (uint)context.OwnerMidId, context.DamageMultiplier);
+                    (uint)context.OwnerMidId, context.DamageMultiplier, guidedTarget);
             else
                 _localManager.Spawn2D(spawnPoints, count, configId,
-                    (uint)context.OwnerMidId, context.DamageMultiplier);
+                    (uint)context.OwnerMidId, context.DamageMultiplier, guidedTarget);
         }
 
         private void FireNetworkedSim(
             ushort configId, SpawnPoint[] spawnPoints, int count,
             WeaponFireContext context, ProjectileConfigSO cfg,
-            ushort patternId, float spreadDeg, Vector3 baseDirection, bool patternIs3D)
+            ushort patternId, float spreadDeg, Vector3 baseDirection, bool patternIs3D,
+            Transform guidedTarget = null)
         {
             if (_networkBridge == null) return;
 
@@ -320,7 +331,13 @@ namespace MidManStudio.Projectiles.Managers
                 IsBotOwner             = context.IsBotOwner,
                 WeaponLevel            = context.WeaponLevel,
                 DamageMultiplier       = context.DamageMultiplier,
-                ClientFireTick         = _networkBridge.GetServerTick()
+                ClientFireTick         = _networkBridge.GetServerTick(),
+                // RUSTSIM GUIDED FIX: resolved here, not left as a raw Transform —
+                // a Transform reference means nothing across the wire. 0 = no
+                // guided target, same as every fire request before this fix.
+                TargetNetworkObjectId  = guidedTarget != null
+                    ? (guidedTarget.GetComponentInParent<NetworkObject>()?.NetworkObjectId ?? 0UL)
+                    : 0UL
             };
 
             // ARCHITECTURE: Firing client immediately spawns into their own Rust sim buffer.
@@ -622,6 +639,51 @@ namespace MidManStudio.Projectiles.Managers
             if (IsServer)       _authority?.DeactivateTarget3D(targetId);
             if (!IsNetworked)   _localManager?.DeactivateTarget3D(targetId);
         }
+
+        #endregion
+
+        #region Public API — Shape Colliders (Box/Capsule/Edge/Polygon)
+        //
+        // Mirrors the Target API above exactly — same IsServer/IsNetworked
+        // routing, same GameObject/Component convenience overloads.
+
+        public void RegisterShape2D(in ShapeCollider2D shape, int unityLayer = 0)
+        {
+            if (IsServer)       _authority?.RegisterShape2D(shape, unityLayer);
+            if (!IsNetworked)   _localManager?.RegisterShape2D(shape, unityLayer);
+        }
+
+        public void RegisterShape2D(in ShapeCollider2D shape, GameObject sourceObject)
+            => RegisterShape2D(in shape, sourceObject != null ? sourceObject.layer : 0);
+
+        public void RegisterShape2D(in ShapeCollider2D shape, Component sourceComponent)
+            => RegisterShape2D(in shape, sourceComponent != null ? sourceComponent.gameObject.layer : 0);
+
+        public void RegisterShape3D(in ShapeCollider3D shape, int unityLayer = 0)
+        {
+            if (IsServer)       _authority?.RegisterShape3D(shape, unityLayer);
+            if (!IsNetworked)   _localManager?.RegisterShape3D(shape, unityLayer);
+        }
+
+        public void RegisterShape3D(in ShapeCollider3D shape, GameObject sourceObject)
+            => RegisterShape3D(in shape, sourceObject != null ? sourceObject.layer : 0);
+
+        public void RegisterShape3D(in ShapeCollider3D shape, Component sourceComponent)
+            => RegisterShape3D(in shape, sourceComponent != null ? sourceComponent.gameObject.layer : 0);
+
+        public void DeactivateShape2D(uint targetId)
+        {
+            if (IsServer)       _authority?.DeactivateShape2D(targetId);
+            if (!IsNetworked)   _localManager?.DeactivateShape2D(targetId);
+        }
+
+        public void DeactivateShape3D(uint targetId)
+        {
+            if (IsServer)       _authority?.DeactivateShape3D(targetId);
+            if (!IsNetworked)   _localManager?.DeactivateShape3D(targetId);
+        }
+
+        #endregion
 
         public void ClearAllTargets()
         {

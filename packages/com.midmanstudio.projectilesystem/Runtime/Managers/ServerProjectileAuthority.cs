@@ -105,6 +105,12 @@ namespace MidManStudio.Projectiles.Managers
         [SerializeField] private int _maxProjectiles3D = 512;
         [SerializeField] private int _maxTargets2D     = 128;
         [SerializeField] private int _maxTargets3D     = 64;
+        [Tooltip("Box/Capsule/Edge/Polygon shape colliders — a separate, smaller " +
+                 "buffer from the circle/sphere targets above (see ShapeCollider2D/3D's " +
+                 "doc comment). Expected to be tens, not hundreds — mostly static level " +
+                 "geometry, not per-enemy hurtboxes.")]
+        [SerializeField] private int _maxShapes2D      = 64;
+        [SerializeField] private int _maxShapes3D      = 32;
         [SerializeField] private int _maxHitsPerTick   = 256;
 
         [Header("Collision Tuning")]
@@ -165,13 +171,16 @@ namespace MidManStudio.Projectiles.Managers
 
         private NativeProjectile[]  _projs2D;
         private CollisionTarget[]   _targets2D;
+        private ShapeCollider2D[]   _shapes2D;
         private HitResult[]         _hits2D;
         private int                 _count2D;
         private int                 _targetCount2D;
+        private int                 _shapeCount2D;
         private uint                _nextProjId = 1;
 
         private GCHandle _pinProjs2D;
         private GCHandle _pinTargets2D;
+        private GCHandle _pinShapes2D;
         private GCHandle _pinHits2D;
 
         #endregion
@@ -180,12 +189,15 @@ namespace MidManStudio.Projectiles.Managers
 
         private NativeProjectile3D[] _projs3D;
         private CollisionTarget3D[]  _targets3D;
+        private ShapeCollider3D[]    _shapes3D;
         private HitResult3D[]        _hits3D;
         private int                  _count3D;
         private int                  _targetCount3D;
+        private int                  _shapeCount3D;
 
         private GCHandle _pinProjs3D;
         private GCHandle _pinTargets3D;
+        private GCHandle _pinShapes3D;
         private GCHandle _pinHits3D;
 
         #endregion
@@ -312,16 +324,20 @@ namespace MidManStudio.Projectiles.Managers
         {
             _projs2D   = new NativeProjectile[_maxProjectiles2D];
             _targets2D = new CollisionTarget[_maxTargets2D];
+            _shapes2D  = new ShapeCollider2D[_maxShapes2D];
             _hits2D    = new HitResult[_maxHitsPerTick];
             _pinProjs2D   = GCHandle.Alloc(_projs2D,   GCHandleType.Pinned);
             _pinTargets2D = GCHandle.Alloc(_targets2D, GCHandleType.Pinned);
+            _pinShapes2D  = GCHandle.Alloc(_shapes2D,  GCHandleType.Pinned);
             _pinHits2D    = GCHandle.Alloc(_hits2D,    GCHandleType.Pinned);
 
             _projs3D   = new NativeProjectile3D[_maxProjectiles3D];
             _targets3D = new CollisionTarget3D[_maxTargets3D];
+            _shapes3D  = new ShapeCollider3D[_maxShapes3D];
             _hits3D    = new HitResult3D[_maxHitsPerTick];
             _pinProjs3D   = GCHandle.Alloc(_projs3D,   GCHandleType.Pinned);
             _pinTargets3D = GCHandle.Alloc(_targets3D, GCHandleType.Pinned);
+            _pinShapes3D  = GCHandle.Alloc(_shapes3D,  GCHandleType.Pinned);
             _pinHits3D    = GCHandle.Alloc(_hits3D,    GCHandleType.Pinned);
 
             _snapshots2D = new ProjectileSnapshot2D[_maxProjectiles2D];
@@ -335,9 +351,11 @@ namespace MidManStudio.Projectiles.Managers
         {
             if (_pinProjs2D.IsAllocated)   _pinProjs2D.Free();
             if (_pinTargets2D.IsAllocated) _pinTargets2D.Free();
+            if (_pinShapes2D.IsAllocated)  _pinShapes2D.Free();
             if (_pinHits2D.IsAllocated)    _pinHits2D.Free();
             if (_pinProjs3D.IsAllocated)   _pinProjs3D.Free();
             if (_pinTargets3D.IsAllocated) _pinTargets3D.Free();
+            if (_pinShapes3D.IsAllocated)  _pinShapes3D.Free();
             if (_pinHits3D.IsAllocated)    _pinHits3D.Free();
         }
 
@@ -388,14 +406,33 @@ namespace MidManStudio.Projectiles.Managers
 
         private void Collision2D()
         {
-            if (_targetCount2D == 0) return;
+            if (_targetCount2D == 0 && _shapeCount2D == 0) return;
 
-            ProjectileLib.check_hits_grid_ex(
-                _pinProjs2D.AddrOfPinnedObject(),   _count2D,
-                _pinTargets2D.AddrOfPinnedObject(), _targetCount2D,
-                _pinHits2D.AddrOfPinnedObject(),    _hits2D.Length,
-                _cellSize2D,
-                out int hitCount);
+            int hitCount = 0;
+
+            if (_targetCount2D > 0)
+            {
+                ProjectileLib.check_hits_grid_ex(
+                    _pinProjs2D.AddrOfPinnedObject(),   _count2D,
+                    _pinTargets2D.AddrOfPinnedObject(), _targetCount2D,
+                    _pinHits2D.AddrOfPinnedObject(),    _hits2D.Length,
+                    _cellSize2D,
+                    out hitCount);
+            }
+
+            // SHAPE COLLIDERS: additive pass, appends into the SAME _hits2D
+            // buffer starting at hitCount — see ShapeCollider2D's doc comment.
+            // Everything below (headshot check, ProcessHit, piercing dedup)
+            // is completely unmodified: shape hits flow through the exact
+            // same pipeline as circle hits, keyed off the same TargetId.
+            if (_shapeCount2D > 0)
+            {
+                hitCount = ProjectileLib.check_hits_shapes_2d(
+                    _pinProjs2D.AddrOfPinnedObject(),  _count2D,
+                    _pinShapes2D.AddrOfPinnedObject(), _shapeCount2D,
+                    _pinHits2D.AddrOfPinnedObject(),   _hits2D.Length,
+                    hitCount);
+            }
 
             for (int i = 0; i < hitCount; i++)
             {
@@ -442,14 +479,28 @@ namespace MidManStudio.Projectiles.Managers
 
         private void Collision3D()
         {
-            if (_targetCount3D == 0) return;
+            if (_targetCount3D == 0 && _shapeCount3D == 0) return;
 
-            ProjectileLib.check_hits_grid_3d(
-                _pinProjs3D.AddrOfPinnedObject(),   _count3D,
-                _pinTargets3D.AddrOfPinnedObject(), _targetCount3D,
-                _pinHits3D.AddrOfPinnedObject(),    _hits3D.Length,
-                _cellSize3D,
-                out int hitCount);
+            int hitCount = 0;
+
+            if (_targetCount3D > 0)
+            {
+                ProjectileLib.check_hits_grid_3d(
+                    _pinProjs3D.AddrOfPinnedObject(),   _count3D,
+                    _pinTargets3D.AddrOfPinnedObject(), _targetCount3D,
+                    _pinHits3D.AddrOfPinnedObject(),    _hits3D.Length,
+                    _cellSize3D,
+                    out hitCount);
+            }
+
+            if (_shapeCount3D > 0)
+            {
+                hitCount = ProjectileLib.check_hits_shapes_3d(
+                    _pinProjs3D.AddrOfPinnedObject(),  _count3D,
+                    _pinShapes3D.AddrOfPinnedObject(), _shapeCount3D,
+                    _pinHits3D.AddrOfPinnedObject(),   _hits3D.Length,
+                    hitCount);
+            }
 
             for (int i = 0; i < hitCount; i++)
             {
@@ -868,8 +919,55 @@ namespace MidManStudio.Projectiles.Managers
         {
             _targetCount2D = 0;
             _targetCount3D = 0;
+            _shapeCount2D  = 0;
+            _shapeCount3D  = 0;
             _targetLayerDict2D.Clear();
             _targetLayerDict3D.Clear();
+        }
+
+        #endregion
+
+        #region Public API — Shape Colliders (Box/Capsule/Edge/Polygon)
+        //
+        // Mirrors the Target API above exactly — same upsert-by-TargetId
+        // pattern, same shared _targetLayerDict2D/3D (a shape hit's TargetId
+        // flows through PassesLayerFilter2D/3D in Collision2D/3D identically
+        // to a circle hit's, no separate shape-layer tracking needed).
+
+        public void RegisterShape2D(in ShapeCollider2D shape, int unityLayer = 0)
+        {
+            _targetLayerDict2D[shape.TargetId] = unityLayer;
+            for (int i = 0; i < _shapeCount2D; i++)
+            {
+                if (_shapes2D[i].TargetId != shape.TargetId) continue;
+                _shapes2D[i] = shape; return;
+            }
+            if (_shapeCount2D >= _maxShapes2D) { LogWarning("2D shape buffer full."); return; }
+            _shapes2D[_shapeCount2D++] = shape;
+        }
+
+        public void RegisterShape3D(in ShapeCollider3D shape, int unityLayer = 0)
+        {
+            _targetLayerDict3D[shape.TargetId] = unityLayer;
+            for (int i = 0; i < _shapeCount3D; i++)
+            {
+                if (_shapes3D[i].TargetId != shape.TargetId) continue;
+                _shapes3D[i] = shape; return;
+            }
+            if (_shapeCount3D >= _maxShapes3D) { LogWarning("3D shape buffer full."); return; }
+            _shapes3D[_shapeCount3D++] = shape;
+        }
+
+        public void DeactivateShape2D(uint targetId)
+        {
+            for (int i = 0; i < _shapeCount2D; i++)
+                if (_shapes2D[i].TargetId == targetId) { _shapes2D[i].Active = 0; return; }
+        }
+
+        public void DeactivateShape3D(uint targetId)
+        {
+            for (int i = 0; i < _shapeCount3D; i++)
+                if (_shapes3D[i].TargetId == targetId) { _shapes3D[i].Active = 0; return; }
         }
 
         #endregion

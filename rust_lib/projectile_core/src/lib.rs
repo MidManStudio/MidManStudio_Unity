@@ -6,11 +6,13 @@
 //   HitResult          = 24 bytes
 //   CollisionTarget    = 20 bytes
 //   SpawnRequest       = 32 bytes
+//   ShapeCollider2D    = 76 bytes  (shapes.rs — additive, see its own header)
 //
 // 3D struct sizes:
 //   NativeProjectile3D  = 84 bytes
 //   HitResult3D         = 28 bytes
 //   CollisionTarget3D   = 24 bytes
+//   ShapeCollider3D     = 108 bytes  (shapes.rs)
 //
 // SIMD acceleration (see simd.rs and math/):
 //   x86/x86_64: SSE2 guaranteed — 4-wide tick batching, fast_atan2_x4,
@@ -20,9 +22,16 @@
 //
 //   math/ provides Vec2x4, Vec3x4, f32x4 — SIMD-backed wide vector types
 //   used by simulation.rs and collision.rs. Platform dispatch is inside f32x4.
+//
+//   shapes.rs's Box/Capsule/Edge/Polygon narrow phase is NOT SIMD-batched —
+//   deliberately: it's an additive, linear-scan pass over a separate, small
+//   target list (see that module's own header for why it doesn't touch
+//   CollisionTarget/collision.rs's fast path at all), sized for tens of
+//   shapes, not the thousands collision.rs's circle/sphere path is tuned for.
 
 mod simulation;
 mod collision;
+mod shapes;
 mod patterns;
 mod state;
 mod config_store;
@@ -31,6 +40,7 @@ mod math;        // ← wide math types: f32x4, Vec2x4, Vec3x4
 
 pub use simulation::*;
 pub use collision::*;
+pub use shapes::*;
 pub use patterns::*;
 pub use state::*;
 pub use config_store::*;
@@ -45,7 +55,8 @@ use std::slice;
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[no_mangle] pub extern "C" fn movement_type_straight()  -> u8 { simulation::MOVE_STRAIGHT  }
-#[no_mangle] pub extern "C" fn movement_type_arching()   -> u8 { simulation::MOVE_ARCHING   }
+// movement_type_arching() removed along with MOVE_ARCHING — see simulation.rs's
+// file header "REMOVED" note. The old byte value (1) is unassigned, not reused.
 #[no_mangle] pub extern "C" fn movement_type_guided()    -> u8 { simulation::MOVE_GUIDED    }
 #[no_mangle] pub extern "C" fn movement_type_teleport()  -> u8 { simulation::MOVE_TELEPORT  }
 #[no_mangle] pub extern "C" fn movement_type_wave()      -> u8 { simulation::MOVE_WAVE      }
@@ -284,6 +295,55 @@ pub unsafe extern "C" fn check_hits_grid_3d(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+//  Collision — Shape colliders (Box/Capsule/Edge/Polygon, 2D + 3D)
+//
+//  ADDITIVE to check_hits_grid[_3d] above, not a replacement — call this
+//  right after that one, passing the SAME out_hits buffer and this call's
+//  hit_offset = whatever out_hit_count the circle/sphere pass just wrote.
+//  The return value is the new grand-total hit count for that buffer —
+//  assign it straight back to your hit-count variable, no addition needed.
+//  See shapes.rs's module header for the full design rationale.
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[no_mangle]
+pub unsafe extern "C" fn check_hits_shapes_2d(
+    projs:         *const NativeProjectile,
+    proj_count:    i32,
+    shapes:        *const ShapeCollider2D,
+    shape_count:   i32,
+    out_hits:      *mut HitResult,
+    max_hits:      i32,
+    hit_offset:    i32,
+) -> i32 {
+    if projs.is_null() || shapes.is_null() || out_hits.is_null() || max_hits <= 0 {
+        return hit_offset.max(0);
+    }
+    let projs_s  = slice::from_raw_parts(projs,  proj_count.max(0)  as usize);
+    let shapes_s = slice::from_raw_parts(shapes, shape_count.max(0) as usize);
+    let hits_s   = slice::from_raw_parts_mut(out_hits, max_hits as usize);
+    shapes::check_hits_shapes_2d(projs_s, shapes_s, hits_s, hit_offset.max(0) as usize) as i32
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn check_hits_shapes_3d(
+    projs:         *const NativeProjectile3D,
+    proj_count:    i32,
+    shapes:        *const ShapeCollider3D,
+    shape_count:   i32,
+    out_hits:      *mut HitResult3D,
+    max_hits:      i32,
+    hit_offset:    i32,
+) -> i32 {
+    if projs.is_null() || shapes.is_null() || out_hits.is_null() || max_hits <= 0 {
+        return hit_offset.max(0);
+    }
+    let projs_s  = slice::from_raw_parts(projs,  proj_count.max(0)  as usize);
+    let shapes_s = slice::from_raw_parts(shapes, shape_count.max(0) as usize);
+    let hits_s   = slice::from_raw_parts_mut(out_hits, max_hits as usize);
+    shapes::check_hits_shapes_3d(projs_s, shapes_s, hits_s, hit_offset.max(0) as usize) as i32
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 //  Spawn — pattern path (legacy)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -440,6 +500,9 @@ pub extern "C" fn clear_movement_params() {
 #[no_mangle] pub extern "C" fn projectile3d_struct_size()     -> i32 { core::mem::size_of::<NativeProjectile3D>() as i32 }
 #[no_mangle] pub extern "C" fn hit_result3d_struct_size()     -> i32 { core::mem::size_of::<HitResult3D>()        as i32 }
 #[no_mangle] pub extern "C" fn collision_target3d_struct_size()-> i32 { core::mem::size_of::<CollisionTarget3D>() as i32 }
+#[no_mangle] pub extern "C" fn shape_collider_2d_struct_size() -> i32 { core::mem::size_of::<ShapeCollider2D>()   as i32 }
+#[no_mangle] pub extern "C" fn shape_collider_3d_struct_size() -> i32 { core::mem::size_of::<ShapeCollider3D>()   as i32 }
+#[no_mangle] pub extern "C" fn shape_collider_max_points()     -> i32 { shapes::MAX_SHAPE_POINTS as i32 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Compile-time layout assertions — catches mismatches before runtime
@@ -452,3 +515,5 @@ const _: () = assert!(core::mem::size_of::<SpawnRequest>()        == 32);
 const _: () = assert!(core::mem::size_of::<NativeProjectile3D>()  == 84);
 const _: () = assert!(core::mem::size_of::<HitResult3D>()         == 28);
 const _: () = assert!(core::mem::size_of::<CollisionTarget3D>()   == 24);
+const _: () = assert!(core::mem::size_of::<ShapeCollider2D>()     == 76);
+const _: () = assert!(core::mem::size_of::<ShapeCollider3D>()     == 108);
