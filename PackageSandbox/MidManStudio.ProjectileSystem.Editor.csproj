@@ -82,11 +82,17 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Editor/ProjectileConfigEntryJsonImporter.cs">
       <Link>Editor/ProjectileConfigEntryJsonImporter.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Editor/RustSimCustomShapeAuthoringEditor.cs">
+      <Link>Editor/RustSimCustomShapeAuthoringEditor.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Editor/ProjectileShapeEditor.cs">
       <Link>Editor/ProjectileShapeEditor.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Editor/ProjectilePatternEditor.cs">
       <Link>Editor/ProjectilePatternEditor.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Editor/ProjectileConfigJsonPanel.cs">
+      <Link>Editor/ProjectileConfigJsonPanel.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Editor/ProjectileConfigGenerator.cs">
       <Link>Editor/ProjectileConfigGenerator.cs</Link>

@@ -13,10 +13,10 @@ MonoBehaviour:
   m_Name: Test_Proj_3D
   m_EditorClassIdentifier: 
   _customIcon: {fileID: 2800000, guid: d4bbcef677b7641b6b3b432fe5b53733, type: 3}
-  ConfigId: 1
+  ConfigId: 2
   _is3D: 1
   _preferredSimMode: 1
-  _movementType: 0
+  _movementType: 2
   _minSpeed: 12.6
   _maxSpeed: 21.1
   _lifetime: 4
@@ -27,6 +27,8 @@ MonoBehaviour:
   _hitLayers:
     serializedVersion: 2
     m_Bits: 320
+  _sortingLayerName: Default
+  _sortingOrderInLayer: 0
   _fullSizeX: 0.2
   _fullSizeY: 0.2
   _useScaleGrowth: 0
@@ -109,3 +111,53 @@ MonoBehaviour:
   _circularRadius: 0.5
   _circularAngularSpeed: 180
   _circularStartAngle: 0
+  _customCurveSpeedMultiplier:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 1
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 1
+      value: 1
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  _customCurvePerpOffset:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 0
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 1
+      value: 0
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  _customCurveDuration: 0
+  _customCurveLoop: 0

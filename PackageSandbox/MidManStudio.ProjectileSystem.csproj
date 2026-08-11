@@ -109,6 +109,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/MID_MasterProjectileSystem.cs">
       <Link>Runtime/Managers/MID_MasterProjectileSystem.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/RustSimCustomShapeAuthoring.cs">
+      <Link>Runtime/Managers/RustSimCustomShapeAuthoring.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Core/MID_BuildTargets.cs">
       <Link>Runtime/Core/MID_BuildTargets.cs</Link>
     </Compile>

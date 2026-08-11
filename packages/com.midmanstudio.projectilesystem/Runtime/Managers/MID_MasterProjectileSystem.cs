@@ -685,6 +685,7 @@ namespace MidManStudio.Projectiles.Managers
 
         #endregion
 
+        #region Public API - Cleanup
         public void ClearAllTargets()
         {
             if (IsServer)       _authority?.ClearAllTargets();

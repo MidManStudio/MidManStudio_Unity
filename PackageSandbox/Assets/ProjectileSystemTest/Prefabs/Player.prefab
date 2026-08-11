@@ -175,6 +175,7 @@ MonoBehaviour:
   _physicsPoolType3D: 101
   _physicsProjectileSpeed: 20
   _physicsDamageMultiplier: 1
+  _guidedTestTarget: {fileID: 0}
   _fireSoundClipIndex: 0
   _fireSoundVolume: 0.6
   _fallbackAudioSource: {fileID: 8186125018304576148}

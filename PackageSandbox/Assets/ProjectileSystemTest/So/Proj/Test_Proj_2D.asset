@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: Test_Proj_2D
   m_EditorClassIdentifier: 
   _customIcon: {fileID: 2800000, guid: fe6a55db2dffd4b24b8b1be97338d4ef, type: 3}
-  ConfigId: 0
+  ConfigId: 1
   _is3D: 0
   _preferredSimMode: 1
   _movementType: 0
@@ -111,3 +111,53 @@ MonoBehaviour:
   _circularRadius: 0.5
   _circularAngularSpeed: 180
   _circularStartAngle: 0
+  _customCurveSpeedMultiplier:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 1
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 1
+      value: 1
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  _customCurvePerpOffset:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 0
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 1
+      value: 0
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  _customCurveDuration: 0
+  _customCurveLoop: 0

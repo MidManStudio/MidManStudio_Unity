@@ -13,10 +13,10 @@ MonoBehaviour:
   m_Name: Test_Proj_Big_Flow
   m_EditorClassIdentifier: 
   _customIcon: {fileID: 2800000, guid: 99b94f39d0e3245b7af394e2289c6f99, type: 3}
-  ConfigId: 2
+  ConfigId: 3
   _is3D: 0
   _preferredSimMode: 3
-  _movementType: 5
+  _movementType: 2
   _minSpeed: 10
   _maxSpeed: 10
   _lifetime: 6
@@ -111,3 +111,53 @@ MonoBehaviour:
   _circularRadius: 0.5
   _circularAngularSpeed: 180
   _circularStartAngle: 0
+  _customCurveSpeedMultiplier:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 1
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 34
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 1
+      value: 1
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 34
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  _customCurvePerpOffset:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 1
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 34
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 1
+      value: 1
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 34
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  _customCurveDuration: 0
+  _customCurveLoop: 0

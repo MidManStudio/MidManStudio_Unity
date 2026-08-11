@@ -76,6 +76,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/MID_SpriteToTilemapConverter.cs">
       <Link>Editor/Helpers/MID_SpriteToTilemapConverter.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/ScriptableObjectViewer/MID_ScriptableObjectViewerWindow.cs">
+      <Link>Editor/ScriptableObjectViewer/MID_ScriptableObjectViewerWindow.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/SceneManagement/SceneTypeGenerator.cs">
       <Link>Editor/SceneManagement/SceneTypeGenerator.cs</Link>
     </Compile>
@@ -159,6 +162,9 @@
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/MID_ScriptUtilitiesWindow.uxml">
       <Link>Editor/Helpers/MID_ScriptUtilitiesWindow.uxml</Link>
     </None>
+    <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/ScriptableObjectViewer/MID_ScriptableObjectViewerWindow.uss">
+      <Link>Editor/ScriptableObjectViewer/MID_ScriptableObjectViewerWindow.uss</Link>
+    </None>
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Helpers/MID_ScriptExecutionOrderWindow.uss">
       <Link>Editor/Helpers/MID_ScriptExecutionOrderWindow.uss</Link>
     </None>
@@ -170,6 +176,9 @@
     </None>
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/HierarchyArranger/MID_HierarchyArrangerWindow.uxml">
       <Link>Editor/HierarchyArranger/MID_HierarchyArrangerWindow.uxml</Link>
+    </None>
+    <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/ScriptableObjectViewer/MID_ScriptableObjectViewerWindow.uxml">
+      <Link>Editor/ScriptableObjectViewer/MID_ScriptableObjectViewerWindow.uxml</Link>
     </None>
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/HierarchyArranger/MID_HierarchyArrangerWindow.uss">
       <Link>Editor/HierarchyArranger/MID_HierarchyArrangerWindow.uss</Link>
