@@ -28,6 +28,13 @@ namespace MidManStudio.Projectiles.EditorUtils
     {
         private const float HandleSize = 0.08f;
 
+        // Generator UI state — not serialized on the target, just editor-session
+        // scratch values for the "Generate Shape" section below.
+        private int   _genSides  = 3;
+        private float _genRadius = 1f;
+        private float _genWidth  = 1f;
+        private float _genHeight = 1f;
+
         public override void OnInspectorGUI()
         {
             DrawDefaultInspector();
@@ -45,6 +52,38 @@ namespace MidManStudio.Projectiles.EditorUtils
                 var authoring = (RustSimCustomShapeAuthoring)target;
                 Undo.RecordObject(authoring, "Rebake Shape Curve");
                 authoring.Rebake();
+                SceneView.RepaintAll();
+            }
+
+            EditorGUILayout.Space();
+            EditorGUILayout.LabelField("Generate Shape", EditorStyles.boldLabel);
+            EditorGUILayout.HelpBox(
+                "Replaces every existing control point with a formula-generated " +
+                "shape centered on this GameObject's own origin — convenient for a " +
+                "regular polygon or a straight box instead of hand-placing each point.",
+                MessageType.None);
+
+            EditorGUILayout.BeginHorizontal();
+            _genSides  = EditorGUILayout.IntSlider("Sides", _genSides, 3, ShapeCollider2D.MaxPoints);
+            _genRadius = EditorGUILayout.FloatField("Radius", Mathf.Max(_genRadius, 0.001f));
+            EditorGUILayout.EndHorizontal();
+            if (GUILayout.Button($"Generate Regular {_genSides}-gon"))
+            {
+                var authoring = (RustSimCustomShapeAuthoring)target;
+                Undo.RecordObject(authoring, "Generate Regular Polygon Shape");
+                authoring.GenerateRegularPolygon(_genSides, _genRadius);
+                SceneView.RepaintAll();
+            }
+
+            EditorGUILayout.BeginHorizontal();
+            _genWidth  = EditorGUILayout.FloatField("Width",  Mathf.Max(_genWidth, 0.001f));
+            _genHeight = EditorGUILayout.FloatField("Height", Mathf.Max(_genHeight, 0.001f));
+            EditorGUILayout.EndHorizontal();
+            if (GUILayout.Button("Generate Box"))
+            {
+                var authoring = (RustSimCustomShapeAuthoring)target;
+                Undo.RecordObject(authoring, "Generate Box Shape");
+                authoring.GenerateBox(_genWidth, _genHeight);
                 SceneView.RepaintAll();
             }
         }
@@ -65,18 +104,32 @@ namespace MidManStudio.Projectiles.EditorUtils
                 Handles.DrawLine(t.TransformPoint(pts[pts.Count - 1]), t.TransformPoint(pts[0]));
 
             // ── Draw the actual baked curve RustSim will receive ────────────────
+            //
+            // BUG FIX ("triangle shows curves instead of straight edges"):
+            // Handles.DrawAAPolyLine(width, a, b) called once PER SEGMENT draws
+            // each segment as an independent thick line with ROUNDED end-caps —
+            // at every vertex where two segments meet, the two caps overlap and
+            // visually round off what should be a sharp corner. This has
+            // nothing to do with Linear vs CatmullRom/Bezier baking (the
+            // underlying baked DATA was always straight-segment-correct; this
+            // was purely a rendering artifact). The fix: build one ordered
+            // point array (closing the loop in the array itself when
+            // applicable) and call DrawAAPolyLine ONCE — that draws a single
+            // continuous polyline with proper sharp joints at every vertex,
+            // not independent rounded-cap segments.
             authoring.Rebake(); // idempotent — cheap (≤8 samples), safe every pass
             int bakedCount = authoring.BakedCount;
             if (bakedCount >= 2)
             {
+                int drawCount = authoring.ClosedLoop ? bakedCount + 1 : bakedCount;
+                var polyline = new Vector3[drawCount];
+                for (int i = 0; i < bakedCount; i++)
+                    polyline[i] = t.TransformPoint(authoring.GetBakedPoint(i));
+                if (authoring.ClosedLoop)
+                    polyline[bakedCount] = polyline[0]; // close the loop within the single call
+
                 Handles.color = new Color(1f, 0.55f, 0.1f, 0.9f);
-                int segCount = authoring.ClosedLoop ? bakedCount : bakedCount - 1;
-                for (int i = 0; i < segCount; i++)
-                {
-                    Vector3 a = t.TransformPoint(authoring.GetBakedPoint(i));
-                    Vector3 b = t.TransformPoint(authoring.GetBakedPoint((i + 1) % bakedCount));
-                    Handles.DrawAAPolyLine(4f, a, b);
-                }
+                Handles.DrawAAPolyLine(4f, polyline);
             }
 
             // ── Point handles: drag to move, Alt+click to remove ───────────────

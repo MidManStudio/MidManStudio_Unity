@@ -338,10 +338,227 @@ mod platform {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Scalar fallback — wasm32, armv7, and anything else.
+//  WASM SIMD128 — wasm32 / wasm64, simd128 feature enabled
+//
+//  Build with: RUSTFLAGS="-C target-feature=+simd128" (for a WebGL build via
+//  Emscripten, the equivalent is -msimd128 passed through to the underlying
+//  clang invocation). Without that flag, wasm32/wasm64 falls through to the
+//  scalar block below instead — same correctness, just no vectorization, so
+//  there's no hard requirement to enable it everywhere at once.
+//
+//  PORTED FROM mid-engine's mid-math crate (wide/float/wasm/f32x4.rs) —
+//  same method shape as SSE2/NEON above, adapted to match. Before this,
+//  wasm32/wasm64 fell into the scalar fallback unconditionally (see that
+//  block's original comment: "wasm32, armv7, and anything else") — every
+//  WebGL build of this sim ran the 4-wide batch tick fully scalar. Vec2x4/
+//  Vec3x4 need no changes at all to pick this up — see math/mod.rs: "Platform
+//  dispatch is fully compile-time inside f32x4 — Vec2x4 and Vec3x4 are
+//  platform-independent."
+//
+//  No hardware rsqrt/rcp estimate on WASM SIMD128 (unlike SSE2's rsqrtps or
+//  NEON's vrsqrteq): inv_sqrt uses full sqrt+div as its starting point, then
+//  still runs one Newton-Raphson step anyway — not because the extra
+//  precision is needed (f32x4_sqrt is already exact IEEE754), but so this
+//  platform's inv_sqrt matches the same "one NR step" shape as every other
+//  block, keeping behavior uniform for anything that might depend on the
+//  exact NR-refined rounding rather than a raw division result.
+//
+//  atan2 is deliberately NOT vectorized here — same approach the scalar
+//  fallback already takes: extract to scalar, call crate::simd::fast_atan2
+//  four times, reassemble. Not worth porting a whole vectorized trig
+//  polynomial to WASM intrinsics for what's one call per batch tick; the
+//  real win is the arithmetic-heavy add/mul/sqrt/rsqrt path used by every
+//  lane of velocity/position integration, which genuinely is vectorized
+//  below via real WASM SIMD128 instructions.
+//
+//  IMPORTANT: explicit imports below, not `use core::arch::wasm32::*` —
+//  that module exports a FUNCTION also named `f32x4` (a v128 constructor),
+//  which would collide with this file's own `f32x4` struct. mid-math's own
+//  source flags this exact trap in its equivalent file.
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[cfg(not(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64")))]
+#[cfg(all(
+    any(target_arch = "wasm32", target_arch = "wasm64"),
+    target_feature = "simd128",
+))]
+mod platform {
+    #[cfg(target_arch = "wasm32")]
+    use core::arch::wasm32::{
+        v128, v128_and, v128_or, v128_xor, v128_andnot, v128_any_true, i32x4_bitmask,
+        f32x4_splat, f32x4_add, f32x4_sub, f32x4_mul, f32x4_div, f32x4_neg,
+        f32x4_abs, f32x4_sqrt, f32x4_min, f32x4_max, f32x4_le, f32x4_lt, f32x4_gt,
+    };
+    #[cfg(target_arch = "wasm64")]
+    use core::arch::wasm64::{
+        v128, v128_and, v128_or, v128_xor, v128_andnot, v128_any_true, i32x4_bitmask,
+        f32x4_splat, f32x4_add, f32x4_sub, f32x4_mul, f32x4_div, f32x4_neg,
+        f32x4_abs, f32x4_sqrt, f32x4_min, f32x4_max, f32x4_le, f32x4_lt, f32x4_gt,
+    };
+    use core::ops::{Add, Sub, Mul, Div, Neg};
+
+    /// 4-wide f32 — WASM SIMD128 backend. Inner `v128` is pub(crate) for
+    /// symmetry with the SSE2/NEON blocks above, even though nothing outside
+    /// this file currently reaches into it directly.
+    #[derive(Copy, Clone)]
+    pub struct f32x4(pub(crate) v128);
+
+    /// WASM SIMD128 comparison mask. Each lane is 0xFFFF_FFFF (true) or
+    /// 0x0000_0000 (false) — same all-ones/all-zeros convention as SSE2.
+    #[derive(Copy, Clone)]
+    pub struct Mask4(pub(crate) v128);
+
+    #[inline(always)]
+    const fn v128_from_f32x4(a: [f32; 4]) -> v128 {
+        // SAFETY: v128 and [f32; 4] are both exactly 16 bytes, same layout
+        // mid-math's own v128_from_f32x4 relies on.
+        unsafe { core::mem::transmute(a) }
+    }
+
+    impl f32x4 {
+        #[inline(always)]
+        pub fn splat(v: f32) -> Self { Self(f32x4_splat(v)) }
+
+        #[inline(always)]
+        pub fn zero() -> Self { Self(f32x4_splat(0.0)) }
+
+        /// Load from array. Lane 0 = a[0], lane 3 = a[3] — same natural
+        /// memory order as the SSE2/NEON blocks' from_array.
+        #[inline(always)]
+        pub fn from_array(a: [f32; 4]) -> Self { Self(v128_from_f32x4(a)) }
+
+        /// Store to array. [0] = lane 0, [3] = lane 3.
+        #[inline(always)]
+        pub fn to_array(self) -> [f32; 4] {
+            // SAFETY: same layout guarantee as v128_from_f32x4 above, reversed.
+            unsafe { core::mem::transmute(self.0) }
+        }
+
+        #[inline(always)]
+        pub fn abs(self) -> Self { Self(f32x4_abs(self.0)) }
+
+        #[inline(always)]
+        pub fn min(self, rhs: Self) -> Self { Self(f32x4_min(self.0, rhs.0)) }
+
+        #[inline(always)]
+        pub fn max(self, rhs: Self) -> Self { Self(f32x4_max(self.0, rhs.0)) }
+
+        /// 1/sqrt(x). No hardware rsqrt estimate on WASM SIMD128 — full
+        /// sqrt+div as the starting point, then one NR step anyway to keep
+        /// this block's shape identical to SSE2/NEON's (see block header).
+        /// Clamps lanes to ≥ 1e-20 first, same guard as every other platform.
+        #[inline(always)]
+        pub fn inv_sqrt(self) -> Self {
+            let safe  = f32x4_max(self.0, f32x4_splat(1e-20_f32));
+            let r0    = f32x4_div(f32x4_splat(1.0_f32), f32x4_sqrt(safe));
+            let half  = f32x4_splat(0.5_f32);
+            let three = f32x4_splat(3.0_f32);
+            let xrr   = f32x4_mul(safe, f32x4_mul(r0, r0)); // x*r²
+            // r_new = 0.5 * r * (3 - x*r²)
+            Self(f32x4_mul(f32x4_mul(half, r0), f32x4_sub(three, xrr)))
+        }
+
+        /// sqrt(x) — full IEEE754, same as every other platform block.
+        /// Guards negative lanes to 0 first.
+        #[inline(always)]
+        pub fn sqrt(self) -> Self {
+            let safe = f32x4_max(self.0, f32x4_splat(0.0));
+            Self(f32x4_sqrt(safe))
+        }
+
+        // ── Comparisons ───────────────────────────────────────────────────────
+
+        #[inline(always)]
+        pub fn cmple(self, rhs: Self) -> Mask4 { Mask4(f32x4_le(self.0, rhs.0)) }
+        #[inline(always)]
+        pub fn cmplt(self, rhs: Self) -> Mask4 { Mask4(f32x4_lt(self.0, rhs.0)) }
+        #[inline(always)]
+        pub fn cmpgt(self, rhs: Self) -> Mask4 { Mask4(f32x4_gt(self.0, rhs.0)) }
+
+        // ── Trig ──────────────────────────────────────────────────────────────
+
+        /// atan2(y, x) for 4 lanes — NOT vectorized on this platform, see the
+        /// block header. Same per-lane-scalar approach the scalar fallback
+        /// block already uses.
+        #[inline(always)]
+        pub fn atan2(y: Self, x: Self) -> Self {
+            let ya = y.to_array();
+            let xa = x.to_array();
+            Self::from_array([
+                crate::simd::fast_atan2(ya[0], xa[0]),
+                crate::simd::fast_atan2(ya[1], xa[1]),
+                crate::simd::fast_atan2(ya[2], xa[2]),
+                crate::simd::fast_atan2(ya[3], xa[3]),
+            ])
+        }
+
+        /// Radians → degrees for all lanes.
+        #[inline(always)]
+        pub fn to_degrees(self) -> Self {
+            Self(f32x4_mul(self.0, f32x4_splat(57.295_779_51_f32)))
+        }
+
+        // ── Misc ──────────────────────────────────────────────────────────────
+
+        /// Negate lanes where mask is true, pass-through where false.
+        /// Implemented as XOR of sign bit with mask — same approach as SSE2.
+        #[inline(always)]
+        pub fn neg_if(self, mask: Mask4) -> Self {
+            let sign_bits = v128_and(mask.0, f32x4_splat(-0.0_f32));
+            Self(v128_xor(self.0, sign_bits))
+        }
+    }
+
+    // ── Arithmetic operators ──────────────────────────────────────────────────
+
+    impl Add for f32x4 { type Output=Self; #[inline(always)] fn add(self,r:Self)->Self { Self(f32x4_add(self.0,r.0)) } }
+    impl Sub for f32x4 { type Output=Self; #[inline(always)] fn sub(self,r:Self)->Self { Self(f32x4_sub(self.0,r.0)) } }
+    impl Mul for f32x4 { type Output=Self; #[inline(always)] fn mul(self,r:Self)->Self { Self(f32x4_mul(self.0,r.0)) } }
+    impl Div for f32x4 { type Output=Self; #[inline(always)] fn div(self,r:Self)->Self { Self(f32x4_div(self.0,r.0)) } }
+    impl Neg for f32x4 { type Output=Self; #[inline(always)] fn neg(self)->Self { Self(f32x4_neg(self.0)) } }
+
+    // Scalar rhs — promotes to splat then calls the Self variant
+    impl Add<f32> for f32x4 { type Output=Self; #[inline(always)] fn add(self,r:f32)->Self { self+Self::splat(r) } }
+    impl Sub<f32> for f32x4 { type Output=Self; #[inline(always)] fn sub(self,r:f32)->Self { self-Self::splat(r) } }
+    impl Mul<f32> for f32x4 { type Output=Self; #[inline(always)] fn mul(self,r:f32)->Self { self*Self::splat(r) } }
+    impl Div<f32> for f32x4 { type Output=Self; #[inline(always)] fn div(self,r:f32)->Self { self/Self::splat(r) } }
+
+    // ── Mask4 ─────────────────────────────────────────────────────────────────
+
+    impl Mask4 {
+        /// True if any lane is non-zero. v128_any_true checks the whole 128
+        /// bits at once — correct here because every lane is either all-1s
+        /// or all-0s (the Mask4 invariant), never a partial bit pattern.
+        #[inline(always)]
+        pub fn any(self) -> bool { v128_any_true(self.0) }
+
+        /// Pack MSB of each lane into a 4-bit integer. Bit 0 = lane 0.
+        /// Used by collision code to find the first hit lane via trailing_zeros()
+        /// — same role as SSE2's _mm_movemask_ps.
+        #[inline(always)]
+        pub fn movemask(self) -> u32 { i32x4_bitmask(self.0) }
+
+        /// Per-lane select: true lane → if_true, false lane → if_false.
+        /// NOTE: v128_andnot(a, b) = a & !b — opposite argument order from
+        /// SSE2's _mm_andnot_ps(a, b) = !a & b. Same final result as SSE2's
+        /// blend, just built from the WASM-native operand order.
+        #[inline(always)]
+        pub fn blend(self, if_true: f32x4, if_false: f32x4) -> f32x4 {
+            f32x4(v128_or(
+                v128_and(self.0, if_true.0),
+                v128_andnot(if_false.0, self.0),   // if_false & !mask
+            ))
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Scalar fallback — wasm32/wasm64 WITHOUT simd128, armv7, and anything else.
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[cfg(not(any(
+    target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64",
+    all(any(target_arch = "wasm32", target_arch = "wasm64"), target_feature = "simd128"),
+)))]
 mod platform {
     use core::ops::{Add, Sub, Mul, Div, Neg};
 

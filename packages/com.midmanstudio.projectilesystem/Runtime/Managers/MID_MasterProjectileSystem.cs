@@ -27,6 +27,30 @@ using SimulationMode = MidManStudio.Projectiles.Core.SimulationMode;
 
 namespace MidManStudio.Projectiles.Managers
 {
+    /// <summary>
+    /// Unified payload for MID_MasterProjectileSystem.OnRustSimHit — see that
+    /// event's own doc comment for the full picture. Fields come from one of
+    /// two different underlying sources depending on mode (LocalOnly vs
+    /// Networked); TargetNetworkObjectId and RawTargetId are mutually
+    /// exclusive in practice, not a bug:
+    ///   LocalOnly (offline):  RawTargetId populated, TargetNetworkObjectId = 0
+    ///   Networked:            TargetNetworkObjectId populated, RawTargetId = 0
+    /// (Networked mode's underlying HitConfirmation genuinely doesn't carry
+    /// the raw RustSim numeric target_id to clients, only a resolvable
+    /// NetworkObjectId — arguably the more directly useful of the two anyway.)
+    /// </summary>
+    public struct RustSimHitPayload
+    {
+        public uint    ProjId;
+        public ushort  ConfigId;
+        public uint    RawTargetId;
+        public ulong   TargetNetworkObjectId;
+        public float   Damage;
+        public Vector3 HitPosition;
+        public bool    IsHeadshot;
+        public bool    IsCrit;
+    }
+
     public sealed class MID_MasterProjectileSystem : Singleton<MID_MasterProjectileSystem>
     {
         #region Serialized References
@@ -104,6 +128,65 @@ namespace MidManStudio.Projectiles.Managers
 
         private void RelayPhysicsHit(ProjectileHitPayload payload) => OnPhysicsHit?.Invoke(payload);
 
+        /// <summary>
+        /// UNIFIED RUSTSIM HIT EVENT ("how do I make use of when a projectile
+        /// collides, for RustSim?"): before this, OnPhysicsHit existed for
+        /// physics projectiles but nothing equivalent existed for RustSim ones —
+        /// the actual hit signals were scattered across three different places
+        /// (LocalProjectileManager.OnHit for offline, MID_ProjectileNetworkBridge.
+        /// OnHitConfirmedLocal for networked clients, ServerProjectileAuthority.
+        /// Adapter.OnProjectileHit for the server's own authoritative copy) with
+        /// no single place to subscribe. This relays the first two into one
+        /// event, the same "subscribe once at session start" shape OnPhysicsHit
+        /// already has.
+        ///
+        /// WHY NOT THE THIRD ONE TOO: Adapter.OnProjectileHit is where real
+        /// damage should be authoritatively applied server-side — it fires
+        /// BEFORE HitConfirmedClientRpc is even sent, is server-only, and (on
+        /// a host) would double-fire alongside this event for the same hit
+        /// (the host is both server and client — it gets Adapter.OnProjectileHit
+        /// AND OnHitConfirmedLocal for its own hits). Keeping them separate
+        /// means: use OnRustSimHit for "something visibly happened, react to
+        /// it" (VFX, sound, UI feedback — same role PlayImpact already plays,
+        /// which is invoked from the exact same OnHitConfirmedLocal source
+        /// this relays), and Adapter.OnProjectileHit specifically for
+        /// server-authoritative damage/game-state logic.
+        ///
+        /// TargetNetworkObjectId vs RawTargetId — only one is populated
+        /// depending on mode, see RustSimHitPayload's own field docs; this
+        /// isn't a bug, the two underlying sources genuinely carry different
+        /// target references.
+        /// </summary>
+        public event Action<RustSimHitPayload> OnRustSimHit;
+
+        private void RelayLocalRustSimHit(LocalHitPayload payload)
+        {
+            OnRustSimHit?.Invoke(new RustSimHitPayload
+            {
+                ProjId       = payload.ProjId,
+                ConfigId     = payload.ConfigId,
+                RawTargetId  = payload.RawTargetId,
+                Damage       = payload.Damage,
+                HitPosition  = payload.HitPosition,
+                IsHeadshot   = payload.IsHeadshot,
+                IsCrit       = payload.IsCrit,
+            });
+        }
+
+        private void RelayNetworkedRustSimHit(HitConfirmation confirmation)
+        {
+            OnRustSimHit?.Invoke(new RustSimHitPayload
+            {
+                ProjId                = confirmation.ProjId,
+                ConfigId              = confirmation.ConfigId,
+                TargetNetworkObjectId = confirmation.TargetNetworkId,
+                Damage                = confirmation.Damage,
+                HitPosition           = confirmation.HitPosition,
+                IsHeadshot            = confirmation.IsHeadshot,
+                IsCrit                = confirmation.IsCrit,
+            });
+        }
+
         #endregion
 
         #region Initialisation
@@ -142,6 +225,14 @@ namespace MidManStudio.Projectiles.Managers
             if (_localManager == null)
                 _localManager = FindAnyObjectByType<LocalProjectileManager>();
 
+            if (_localManager != null)
+            {
+                // Safe against re-Initialise() calls, same pattern SpawnPhysicsProjectile
+                // already uses for OnHitServerConfirmed below.
+                _localManager.OnHit -= RelayLocalRustSimHit;
+                _localManager.OnHit += RelayLocalRustSimHit;
+            }
+
             if (_authority != null)
             {
                 _authority.TrailPool     = _trailPool;
@@ -154,6 +245,9 @@ namespace MidManStudio.Projectiles.Managers
                 _networkBridge.Prediction     = _predictionManager;
                 _networkBridge.RaycastHandler = _raycastHandler;
                 _networkBridge.ImpactHandler  = _impactHandler;
+
+                _networkBridge.OnHitConfirmedLocal -= RelayNetworkedRustSimHit;
+                _networkBridge.OnHitConfirmedLocal += RelayNetworkedRustSimHit;
             }
 
             _initialised = true;
@@ -398,6 +492,38 @@ namespace MidManStudio.Projectiles.Managers
         /// offline/non-networked local-fire path, or any caller with no
         /// specific firing client to exclude.
         /// </param>
+        /// <summary>
+        /// GUIDED TARGETING ("works but only for the test targets in the test
+        /// game — why?"): this method itself never touches Guided targeting at
+        /// all — it doesn't even call InitialiseProjectile (see below). Guided
+        /// isn't test-scene-specific or hardcoded to anything; it works from
+        /// ANY caller, the same way for everyone, but requires two calls in a
+        /// specific order:
+        ///
+        ///   var netObj = system.SpawnPhysicsProjectile(...);
+        ///   var proj = netObj.GetComponent&lt;PhysicsProjectileBase&gt;();
+        ///   proj.SetOwnerContext(...);
+        ///   proj.InitialiseProjectile(...);      // MUST come before SetGuidedTarget
+        ///   proj.SetGuidedTarget(yourRealTarget); // MUST come after InitialiseProjectile
+        ///
+        /// InitialiseProjectile resets the guided-target state on every fresh
+        /// launch (see its own doc comment) — call SetGuidedTarget before that
+        /// and it gets silently wiped a moment later. That's also why this
+        /// method doesn't accept a guidedTarget parameter itself: it happens
+        /// BEFORE InitialiseProjectile is even called (the caller calls that
+        /// afterward), so accepting one here would just be quietly wrong.
+        ///
+        /// Target SELECTION (who to lock onto — nearest enemy, current
+        /// reticle target, whatever) is deliberately left entirely to the
+        /// caller; only target ACQUISITION mechanics (the SetGuidedTarget/
+        /// RegisterGuidedTarget2D/3D call itself) are this package's job.
+        /// NetworkedDimensionPlayer.SpawnPhysicsProjectileLocal and
+        /// MID_ProjectileNetworkBridge.FirePhysicsProjectileServerRpc are
+        /// working reference implementations of exactly this pattern — the
+        /// ONLY reason it currently "only works for test targets" is that
+        /// those two are the only call sites anyone has wired a real target
+        /// into so far, not because anything is hardcoded to them.
+        /// </summary>
         public NetworkObject SpawnPhysicsProjectile(
             PoolableNetworkObjectType type, Vector3 position, Quaternion rotation,
             ushort configId = 0, ulong firingClientId = ulong.MaxValue)

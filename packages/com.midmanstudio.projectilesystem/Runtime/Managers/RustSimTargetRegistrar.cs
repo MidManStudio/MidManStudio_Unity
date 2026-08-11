@@ -101,6 +101,22 @@ namespace MidManStudio.Projectiles.Managers
                  "specific, predictable id (e.g. to reference from elsewhere).")]
         [SerializeField] private uint _explicitTargetId = 0;
 
+        [Header("Networking")]
+        [Tooltip(
+            "NETWORK OBJECT ID TIMING FIX: if this object also has a NetworkObject, " +
+            "its NetworkObjectId is not valid until Netcode has actually spawned it — " +
+            "that does NOT happen by Awake(), and isn't guaranteed to have happened by " +
+            "Start() either (a scene-placed NetworkObject can spawn several frames " +
+            "later; one spawned at runtime spawns whenever the spawning code calls " +
+            "Spawn()). Registering before that bakes in an invalid TargetId — every " +
+            "such object would resolve to the same not-yet-assigned id and collide " +
+            "with every other one still waiting to spawn. Enable this on anything " +
+            "that's also a NetworkObject: both target-id resolution AND registration " +
+            "are held off until NetworkObject.IsSpawned is actually true, retried " +
+            "automatically every tick in the meantime (see Update/FixedUpdate below) — " +
+            "same retry mechanism the static-target race-condition fix uses.")]
+        [SerializeField] private bool _isNetworkedObject = false;
+
         [Header("Movement")]
         [Tooltip(
             "STATIC TARGET FIX: not every target moves — walls, breakables, level " +
@@ -109,8 +125,9 @@ namespace MidManStudio.Projectiles.Managers
             "regardless, silently paying for a linear-scan RegisterTarget2D/3D upsert " +
             "every tick (see the file header's O(N²) performance note) even when the " +
             "position hadn't changed at all. Enable this for anything that never moves: " +
-            "Start() registers it exactly once and Update/FixedUpdate below become a " +
-            "single bool check instead of a full re-register — zero ongoing tick cost. " +
+            "Update/FixedUpdate below become a single bool check instead of a full " +
+            "re-register — but only ONCE REGISTRATION HAS ACTUALLY SUCCEEDED, not just " +
+            "once Start() has run — see the race-condition note on RegisterNow(). " +
             "Leave off for anything that moves, including anything driven by a moving " +
             "parent transform.")]
         [SerializeField] private bool _isStatic = false;
@@ -133,6 +150,7 @@ namespace MidManStudio.Projectiles.Managers
         #region State
 
         private uint _targetId;
+        private bool _targetIdResolved;
         private int  _tickCounter;
         private bool _hasRegisteredOnce;
 
@@ -155,9 +173,8 @@ namespace MidManStudio.Projectiles.Managers
 
         private void Start()
         {
-            _targetId = ResolveTargetId();
             DetectShape();
-            RegisterNow();
+            RegisterNow(); // best-effort immediate attempt; Update/FixedUpdate retry below cover the rest
         }
 
         private void OnEnable()
@@ -173,13 +190,29 @@ namespace MidManStudio.Projectiles.Managers
 
         private void Update()
         {
-            if (_isStatic || _useFixedUpdate) return;
+            if (_useFixedUpdate) return;
+            // STATIC TARGET RACE-CONDITION FIX ("set to static, collisions never
+            // work"): only stop ticking once registration has ACTUALLY
+            // succeeded at least once — not just because _isStatic is set. The
+            // old code skipped Update/FixedUpdate entirely the moment _isStatic
+            // was true, with only ONE registration attempt ever (in Start()).
+            // If MID_MasterProjectileSystem hadn't finished initializing yet at
+            // that exact frame — a genuine, common script-execution-order race,
+            // not a rare edge case — RegisterNow() silently no-op'd and NOTHING
+            // ever retried, so the target just stayed permanently unregistered.
+            // A moving (non-static) target self-healed from the same race
+            // within a few frames purely by continuing to tick normally; a
+            // static one had no such safety net. Now both behave the same way
+            // until the first successful registration, and only then does a
+            // static target actually stop ticking.
+            if (_isStatic && _hasRegisteredOnce) return;
             Tick();
         }
 
         private void FixedUpdate()
         {
-            if (_isStatic || !_useFixedUpdate) return;
+            if (!_useFixedUpdate) return;
+            if (_isStatic && _hasRegisteredOnce) return; // see Update()'s comment
             Tick();
         }
 
@@ -198,7 +231,28 @@ namespace MidManStudio.Projectiles.Managers
         {
             var system = MID_MasterProjectileSystem.HasInstance
                 ? MID_MasterProjectileSystem.Instance : null;
-            if (system == null) return;
+            if (system == null) return; // retried next tick — see Update()'s comment
+
+            // NETWORK OBJECT ID TIMING FIX ("network objects do not exist in
+            // Awake"): a NetworkObject's NetworkObjectId isn't valid/stable
+            // until Netcode has actually spawned it — not guaranteed by
+            // Start(), let alone Awake(). Resolving (and caching) _targetId
+            // any earlier than this check would bake in whatever placeholder
+            // value NetworkObjectId happens to hold pre-spawn — likely the
+            // same value for every such object, i.e. TargetId collisions
+            // between every one of them still waiting to spawn. Held off (and
+            // retried next tick) until IsSpawned is actually true.
+            if (_isNetworkedObject)
+            {
+                var netObj = GetComponent<Unity.Netcode.NetworkObject>();
+                if (netObj == null || !netObj.IsSpawned) return;
+            }
+
+            if (!_targetIdResolved)
+            {
+                _targetId = ResolveTargetId();
+                _targetIdResolved = true;
+            }
 
             if (_isShape) RegisterShapeNow(system);
             else          RegisterCircleNow(system);
