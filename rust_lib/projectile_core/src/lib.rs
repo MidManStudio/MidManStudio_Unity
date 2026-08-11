@@ -18,6 +18,10 @@
 //   x86/x86_64: SSE2 guaranteed — 4-wide tick batching, fast_atan2_x4,
 //               rsqrt_nr for sqrt/normalize, SIMD narrow-phase collision.
 //   aarch64:    NEON mandatory — vrsqrteq+NR, vdivq, vcgt/vclt/vbsl.
+//   wasm32/wasm64: SIMD128, when built with target-feature=+simd128 — 4-wide
+//               batching same as SSE2/NEON, ported from mid-engine's
+//               mid-math crate (see math/f32x4.rs's WASM block header).
+//               Without that flag: scalar, same as "all others" below.
 //   All others: scalar fast_atan2 + Quake rsqrt.
 //
 //   math/ provides Vec2x4, Vec3x4, f32x4 — SIMD-backed wide vector types

@@ -28,6 +28,7 @@ using UnityEditor;
 using UnityEditor.UIElements;
 using UnityEngine;
 using UnityEngine.UIElements;
+using MidManStudio.Core;
 using MidManStudio.Core.EditorTools;
 
 namespace MidManStudio.Core.EditorUtils.ScriptableObjectViewer
@@ -98,7 +99,19 @@ namespace MidManStudio.Core.EditorUtils.ScriptableObjectViewer
             if (uss != null) rootVisualElement.styleSheets.Add(uss);
 
             BindElements();
-            Rescan();
+
+            // UI BUG FIX ("category dropdown only appears after typing in the
+            // search bar"): populating a DropdownField's choices/value
+            // synchronously inside CreateGUI() can race the window's own
+            // first layout pass — the control exists in the tree but its
+            // internal label hasn't been through a layout/repaint cycle yet,
+            // so it renders empty until SOMETHING else (e.g. typing, which
+            // touches layout via the search field's callback) forces a
+            // repaint. Deferring Rescan() to run after that first pass — the
+            // standard, documented fix for "my UI Toolkit window's initial
+            // state doesn't render right" — avoids the race entirely rather
+            // than working around its symptom.
+            rootVisualElement.schedule.Execute(Rescan).ExecuteLater(0);
         }
 
         private void OnDestroy()
@@ -182,7 +195,21 @@ namespace MidManStudio.Core.EditorUtils.ScriptableObjectViewer
                 var nameLabel = el.Q<Label>("name");
                 var typeLabel = el.Q<Label>("type");
 
-                icon.image = AssetPreview.GetMiniThumbnail(entry.Asset)
+                // CUSTOM ICON FIX ("doesn't show custom icons"): a MID_BaseSO's
+                // custom icon is NOT a real Unity asset icon — MID_BaseSOEditor's
+                // own header comment explains why (EditorGUIUtility.SetIconForObject
+                // never actually supported arbitrary ScriptableObject instances).
+                // The real mechanism is MID_BaseSOProjectIconDrawer, which paints
+                // ResolveIcon() directly over each Project-window row via
+                // EditorApplication.projectWindowItemOnGUI — a hook that only
+                // fires for the actual Project window, not this ListView. So
+                // AssetPreview.GetMiniThumbnail alone can never surface a
+                // MID_BaseSO custom icon; check ResolveIcon() first, same as
+                // that drawer does, and only fall back to the generic thumbnail
+                // for anything that isn't a MID_BaseSO (or has no custom icon set).
+                Texture2D resolvedIcon = (entry.Asset as MID_BaseSO)?.ResolveIcon();
+                icon.image = resolvedIcon != null ? resolvedIcon
+                             : AssetPreview.GetMiniThumbnail(entry.Asset)
                              ?? EditorGUIUtility.IconContent("ScriptableObject Icon").image;
                 nameLabel.text = entry.Asset != null ? entry.Asset.name : "(missing)";
                 // Only shown at all when browsing "All Categories" — redundant
@@ -245,6 +272,11 @@ namespace MidManStudio.Core.EditorUtils.ScriptableObjectViewer
 
             _categoryDropdown.choices = _categoryChoices;
             _categoryDropdown.SetValueWithoutNotify(_selectedCategory);
+            // Second safety net for the same rendering quirk the deferred
+            // Rescan() in CreateGUI() already addresses — cheap, and this
+            // runs on every subsequent Rescan() (e.g. the refresh button)
+            // too, not just the first one.
+            _categoryDropdown.MarkDirtyRepaint();
         }
 
         private static string StripCount(string categoryLabel)

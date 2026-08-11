@@ -83,9 +83,18 @@ namespace MidManStudio.Projectiles.Managers
                  "field for the exact same rule.")]
         [SerializeField] private uint _explicitTargetId = 0;
 
+        [Header("Networking")]
+        [Tooltip("See RustSimTargetRegistrar's matching field — identical fix, same " +
+                 "reason: a NetworkObject's id isn't valid until Netcode actually " +
+                 "spawns it, which doesn't happen by Awake() and isn't guaranteed by " +
+                 "Start() either.")]
+        [SerializeField] private bool _isNetworkedObject = false;
+
         [Header("Movement")]
         [Tooltip("See RustSimTargetRegistrar's matching field — identical behavior: " +
-                 "on, this registers once in Start() and never re-ticks.")]
+                 "on, this stops re-ticking once registration has actually succeeded " +
+                 "at least once (not just once Start() has run — see the race-condition " +
+                 "note on RegisterNow()).")]
         [SerializeField] private bool _isStatic = false;
 
         [Header("Update Rate")]
@@ -97,6 +106,7 @@ namespace MidManStudio.Projectiles.Managers
         #region State
 
         private uint _targetId;
+        private bool _targetIdResolved;
         private int  _tickCounter;
         private bool _hasRegisteredOnce;
 
@@ -155,15 +165,94 @@ namespace MidManStudio.Projectiles.Managers
             Rebake();
         }
 
+        // ── Formula-based generators ─────────────────────────────────────────
+        //
+        // "for the sake of convenience... generate shape using formula from
+        // the midpoint of a game object" — replaces every existing control
+        // point with ones computed from a formula, centered on this
+        // transform's own origin (local (0,0,0) — i.e. the GameObject's own
+        // pivot/midpoint), rather than needing to hand-place each point one
+        // at a time in the scene view for a shape that's just a regular
+        // polygon or a box to begin with.
+        //
+        // Regular-polygon point count is capped at ShapeCollider2D.MaxPoints
+        // (8) — same hard limit as everywhere else in the shape system, so a
+        // generated shape needs no further resampling: the control points
+        // ARE the final baked points (bake resolution is set to match, spline
+        // type to Linear, so nothing softens the corners).
+
+        /// <summary>
+        /// Regular N-sided polygon (sides ≥ 3) of the given radius, centered
+        /// at this transform's local origin. Point 0 sits straight "up"
+        /// (+Y for 2D, +Z for 3D) by convention, matching how most 2D/3D
+        /// authoring tools orient a generated polygon's first vertex.
+        /// sides=3 → triangle, 4 → square, 6 → hexagon, 8 → octagon (the max
+        /// this format supports without lossy resampling).
+        /// </summary>
+        public void GenerateRegularPolygon(int sides, float radius)
+        {
+            sides = Mathf.Clamp(sides, 3, ShapeCollider2D.MaxPoints);
+            radius = Mathf.Max(radius, 0.001f);
+
+            _controlPoints.Clear();
+            const float startAngle = -Mathf.PI / 2f; // point 0 straight "up"
+            for (int i = 0; i < sides; i++)
+            {
+                float angle = startAngle + (2f * Mathf.PI * i / sides);
+                float cx = Mathf.Cos(angle) * radius;
+                float cy = Mathf.Sin(angle) * radius;
+                _controlPoints.Add(_is3D ? new Vector3(cx, 0f, cy) : new Vector3(cx, cy, 0f));
+            }
+
+            _closedLoop     = true;
+            _splineType     = ShapeSplineType.Linear; // straight edges — no unintended smoothing
+            _bakeResolution = sides;
+            Rebake();
+        }
+
+        /// <summary>
+        /// Axis-aligned box/rectangle, centered at this transform's local
+        /// origin. 2D: XY plane. 3D: XZ plane (a flat "footprint" box — for
+        /// a true 3D volume with height, this format still can't represent a
+        /// cuboid exactly, see the file header's "3D BOX LIMITATION" note on
+        /// RustSimTargetRegistrar; this generator is for a flat rectangular
+        /// area, e.g. a floor/platform outline).
+        /// </summary>
+        public void GenerateBox(float width, float height)
+        {
+            float hw = Mathf.Max(width, 0.001f)  * 0.5f;
+            float hh = Mathf.Max(height, 0.001f) * 0.5f;
+
+            _controlPoints.Clear();
+            if (_is3D)
+            {
+                _controlPoints.Add(new Vector3(-hw, 0f, -hh));
+                _controlPoints.Add(new Vector3( hw, 0f, -hh));
+                _controlPoints.Add(new Vector3( hw, 0f,  hh));
+                _controlPoints.Add(new Vector3(-hw, 0f,  hh));
+            }
+            else
+            {
+                _controlPoints.Add(new Vector3(-hw, -hh, 0f));
+                _controlPoints.Add(new Vector3( hw, -hh, 0f));
+                _controlPoints.Add(new Vector3( hw,  hh, 0f));
+                _controlPoints.Add(new Vector3(-hw,  hh, 0f));
+            }
+
+            _closedLoop     = true;
+            _splineType     = ShapeSplineType.Linear;
+            _bakeResolution = 4;
+            Rebake();
+        }
+
         #endregion
 
         #region Lifecycle
 
         private void Start()
         {
-            _targetId = ResolveTargetId();
             Rebake();
-            RegisterNow();
+            RegisterNow(); // best-effort immediate attempt; Update/FixedUpdate retry below cover the rest
         }
 
         private void OnEnable()
@@ -176,13 +265,17 @@ namespace MidManStudio.Projectiles.Managers
 
         private void Update()
         {
-            if (_isStatic || _useFixedUpdate) return;
+            if (_useFixedUpdate) return;
+            // See RustSimTargetRegistrar.Update()'s matching comment — same
+            // race-condition fix, same reasoning.
+            if (_isStatic && _hasRegisteredOnce) return;
             Tick();
         }
 
         private void FixedUpdate()
         {
-            if (_isStatic || !_useFixedUpdate) return;
+            if (!_useFixedUpdate) return;
+            if (_isStatic && _hasRegisteredOnce) return;
             Tick();
         }
 
@@ -288,7 +381,21 @@ namespace MidManStudio.Projectiles.Managers
         {
             var system = MID_MasterProjectileSystem.HasInstance
                 ? MID_MasterProjectileSystem.Instance : null;
-            if (system == null) return;
+            if (system == null) return; // retried next tick
+
+            // See RustSimTargetRegistrar.RegisterNow()'s matching comment —
+            // same NetworkObjectId timing fix, same reasoning.
+            if (_isNetworkedObject)
+            {
+                var netObj = GetComponent<Unity.Netcode.NetworkObject>();
+                if (netObj == null || !netObj.IsSpawned) return;
+            }
+
+            if (!_targetIdResolved)
+            {
+                _targetId = ResolveTargetId();
+                _targetIdResolved = true;
+            }
 
             float scaledThickness = _thickness > 0f ? ScaledThickness() : 0f;
 
