@@ -20,6 +20,7 @@
 using UnityEditor;
 using UnityEngine;
 using MidManStudio.Projectiles.Managers;
+using MidManStudio.Projectiles.Core;
 
 namespace MidManStudio.Projectiles.EditorUtils
 {

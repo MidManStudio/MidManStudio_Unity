@@ -142,12 +142,12 @@ MonoBehaviour:
   _ownerColor: {r: 0.2, g: 0.8, b: 1, a: 1}
   _remoteColor: {r: 1, g: 0.4, b: 0.3, a: 1}
   _moveSpeed2D: 6
-  _moveSpeed3D: 5
-  _jumpForce: 7
+  _moveSpeed3D: 6
+  _jumpForce: 4
   _dashKey: 304
-  _dashSpeed: 16
-  _dashDuration: 0.12
-  _dashCooldown: 0.9
+  _dashSpeed: 28
+  _dashDuration: 0.3
+  _dashCooldown: 1
   _mouseSensitivity: 2
   _pitchMin: -80
   _pitchMax: 80
@@ -179,11 +179,11 @@ MonoBehaviour:
   _fireSoundClipIndex: 0
   _fireSoundVolume: 0.6
   _fallbackAudioSource: {fileID: 8186125018304576148}
-  _fallbackFireClip: {fileID: 8300000, guid: 85f6f4427355d42608269db49d1df2ff, type: 3}
+  _fallbackFireClip: {fileID: 8300000, guid: 5aafdfd6c2edf40ffa472cc91cd3ef69, type: 3}
   _fallbackVolume: 0.6
   _fallbackPitchVariance: 0.1
-  _muzzleFlashParticleCount: 4
-  _muzzleFlashVolume: 0.8
+  _muzzleFlashParticleCount: 8
+  _muzzleFlashVolume: 0.55
   _logLevel: 4
 --- !u!23 &2361679234294197832
 MeshRenderer:

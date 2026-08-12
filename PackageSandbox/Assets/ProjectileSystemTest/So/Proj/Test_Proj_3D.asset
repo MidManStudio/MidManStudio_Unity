@@ -16,11 +16,11 @@ MonoBehaviour:
   ConfigId: 2
   _is3D: 1
   _preferredSimMode: 1
-  _movementType: 2
+  _movementType: 0
   _minSpeed: 12.6
   _maxSpeed: 21.1
   _lifetime: 4
-  _gravityScale: -6
+  _gravityScale: -2
   _maxRange: 50
   _piercingType: 0
   _maxCollisions: 1
