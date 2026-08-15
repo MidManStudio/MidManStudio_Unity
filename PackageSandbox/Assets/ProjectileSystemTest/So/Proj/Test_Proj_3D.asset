@@ -20,7 +20,7 @@ MonoBehaviour:
   _minSpeed: 12.6
   _maxSpeed: 21.1
   _lifetime: 4
-  _gravityScale: -2
+  _gravityScale: 0
   _maxRange: 50
   _piercingType: 0
   _maxCollisions: 1

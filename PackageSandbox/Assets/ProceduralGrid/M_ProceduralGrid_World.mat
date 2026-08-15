@@ -43,7 +43,7 @@ Material:
     - Checker_Size: 100
     - Metallic: 0
     - Primary_Grid_Line_Width: 0.02
-    - Primary_Grid_Size: 50
+    - Primary_Grid_Size: 100
     - Projection_Transition_Contrast: 0
     - Secondary_Grid_Fade_Length: 8
     - Secondary_Grid_Fade_Offset: 0
@@ -56,7 +56,7 @@ Material:
     - _QueueControl: 0
     - _QueueOffset: 0
     m_Colors:
-    - Floor_Color: {r: 1, g: 0.19999996, b: 0.19999996, a: 1}
+    - Floor_Color: {r: 0.32862318, g: 0.19999999, b: 1, a: 1}
     - Line_Tint: {r: 1, g: 1, b: 1, a: 1}
     - Walls_Color: {r: 1, g: 0.7333333, b: 0.19999996, a: 1}
   m_BuildTextureStacks: []
