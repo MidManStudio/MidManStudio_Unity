@@ -63,6 +63,8 @@ use crate::simd::{fast_atan2, fast_inv_sqrt, fast_sqrt};
 // requires the full submodule path to avoid ambiguity with the module name.
 use crate::math::f32x4::f32x4;
 use crate::math::{Vec2x4, Vec3x4};
+#[cfg(target_arch = "x86_64")]
+use crate::simd_avx2::{self, f32x8, Vec2x8, Vec3x8};
 
 const RAD2DEG: f32 = 57.295_779_51_f32;
 
@@ -76,36 +78,64 @@ pub const MOVE_TELEPORT: u8 = 3;
 pub const MOVE_WAVE:     u8 = 4;
 pub const MOVE_CIRCULAR: u8 = 5;
 
+/// True if the AVX2 8-wide tier should be attempted on this platform right
+/// now — false immediately (no cpuid check at all) on anything that isn't
+/// x86_64, true-or-false based on the cached runtime check on x86_64 itself.
+/// See simd_avx2.rs's module header for why this is a runtime check, not a
+/// compile-time target-feature gate.
+#[inline]
+fn avx2_tier_available() -> bool {
+    #[cfg(target_arch = "x86_64")]
+    { simd_avx2::avx2_available() }
+    #[cfg(not(target_arch = "x86_64"))]
+    { false }
+}
+
+#[inline]
+fn batch_qualifies(projs: &[NativeProjectile], start: usize, count: usize) -> bool {
+    let mut alive_and: u8 = 1;
+    let mut mt_or: u8 = 0;
+    for p in &projs[start..start + count] {
+        alive_and &= p.alive;
+        mt_or     |= p.movement_type;
+    }
+    alive_and == 1 && mt_or == MOVE_STRAIGHT
+}
+
 // =============================================================================
 //  2D — tick entry point
 // =============================================================================
 
 /// Tick all 2D projectiles. Returns count that died this tick.
 ///
-/// Dispatches batches of 4 Straight projectiles to the wide (Vec2x4 / SIMD)
-/// path. All other movement types fall to scalar.
+/// Dispatches Straight projectiles to the widest available batch tier at
+/// each position — AVX2 8-wide first (x86_64 only, runtime-checked), then
+/// SSE2/NEON/WASM/scalar 4-wide, falling to scalar 1-at-a-time for whatever
+/// doesn't fill a batch or isn't Straight. All other movement types always
+/// fall to scalar.
 pub fn tick_all(projs: &mut [NativeProjectile], dt: f32) -> i32 {
     let n        = projs.len();
     let mut died = 0_i32;
     let mut i    = 0_usize;
+    let avx2_ok  = avx2_tier_available();
 
-    while i + 4 <= n {
-        // Batch only when ALL 4 are alive and use Straight (mt == 0).
-        // Bitwise AND/OR avoids any branching on individual lane tests.
-        let alive_and = projs[i].alive & projs[i+1].alive
-                      & projs[i+2].alive & projs[i+3].alive;
-        let mt_or     = projs[i].movement_type | projs[i+1].movement_type
-                      | projs[i+2].movement_type | projs[i+3].movement_type;
+    while i < n {
+        #[cfg(target_arch = "x86_64")]
+        if avx2_ok && i + 8 <= n && batch_qualifies(projs, i, 8) {
+            // SAFETY: avx2_ok came from a runtime is_x86_feature_detected!
+            // check (see avx2_tier_available/simd_avx2::avx2_available) —
+            // the precondition #[target_feature(enable="avx2")] requires.
+            unsafe { tick_straight_x8(&mut projs[i..i + 8], dt, &mut died); }
+            i += 8;
+            continue;
+        }
 
-        if alive_and == 1 && mt_or == MOVE_STRAIGHT {
+        if i + 4 <= n && batch_qualifies(projs, i, 4) {
             tick_straight_x4(&mut projs[i..i + 4], dt, &mut died);
             i += 4;
-        } else {
-            tick_scalar_one(&mut projs[i], dt, &mut died);
-            i += 1;
+            continue;
         }
-    }
-    while i < n {
+
         tick_scalar_one(&mut projs[i], dt, &mut died);
         i += 1;
     }
@@ -190,6 +220,79 @@ fn tick_straight_x4(projs: &mut [NativeProjectile], dt: f32, died: &mut i32) {
     // rarely-mutated field and SIMD packing overhead would exceed the
     // computation cost.
     for j in 0..4 {
+        tick_scale(&mut projs[j], dt);
+    }
+}
+
+// =============================================================================
+//  2D — 8-wide batch tick (straight) — AVX2, x86_64 only, runtime-dispatched
+//
+//  Byte-for-byte the same math as tick_straight_x4 above, 8 lanes instead of
+//  4 — cross-check that function's comments for the reasoning behind each
+//  step; not repeated here. The one structural difference: f32x8/Vec2x8 use
+//  inherent unsafe methods (.add()/.mul()) instead of operator overloading —
+//  see simd_avx2.rs's header for why (#[target_feature] is incompatible
+//  with core::ops trait signatures).
+// =============================================================================
+
+/// Process exactly 8 Straight 2D projectiles simultaneously.
+///
+/// Preconditions (checked by tick_all): projs.len() == 8, all alive,
+/// movement_type == MOVE_STRAIGHT, AND the caller has already confirmed
+/// AVX2 is available on this CPU via a runtime check (avx2_tier_available/
+/// simd_avx2::avx2_available) — that's what makes the unsafe block below
+/// sound. See simd_avx2.rs's module header for the full safety story.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn tick_straight_x8(projs: &mut [NativeProjectile], dt: f32, died: &mut i32) {
+    debug_assert_eq!(projs.len(), 8);
+
+    let dt8  = f32x8::splat(dt);
+    let zero = f32x8::zero();
+
+    // ── Lifetime ──────────────────────────────────────────────────────────────
+    let lt     = f32x8::load_from(projs, 0, |p| p.lifetime);
+    let lt_new = lt.sub(dt8);
+    let dead   = lt_new.cmple(zero);
+
+    if dead.any() {
+        // At least one of the 8 died — same rare-branch handling as tick_straight_x4.
+        let arr = lt_new.to_array();
+        for j in 0..8 {
+            projs[j].lifetime = arr[j];
+            if projs[j].lifetime <= 0.0 {
+                projs[j].alive = 0;
+                *died += 1;
+            }
+        }
+        return;
+    }
+    lt_new.store_to(projs, 0, |p, v| p.lifetime = v);
+
+    // ── Velocity integration: vel += accel * dt ───────────────────────────────
+    let accel   = Vec2x8::load_accel(projs, 0);
+    let mut vel = Vec2x8::load_vel(projs, 0);
+    vel = vel.add(accel.mul_wide(dt8));
+
+    // ── Position integration: pos += vel_new * dt ────────────────────────────
+    let mut pos = Vec2x8::load_pos(projs, 0);
+    pos = pos.add(vel.mul_wide(dt8));
+
+    // ── Travel distance: |vel_new| * dt ──────────────────────────────────────
+    let step       = vel.mul_wide(dt8);
+    let dist_delta = step.length_fast();
+    dist_delta.add_to(projs, 0, |p| &mut p.travel_dist);
+
+    // ── Visual rotation angle: atan2(vy, vx) in degrees ──────────────────────
+    let angle_deg = vel.angle_deg();
+    angle_deg.store_to(projs, 0, |p, v| p.angle_deg = v);
+
+    // ── Write back velocity and position ──────────────────────────────────────
+    vel.store_vel(projs, 0);
+    pos.store_pos(projs, 0);
+
+    // ── Per-projectile tail: scale growth ──────────────────────────────────────
+    for j in 0..8 {
         tick_scale(&mut projs[j], dt);
     }
 }
@@ -353,27 +456,43 @@ fn tick_scale(p: &mut NativeProjectile, dt: f32) {
 //  3D — tick entry point
 // =============================================================================
 
+#[inline]
+fn batch_qualifies_3d(projs: &[NativeProjectile3D], start: usize, count: usize) -> bool {
+    let mut alive_and: u8 = 1;
+    let mut mt_or: u8 = 0;
+    for p in &projs[start..start + count] {
+        alive_and &= p.alive;
+        mt_or     |= p.movement_type;
+    }
+    alive_and == 1 && mt_or == MOVE_STRAIGHT
+}
+
 /// Tick all 3D projectiles. Returns count that died this tick.
+///
+/// Same dispatch order as tick_all (2D): AVX2 8-wide first (x86_64, runtime-
+/// checked), then SSE2/NEON/WASM/scalar 4-wide, falling to scalar 1-at-a-time.
 pub fn tick_all_3d(projs: &mut [NativeProjectile3D], dt: f32) -> i32 {
     let n        = projs.len();
     let mut died = 0_i32;
     let mut i    = 0_usize;
+    let avx2_ok  = avx2_tier_available();
 
-    while i + 4 <= n {
-        let alive_and = projs[i].alive & projs[i+1].alive
-                      & projs[i+2].alive & projs[i+3].alive;
-        let mt_or     = projs[i].movement_type | projs[i+1].movement_type
-                      | projs[i+2].movement_type | projs[i+3].movement_type;
+    while i < n {
+        #[cfg(target_arch = "x86_64")]
+        if avx2_ok && i + 8 <= n && batch_qualifies_3d(projs, i, 8) {
+            // SAFETY: see tick_straight_x8's matching comment — identical
+            // precondition, identical guarantee.
+            unsafe { tick_straight_x8_3d(&mut projs[i..i + 8], dt, &mut died); }
+            i += 8;
+            continue;
+        }
 
-        if alive_and == 1 && mt_or == MOVE_STRAIGHT {
+        if i + 4 <= n && batch_qualifies_3d(projs, i, 4) {
             tick_straight_x4_3d(&mut projs[i..i + 4], dt, &mut died);
             i += 4;
-        } else {
-            tick_scalar_one_3d(&mut projs[i], dt, &mut died);
-            i += 1;
+            continue;
         }
-    }
-    while i < n {
+
         tick_scalar_one_3d(&mut projs[i], dt, &mut died);
         i += 1;
     }
@@ -442,6 +561,65 @@ fn tick_straight_x4_3d(projs: &mut [NativeProjectile3D], dt: f32, died: &mut i32
 
     // ── Per-projectile tail: scale growth ──────────────────────────────────────
     for j in 0..4 {
+        tick_scale_3d(&mut projs[j], dt);
+    }
+}
+
+// =============================================================================
+//  3D — 8-wide batch tick (straight) — AVX2, x86_64 only, runtime-dispatched
+//
+//  Byte-for-byte the same math as tick_straight_x4_3d above — see that
+//  function's comments; not repeated here. Same inherent-method-vs-operator
+//  note as tick_straight_x8 (2D). No angle_deg update, same reason as the
+//  4-wide 3D tier: 3D rotation is derived from velocity direction in C#.
+// =============================================================================
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn tick_straight_x8_3d(projs: &mut [NativeProjectile3D], dt: f32, died: &mut i32) {
+    debug_assert_eq!(projs.len(), 8);
+
+    let dt8  = f32x8::splat(dt);
+    let zero = f32x8::zero();
+
+    // ── Lifetime ──────────────────────────────────────────────────────────────
+    let lt     = f32x8::load_from(projs, 0, |p| p.lifetime);
+    let lt_new = lt.sub(dt8);
+    let dead   = lt_new.cmple(zero);
+
+    if dead.any() {
+        let arr = lt_new.to_array();
+        for j in 0..8 {
+            projs[j].lifetime = arr[j];
+            if projs[j].lifetime <= 0.0 {
+                projs[j].alive = 0;
+                *died += 1;
+            }
+        }
+        return;
+    }
+    lt_new.store_to(projs, 0, |p, v| p.lifetime = v);
+
+    // ── Velocity integration: vel += accel * dt ───────────────────────────────
+    let accel   = Vec3x8::load_accel(projs, 0);
+    let mut vel = Vec3x8::load_vel(projs, 0);
+    vel = vel.add(accel.mul_wide(dt8));
+
+    // ── Position integration: pos += vel_new * dt ────────────────────────────
+    let mut pos = Vec3x8::load_pos(projs, 0);
+    pos = pos.add(vel.mul_wide(dt8));
+
+    // ── Travel distance: |vel_new * dt| ──────────────────────────────────────
+    let step       = vel.mul_wide(dt8);
+    let dist_delta = step.length_fast();
+    dist_delta.add_to(projs, 0, |p| &mut p.travel_dist);
+
+    // ── Write back ────────────────────────────────────────────────────────────
+    vel.store_vel(projs, 0);
+    pos.store_pos(projs, 0);
+
+    // ── Per-projectile tail: scale growth ──────────────────────────────────────
+    for j in 0..8 {
         tick_scale_3d(&mut projs[j], dt);
     }
 }
@@ -605,5 +783,119 @@ fn tick_scale_3d(p: &mut NativeProjectile3D, dt: f32) {
         p.scale_x += delta;
         p.scale_y += delta;
         p.scale_z += delta;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mk_straight(x: f32, y: f32, vx: f32, vy: f32, ay: f32) -> NativeProjectile {
+        NativeProjectile {
+            x, y, vx, vy, ax: 0.0, ay,
+            alive: 1, movement_type: MOVE_STRAIGHT, lifetime: 5.0,
+            scale_x: 1.0, scale_y: 1.0,
+            ..Default::default()
+        }
+    }
+
+    fn mk_straight_3d(x: f32, y: f32, z: f32, vx: f32, vy: f32, vz: f32, ay: f32) -> NativeProjectile3D {
+        NativeProjectile3D {
+            x, y, z, vx, vy, vz, ax: 0.0, ay, az: 0.0,
+            alive: 1, movement_type: MOVE_STRAIGHT, lifetime: 5.0,
+            scale_x: 1.0, scale_y: 1.0, scale_z: 1.0,
+            ..Default::default()
+        }
+    }
+
+    /// CORRECTNESS CROSS-CHECK: an 8-projectile batch run through tick_all
+    /// (which uses the AVX2 8-wide path when available — this test machine
+    /// has AVX2) must produce results identical (within float tolerance) to
+    /// running the exact same projectiles through tick_scalar_one directly,
+    /// one at a time, bypassing all batching. This is the test that would
+    /// catch a subtle bug in the hand-written AVX2 intrinsics port — the
+    /// shape/behavior tests elsewhere check individual pieces, this one
+    /// checks the whole 8-wide tier against ground truth.
+    #[test]
+    fn avx2_batch_matches_scalar_2d() {
+        let seed: Vec<NativeProjectile> = vec![
+            mk_straight(0.0,  0.0,  10.0,  0.0,  0.0),
+            mk_straight(1.0,  2.0,   5.0,  5.0, -9.8),
+            mk_straight(-3.0, 0.5,  -2.0,  8.0,  0.0),
+            mk_straight(0.0, -1.0,   0.0, 12.0, -9.8),
+            mk_straight(5.0,  5.0,  -7.0, -3.0,  0.0),
+            mk_straight(2.2, -2.2,   3.3,  1.1, -9.8),
+            mk_straight(-1.0, -1.0,  9.0,  0.5,  0.0),
+            mk_straight(0.3,  0.7,  -4.4,  6.6, -9.8),
+        ];
+
+        let mut batched = seed.clone();
+        let mut scalar   = seed.clone();
+
+        for _ in 0..30 {
+            tick_all(&mut batched, 1.0 / 60.0);
+            let mut died = 0;
+            for p in scalar.iter_mut() { tick_scalar_one(p, 1.0 / 60.0, &mut died); }
+        }
+
+        for i in 0..seed.len() {
+            let b = &batched[i];
+            let s = &scalar[i];
+            assert!((b.x - s.x).abs() < 1e-3, "lane {i} x: batched={} scalar={}", b.x, s.x);
+            assert!((b.y - s.y).abs() < 1e-3, "lane {i} y: batched={} scalar={}", b.y, s.y);
+            assert!((b.vx - s.vx).abs() < 1e-3, "lane {i} vx: batched={} scalar={}", b.vx, s.vx);
+            assert!((b.vy - s.vy).abs() < 1e-3, "lane {i} vy: batched={} scalar={}", b.vy, s.vy);
+            assert!((b.travel_dist - s.travel_dist).abs() < 1e-2,
+                "lane {i} travel_dist: batched={} scalar={}", b.travel_dist, s.travel_dist);
+            assert!((b.angle_deg - s.angle_deg).abs() < 1e-1,
+                "lane {i} angle_deg: batched={} scalar={}", b.angle_deg, s.angle_deg);
+        }
+    }
+
+    #[test]
+    fn avx2_batch_matches_scalar_3d() {
+        let seed: Vec<NativeProjectile3D> = vec![
+            mk_straight_3d(0.0, 0.0, 0.0,   10.0, 0.0, 2.0,  0.0),
+            mk_straight_3d(1.0, 2.0, -1.0,   5.0, 5.0, 0.0, -9.8),
+            mk_straight_3d(-3.0, 0.5, 3.0,  -2.0, 8.0, 1.0,  0.0),
+            mk_straight_3d(0.0, -1.0, 0.5,   0.0, 12.0, -3.0, -9.8),
+            mk_straight_3d(5.0, 5.0, -2.0,  -7.0, -3.0, 4.0,  0.0),
+            mk_straight_3d(2.2, -2.2, 1.1,   3.3, 1.1, -2.2, -9.8),
+            mk_straight_3d(-1.0, -1.0, 0.0,  9.0, 0.5, 0.0,   0.0),
+            mk_straight_3d(0.3, 0.7, -0.4,  -4.4, 6.6, 1.3,  -9.8),
+        ];
+
+        let mut batched = seed.clone();
+        let mut scalar   = seed.clone();
+
+        for _ in 0..30 {
+            tick_all_3d(&mut batched, 1.0 / 60.0);
+            let mut died = 0;
+            for p in scalar.iter_mut() { tick_scalar_one_3d(p, 1.0 / 60.0, &mut died); }
+        }
+
+        for i in 0..seed.len() {
+            let b = &batched[i];
+            let s = &scalar[i];
+            assert!((b.x - s.x).abs() < 1e-3, "lane {i} x: batched={} scalar={}", b.x, s.x);
+            assert!((b.y - s.y).abs() < 1e-3, "lane {i} y: batched={} scalar={}", b.y, s.y);
+            assert!((b.z - s.z).abs() < 1e-3, "lane {i} z: batched={} scalar={}", b.z, s.z);
+            assert!((b.travel_dist - s.travel_dist).abs() < 1e-2,
+                "lane {i} travel_dist: batched={} scalar={}", b.travel_dist, s.travel_dist);
+        }
+    }
+
+    /// Batches that DON'T divide evenly by 8 (or 4) must still tick every
+    /// projectile exactly once — no dropped or double-ticked lanes at the
+    /// tail where AVX2/SSE2/scalar boundaries meet.
+    #[test]
+    fn odd_sized_batch_ticks_every_projectile_exactly_once() {
+        let mut projs: Vec<NativeProjectile> = (0..13)
+            .map(|i| mk_straight(i as f32, 0.0, 1.0, 0.0, 0.0))
+            .collect();
+        tick_all(&mut projs, 1.0);
+        for (i, p) in projs.iter().enumerate() {
+            assert!((p.x - (i as f32 + 1.0)).abs() < 1e-4, "lane {i}: x={}", p.x);
+        }
     }
 }

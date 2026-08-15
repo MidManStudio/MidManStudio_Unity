@@ -24,6 +24,11 @@
             <ui:VisualElement name="results-panel" class="mid-panel mid-panel--results">
                 <ui:Label class="mid-panel__title" text="Assets" />
                 <ui:ListView name="results-list" class="mid-list" fixed-item-height="34" />
+                <ui:VisualElement name="pagination" class="mid-pagination">
+                    <ui:Button name="prev-page-btn" text="◀" class="mid-pagination__btn" />
+                    <ui:Label name="page-label" class="mid-pagination__label" text="Page 1 of 1" />
+                    <ui:Button name="next-page-btn" text="▶" class="mid-pagination__btn" />
+                </ui:VisualElement>
             </ui:VisualElement>
 
             <ui:VisualElement name="detail-panel" class="mid-panel mid-panel--detail">

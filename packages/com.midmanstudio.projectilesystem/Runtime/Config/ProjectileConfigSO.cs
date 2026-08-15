@@ -1,5 +1,6 @@
 using UnityEngine;
 using System;
+using System.Collections.Generic;
 using MidManStudio.Core.Pools;
 using MidManStudio.Core.EditorUtils;
 using MidManStudio.Projectiles.Core;
@@ -8,6 +9,16 @@ using MidManStudio.Core;
 
 namespace MidManStudio.Projectiles.Config
 {
+    /// <summary>Custom movement path authoring mode — see ProjectileConfigSO's
+    /// _customPathShape doc comment.</summary>
+    public enum PathShape { Points, Formula }
+
+    /// <summary>Spline interpolation for Points mode — same three modes
+    /// ProjectilePatternSO's PatternSplineType offers, kept as a separate
+    /// enum since a movement path and a spawn pattern are conceptually
+    /// different things even though the math is the same shape.</summary>
+    public enum PathSplineType { Linear, CatmullRom, Bezier }
+
     [CreateAssetMenu(
         fileName = "ProjectileConfig",
         menuName  = "MidManStudio/Projectile System/Projectile Config",
@@ -282,33 +293,136 @@ namespace MidManStudio.Projectiles.Config
                  "below (or through Lifetime if Duration is 0). Y = multiplier applied " +
                  "to the shot's launch speed each tick — 1 = unchanged, 0 = momentarily " +
                  "stopped, >1 = sped up. Default: flat line at 1 (no change from a " +
-                 "normal Straight shot until you shape this curve).")]
+                 "normal Straight shot until you shape this curve). This is the ONLY " +
+                 "piece that stayed an AnimationCurve — the path itself (below) is " +
+                 "points/formula now, not a curve; this just controls pacing along it.")]
         [SerializeField] private AnimationCurve _customCurveSpeedMultiplier
             = AnimationCurve.Constant(0f, 1f, 1f);
 
-        [Tooltip("X axis = normalized progress (0..1), same timebase as Speed " +
-                 "Multiplier above. Y = offset amount along the launch-perpendicular " +
-                 "axis (same axis Wave uses) — shape an S-curve, a single juke, a " +
-                 "zigzag, whatever the authored curve describes. 0 = straight line.")]
-        [SerializeField] private AnimationCurve _customCurvePerpOffset
-            = AnimationCurve.Constant(0f, 1f, 0f);
-
-        [Tooltip("Duration (seconds) the curves' 0..1 X axis is stretched across. " +
-                 "0 = use this config's Lifetime instead (the common case — the curve " +
-                 "spans the shot's whole life). Set explicitly if you want the curve " +
-                 "to finish (or loop, see below) before the projectile actually expires.")]
+        [Tooltip("Duration (seconds) the path/speed-curve's 0..1 parameter is stretched " +
+                 "across. 0 = use this config's Lifetime instead (the common case — the " +
+                 "path spans the shot's whole life). Set explicitly if you want it to " +
+                 "finish (or loop, see below) before the projectile actually expires.")]
         [SerializeField] private float _customCurveDuration = 0f;
 
         [Tooltip("When on, progress past 1.0 wraps back to 0 (Mathf.Repeat) instead " +
-                 "of clamping at the curve's last keyframe — for a movement that " +
-                 "should keep cycling (e.g. a repeating pulse) rather than settle " +
-                 "into a fixed offset for the rest of the shot's life.")]
+                 "of clamping at the path's last point — for a movement that should " +
+                 "keep cycling (e.g. a repeating loop) rather than sit at the endpoint " +
+                 "for the rest of the shot's life.")]
         [SerializeField] private bool _customCurveLoop = false;
 
-        public AnimationCurve CustomCurveSpeedMultiplier => _customCurveSpeedMultiplier;
-        public AnimationCurve CustomCurvePerpOffset       => _customCurvePerpOffset;
-        public float          CustomCurveDuration         => _customCurveDuration;
-        public bool           CustomCurveLoop             => _customCurveLoop;
+        [Tooltip(
+            "Points mode: an explicit list of waypoints, connected with the spline " +
+            "type below (Linear/CatmullRom/Bezier — same three modes ProjectilePatternSO " +
+            "offers). Formula mode: X(t)/Y(t) expressions, same syntax as shape and " +
+            "pattern formulas (t/pi/tau/sin/cos/etc — see MathFormulaEvaluator).")]
+        [SerializeField] private PathShape _customPathShape = PathShape.Points;
+
+        [Tooltip("Spline interpolation for Points mode. Linear: straight segments, " +
+                 "closest to what you placed. CatmullRom: smooth curve through every " +
+                 "point. Bezier: smooth curve using every point as a control vertex " +
+                 "(does not generally pass through interior points).")]
+        [SerializeField] private PathSplineType _customPathSplineType = PathSplineType.Linear;
+
+        [Tooltip(
+            "Waypoints AFTER the spawn point — spawn (local (0,0)) is always implicit " +
+            "point zero, never listed here, and is where the path is GUARANTEED to " +
+            "start. X = forward distance from spawn, along the shot's actual launch " +
+            "direction. Y = perpendicular deviation from that straight line (same axis " +
+            "Wave uses). The LAST point here is exactly where the projectile is " +
+            "guaranteed to be when its lifetime (or Duration above) ends — not " +
+            "approximately, exactly: position is recomputed analytically every tick " +
+            "from elapsed time, not accumulated via velocity integration, specifically " +
+            "so drift can't creep in and miss the endpoint.")]
+        [SerializeField] private List<Vector2> _customPathPoints = new() { new Vector2(3f, 0f) };
+
+        [Tooltip("Formula mode X(t) — forward distance from spawn at parameter t " +
+                 "(0..1). Auto-anchored: the effective offset used is X(t) - X(0), so " +
+                 "the path still always starts at spawn regardless of what X(0) " +
+                 "literally evaluates to.")]
+        [SerializeField] private string _customPathFormulaX = "t * 3";
+
+        [Tooltip("Formula mode Y(t) — perpendicular deviation at parameter t. Same " +
+                 "auto-anchoring as X(t): effective offset is Y(t) - Y(0).")]
+        [SerializeField] private string _customPathFormulaY = "0";
+
+        public AnimationCurve  CustomCurveSpeedMultiplier => _customCurveSpeedMultiplier;
+        public float           CustomCurveDuration        => _customCurveDuration;
+        public bool            CustomCurveLoop             => _customCurveLoop;
+        public PathShape       CustomPathShape             => _customPathShape;
+        public PathSplineType  CustomPathSplineType        => _customPathSplineType;
+        public IReadOnlyList<Vector2> CustomPathPoints     => _customPathPoints;
+        public string           CustomPathFormulaX          => _customPathFormulaX;
+        public string           CustomPathFormulaY          => _customPathFormulaY;
+
+        /// <summary>
+        /// Evaluates the custom movement path at parameter t (0..1), returning
+        /// (forward distance, perpendicular deviation) from the spawn point —
+        /// see _customPathPoints' doc comment for the full picture. Always
+        /// returns exactly (0,0) at t=0 (spawn-anchored, by construction in
+        /// Points mode and by explicit subtraction in Formula mode) and, in
+        /// Points mode, exactly the last authored point at t=1.
+        /// </summary>
+        public Vector2 EvaluateCustomPath(float t)
+        {
+            t = Mathf.Clamp01(t);
+
+            if (_customPathShape == PathShape.Formula)
+            {
+                var ctx  = FormulaContext.For(t);
+                var ctx0 = FormulaContext.For(0f);
+                float x  = MathFormulaEvaluator.Evaluate(_customPathFormulaX, ctx, out _);
+                float y  = MathFormulaEvaluator.Evaluate(_customPathFormulaY, ctx, out _);
+                float x0 = MathFormulaEvaluator.Evaluate(_customPathFormulaX, ctx0, out _);
+                float y0 = MathFormulaEvaluator.Evaluate(_customPathFormulaY, ctx0, out _);
+                return new Vector2(x - x0, y - y0); // auto-anchored to spawn
+            }
+
+            // Points mode: spawn (0,0) is implicit point 0, _customPathPoints
+            // are points 1..n. n+1 total control points for spline purposes.
+            int userCount = _customPathPoints?.Count ?? 0;
+            if (userCount == 0) return Vector2.zero;
+
+            int n = userCount + 1; // including the implicit spawn point
+            Vector2 P(int i) => i == 0 ? Vector2.zero : _customPathPoints[i - 1];
+
+            switch (_customPathSplineType)
+            {
+                case PathSplineType.Linear:
+                {
+                    float scaled = t * (n - 1);
+                    int   seg    = Mathf.Clamp((int)scaled, 0, n - 2);
+                    float segT   = scaled - seg;
+                    return Vector2.Lerp(P(seg), P(seg + 1), segT);
+                }
+                case PathSplineType.CatmullRom:
+                {
+                    if (n == 2) return Vector2.Lerp(P(0), P(1), t);
+                    float scaled = t * (n - 1);
+                    int   seg    = Mathf.Clamp((int)scaled, 0, n - 2);
+                    float segT   = scaled - seg;
+                    Vector2 p0 = P(Mathf.Max(seg - 1, 0));
+                    Vector2 p1 = P(seg);
+                    Vector2 p2 = P(Mathf.Min(seg + 1, n - 1));
+                    Vector2 p3 = P(Mathf.Min(seg + 2, n - 1));
+                    float t2 = segT * segT, t3 = t2 * segT;
+                    return 0.5f * (
+                        2f * p1 +
+                        (-p0 + p2) * segT +
+                        (2f*p0 - 5f*p1 + 4f*p2 - p3) * t2 +
+                        (-p0 + 3f*p1 - 3f*p2 + p3) * t3);
+                }
+                default: // Bezier — De Casteljau over ALL n control points (spawn included)
+                {
+                    Span<Vector2> pts = n <= 32 ? stackalloc Vector2[n] : new Vector2[n];
+                    for (int i = 0; i < n; i++) pts[i] = P(i);
+                    for (int r = 1; r < n; r++)
+                        for (int i = 0; i < n - r; i++)
+                            pts[i] = Vector2.Lerp(pts[i], pts[i + 1], t);
+                    return pts[0];
+                }
+            }
+        }
 
         /// <summary>
         /// Registers this config's Wave/Circular movement parameters with the

@@ -89,6 +89,13 @@ namespace MidManStudio.Projectiles.Managers
         private Vector3                _movementPerpAxis;
         private float                  _movementStartServerTime;
 
+        // ── CustomCurve path-movement state ──────────────────────────────────
+        // See ApplyCustomCurve()'s doc comment for the full design.
+        private Vector3 _movementSpawnPosition;
+        private const int PATH_WARP_TABLE_SIZE = 17;
+        private readonly float[] _pathWarpTable = new float[PATH_WARP_TABLE_SIZE];
+        private bool _pathWarpTableValid;
+
         // Guided — see SetGuidedTarget/ApplyGuided.
         private bool      _hasGuidedTarget;
         private Transform _guidedTargetTransform;
@@ -310,22 +317,61 @@ namespace MidManStudio.Projectiles.Managers
 
         /// <summary>
         /// CUSTOM CURVE MOVEMENT (physics projectiles only — see the enum member's
-        /// own doc comment for why RustSim never touches this): end users author two
-        /// AnimationCurves on the fired ProjectileConfigSO instead of being limited to
-        /// Wave's fixed sine shape — a speed-multiplier curve and a perpendicular-
-        /// offset curve, both sampled at the same normalized-progress X value each
-        /// tick. Structurally this mirrors ApplyWaveCircular exactly (same
-        /// _movementLaunchVelocity/_movementPerpAxis/_movementStartServerTime state,
-        /// same "compute a velocity, hand it to ApplyMovementVelocity" shape) — it's
-        /// not derived from a closed-form position function the way Wave/Circular are,
-        /// because there's no RustSim counterpart to stay numerically consistent with
-        /// here, so there's no reason to pay that complexity cost.
+        /// own doc comment for why RustSim never touches this): the path itself is
+        /// points/formula now, authored the same way ProjectilePatternSO authors
+        /// spawn patterns — NOT an AnimationCurve. Only pacing along that path
+        /// (cfg.CustomCurveSpeedMultiplier) stayed a curve.
+        ///
+        /// GUARANTEED SPAWN-START AND EXACT-ENDPOINT-AT-LIFETIME-END: position is
+        /// recomputed analytically from elapsed time every tick — target = spawn +
+        /// forward*offset.x + perpAxis*offset.y, where offset comes straight from
+        /// cfg.EvaluateCustomPath(t) — not accumulated by integrating a velocity
+        /// over many ticks. Integration would let float error creep in over a long
+        /// flight and risk not quite landing on the authored endpoint; recomputing
+        /// from t fresh each tick can't drift, because it never depends on where
+        /// the projectile happened to end up on the previous tick.
+        ///
+        /// STILL PHYSICS-INTEGRATED, NOT TELEPORTED: rather than setting the
+        /// Rigidbody's position directly (which would skip continuous collision
+        /// detection between the old and new position, same concern
+        /// TeleportBody's own doc situation — that one's fine since Teleport is
+        /// SUPPOSED to jump discretely; this movement type isn't), the velocity
+        /// needed to reach that analytical target THIS tick is derived
+        /// (target - currentPos) / dt and hands off to ApplyMovementVelocity, same
+        /// as every other movement type here. This is naturally self-correcting —
+        /// any small deviation (from a collision nudge, physics substep rounding,
+        /// whatever) gets corrected on the very next tick, since the target is
+        /// always freshly computed from elapsed time, never from the previous
+        /// tick's result.
+        ///
+        /// SPEED CURVE AS A WARP, NOT A LITERAL MULTIPLIER: cfg.
+        /// CustomCurveSpeedMultiplier no longer scales velocity magnitude
+        /// directly (the old AnimationCurve-only version did, and that's
+        /// PRECISELY what could miss the endpoint — scaling instantaneous
+        /// velocity by an arbitrary curve doesn't preserve total distance
+        /// covered). Instead EvaluateSpeedWarp remaps "linear fraction of
+        /// duration elapsed" to "fraction of the path that should be covered by
+        /// now", built once at launch as a normalized cumulative-sum lookup
+        /// table (BuildPathWarpTable) — normalized specifically so tWarped(1)
+        /// always equals 1, preserving the exact-endpoint guarantee regardless
+        /// of the curve's shape. Faster sections of the curve cover path
+        /// distance faster; the total trip still always finishes exactly on
+        /// time, at exactly the last point.
+        ///
+        /// 3D FROM A 2D-AUTHORED PATH: offset.x rides the actual launch
+        /// direction (_movementLaunchVelocity, already computed at launch) and
+        /// offset.y rides _movementPerpAxis (DeterministicMotionMath.
+        /// ComputePerpAxis2D/3D — the SAME perpendicular axis Wave already
+        /// uses) — so a path authored as flat (forward, sideways) numbers
+        /// orients correctly to whatever direction and dimensionality
+        /// (Is2D/Is3D) this specific shot actually launched in, with zero
+        /// path-authoring changes needed between a 2D and a 3D config.
         ///
         /// protected virtual, not private, so a subclass can override just this one
         /// movement type's behaviour without having to reimplement all of FixedUpdate
         /// — end users are already free to override FixedUpdate itself for fully
         /// custom logic (it's protected virtual too); this is the finer-grained hook
-        /// for "I just want different curve math, everything else about this class is
+        /// for "I just want different path math, everything else about this class is
         /// fine."
         /// </summary>
         protected virtual void ApplyCustomCurve()
@@ -337,20 +383,25 @@ namespace MidManStudio.Projectiles.Managers
             if (duration <= 0f) return;
 
             float timeAlive = NetworkManager.ServerTime.TimeAsFloat - _movementStartServerTime;
-            float t = timeAlive / duration;
-            t = cfg.CustomCurveLoop ? Mathf.Repeat(t, 1f) : Mathf.Clamp01(t);
+            float tLinear = timeAlive / duration;
+            tLinear = cfg.CustomCurveLoop ? Mathf.Repeat(tLinear, 1f) : Mathf.Clamp01(tLinear);
 
-            float speedMul = cfg.CustomCurveSpeedMultiplier != null
-                ? cfg.CustomCurveSpeedMultiplier.Evaluate(t) : 1f;
-            float perpAmt  = cfg.CustomCurvePerpOffset != null
-                ? cfg.CustomCurvePerpOffset.Evaluate(t) : 0f;
+            float tWarped = EvaluateSpeedWarp(tLinear);
+            Vector2 offset = cfg.EvaluateCustomPath(tWarped);
 
-            float baseSpeed = _movementLaunchVelocity.magnitude;
-            Vector3 forwardDir = baseSpeed > 0.0001f
-                ? _movementLaunchVelocity / baseSpeed
+            Vector3 forwardDir = _movementLaunchVelocity.sqrMagnitude > 0.0001f
+                ? _movementLaunchVelocity.normalized
                 : GetCurrentVelocity().normalized;
 
-            Vector3 velocity = forwardDir * (baseSpeed * speedMul) + _movementPerpAxis * perpAmt;
+            Vector3 targetPos = _movementSpawnPosition
+                + forwardDir     * offset.x
+                + _movementPerpAxis * offset.y;
+
+            float dt = Time.fixedDeltaTime;
+            Vector3 velocity = dt > 0.0001f
+                ? (targetPos - transform.position) / dt
+                : Vector3.zero;
+
             ApplyMovementVelocity(velocity);
         }
 
@@ -557,6 +608,72 @@ namespace MidManStudio.Projectiles.Managers
                     ? DeterministicMotionMath.ComputePerpAxis2D(launchDir)
                     : DeterministicMotionMath.ComputePerpAxis3D(launchDir);
             }
+
+            if (_movementType == ProjectileMovementType.CustomCurve)
+            {
+                _movementSpawnPosition = transform.position;
+                BuildPathWarpTable(cfg);
+            }
+        }
+
+        /// <summary>
+        /// Samples cfg.CustomCurveSpeedMultiplier at PATH_WARP_TABLE_SIZE evenly-
+        /// spaced t values, builds a cumulative sum, and normalizes it so the
+        /// last entry is exactly 1.0 — a monotonic lookup table mapping
+        /// "linear fraction of duration elapsed" to "fraction of the path's
+        /// arc-length that should have been covered by now". See
+        /// ApplyCustomCurve()'s doc comment for why this table (not a literal
+        /// per-tick velocity multiplier) is what makes "speed stays an
+        /// AnimationCurve" and "always reaches the last point exactly at
+        /// lifetime end" both true at once. Built once per launch — cheap
+        /// (17 curve evaluations), not worth redoing every tick.
+        /// </summary>
+        private void BuildPathWarpTable(ProjectileConfigSO cfg)
+        {
+            if (cfg == null || cfg.CustomCurveSpeedMultiplier == null)
+            {
+                _pathWarpTableValid = false;
+                return;
+            }
+
+            float cumulative = 0f;
+            _pathWarpTable[0] = 0f;
+            for (int i = 1; i < PATH_WARP_TABLE_SIZE; i++)
+            {
+                float t = (float)i / (PATH_WARP_TABLE_SIZE - 1);
+                // Floored, not clamped to exactly 0 — a literal zero-width
+                // segment would make the table non-monotonic (a flat
+                // zero-length span the lerp below can't meaningfully index
+                // into), so a small positive floor keeps every table step
+                // interpolatable even where the authored curve dips to 0.
+                float speed = Mathf.Max(0.0001f, cfg.CustomCurveSpeedMultiplier.Evaluate(t));
+                cumulative += speed;
+                _pathWarpTable[i] = cumulative;
+            }
+
+            float total = _pathWarpTable[PATH_WARP_TABLE_SIZE - 1];
+            if (total > 0.0001f)
+            {
+                for (int i = 0; i < PATH_WARP_TABLE_SIZE; i++)
+                    _pathWarpTable[i] /= total;
+            }
+            _pathWarpTableValid = true;
+        }
+
+        /// <summary>
+        /// Maps a linear 0..1 fraction of elapsed duration to a warped 0..1
+        /// fraction of path progress, via the table BuildPathWarpTable built
+        /// at launch. Falls through unchanged (tWarped == tLinear) if no
+        /// speed curve was available to build a table from.
+        /// </summary>
+        private float EvaluateSpeedWarp(float tLinear)
+        {
+            if (!_pathWarpTableValid) return tLinear;
+
+            float scaled = Mathf.Clamp01(tLinear) * (PATH_WARP_TABLE_SIZE - 1);
+            int   idx    = Mathf.Clamp((int)scaled, 0, PATH_WARP_TABLE_SIZE - 2);
+            float frac   = scaled - idx;
+            return Mathf.Lerp(_pathWarpTable[idx], _pathWarpTable[idx + 1], frac);
         }
 
         #endregion

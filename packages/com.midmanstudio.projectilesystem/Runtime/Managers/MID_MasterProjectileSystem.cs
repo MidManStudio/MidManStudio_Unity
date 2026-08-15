@@ -84,6 +84,34 @@ namespace MidManStudio.Projectiles.Managers
 
         private bool _initialised = false;
 
+        /// <summary>
+        /// READINESS EVENT ("timing issue... maybe make an event fired once
+        /// mid master projectile system ready"): static, not instance-scoped —
+        /// deliberately, so anything can subscribe via
+        /// MID_MasterProjectileSystem.OnSystemReady += Handler BEFORE the
+        /// instance even exists yet, which is exactly the situation a
+        /// scene-present object racing this system's own Awake() is in.
+        ///
+        /// DYNAMICALLY SPAWNED OBJECTS, BOTH NET AND NON-NET: an event alone
+        /// only helps subscribers that attach BEFORE it fires — anything
+        /// spawned later (after this system is already initialised) would
+        /// never see it and hang forever waiting. That's why IsReady exists
+        /// as a static property alongside the event: a consumer should always
+        /// check `if (IsReady) { RegisterNow(); } else { OnSystemReady +=
+        /// Handler; }` — RustSimTargetRegistrar/RustSimCustomShapeAuthoring's
+        /// own RegisterNow() do exactly this. Checked-then-subscribed, not
+        /// subscribed-only, is what makes both a scene-present object racing
+        /// startup AND a dynamically Instantiate()'d one spawned five minutes
+        /// into a session work correctly through the same code path.
+        ///
+        /// Kept alongside — not replacing — the existing per-tick retry in
+        /// RustSimTargetRegistrar/RustSimCustomShapeAuthoring's Update/
+        /// FixedUpdate as a second, independent safety net.
+        /// </summary>
+        public static event Action OnSystemReady;
+
+        public static bool IsReady => HasInstance && Instance._initialised;
+
         #endregion
 
         #region Properties
@@ -251,6 +279,7 @@ namespace MidManStudio.Projectiles.Managers
             }
 
             _initialised = true;
+            OnSystemReady?.Invoke();
 
             MID_Logger.LogInfo(_logLevel,
                 $"Initialised. Mode: {(IsNetworked ? "Networked" : "Offline")} " +
@@ -811,7 +840,6 @@ namespace MidManStudio.Projectiles.Managers
 
         #endregion
 
-        #region Public API - Cleanup
         public void ClearAllTargets()
         {
             if (IsServer)       _authority?.ClearAllTargets();

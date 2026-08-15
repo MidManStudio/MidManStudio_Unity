@@ -50,9 +50,14 @@ namespace MidManStudio.Core.EditorUtils.ScriptableObjectViewer
 
         // ── State ─────────────────────────────────────────────────────────────
 
+        private const int PAGE_SIZE = 50;
+
         private readonly List<Entry>  _allEntries      = new();
         private readonly List<Entry>  _filteredEntries = new();
+        private readonly List<Entry>  _pagedEntries    = new();
         private readonly List<string> _categoryChoices = new();
+
+        private int _currentPage; // 0-indexed
 
         private string     _selectedCategory = ALL_CATEGORIES;
         private string     _searchText       = string.Empty;
@@ -70,6 +75,9 @@ namespace MidManStudio.Core.EditorUtils.ScriptableObjectViewer
         private Label          _detailTitle;
         private IMGUIContainer _detailImgui;
         private VisualElement  _detailEmptyState;
+        private Label          _pageLabel;
+        private Button         _prevPageButton;
+        private Button         _nextPageButton;
 
         // ── Menu ──────────────────────────────────────────────────────────────
 
@@ -155,6 +163,12 @@ namespace MidManStudio.Core.EditorUtils.ScriptableObjectViewer
             _resultsList = rootVisualElement.Q<ListView>("results-list");
             SetupResultsList();
 
+            _pageLabel      = rootVisualElement.Q<Label>("page-label");
+            _prevPageButton = rootVisualElement.Q<Button>("prev-page-btn");
+            _nextPageButton = rootVisualElement.Q<Button>("next-page-btn");
+            _prevPageButton.clicked += () => GoToPage(-1);
+            _nextPageButton.clicked += () => GoToPage(1);
+
             _statsLabel       = rootVisualElement.Q<Label>("stats-label");
             _detailTitle      = rootVisualElement.Q<Label>("detail-title");
             _detailEmptyState = rootVisualElement.Q<VisualElement>("detail-empty");
@@ -190,7 +204,7 @@ namespace MidManStudio.Core.EditorUtils.ScriptableObjectViewer
 
             _resultsList.bindItem = (el, i) =>
             {
-                var entry = _filteredEntries[i];
+                var entry = _pagedEntries[i];
                 var icon = el.Q<Image>("icon");
                 var nameLabel = el.Q<Label>("name");
                 var typeLabel = el.Q<Label>("type");
@@ -219,7 +233,7 @@ namespace MidManStudio.Core.EditorUtils.ScriptableObjectViewer
                     ? DisplayStyle.Flex : DisplayStyle.None;
             };
 
-            _resultsList.itemsSource = _filteredEntries;
+            _resultsList.itemsSource = _pagedEntries;
             _resultsList.selectionType = SelectionType.Single;
             _resultsList.selectionChanged += sel =>
             {
@@ -288,7 +302,7 @@ namespace MidManStudio.Core.EditorUtils.ScriptableObjectViewer
 
         // ── Filtering ─────────────────────────────────────────────────────────
 
-        private void ApplyFilters()
+        private void ApplyFilters(bool resetPage = true)
         {
             _filteredEntries.Clear();
 
@@ -315,7 +329,26 @@ namespace MidManStudio.Core.EditorUtils.ScriptableObjectViewer
                 : src.OrderBy(e => e.Asset != null ? e.Asset.name : string.Empty, StringComparer.OrdinalIgnoreCase);
 
             _filteredEntries.AddRange(src);
+
+            // PAGINATION FIX ("categories dropdown only appears after typing —
+            // due to All Categories being a long list"): the ListView used to
+            // bind directly to _filteredEntries, which for "All Categories" on
+            // a project with hundreds of ScriptableObjects meant laying out
+            // hundreds of rows on the very first frame — exactly the kind of
+            // heavy initial-layout work that raced the window's first paint
+            // (see CreateGUI()'s deferred-Rescan fix for the other half of
+            // this). Only ever binding PAGE_SIZE rows at a time keeps that
+            // initial layout cheap regardless of how large the underlying
+            // asset list is.
+            if (resetPage) _currentPage = 0;
+            int pageCount = Mathf.Max(1, Mathf.CeilToInt(_filteredEntries.Count / (float)PAGE_SIZE));
+            _currentPage = Mathf.Clamp(_currentPage, 0, pageCount - 1);
+
+            _pagedEntries.Clear();
+            _pagedEntries.AddRange(_filteredEntries.Skip(_currentPage * PAGE_SIZE).Take(PAGE_SIZE));
             _resultsList.RefreshItems();
+
+            UpdatePaginationControls(pageCount);
 
             int categoryCount = _categoryChoices.Count - 1; // minus "All Categories" itself
             _statsLabel.text = $"{_filteredEntries.Count} of {_allEntries.Count} asset(s) · {categoryCount} categor{(categoryCount == 1 ? "y" : "ies")}";
@@ -325,6 +358,19 @@ namespace MidManStudio.Core.EditorUtils.ScriptableObjectViewer
             // rather than showing a stale inspector for something not listed.
             if (_selectedAsset != null && !_filteredEntries.Any(e => e.Asset == _selectedAsset))
                 SelectAsset(null);
+        }
+
+        private void UpdatePaginationControls(int pageCount)
+        {
+            _pageLabel.text = $"Page {_currentPage + 1} of {pageCount}";
+            _prevPageButton.SetEnabled(_currentPage > 0);
+            _nextPageButton.SetEnabled(_currentPage < pageCount - 1);
+        }
+
+        private void GoToPage(int delta)
+        {
+            _currentPage += delta;
+            ApplyFilters(resetPage: false);
         }
 
         // ── Selection / Detail panel ─────────────────────────────────────────

@@ -153,6 +153,7 @@ namespace MidManStudio.Projectiles.Managers
         private bool _targetIdResolved;
         private int  _tickCounter;
         private bool _hasRegisteredOnce;
+        private bool _subscribedToReadyEvent;
 
         // SHAPE STATE: populated once at Start() by DetectShape(). Points are
         // stored relative to THIS transform (not the source collider's own
@@ -174,19 +175,33 @@ namespace MidManStudio.Projectiles.Managers
         private void Start()
         {
             DetectShape();
-            RegisterNow(); // best-effort immediate attempt; Update/FixedUpdate retry below cover the rest
+            TryRegisterOrWaitForReady(); // handles both "already ready" (dynamic spawn) and "not yet" (subscribes) — see that method's doc comment
         }
 
         private void OnEnable()
         {
-            // Re-registers on re-enable (e.g. object pooled and reactivated) —
-            // harmless no-op the very first time, since Start() above already
-            // registers before OnEnable would meaningfully differ from it.
+            // Re-registers on re-enable (e.g. object pooled and reactivated).
+            // If it was disabled before ever successfully registering (a
+            // pooled object flipped inactive again quickly, mid-wait), the
+            // OnDisable below already cancelled any pending OnSystemReady
+            // subscription — TryRegisterOrWaitForReady picks that back up
+            // correctly rather than leaving it stalled with nothing driving
+            // it until the next poll tick.
             if (_hasRegisteredOnce) RegisterNow();
+            else                    TryRegisterOrWaitForReady();
         }
 
-        private void OnDisable() => Deactivate();
-        private void OnDestroy() => Deactivate();
+        private void OnDisable()
+        {
+            Deactivate();
+            UnsubscribeFromReadyEvent();
+        }
+
+        private void OnDestroy()
+        {
+            Deactivate();
+            UnsubscribeFromReadyEvent();
+        }
 
         private void Update()
         {
@@ -204,7 +219,10 @@ namespace MidManStudio.Projectiles.Managers
             // within a few frames purely by continuing to tick normally; a
             // static one had no such safety net. Now both behave the same way
             // until the first successful registration, and only then does a
-            // static target actually stop ticking.
+            // static target actually stop ticking. This tick-based retry runs
+            // ALONGSIDE the OnSystemReady event subscription below (Start()/
+            // TryRegisterOrWaitForReady) as an independent second safety net —
+            // neither mechanism depends on the other for correctness.
             if (_isStatic && _hasRegisteredOnce) return;
             Tick();
         }
@@ -225,6 +243,47 @@ namespace MidManStudio.Projectiles.Managers
             if (++_tickCounter < _updateEveryNTicks) return;
             _tickCounter = 0;
             RegisterNow();
+        }
+
+        /// <summary>
+        /// DYNAMICALLY SPAWNED OBJECTS FIX, BOTH NET AND NON-NET: checks
+        /// MID_MasterProjectileSystem.IsReady FIRST — if the system is
+        /// already initialised (the common case for anything Instantiate()'d
+        /// during normal gameplay, well after scene load), registers
+        /// immediately with zero extra latency, exactly as if this were a
+        /// direct RegisterNow() call. Only subscribes to OnSystemReady when
+        /// it genuinely isn't ready yet (the case a scene-present object can
+        /// hit at startup, racing this system's own Awake()). Subscribing
+        /// unconditionally instead — without this readiness check — would be
+        /// the actual bug: an object spawned AFTER OnSystemReady already
+        /// fired would subscribe to an event that's never firing again and
+        /// hang forever waiting for it, with only the tick-based retry below
+        /// left to save it.
+        /// </summary>
+        private void TryRegisterOrWaitForReady()
+        {
+            if (MID_MasterProjectileSystem.IsReady)
+            {
+                RegisterNow();
+                return;
+            }
+
+            if (_subscribedToReadyEvent) return;
+            MID_MasterProjectileSystem.OnSystemReady += HandleSystemReady;
+            _subscribedToReadyEvent = true;
+        }
+
+        private void HandleSystemReady()
+        {
+            UnsubscribeFromReadyEvent();
+            RegisterNow();
+        }
+
+        private void UnsubscribeFromReadyEvent()
+        {
+            if (!_subscribedToReadyEvent) return;
+            MID_MasterProjectileSystem.OnSystemReady -= HandleSystemReady;
+            _subscribedToReadyEvent = false;
         }
 
         private void RegisterNow()
@@ -258,6 +317,7 @@ namespace MidManStudio.Projectiles.Managers
             else          RegisterCircleNow(system);
 
             _hasRegisteredOnce = true;
+            UnsubscribeFromReadyEvent(); // no longer needed once actually registered
         }
 
         private void RegisterCircleNow(MID_MasterProjectileSystem system)

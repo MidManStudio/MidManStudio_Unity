@@ -24,6 +24,15 @@
 //               Without that flag: scalar, same as "all others" below.
 //   All others: scalar fast_atan2 + Quake rsqrt.
 //
+//   x86_64 additionally gets an AVX2 8-wide tier for the Straight batch tick
+//   (simd_avx2.rs) — RUNTIME-dispatched via is_x86_feature_detected!("avx2"),
+//   cached, NOT a compile-time target-feature gate. The same binary runs on
+//   every x86_64 CPU; only the ones that actually support AVX2 take the
+//   8-wide path, everything else falls straight through to the SSE2 4-wide
+//   tier above. See simd_avx2.rs's own header for why compile-time gating
+//   alone would be unsafe to ship broadly (illegal-instruction crash on any
+//   end user without AVX2 — most CPUs older than Haswell, 2013).
+//
 //   math/ provides Vec2x4, Vec3x4, f32x4 — SIMD-backed wide vector types
 //   used by simulation.rs and collision.rs. Platform dispatch is inside f32x4.
 //
@@ -41,6 +50,8 @@ mod state;
 mod config_store;
 mod simd;
 mod math;        // ← wide math types: f32x4, Vec2x4, Vec3x4
+#[cfg(target_arch = "x86_64")]
+mod simd_avx2;   // ← 8-wide AVX2 tier, runtime-dispatched — see this module's header
 
 pub use simulation::*;
 pub use collision::*;

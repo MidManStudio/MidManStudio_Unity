@@ -47,7 +47,7 @@ namespace MidManStudio.Projectiles.Config
     }
 
     /// Identifies the intended use of a formula string (drives example presets).
-    public enum FormulaUsage { ShapeX, ShapeY, PatternH, PatternV }
+    public enum FormulaUsage { ShapeX, ShapeY, PatternH, PatternV, PathX, PathY }
 
     /// Recursive-descent expression parser and evaluator.
     /// Thread-safe — no shared mutable state.
@@ -385,6 +385,20 @@ namespace MidManStudio.Projectiles.Config
                     "cos(i / n * tau) * 30",
                     "sin(i / n * pi) * 45",
                     "i / (n - 1) * 60 - 30",
+                },
+                FormulaUsage.PathX => new[]
+                {
+                    "t * 5",
+                    "t * t * 5",
+                    "sin(t * pi * 0.5) * 5",
+                    "t * 5 + sin(t * tau * 3) * 0.3",
+                },
+                FormulaUsage.PathY => new[]
+                {
+                    "0",
+                    "sin(t * tau) * 1.5",
+                    "sin(t * pi) * 2",
+                    "(sin(t * tau * 3)) * (1 - t) * 1.5",
                 },
                 _ => Array.Empty<string>()
             };

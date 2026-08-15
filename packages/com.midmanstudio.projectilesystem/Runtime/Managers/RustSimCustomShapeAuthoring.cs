@@ -109,6 +109,7 @@ namespace MidManStudio.Projectiles.Managers
         private bool _targetIdResolved;
         private int  _tickCounter;
         private bool _hasRegisteredOnce;
+        private bool _subscribedToReadyEvent;
 
         private readonly Vector3[] _bakedLocalPoints = new Vector3[ShapeCollider2D.MaxPoints];
         private int _bakedCount;
@@ -252,16 +253,26 @@ namespace MidManStudio.Projectiles.Managers
         private void Start()
         {
             Rebake();
-            RegisterNow(); // best-effort immediate attempt; Update/FixedUpdate retry below cover the rest
+            TryRegisterOrWaitForReady(); // see RustSimTargetRegistrar's matching method doc — same dynamic-spawn fix
         }
 
         private void OnEnable()
         {
             if (_hasRegisteredOnce) RegisterNow();
+            else                    TryRegisterOrWaitForReady();
         }
 
-        private void OnDisable() => Deactivate();
-        private void OnDestroy() => Deactivate();
+        private void OnDisable()
+        {
+            Deactivate();
+            UnsubscribeFromReadyEvent();
+        }
+
+        private void OnDestroy()
+        {
+            Deactivate();
+            UnsubscribeFromReadyEvent();
+        }
 
         private void Update()
         {
@@ -288,6 +299,34 @@ namespace MidManStudio.Projectiles.Managers
             if (++_tickCounter < _updateEveryNTicks) return;
             _tickCounter = 0;
             RegisterNow();
+        }
+
+        /// <summary>See RustSimTargetRegistrar's matching method — identical
+        /// dynamic-spawn fix, identical reasoning.</summary>
+        private void TryRegisterOrWaitForReady()
+        {
+            if (MID_MasterProjectileSystem.IsReady)
+            {
+                RegisterNow();
+                return;
+            }
+
+            if (_subscribedToReadyEvent) return;
+            MID_MasterProjectileSystem.OnSystemReady += HandleSystemReady;
+            _subscribedToReadyEvent = true;
+        }
+
+        private void HandleSystemReady()
+        {
+            UnsubscribeFromReadyEvent();
+            RegisterNow();
+        }
+
+        private void UnsubscribeFromReadyEvent()
+        {
+            if (!_subscribedToReadyEvent) return;
+            MID_MasterProjectileSystem.OnSystemReady -= HandleSystemReady;
+            _subscribedToReadyEvent = false;
         }
 
         /// <summary>
@@ -430,6 +469,7 @@ namespace MidManStudio.Projectiles.Managers
             }
 
             _hasRegisteredOnce = true;
+            UnsubscribeFromReadyEvent(); // no longer needed once actually registered
         }
 
         private float ScaledThickness()
