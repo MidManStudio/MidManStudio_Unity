@@ -19,6 +19,15 @@ namespace TestGame
     [DefaultExecutionOrder(-50)]
     public class TestSceneBootstrapper : MonoBehaviour
     {
+        /// <summary>
+        /// Lightweight self-registration (not a full Singleton&lt;T&gt;) so
+        /// PlayerHealth/NetworkTurretTarget can reach GetPlayerRespawnPoint()
+        /// without a serialized reference — Player.prefab and turret prefabs
+        /// are project assets and can't hold a direct reference to a scene
+        /// object like this one.
+        /// </summary>
+        public static TestSceneBootstrapper Instance { get; private set; }
+
         #region Inspector
 
         [Header("Required References")]
@@ -105,6 +114,8 @@ namespace TestGame
 
         private void Awake()
         {
+            Instance = this;
+
             if (_lobbyManager  == null) _lobbyManager  = FindObjectOfType<LocalLobbyManager>();
             if (_objectPool    == null) _objectPool    = FindObjectOfType<LocalObjectPool>();
             if (_particlePool  == null) _particlePool  = FindObjectOfType<LocalParticlePool>();
@@ -446,19 +457,19 @@ namespace TestGame
         }
 
         private void OnProjectileHit(ProjectileHitPayload payload)
-            => ApplyHit(payload.TargetId, payload.Damage, payload.HitPosition);
+            => ApplyHit(payload.TargetId, payload.Damage, payload.HitPosition, payload.OwnerMidId);
 
         private void OnLocalHit(LocalHitPayload payload)
             => ApplyHit(payload.RawTargetId, payload.Damage, payload.HitPosition);
 
         private void OnRaycastHitServer(ProjectileHitPayload payload)
-            => ApplyHit(payload.TargetId, payload.Damage, payload.HitPosition);
+            => ApplyHit(payload.TargetId, payload.Damage, payload.HitPosition, payload.OwnerMidId);
 
         #endregion
 
         #region Hit Resolution
 
-        private void ApplyHit(uint targetId, float damage, Vector3 hitPos)
+        private void ApplyHit(uint targetId, float damage, Vector3 hitPos, ulong attackerClientId = ulong.MaxValue)
         {
             if (_map3D.TryGetValue(targetId, out var t3) && t3 != null)
             { t3.TakeDamage(damage); PlayImpactFX(hitPos); return; }
@@ -479,6 +490,24 @@ namespace TestGame
                 var no = kv.Value.GetComponent<NetworkObject>();
                 if (no != null && (uint)no.NetworkObjectId == targetId)
                 { kv.Value.TakeDamage(damage); PlayImpactFX(hitPos); return; }
+            }
+
+            // PvP / turret-vs-player: resolve any spawned NetworkObject by id and
+            // look for IDamageable generically, instead of requiring a bootstrapper
+            // -side registration map like the two TestTarget dictionaries above.
+            // PlayerHealth and NetworkTurretTarget both implement it.
+            var spawnManager = NetworkManager.Singleton != null ? NetworkManager.Singleton.SpawnManager : null;
+            if (spawnManager != null &&
+                spawnManager.SpawnedObjects.TryGetValue(targetId, out var hitNetObj) &&
+                hitNetObj != null)
+            {
+                var damageable = hitNetObj.GetComponent<IDamageable>();
+                if (damageable != null && damageable.IsAlive)
+                {
+                    damageable.TakeDamage(damage, attackerClientId);
+                    PlayImpactFX(hitPos);
+                    return;
+                }
             }
 
             if (damage > 0f) SnapToNearest(hitPos, damage);
@@ -583,6 +612,21 @@ namespace TestGame
                 return _playerSpawnPoints[index % _playerSpawnPoints.Length].position;
             float a = index / (float)Mathf.Max(_targetCount3D, 1) * Mathf.PI * 2f;
             return new Vector3(Mathf.Cos(a) * 3f, 0.5f, Mathf.Sin(a) * 3f);
+        }
+
+        /// <summary>
+        /// Public respawn-point accessor for PlayerHealth (PvP death/respawn).
+        /// Picks randomly among _playerSpawnPoints rather than round-robin like
+        /// GetSpawnPoint(index) — avoids always sending a just-killed player
+        /// back to the same slot they started in. Falls back to (0,1,0) if no
+        /// spawn points are assigned, same "don't just throw" spirit as
+        /// GetSpawnPoint's own fallback.
+        /// </summary>
+        public Vector3 GetPlayerRespawnPoint()
+        {
+            if (_playerSpawnPoints != null && _playerSpawnPoints.Length > 0)
+                return _playerSpawnPoints[UnityEngine.Random.Range(0, _playerSpawnPoints.Length)].position;
+            return new Vector3(0f, 1f, 0f);
         }
 
         #endregion

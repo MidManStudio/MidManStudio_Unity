@@ -1,0 +1,84 @@
+MidManStudio_Unity — weapon/PvP/turret/pickup drop-in
+======================================================
+
+Extract this archive over the root of MidManStudio_Unity (paths inside already
+match the repo layout). It touches these files:
+
+NEW FILES
+---------
+packages/com.midmanstudio.netcode/Runtime/Components/OwnerAuthoritativeNetworkTransform.cs (+ .meta)
+    The movement-bug fix. Swap-in replacement for the stock NetworkTransform —
+    see the file's own doc comment for the root cause.
+
+packages/com.midmanstudio.projectilesystem/Runtime/Config/WeaponDefinitionSO.cs (+ .meta)
+    Per-weapon data asset (fire rate, shot pattern, pool types, audio, muzzle
+    FX, etc). Lives in the reusable package, not the test harness — it has no
+    dependency on PlayerShootMode, so it's usable in your real games too.
+
+packages/com.midmanstudio.projectilesystem/Tests/Runtime/WeaponController.cs (+ .meta)
+    Everything fire/weapon-specific that used to live on NetworkedDimensionPlayer,
+    plus new: inventory, pickup, switching, Animator trigger on switch.
+
+packages/com.midmanstudio.projectilesystem/Tests/Runtime/WeaponPickup.cs (+ .meta)
+    Scene trigger that grants + auto-equips a weapon on pickup.
+
+packages/com.midmanstudio.projectilesystem/Tests/Runtime/IDamageable.cs (+ .meta)
+    Small interface so hit-routing can damage players/turrets generically.
+
+packages/com.midmanstudio.projectilesystem/Tests/Runtime/PlayerHealth.cs (+ .meta)
+    PvP health/damage/death/respawn-at-spawn-point for players.
+
+packages/com.midmanstudio.projectilesystem/Tests/Runtime/NetworkTurretTarget.cs (+ .meta)
+    Scene turret: shootable (TestTarget's proven flash/hit-FX/respawn pattern)
+    AND shoots back at the nearest player with real physics projectiles.
+    Health bar root is shown/hidden around death/respawn, not just fill amount.
+
+PackageSandbox/Assets/ProjectileSystemTest/So/Weapon/DefaultWeapon.asset (+ .meta, + So/Weapon.meta)
+    A WeaponDefinitionSO reproducing the exact values that used to be
+    hardcoded on NetworkedDimensionPlayer (fire rate 5, configTypeId3D 2,
+    physics pool types 100/101, etc) — behavior is unchanged out of the box.
+    Lives alongside your existing So/Proj, So/Pattern, So/Shape folders.
+
+MODIFIED FILES (full replacements)
+-----------------------------------
+packages/com.midmanstudio.projectilesystem/Tests/Runtime/NetworkedDimensionPlayer.cs
+    Weapon/fire logic removed, delegates to WeaponController. Movement/dimension
+    /dash/mouse-look/camera/tint all unchanged. IMPORTANT: keeps its ORIGINAL
+    guid (0fea4e3759854451bb643c99906e2bf5) — no .meta included here on purpose,
+    don't let your file manager generate a new one, just overwrite the .cs.
+
+packages/com.midmanstudio.projectilesystem/Tests/Runtime/TestSceneBootstrapper.cs
+    Three small additions: a static Instance accessor, a public
+    GetPlayerRespawnPoint(), and ApplyHit() extended with a generic IDamageable
+    branch (routes hits to PlayerHealth/NetworkTurretTarget via
+    NetworkManager.SpawnManager, same as the movement fix's reasoning — no
+    bootstrapper-side registration needed for the new types). Also keeps its
+    original guid, no .meta included.
+
+PackageSandbox/Assets/ProjectileSystemTest/Prefabs/Player.prefab
+    - NetworkTransform swapped to the owner-authoritative fix (line-level guid change).
+    - WeaponController + PlayerHealth components added, fully wired (including
+      _availableWeapons -> DefaultWeapon.asset), zero placeholder TODOs.
+    - NetworkedDimensionPlayer's serialized fields trimmed to match its new
+      (smaller) field set, plus a new _weapon reference to the WeaponController
+      component added right after it.
+
+STILL NEEDS THE EDITOR (can't be done from files alone)
+---------------------------------------------------------
+- Import your low-poly gun models, assign one to DefaultWeapon's
+  _weaponModelPrefab (or make more WeaponDefinitionSO assets per gun, drag
+  onto WeaponController's _availableWeapons list on Player.prefab).
+- Add an Animator + AnimatorController to Player.prefab with a "SwitchWeapon"
+  trigger (or whatever name you set on _defaultSwitchAnimTrigger / a weapon's
+  own _switchAnimTrigger override) if you want the switch animation to
+  actually play — switching still fully functions with no Animator assigned.
+- Drop a WeaponPickup prefab/instance in your scene, assign a WeaponDefinitionSO
+  to it.
+- Drop a NetworkTurretTarget prefab/instance in your scene (SphereCollider +
+  a WeaponDefinitionSO assigned), same registration pattern your existing
+  TestTarget/TestTarget2D instances already use in TestSceneBootstrapper.
+- PlayerHealth's _healthBarFill / _healthBarRoot are optional and left
+  unassigned on Player.prefab — wire up a Canvas health bar if you want one
+  visible for players (the turret's health bar was the one explicitly asked
+  for in the request; players didn't need one, but the component supports it
+  identically if you want it).
