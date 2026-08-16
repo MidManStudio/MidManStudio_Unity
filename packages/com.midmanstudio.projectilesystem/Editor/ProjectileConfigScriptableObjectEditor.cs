@@ -70,6 +70,23 @@ namespace MidManStudio.Projectiles.EditorUtils
         // example. This class is just ITS reference usage now.
         private readonly ProjectileConfigJsonPanel _jsonPanel = new();
 
+        // POLISHED PATH EDITOR: same reusable-panel pattern as _jsonPanel
+        // above — see ProjectileCustomPathPanel's own doc comment. Replaces
+        // the plain default List<Vector2>/string fields the CustomCurve path
+        // used to fall back to with formula validation, an example dropdown,
+        // a draggable point list, and a live preview.
+        private readonly ProjectileCustomPathPanel _pathPanel = new();
+
+        // Path fields excluded from the default draw below — DrawPropertiesExcluding
+        // skips exactly these, then _pathPanel.Draw renders its own rich UI for
+        // them afterward. Every other field (base class and subclass alike)
+        // still draws normally, same as DrawDefaultInspector() did before.
+        private static readonly string[] PathFieldsHandledByPanel =
+        {
+            "_customPathShape", "_customPathSplineType", "_customPathPoints",
+            "_customPathFormulaX", "_customPathFormulaY",
+        };
+
         public override void OnInspectorGUI()
         {
             // ── Icon cache fix ───────────────────────────────────────────────
@@ -105,14 +122,14 @@ namespace MidManStudio.Projectiles.EditorUtils
             //
             // Fix: reproduce MID_BaseSOEditor's own invalidate+repaint step
             // here too. EditorGUI.BeginChangeCheck/EndChangeCheck around
-            // DrawDefaultInspector() picks up ANY field edit (not just the
+            // the properties draw picks up ANY field edit (not just the
             // icon) — cheap and harmless to invalidate a couple of extra
             // times on an unrelated field change, and far simpler/more
             // robust than trying to diff _customIcon specifically before vs.
             // after the call. Loops over `targets` (not just `target`) since
             // this editor supports multi-select ([CanEditMultipleObjects]).
             EditorGUI.BeginChangeCheck();
-            DrawDefaultInspector();
+            DrawPropertiesExcluding(serializedObject, PathFieldsHandledByPanel);
             if (EditorGUI.EndChangeCheck())
             {
                 foreach (var t in targets)
@@ -125,6 +142,17 @@ namespace MidManStudio.Projectiles.EditorUtils
                 }
                 EditorApplication.RepaintProjectWindow();
             }
+
+            // Single-object only — a draggable-point-list-and-preview UI
+            // doesn't have a sensible meaning across a multi-selection the
+            // way plain PropertyField edits do (those apply uniformly; "drag
+            // this point" doesn't).
+            if (targets.Length == 1 && target is ProjectileConfigSO cfg)
+                _pathPanel.Draw(serializedObject, cfg);
+            else if (targets.Length > 1)
+                EditorGUILayout.HelpBox(
+                    "Custom Movement Path editing is single-object only — select just one config to edit its path.",
+                    MessageType.None);
 
             _jsonPanel.Draw(serializedObject);
         }
