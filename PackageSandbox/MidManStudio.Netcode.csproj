@@ -115,6 +115,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.netcode/Runtime/Connection/MID_NetworkConnectionManager.cs">
       <Link>Runtime/Connection/MID_NetworkConnectionManager.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.netcode/Runtime/Components/OwnerAuthoritativeNetworkTransform.cs">
+      <Link>Runtime/Components/OwnerAuthoritativeNetworkTransform.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.netcode/Runtime/Collections/MID_NetworkDictionary.cs">
       <Link>Runtime/Collections/MID_NetworkDictionary.cs</Link>
     </Compile>
@@ -1031,6 +1034,10 @@
     </Reference>
     <Reference Include="Unity.Collections">
       <HintPath>Library/ScriptAssemblies/Unity.Collections.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Unity.Netcode.Components">
+      <HintPath>Library/ScriptAssemblies/Unity.Netcode.Components.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="UnityEditor.UI">

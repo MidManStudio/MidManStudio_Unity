@@ -1,4 +1,46 @@
 ﻿
 @data(
+problems = `/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/WeaponController.cs(183,45): error CS1061: 'NetworkedDimensionPlayer' does not contain a definition for 'ControlEnabled' and no accessible extension method 'ControlEnabled' accepting a first argument of type 'NetworkedDimensionPlayer' could be found (are you missing a using directive or an assembly reference?)
 
+/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/WeaponController.cs(328,38): error CS0122: 'NetworkedDimensionPlayer.ResolveShotPoint()' is inaccessible due to its protection level
+
+/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/WeaponController.cs(330,38): error CS0122: 'NetworkedDimensionPlayer.ResolveFireDir()' is inaccessible due to its protection level
+
+/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/WeaponController.cs(364,40): error CS0122: 'NetworkedDimensionPlayer.ResolveShotPoint()' is inaccessible due to its protection level
+
+/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/WeaponController.cs(366,40): error CS0122: 'NetworkedDimensionPlayer.ResolveFireDir()' is inaccessible due to its protection level
+
+/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/WeaponController.cs(383,40): error CS0122: 'NetworkedDimensionPlayer.Use3DConvention()' is inaccessible due to its protection level
+
+/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/WeaponController.cs(418,38): error CS0122: 'NetworkedDimensionPlayer.ResolveShotPoint()' is inaccessible due to its protection level
+
+/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/WeaponController.cs(420,38): error CS0122: 'NetworkedDimensionPlayer.ResolveFireDir()' is inaccessible due to its protection level
+
+/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/WeaponController.cs(432,34): error CS0122: 'NetworkedDimensionPlayer.Use3DConvention()' is inaccessible due to its protection level
+
+/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/WeaponController.cs(528,38): error CS0122: 'NetworkedDimensionPlayer.ResolveShotPoint()' is inaccessible due to its protection level
+
+/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/WeaponController.cs(530,38): error CS0122: 'NetworkedDimensionPlayer.ResolveFireDir()' is inaccessible due to its protection level
+
+/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/WeaponController.cs(541,42): error CS0122: 'NetworkedDimensionPlayer.Use3DConvention()' is inaccessible due to its protection level
+
+/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/WeaponController.cs(653,34): error CS0122: 'NetworkedDimensionPlayer.Use3DConvention()' is inaccessible due to its protection level
+
+/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/WeaponController.cs(675,38): error CS0122: 'NetworkedDimensionPlayer.Use3DConvention()' is inaccessible due to its protection level
+
+/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/WeaponController.cs(733,25): error CS0122: 'NetworkedDimensionPlayer.Use3DConvention()' is inaccessible due to its protection level
+
+/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/WeaponController.cs(735,30): error CS1061: 'NetworkedDimensionPlayer' does not contain a definition for 'CurrentDimension' and no accessible extension method 'CurrentDimension' accepting a first argument of type 'NetworkedDimensionPlayer' could be found (are you missing a using directive or an assembly reference?)
+
+/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/WeaponController.cs(768,34): error CS0122: 'NetworkedDimensionPlayer.Use3DConvention()' is inaccessible due to its protection level
+
+/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/PlayerHealth.cs(107,46): error CS1061: 'NetworkedDimensionPlayer' does not contain a definition for 'MeshRenderers' and no accessible extension method 'MeshRenderers' accepting a first argument of type 'NetworkedDimensionPlayer' could be found (are you missing a using directive or an assembly reference?)
+
+/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/PlayerHealth.cs(178,21): error CS1061: 'NetworkedDimensionPlayer' does not contain a definition for 'SetControlAndVisibilityEnabled' and no accessible extension method 'SetControlAndVisibilityEnabled' accepting a first argument of type 'NetworkedDimensionPlayer' could be found (are you missing a using directive or an assembly reference?)
+
+/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/PlayerHealth.cs(186,21): error CS1061: 'NetworkedDimensionPlayer' does not contain a definition for 'SetControlAndVisibilityEnabled' and no accessible extension method 'SetControlAndVisibilityEnabled' accepting a first argument of type 'NetworkedDimensionPlayer' could be found (are you missing a using directive or an assembly reference?)
+
+/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/PlayerHealth.cs(244,21): error CS1061: 'NetworkedDimensionPlayer' does not contain a definition for 'RefreshTint' and no accessible extension method 'RefreshTint' accepting a first argument of type 'NetworkedDimensionPlayer' could be found (are you missing a using directive or an assembly reference?)
+
+`
 )

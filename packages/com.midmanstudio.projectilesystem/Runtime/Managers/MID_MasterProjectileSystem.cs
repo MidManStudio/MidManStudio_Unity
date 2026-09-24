@@ -840,6 +840,7 @@ namespace MidManStudio.Projectiles.Managers
 
         #endregion
 
+        #region API - Clearing Targets
         public void ClearAllTargets()
         {
             if (IsServer)       _authority?.ClearAllTargets();

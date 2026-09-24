@@ -121,6 +121,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/PhysicsProjectile2D.cs">
       <Link>Runtime/Managers/PhysicsProjectile2D.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Config/WeaponDefinitionSO.cs">
+      <Link>Runtime/Config/WeaponDefinitionSO.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Data/MID_AllProjectileNames.cs">
       <Link>Runtime/Data/MID_AllProjectileNames.cs</Link>
     </Compile>

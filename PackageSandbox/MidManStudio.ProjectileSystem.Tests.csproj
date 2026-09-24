@@ -61,6 +61,9 @@
     <Analyzer Include="/Applications/Unity/Hub/Editor/2022.3.13f1/Unity.app/Contents/Tools/Unity.SourceGenerators/Unity.Properties.SourceGenerator.dll" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/IDamageable.cs">
+      <Link>Tests/Runtime/IDamageable.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/UI/LobbyEntryCard.cs">
       <Link>Tests/Runtime/UI/LobbyEntryCard.cs</Link>
     </Compile>
@@ -70,17 +73,29 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/DimensionCameraController.cs">
       <Link>Tests/Runtime/DimensionCameraController.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/PlayerHealth.cs">
+      <Link>Tests/Runtime/PlayerHealth.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/ProjectileSystemBenchmark.cs">
       <Link>Tests/Runtime/ProjectileSystemBenchmark.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/MID_TouchJoystick.cs">
       <Link>Tests/Runtime/MID_TouchJoystick.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/NetworkTurretTarget.cs">
+      <Link>Tests/Runtime/NetworkTurretTarget.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/WeaponController.cs">
+      <Link>Tests/Runtime/WeaponController.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/NetworkPlayerObjectObserverProvider.cs">
       <Link>Tests/Runtime/NetworkPlayerObjectObserverProvider.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/ProjectileTestLobbyUI.cs">
       <Link>Tests/Runtime/ProjectileTestLobbyUI.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/WeaponPickup.cs">
+      <Link>Tests/Runtime/WeaponPickup.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/TestTarget.cs">
       <Link>Tests/Runtime/TestTarget.cs</Link>

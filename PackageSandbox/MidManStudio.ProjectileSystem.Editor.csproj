@@ -76,6 +76,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Editor/MiniJsonParser.cs">
       <Link>Editor/MiniJsonParser.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Editor/ProjectileCustomPathPanel.cs">
+      <Link>Editor/ProjectileCustomPathPanel.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Editor/ScriptableObjectJsonApplier.cs">
       <Link>Editor/ScriptableObjectJsonApplier.cs</Link>
     </Compile>
