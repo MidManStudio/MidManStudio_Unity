@@ -1,4 +1,7 @@
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ProjectileTestLobbyUI.cs"
+// ============================================================================
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
@@ -372,8 +375,6 @@ namespace TestGame
 
         private static string FriendlyStatus(string raw) => raw switch
         {
-            // FIX: removed \u2713 (✓) — not in LiberationSans SDF, caused TMP glyph warning
-            // on the "NetStat" text object.
             "WIFI_CONNECTED" => "WiFi Connected",
             "HOTSPOT"        => "Hotspot Active — others can join",
             "MOBILE_DATA"    => "Mobile Data only — WiFi needed for LAN",

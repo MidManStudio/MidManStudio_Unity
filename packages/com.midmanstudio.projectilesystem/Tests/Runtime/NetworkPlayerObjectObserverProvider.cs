@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "NetworkPlayerObjectObserverProvider.cs"
+// ============================================================================
 using UnityEngine;
 using Unity.Netcode;
 using MidManStudio.Projectiles.Network;

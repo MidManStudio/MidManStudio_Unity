@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "WeaponPickup.cs"
+// ============================================================================
 using System.Collections;
 using UnityEngine;
 using Unity.Netcode;

@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "LobbyEntryCard.cs"
+// ============================================================================
 // packages/com.midmanstudio.projectilesystem/Tests/Runtime/UI/LobbyEntryCard.cs
 // Self-contained lobby entry card.
 // One instance per discovered lobby in the browse list.

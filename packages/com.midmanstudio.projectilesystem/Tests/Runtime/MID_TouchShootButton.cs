@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "MID_TouchShootButton.cs"
+// ============================================================================
 // On-screen shoot button. Reports Pressed/Released via events and IsPressed,
 // using pointer down/up directly (not Button.onClick) so a held press can drive
 // continuous/automatic fire from a controller script if you want that later.
