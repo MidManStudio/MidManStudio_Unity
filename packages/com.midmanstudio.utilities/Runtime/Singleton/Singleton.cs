@@ -1,22 +1,46 @@
-﻿using UnityEngine;
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/singleton.md, section "Singleton.cs"
+// ============================================================================
+using UnityEngine;
 using UnityEngine.SceneManagement;
 
 
 namespace MidManStudio.Core.Singleton
 {
     /// <summary>
-    /// Base singleton class, notice use always use HasInstance to check for existing instance
-    /// if you notices object being dynamically created , means you are using .Instance without an existing instance in place
-    /// 
+    /// Base class for a MonoBehaviour singleton. Subclass it with your own
+    /// component type: <c>public class Foo : Singleton&lt;Foo&gt;</c>.
+    ///
+    /// <see cref="Instance"/> lazily finds or creates the singleton the first
+    /// time it is accessed: if no instance exists in the scene, one is
+    /// created automatically (in play mode only). To check whether one
+    /// already exists without triggering that auto-create, use
+    /// <see cref="HasInstance"/> or <see cref="GetExistingInstance"/>
+    /// instead. If an instance turns up unexpectedly, it usually means
+    /// something accessed <see cref="Instance"/> before a real one was
+    /// placed in the scene.
     /// </summary>
-    /// <typeparam name="T"></typeparam>
+    /// <typeparam name="T">The concrete MonoBehaviour subclass.</typeparam>
     public class Singleton<T> : MonoBehaviour where T : Component
     {
         private static T _instance;
 
         // Public properties with proper null checks
+
+        /// <summary>True if a live instance currently exists. Never creates one.</summary>
         public static bool HasInstance => _instance != null && _instance;
+
+        /// <summary>Returns the existing instance, or null if none exists yet. Never creates one.</summary>
         public static T TryGetInstance() => HasInstance ? _instance : null;
+
+        /// <summary>
+        /// The raw backing instance, without the find/create logic
+        /// <see cref="Instance"/> runs. Unlike <see cref="TryGetInstance"/>,
+        /// this can return a reference to an instance Unity has since
+        /// destroyed; prefer <see cref="TryGetInstance"/> or
+        /// <see cref="HasInstance"/> unless that distinction matters.
+        /// </summary>
         public static T CurrentInstance => _instance;
 
         // Persistence settings
@@ -28,10 +52,26 @@ namespace MidManStudio.Core.Singleton
         private static int _sceneLoadCount = 0;
 
         // Events
+
+        /// <summary>Signature for <see cref="OnSceneChanged"/>.</summary>
         public delegate void SceneChangeHandler(string previousScene, string currentScene);
+
+        /// <summary>
+        /// Raised after a scene finishes loading, but only once this
+        /// singleton has been marked to persist across scenes (see
+        /// <see cref="InitializeSingleton"/>). Never raised for a
+        /// non-persisting singleton.
+        /// </summary>
         public static event SceneChangeHandler OnSceneChanged;
 
-        // Instance accessor
+        /// <summary>
+        /// Gets the singleton instance, finding it in the scene or creating
+        /// one if neither exists yet (play mode only; logs a warning and
+        /// returns null in edit mode). If more than one instance is found,
+        /// keeps the first valid one and destroys the rest. See the class
+        /// summary for why this can surprise you with an unexpected
+        /// auto-created instance.
+        /// </summary>
         public static T Instance
         {
             get
@@ -76,7 +116,7 @@ namespace MidManStudio.Core.Singleton
                         }
                     }
 
-                    // Create new instance if none found ok this why we get instance created when not found shiiiiiiii
+                    // Create a new instance if none was found in the scene.
                     if (_instance == null || !_instance)
                     {
                         if (Application.isPlaying)
@@ -180,17 +220,13 @@ namespace MidManStudio.Core.Singleton
             }
         }
 
-        /// <summary>
-        /// Setup the singleton
-        /// </summary>
+        /// <summary>Calls <see cref="InitializeSingleton"/> with persistence off. Override to change what happens on Awake, calling base.Awake() first.</summary>
         protected virtual void Awake()
         {
             InitializeSingleton(false);
         }
 
-        /// <summary>
-        /// Call this to remake the singleton
-        /// </summary>
+        /// <summary>Re-runs singleton setup, for example after a subclass has been reconfigured. No-op if this component has already been destroyed.</summary>
         protected virtual void Remake(bool persistAcrossScenes = false)
         {
             if (this == null) return;
@@ -198,7 +234,11 @@ namespace MidManStudio.Core.Singleton
         }
 
         /// <summary>
-        /// Initialize the singleton with persistence option
+        /// Claims this component as the singleton instance if none exists
+        /// yet, or destroys this GameObject if a different instance already
+        /// holds the slot. Pass <paramref name="persistAcrossScenes"/> true
+        /// to also call <see cref="DontDestroyOnLoad"/> and start raising
+        /// <see cref="OnSceneChanged"/>. Only valid in play mode.
         /// </summary>
         protected virtual void InitializeSingleton(bool persistAcrossScenes)
         {
@@ -235,9 +275,7 @@ namespace MidManStudio.Core.Singleton
             }
         }
 
-        /// <summary>
-        /// Cleanup when the singleton is destroyed
-        /// </summary>
+        /// <summary>Clears the static instance reference and unsubscribes from scene events, if this was the active instance.</summary>
         protected virtual void OnDestroy()
         {
             // Clean up static references if this was the active instance
@@ -260,9 +298,7 @@ namespace MidManStudio.Core.Singleton
             }
         }
 
-        /// <summary>
-        /// Called when the object is about to be destroyed (Unity lifecycle)
-        /// </summary>
+        /// <summary>Clears the static instance state on quit, so a leftover reference doesn't survive into the next play session in the editor.</summary>
         protected virtual void OnApplicationQuit()
         {
             // Clean up when application is quitting to prevent errors
@@ -275,7 +311,9 @@ namespace MidManStudio.Core.Singleton
         }
 
         /// <summary>
-        /// Reset the singleton (useful for testing)
+        /// Destroys the current instance's GameObject (if any) and clears
+        /// all static state, so the next <see cref="Instance"/> access
+        /// starts fresh. Mainly useful for tests.
         /// </summary>
         public static void Reset()
         {
@@ -303,7 +341,8 @@ namespace MidManStudio.Core.Singleton
         }
 
         /// <summary>
-        /// Check if singleton is available for use
+        /// Equivalent to <see cref="HasInstance"/>, wrapped in a try/catch
+        /// so it can never throw.
         /// </summary>
         public static bool IsAvailable()
         {
@@ -318,7 +357,10 @@ namespace MidManStudio.Core.Singleton
         }
 
         /// <summary>
-        /// Get singleton without creating if it doesn't exist
+        /// Returns the existing instance without creating one, searching
+        /// the scene if the cached reference is stale. Unlike
+        /// <see cref="TryGetInstance"/>, this re-searches the scene rather
+        /// than trusting the cached field, at the cost of an allocation.
         /// </summary>
         public static T GetExistingInstance()
         {
@@ -344,10 +386,13 @@ namespace MidManStudio.Core.Singleton
     }
 
     /// <summary>
-    /// Optional interface for singleton lifecycle events
+    /// Optional interface for singleton lifecycle events. Implement it on
+    /// a <see cref="Singleton{T}"/> subclass to be notified of scene
+    /// changes while persisting.
     /// </summary>
     public interface SingletonLifecycle
     {
+        /// <summary>Called after a scene finishes loading, while this singleton is persisting across scenes.</summary>
         void OnSceneChange(string previousScene, string currentScene);
     }
 
