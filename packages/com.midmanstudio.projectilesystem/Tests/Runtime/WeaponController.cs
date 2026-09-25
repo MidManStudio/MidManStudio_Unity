@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "WeaponController.cs"
+// ============================================================================
 using System.Collections.Generic;
 using UnityEngine;
 using Unity.Netcode;
@@ -14,22 +18,37 @@ using MidManStudio.Projectiles.Network;
 
 namespace TestGame
 {
+    public enum PlayerShootMode
+    {
+        LocalOnly  = 0,
+        RustSim2D  = 1,
+        RustSim3D  = 2,
+        Raycast2D  = 3,
+        Raycast3D  = 4,
+        Physics2D  = 5,
+        Physics3D  = 6,
+    }
+
     /// <summary>
     /// Everything fire/weapon-specific that used to live on NetworkedDimensionPlayer:
     /// shoot-mode dispatch (raycast/rustsim/physics test paths), shot pattern /
     /// spread, config-id resolution, and the actual Fire/Raycast/Physics calls
-    /// into MID_MasterProjectileSystem — unchanged behaviour, just reading from
+    /// into MID_MasterProjectileSystem, unchanged in behaviour, just reading from
     /// whichever WeaponDefinitionSO is currently equipped instead of local
     /// inspector fields. Plus new: an inventory of owned weapons, pickup, and
     /// switching (with an Animator trigger).
     ///
     /// Sits as a sibling NetworkBehaviour on the same GameObject/NetworkObject
-    /// as NetworkedDimensionPlayer — OwnerClientId/IsOwner/IsServer/IsSpawned/
-    /// NetworkObjectId are therefore identical between the two components with
-    /// no extra wiring needed. _player is used for the things that stayed on
-    /// the player (rig geometry: ResolveFireDir/ResolveShotPoint, and the
-    /// combined 2D/3D "control convention" via Use3DConvention()).
+    /// as NetworkedDimensionPlayer, so OwnerClientId/IsOwner/IsServer/IsSpawned/
+    /// NetworkObjectId are identical between the two components with no extra
+    /// wiring needed. _player is used for the things that stayed on the player:
+    /// rig geometry (ResolveFireDir/ResolveShotPoint), the current dimension and
+    /// 3D aim convention (Use3DConvention(), kept in sync with our own shoot
+    /// mode through ReportWeaponUses3DConvention, see SetShootMode below), and
+    /// ControlEnabled, which PlayerHealth turns off on death and which we check
+    /// at the top of Update() so a dead player can't keep firing.
     /// </summary>
+    [RequireComponent(typeof(NetworkedDimensionPlayer))]
     [DisallowMultipleComponent]
     public class WeaponController : NetworkBehaviour
     {
@@ -78,9 +97,10 @@ namespace TestGame
         [SerializeField] private UnityEngine.UI.Button _modeCycleButton;
 
         [Header("Guided Target (Test)")]
-        [Tooltip("See original NetworkedDimensionPlayer doc — unchanged. Assign " +
-                 "whatever this player should lock onto for a Guided test-fire. " +
-                 "Left null, Guided configs just fly straight.")]
+        [Tooltip("Assign whatever this player should lock onto for a Guided " +
+                 "test-fire (an enemy dummy, the other player, etc). Left null, " +
+                 "Guided configs just fly straight. Feeds both FireSim (RustSim) " +
+                 "and FirePhysics.")]
         [SerializeField] private Transform _guidedTestTarget;
 
         [Header("Audio (fallback source)")]
@@ -129,7 +149,7 @@ namespace TestGame
         private void Awake()
         {
             if (_player == null) _player = GetComponent<NetworkedDimensionPlayer>();
-            _shootMode = _defaultShootMode;
+            SetShootMode(_defaultShootMode);
         }
 
         public override void OnNetworkSpawn()
@@ -141,7 +161,7 @@ namespace TestGame
 
             if (IsOwner)
             {
-                _shootMode = _defaultShootMode;
+                SetShootMode(_defaultShootMode);
                 _netShootMode.Value = (int)_defaultShootMode;
 
                 if (_modeCycleButton != null)
@@ -154,7 +174,7 @@ namespace TestGame
             }
             else
             {
-                _shootMode = (PlayerShootMode)_netShootMode.Value;
+                SetShootMode((PlayerShootMode)_netShootMode.Value);
                 UpdateModeText();
 
                 var weapon = ResolveWeaponById(_netCurrentWeaponId.Value);
@@ -378,7 +398,7 @@ namespace TestGame
             ushort patternId = pattern != null ? pattern.PatternId : (ushort)0;
 
             // Same OR-not-just-cfg.Is3D convention BuildSpawnPoints* use for their
-            // own rotation basis — a 2D-configured weapon fired while the shoot
+            // own rotation basis. A 2D-configured weapon fired while the shoot
             // mode/dimension is 3D still needs to rotate in 3D view space.
             bool patternIs3D = _player.Use3DConvention() || cfg.Is3D;
 
@@ -395,8 +415,8 @@ namespace TestGame
                 DamageMultiplier       = 1f
             };
 
-            // dir here is the raw unrotated aim direction, NOT pts[0].Direction —
-            // sending pts[0] as the regeneration base skews the whole pattern,
+            // dir here is the raw unrotated aim direction, NOT pts[0].Direction.
+            // Sending pts[0] as the regeneration base skews the whole pattern,
             // see BuildSpawnPointsFromPattern's doc for why.
             MID_MasterProjectileSystem.Instance.Fire(
                 cfgId, pts, pts.Length, context, patternId, _current.SpreadDeg, dir, patternIs3D,
@@ -631,6 +651,9 @@ namespace TestGame
                         OwnerClientId, IsSpawned ? NetworkObjectId : 0UL,
                         _current.PhysicsProjectileSpeed, false, 1);
 
+                    // Must run after InitialiseProjectile: SetupMovementType resets
+                    // any guided target on every fresh launch, so this has to be
+                    // applied afterward.
                     if (_guidedTestTarget != null)
                         proj.SetGuidedTarget(_guidedTestTarget);
                 }
@@ -716,6 +739,19 @@ namespace TestGame
 
         #region Shoot Mode (debug/test)
 
+        /// <summary>
+        /// Central place _shootMode changes go through. NetworkedDimensionPlayer
+        /// no longer tracks shoot mode itself, but Use3DConvention/ResolveFireDir/
+        /// ResolveShotPoint on the player still need to know when a 3D-convention
+        /// shoot mode is active even in the 2D dimension, so every assignment
+        /// reports the current value back to it.
+        /// </summary>
+        private void SetShootMode(PlayerShootMode m)
+        {
+            _shootMode = m;
+            _player?.ReportWeaponUses3DConvention(IsUsing3DShootMode);
+        }
+
         private void CycleModeNext()
         {
             if (!IsOwner) return;
@@ -725,7 +761,7 @@ namespace TestGame
 
         private void ChangeMode(PlayerShootMode m)
         {
-            _shootMode = m;
+            SetShootMode(m);
             if (IsSpawned && IsOwner) _netShootMode.Value = (int)m;
             UpdateModeText();
 
@@ -738,7 +774,7 @@ namespace TestGame
 
         private void OnShootModeChanged(int _, int newVal)
         {
-            if (!IsOwner) { _shootMode = (PlayerShootMode)newVal; UpdateModeText(); }
+            if (!IsOwner) { SetShootMode((PlayerShootMode)newVal); UpdateModeText(); }
         }
 
         private void UpdateModeText()

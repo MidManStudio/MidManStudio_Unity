@@ -1,28 +1,31 @@
-
-// Thread-safe lazy singleton for plain C# classes (not MonoBehaviours).
-// Use for stateless managers, registries, caches, and service locators
-// that don't need a GameObject.
-//
-// USAGE:
-//   public class MyRegistry : StaticContentSingleton<MyRegistry>
-//   {
-//       public void DoWork() { }
-//   }
-//   MyRegistry.Instance.DoWork();
-//
-// INITIALIZE WITH CUSTOM INSTANCE:
-//   StaticContentSingleton<MyRegistry>.Initialize(new MyRegistrySubclass());
-//
-// DISPOSABLE CLEANUP:
-//   If T implements System.IDisposable, Reset() calls Dispose() automatically.
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/singleton.md, section "StaticContentSingleton.cs"
+// ============================================================================
 using UnityEngine;
 
 namespace MidManStudio.Core.Singleton
 {
     /// <summary>
-    /// Thread-safe lazy singleton for plain C# classes.
+    /// Thread-safe lazy singleton for plain C# classes (not MonoBehaviours).
+    /// Use it for stateless managers, registries, caches, and service
+    /// locators that do not need a GameObject.
+    /// <example>
+    /// <code>
+    /// public class MyRegistry : StaticContentSingleton&lt;MyRegistry&gt;
+    /// {
+    ///     public void DoWork() { }
+    /// }
+    /// MyRegistry.Instance.DoWork();
+    /// </code>
+    /// To inject a subclass or a mock instead of relying on <c>new T()</c>,
+    /// call <see cref="Initialize"/> before anything else accesses
+    /// <see cref="Instance"/>. If <typeparamref name="T"/> implements
+    /// <see cref="System.IDisposable"/>, <see cref="Reset"/> disposes it
+    /// automatically.
+    /// </example>
     /// </summary>
+    /// <typeparam name="T">The plain C# class to make a singleton of. Must have a public parameterless constructor.</typeparam>
     public class StaticContentSingleton<T> where T : class, new()
     {
         private static T              _instance;
@@ -31,7 +34,10 @@ namespace MidManStudio.Core.Singleton
 
         // ── Public properties ─────────────────────────────────────────────────
 
+        /// <summary>True if an instance has been created, without creating one.</summary>
         public static bool HasInstance    => _instance != null;
+
+        /// <summary>True once the instance has run its <see cref="IStaticSingletonInitializable.Initialize"/> call, if it implements that interface.</summary>
         public static bool IsInitialized  => _initialized;
 
         /// <summary>
@@ -150,7 +156,10 @@ namespace MidManStudio.Core.Singleton
     /// </summary>
     public interface IStaticSingletonInitializable
     {
+        /// <summary>Whether <see cref="Initialize"/> has already run. <see cref="StaticContentSingleton{T}"/> checks this before calling it, so implementations that start true skip the call entirely.</summary>
         bool IsInitialized { get; }
+
+        /// <summary>Called once, the first time the singleton instance is created (or supplied via <see cref="StaticContentSingleton{T}.Initialize"/>).</summary>
         void Initialize();
     }
 }

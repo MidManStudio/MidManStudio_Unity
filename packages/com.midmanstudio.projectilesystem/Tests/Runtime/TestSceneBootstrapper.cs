@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "TestSceneBootstrapper.cs"
+// ============================================================================
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -124,18 +128,10 @@ namespace TestGame
         private IEnumerator Start()
         {
             // ── Lobby / session routing ───────────────────────────────────────
-            // FIX: this subscription (and showing the lobby UI) now happens FIRST,
-            // before any config registration below. Config registration touches
-            // the native projectile_core library (via ProjectileRegistry.Register()
-            // → ProjectileConfigSO.RegisterMovementParams()), and if that library
-            // is missing/misconfigured for this device's architecture, a failure
-            // there used to throw uncaught partway through this coroutine —
-            // which skipped this subscription entirely and silently broke
-            // "Start Game" for the whole session, on every device, since nothing
-            // was left listening for OnGameStartReceived on the host. Wiring this
-            // up first means Start Game always works, even in a degraded
-            // (no local projectile visuals) state on a device with a broken
-            // native lib.
+            // Subscribed and shown before config registration below: registration
+            // can throw if the native projectile_core library is missing or
+            // misconfigured for this device, and this ordering keeps Start Game
+            // working (in a degraded, no local projectile visuals state) even then.
             if (_lobbyManager != null)
                 _lobbyManager.OnGameStartReceived += HandleGameStart;
 
@@ -156,9 +152,8 @@ namespace TestGame
                 {
                     if (cfg == null) continue;
 
-                    // FIX: a single config that fails to register (e.g. native
-                    // lib unavailable on this device) must not abort this
-                    // coroutine — that used to also skip everything below,
+                    // A single config failing to register (e.g. native lib
+                    // unavailable on this device) must not abort this coroutine,
                     // including offline auto-spawn a few lines down.
                     try
                     {

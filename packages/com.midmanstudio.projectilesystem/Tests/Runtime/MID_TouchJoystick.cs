@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "MID_TouchJoystick.cs"
+// ============================================================================
 // On-screen virtual joystick. Attach to a UI Image acting as the joystick's
 // background (a translucent circle works well); assign a child Image as the
 // Handle. Drag anywhere inside the background — the handle follows, clamped to

@@ -1,8 +1,7 @@
-// PlayerEntryCard.cs
-// FIX: Replaced \u2713 (✓) and \u2026 (…) with ASCII-safe alternatives.
-// LiberationSans SDF (TMP default font) does not include these glyphs, causing
-// the "character not found" warning and the □ fallback character to render instead.
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "PlayerEntryCard.cs"
+// ============================================================================
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
@@ -76,8 +75,6 @@ namespace TestGame
 
             SetText(_roleText, player.IsHost ? "HOST" : "Player");
 
-            // FIX: was "✓ Ready" / "…" — \u2713 and \u2026 not in LiberationSans SDF.
-            // Replaced with ASCII-safe strings to eliminate TMP glyph-fallback warnings.
             SetText(_readyText, player.IsReady ? "READY" : "WAITING");
 
             SetText(_pingText, "LAN");

@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "PlayerHealth.cs"
+// ============================================================================
 using System;
 using System.Collections;
 using UnityEngine;

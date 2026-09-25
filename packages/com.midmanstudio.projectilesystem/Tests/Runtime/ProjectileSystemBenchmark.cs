@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ProjectileSystemBenchmark.cs"
+// ============================================================================
 // Runtime benchmark comparing the Rust-native projectile sim against equivalent
 // managed C# approaches. Open the companion editor window via:
 //   MidManStudio > Utilities > Tests > Projectile System Bench

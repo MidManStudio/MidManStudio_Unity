@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ProjectileSystemBenchmarkWindow.cs"
+// ============================================================================
 // Editor window companion to ProjectileSystemBenchmark.
 // Open via: MidManStudio > Utilities > Tests > Projectile System Bench
 
