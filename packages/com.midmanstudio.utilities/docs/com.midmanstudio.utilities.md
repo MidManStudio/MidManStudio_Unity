@@ -23,7 +23,9 @@ hand-maintained.
 - [Singleton](com.midmanstudio.utilities/singleton.md) - `Singleton<T>`
   (MonoBehaviour singleton) and `StaticContentSingleton<T>` (plain C# class
   singleton). Done.
-- Logging - not yet covered.
+- [Logging](com.midmanstudio.utilities/logging.md) - `MID_Logger` (level-gated
+  static logger), `MID_LogLevel`, `MID_LoggerSettings`, `MID_LoggerEditorWindow`
+  (bulk log-level manager), `ExampleScript` (reference/demo only). Done.
 - Events - not yet covered.
 - SequentialProcessRunner - not yet covered.
 - HierarchyArranger - not yet covered.

@@ -1,15 +1,26 @@
-
-// Level-gated singleton logger.
-// In the Unity Editor, the level prefix (e.g. [INFO]) is rendered in colour using
-// rich-text tags. The rest of the message is always plain text so the console
-// detail pane and log files never show raw tag characters.
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/logging.md, section "MID_Logger.cs"
+// ============================================================================
 using System;
 using UnityEngine;
 using Debug = UnityEngine.Debug;
 
 namespace MidManStudio.Core.Logging
 {
+    /// <summary>
+    /// Level-gated singleton logger. Every <c>LogX</c> call takes the
+    /// caller's own configured <see cref="MID_LogLevel"/> as its first
+    /// argument and only writes to the console if that level clears the
+    /// message's severity threshold (<see cref="ShouldLog"/>), so callers
+    /// typically pass a <c>[SerializeField] private MID_LogLevel _logLevel</c>
+    /// field rather than a shared global level.
+    ///
+    /// In the Unity Editor, the level prefix (e.g. <c>[INFO]</c>) is
+    /// rendered in colour using rich-text tags. The rest of the message is
+    /// always plain text so the console detail pane and log files never
+    /// show raw tag characters.
+    /// </summary>
     public class MID_Logger : MonoBehaviour
     {
         #region Serialized Fields
@@ -37,6 +48,12 @@ namespace MidManStudio.Core.Logging
 
         #region Singleton
 
+        /// <summary>
+        /// The logger instance, finding one in the scene or creating a
+        /// persistent one if none exists yet. All <c>LogX</c> calls use
+        /// this internally; direct access is only needed for advanced
+        /// cases (reading stack-trace settings, etc).
+        /// </summary>
         public static MID_Logger Instance
         {
             get
@@ -78,6 +95,7 @@ namespace MidManStudio.Core.Logging
 
         #region Public Static — Standard Levels
 
+        /// <summary>Logs at Debug severity. Shown when <paramref name="logLevel"/> is <see cref="MID_LogLevel.Debug"/> or <see cref="MID_LogLevel.Verbose"/>.</summary>
         [HideInCallstack]
         public static void LogDebug(MID_LogLevel logLevel, string message,
             string className = "", string methodName = "")
@@ -87,6 +105,7 @@ namespace MidManStudio.Core.Logging
                 COLOR_DEBUG, "[DEBUG]");
         }
 
+        /// <summary>Logs at Info severity. Shown when <paramref name="logLevel"/> is <see cref="MID_LogLevel.Info"/> or more verbose.</summary>
         [HideInCallstack]
         public static void LogInfo(MID_LogLevel logLevel, string message,
             string className = "", string methodName = "")
@@ -96,6 +115,13 @@ namespace MidManStudio.Core.Logging
                 COLOR_INFO, "[INFO]");
         }
 
+        /// <summary>
+        /// Logs a Unity console warning. There is no dedicated Warning
+        /// level in <see cref="MID_LogLevel"/>, so this is gated the same
+        /// as <see cref="LogInfo"/>: shown when <paramref name="logLevel"/>
+        /// is <see cref="MID_LogLevel.Info"/> or more verbose, hidden at
+        /// <see cref="MID_LogLevel.Error"/> or <see cref="MID_LogLevel.None"/>.
+        /// </summary>
         [HideInCallstack]
         public static void LogWarning(MID_LogLevel logLevel, string message,
             string className = "", string methodName = "")
@@ -105,6 +131,7 @@ namespace MidManStudio.Core.Logging
                 COLOR_WARNING, "");
         }
 
+        /// <summary>Logs a Unity console error, and the exception too if one is supplied. Shown at any level except <see cref="MID_LogLevel.None"/>.</summary>
         [HideInCallstack]
         public static void LogError(MID_LogLevel logLevel, string message,
             string className = "", string methodName = "", Exception e = null)
@@ -114,6 +141,7 @@ namespace MidManStudio.Core.Logging
                 COLOR_ERROR, "", e);
         }
 
+        /// <summary>Logs an exception via <c>Debug.LogException</c>. Shown at any level except <see cref="MID_LogLevel.None"/>. Defaults the message to the exception's own message if none is given.</summary>
         [HideInCallstack]
         public static void LogException(MID_LogLevel logLevel, Exception e,
             string message = "", string className = "", string methodName = "")
@@ -126,6 +154,7 @@ namespace MidManStudio.Core.Logging
                 COLOR_EXCEPTION, "", e);
         }
 
+        /// <summary>Logs at Verbose severity, the most granular level. Only shown when <paramref name="logLevel"/> is <see cref="MID_LogLevel.Verbose"/>.</summary>
         [HideInCallstack]
         public static void LogVerbose(MID_LogLevel logLevel, string message,
             string className = "", string methodName = "")
@@ -151,6 +180,7 @@ namespace MidManStudio.Core.Logging
             Instance.LogInternal(LogType.Log, message, className, methodName, color, prefix);
         }
 
+        /// <summary>Like <see cref="LogWarning"/>, with a custom prefix colour instead of the default yellow.</summary>
         [HideInCallstack]
         public static void LogWarningWithColor(MID_LogLevel logLevel, string message, string color,
             string className = "", string methodName = "")
@@ -159,6 +189,7 @@ namespace MidManStudio.Core.Logging
             Instance.LogInternal(LogType.Warning, message, className, methodName, color, "");
         }
 
+        /// <summary>Like <see cref="LogError"/>, with a custom prefix colour instead of the default orange.</summary>
         [HideInCallstack]
         public static void LogErrorWithColor(MID_LogLevel logLevel, string message, string color,
             string className = "", string methodName = "", Exception e = null)
@@ -171,6 +202,13 @@ namespace MidManStudio.Core.Logging
 
         #region Level Check
 
+        /// <summary>
+        /// True if <paramref name="currentLevel"/> is verbose enough to
+        /// show a message of <paramref name="messageLevel"/> severity.
+        /// <see cref="MID_LogLevel.None"/> always returns false; otherwise
+        /// this is a plain <c>currentLevel &gt;= messageLevel</c> comparison
+        /// on the enum's underlying int values.
+        /// </summary>
         public static bool ShouldLog(MID_LogLevel currentLevel, MID_LogLevel messageLevel)
         {
             if (currentLevel == MID_LogLevel.None) return false;
@@ -181,6 +219,7 @@ namespace MidManStudio.Core.Logging
 
         #region Internal
 
+        /// <summary>Formats and writes one log line. Called by every <c>LogX</c> method above after its own level check passes.</summary>
         [HideInCallstack]
         internal void LogInternal(LogType logType, string message, string className,
             string methodName, string color, string prefix, Exception exception = null)

@@ -1,7 +1,7 @@
-﻿// Editor window for bulk-managing MID_LogLevel fields across all scene MonoBehaviours.
-// Supports: search/filter, file selection, group by GameObject, validated live editing.
-// Open via: MidManStudio > Utilities > Logger Manager
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/logging.md, section "MID_LoggerEditorWindow.cs"
+// ============================================================================
 #if UNITY_EDITOR
 using System;
 using System.Collections.Generic;
@@ -13,6 +13,15 @@ using MidManStudio.Core.Logging;
 
 namespace MidManStudio.Core.EditorTools
 {
+    /// <summary>
+    /// Editor window for bulk-managing <see cref="MID_LogLevel"/> fields
+    /// across every scene MonoBehaviour at once. Open it via
+    /// <c>MidManStudio &gt; Utilities &gt; Logger Manager</c>. Supports
+    /// search/filter, grouping by GameObject, selecting a subset, and
+    /// validated live editing (writes through <c>SerializedObject</c> so
+    /// changes survive domain reloads and prefab saves, falling back to
+    /// direct reflection only if that lookup fails).
+    /// </summary>
     public class MID_LoggerEditorWindow : EditorWindow
     {
         // ── State ──────────────────────────────────────────────────────────────
@@ -32,7 +41,8 @@ namespace MidManStudio.Core.EditorTools
         private bool _showActions     = true;
 
         // ── Menu ───────────────────────────────────────────────────────────────
-       
+
+        /// <summary>Opens the Logger Manager window (menu: MidManStudio &gt; Utilities &gt; Logger Manager).</summary>
 [MenuItem("MidManStudio/Utilities/Logger Manager", priority = 100)]
         public static void ShowWindow()
         {

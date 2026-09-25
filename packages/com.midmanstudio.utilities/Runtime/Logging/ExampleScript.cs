@@ -1,9 +1,17 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/logging.md, section "ExampleScript.cs"
+// ============================================================================
 using UnityEngine;
 using System;
 namespace MidManStudio.Core.Logging
 {
     /// <summary>
-    /// Example script showing proper region organization and logger usage
+    /// Example script showing proper region organization and logger usage.
+    /// Not part of the package's runtime API; a reference for the coding
+    /// pattern (region layout, per-instance <see cref="MID_LogLevel"/>
+    /// field, <see cref="MID_Logger"/> call sites for each lifecycle
+    /// method) rather than something to attach or subclass.
     /// </summary>
     public class ExampleScript : MonoBehaviour
     {
@@ -22,6 +30,7 @@ namespace MidManStudio.Core.Logging
 
         #region Properties
 
+        /// <summary>The current example value, set via <see cref="DoSomething"/>.</summary>
         public float ExampleValue
         {
             get => _exampleValue;
@@ -58,6 +67,7 @@ namespace MidManStudio.Core.Logging
 
         #region Public Methods
 
+        /// <summary>Demonstrates a try/catch around <see cref="MID_Logger.LogException"/>, then sets <see cref="ExampleValue"/> via <c>ProcessValue</c>.</summary>
         public void DoSomething(float value)
         {
             MID_Logger.LogInfo(_logLevel, $"Doing something with value: {value}", nameof(ExampleScript), nameof(DoSomething));
