@@ -130,7 +130,7 @@ namespace TestGame
         /// <summary>The rig transform to fire from for the current aim convention.</summary>
         public Transform ResolveShotPoint()
             => Use3DConvention() ? _shotPoint3D : _shotPoint2D;
-
+        public void Set3DShotpoint(Transform shotP) { _shotPoint3D = shotP; }
         #endregion
 
         #region Networked State

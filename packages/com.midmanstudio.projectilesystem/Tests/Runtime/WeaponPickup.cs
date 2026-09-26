@@ -27,7 +27,6 @@ namespace TestGame
     public class WeaponPickup : NetworkBehaviour
     {
         [SerializeField] private WeaponDefinitionSO _weapon;
-
         [Tooltip("Hide + disable the pickup once collected. Off = an infinitely reusable pad.")]
         [SerializeField] private bool _consumeOnPickup = true;
 

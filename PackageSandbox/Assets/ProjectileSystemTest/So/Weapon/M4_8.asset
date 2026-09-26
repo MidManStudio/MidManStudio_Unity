@@ -10,17 +10,16 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 27f8311e177e4224a4fab981d5f71a88, type: 3}
-  m_Name: DefaultWeapon
+  m_Name: M4_8
   m_EditorClassIdentifier: 
-  _itemId: Ak4117
-  _weaponId: 1
-  _displayName: Default
-  _weaponModelPrefab: {fileID: 1269806610994403144, guid: 7ce97f43257a84fb8827171251833c64,
-    type: 3}
+  _itemId: M4
+  _weaponId: 2
+  _displayName: M4
+  _weaponModelPrefab: {fileID: 100002, guid: c7741850eebe1df4ea75a80275b16311, type: 3}
   _switchAnimTrigger: SwitchWeapon
   _configTypeId2D: 0
   _configTypeId3D: 2
-  _fireRate: 5
+  _fireRate: 10
   _pelletsPerShot: 1
   _spreadDeg: 5
   _raycastPelletCount: 1
@@ -33,9 +32,9 @@ MonoBehaviour:
   _physicsPoolType3D: 101
   _physicsProjectileSpeed: 20
   _physicsDamageMultiplier: 1
-  _fireSoundClipIndex: 0
+  _fireSoundClipIndex: 1
   _fireSoundVolume: 0.6
-  _fallbackFireClip: {fileID: 8300000, guid: 5aafdfd6c2edf40ffa472cc91cd3ef69, type: 3}
+  _fallbackFireClip: {fileID: 8300000, guid: 85f6f4427355d42608269db49d1df2ff, type: 3}
   _fallbackVolume: 0.6
   _fallbackPitchVariance: 0.1
   _muzzleFlashParticleCount: 8

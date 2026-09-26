@@ -314,6 +314,9 @@ namespace TestGame
                 if (_currentModelInstance != null) Destroy(_currentModelInstance);
                 if (weapon.WeaponModelPrefab != null)
                     _currentModelInstance = Instantiate(weapon.WeaponModelPrefab, _weaponSocket);
+                _currentModelInstance.transform.rotation = new Quaternion(0, -180, 0,0);
+                var shotPoint = weapon.WeaponModelPrefab.GetComponent<WeaponRef>();
+              if(shotPoint != null)  _player.Set3DShotpoint(shotPoint);
             }
         }
 

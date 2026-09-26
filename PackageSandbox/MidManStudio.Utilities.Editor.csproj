@@ -148,6 +148,7 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/AutoReference/MID_AutoRefComponentWatcher.cs">
       <Link>Editor/AutoReference/MID_AutoRefComponentWatcher.cs</Link>
     </Compile>
+    <Compile Include="..\packages\com.midmanstudio.projectilesystem\Tests\Runtime\NewMonoBehaviour.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/AutoReference/MID_AutoRefEditor.uss">

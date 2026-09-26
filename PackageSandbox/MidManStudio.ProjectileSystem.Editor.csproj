@@ -103,6 +103,7 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Editor/ProjectileConfigProviderEditor.cs">
       <Link>Editor/ProjectileConfigProviderEditor.cs</Link>
     </Compile>
+    <Compile Include="..\packages\com.midmanstudio.projectilesystem\Tests\Runtime\NewMonoBehaviour.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Editor/MidManStudio.ProjectileSystem.Editor.asmdef">
