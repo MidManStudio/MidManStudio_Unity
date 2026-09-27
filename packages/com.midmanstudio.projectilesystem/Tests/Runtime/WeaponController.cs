@@ -90,6 +90,12 @@ namespace TestGame
         [Tooltip("Where WeaponDefinitionSO.WeaponModelPrefab gets instantiated on " +
                  "equip. Leave null to skip visual model swapping entirely.")]
         [SerializeField] private Transform _weaponSocket;
+        [Tooltip("Local Euler offset applied to every equipped model relative to " +
+                 "_weaponSocket. This asset pack's models are authored facing the " +
+                 "opposite way the socket expects, so every one of them needs the " +
+                 "same correction; a model already authored to face the socket's " +
+                 "own forward direction would use (0, 0, 0) here instead.")]
+        [SerializeField] private Vector3 _modelRotationOffsetEuler = new Vector3(0f, 180f, 0f);
 
         [Header("Shoot Mode (debug/test)")]
         [SerializeField] private PlayerShootMode _defaultShootMode = PlayerShootMode.LocalOnly;
@@ -312,11 +318,25 @@ namespace TestGame
             if (_weaponSocket != null)
             {
                 if (_currentModelInstance != null) Destroy(_currentModelInstance);
+                _currentModelInstance = null;
+
                 if (weapon.WeaponModelPrefab != null)
+                {
                     _currentModelInstance = Instantiate(weapon.WeaponModelPrefab, _weaponSocket);
-                _currentModelInstance.transform.rotation = new Quaternion(0, -180, 0,0);
-                var shotPoint = weapon.WeaponModelPrefab.GetComponent<WeaponRef>();
-              if(shotPoint != null)  _player.Set3DShotpoint(shotPoint);
+                    _currentModelInstance.transform.localPosition = Vector3.zero;
+                    _currentModelInstance.transform.localRotation = Quaternion.Euler(_modelRotationOffsetEuler);
+
+                    // GetComponent on the instantiated copy, not on
+                    // weapon.WeaponModelPrefab itself — the prefab asset's own
+                    // WeaponRef.ShotPoint is never part of the live scene, so
+                    // it wouldn't move with this weapon instance at all.
+                    var weaponRef = _currentModelInstance.GetComponent<WeaponRef>();
+                    _player.Set3DShotpoint(weaponRef != null ? weaponRef.ShotPoint : null);
+                }
+                else
+                {
+                    _player.Set3DShotpoint(null);
+                }
             }
         }
 

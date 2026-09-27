@@ -1,3 +1,8 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/projectile_core.md, section "shapes.rs"
+// ============================================================================
+//
 // shapes.rs — additive point-sequence collider shapes (Box, Capsule, Edge,
 // Polygon/custom curve) for RustSim's impact detector.
 //
@@ -117,6 +122,30 @@ fn closest_point_on_segment_2d(px: f32, py: f32, ax: f32, ay: f32, bx: f32, by: 
     (ax + abx * t, ay + aby * t)
 }
 
+/// Even-odd (crossing-number) point-in-polygon test against the shape's own
+/// point loop, for CLOSED shapes only (an "inside" is undefined for an open
+/// polyline — callers must check `s.closed` before calling this). Segment-
+/// distance alone (see the loop above/below) only finds a shape if the
+/// projectile passes near one of its edges; a closed shape like a Box is
+/// meant to be a solid, so a projectile arriving well inside its footprint —
+/// arbitrarily far from every edge — still needs to register as a hit.
+#[inline(always)]
+fn point_in_closed_shape_2d(px: f32, py: f32, points: &[Vec2Raw], n: usize) -> bool {
+    let mut inside = false;
+    let mut j = n - 1;
+    for i in 0..n {
+        let pi = points[i];
+        let pj = points[j];
+        if (pi.y > py) != (pj.y > py)
+            && px < (pj.x - pi.x) * (py - pi.y) / (pj.y - pi.y) + pi.x
+        {
+            inside = !inside;
+        }
+        j = i;
+    }
+    inside
+}
+
 /// Loose AABB over a shape's current points, expanded by thickness — a cheap
 /// reject before paying for the full segment-distance loop. Recomputed fresh
 /// each call rather than cached, since points are already being refreshed by
@@ -184,7 +213,8 @@ pub fn check_hits_shapes_2d(
                 if d2 < best_d2 { best_d2 = d2; best_x = cx; best_y = cy; }
             }
 
-            if best_d2 <= r * r {
+            let inside = s.closed != 0 && point_in_closed_shape_2d(p.x, p.y, &s.points, n);
+            if best_d2 <= r * r || inside {
                 out[hit_count] = HitResult {
                     proj_id:     p.proj_id,
                     proj_index:  pi as u32,
@@ -364,6 +394,44 @@ mod tests {
         let n = check_hits_shapes_2d(&projs, &[s], &mut hits, 0);
         assert_eq!(n, 1);
         assert_eq!(hits[0].target_id, 7);
+    }
+
+    #[test]
+    fn closed_shape_interior_counts_as_a_hit() {
+        // Same 2x2 box, but this time the projectile sits dead center — a
+        // typical "shot the middle of the wall" case, 1.0 unit from every
+        // edge. A projectile that far inside a solid, closed shape must
+        // still register a hit; only testing distance-to-nearest-edge (as
+        // the wrap-segment test above does) misses this entirely, since the
+        // projectile can be arbitrarily far from every edge yet still well
+        // inside the shape's footprint.
+        let mut s = ShapeCollider2D {
+            target_id: 8, shape_type: SHAPE_BOX, point_count: 4, closed: 1, active: 1,
+            thickness: 0.0, points: Default::default(),
+        };
+        s.points[0] = Vec2Raw { x: -1.0, y: -1.0 };
+        s.points[1] = Vec2Raw { x:  1.0, y: -1.0 };
+        s.points[2] = Vec2Raw { x:  1.0, y:  1.0 };
+        s.points[3] = Vec2Raw { x: -1.0, y:  1.0 };
+
+        let projs = [mk_proj(0.0, 0.0, 0.1)];
+        let mut hits = [HitResult::default(); 4];
+        let n = check_hits_shapes_2d(&projs, &[s], &mut hits, 0);
+        assert_eq!(n, 1, "a projectile inside a closed shape's footprint must hit it, not just one near an edge");
+        assert_eq!(hits[0].target_id, 8);
+    }
+
+    #[test]
+    fn open_shape_interior_style_point_still_needs_proximity() {
+        // Sanity check for the fix above: an OPEN shape (edge/capsule) has no
+        // "interior" — a point far from the segment itself must still miss,
+        // even though it would sit "inside" the closed-box test's bounding
+        // area. Guards against a fix that accidentally treats every shape as
+        // filled.
+        let projs = [mk_proj(5.0, 5.0, 0.1)];
+        let shapes = [mk_edge((0.0, 0.0), (10.0, 0.0), 0.0, 42)];
+        let mut hits = [HitResult::default(); 4];
+        assert_eq!(check_hits_shapes_2d(&projs, &shapes, &mut hits, 0), 0);
     }
 
     #[test]

@@ -130,7 +130,17 @@ namespace TestGame
         /// <summary>The rig transform to fire from for the current aim convention.</summary>
         public Transform ResolveShotPoint()
             => Use3DConvention() ? _shotPoint3D : _shotPoint2D;
-        public void Set3DShotpoint(Transform shotP) { _shotPoint3D = shotP; }
+
+        /// <summary>
+        /// Lets WeaponController point 3D fire origin at the equipped weapon's
+        /// own muzzle (its WeaponRef.ShotPoint) instead of this rig's generic
+        /// auto-created default. Pass null to go back to that default — e.g.
+        /// when the newly equipped weapon has no model, or no WeaponRef/
+        /// ShotPoint of its own — rather than leaving the previous weapon's
+        /// muzzle point active.
+        /// </summary>
+        public void Set3DShotpoint(Transform shotP) => _shotPoint3D = shotP != null ? shotP : _defaultShotPoint3D;
+
         #endregion
 
         #region Networked State
@@ -149,10 +159,21 @@ namespace TestGame
         private float     _pitch;
         private bool      _weaponWants3D;
 
+        // Set once in EnsureShotPoints() alongside _shotPoint3D, so
+        // Set3DShotpoint(null) has a real transform to fall back to instead
+        // of leaving _shotPoint3D pointed at whatever weapon was last equipped.
+        private Transform _defaultShotPoint3D;
+
         private float   _nextDashTime;
         private bool    _isDashing;
         private float   _dashEndTime;
         private Vector3 _dashDir;
+
+        // Jump press captured in Update(), where GetButtonDown's single-frame
+        // edge is reliable, and consumed once in the next FixedUpdate's
+        // HandleMovement — see both for why polling GetButton directly inside
+        // FixedUpdate isn't used here.
+        private bool _jumpQueued;
 
         #endregion
 
@@ -182,6 +203,13 @@ namespace TestGame
                 _currentDimension = startDim;
 
                 ApplyRigidbodyConstraints(startDim);
+                // Owner's own Rigidbody was never given interpolation (only
+                // the remote/non-owner branch below was) — its FixedUpdate-
+                // driven MovePosition/MoveRotation/velocity changes then only
+                // ever appeared at the physics tick rate, visibly stepped on
+                // any display running faster than that. Most noticeable while
+                // turning, and on anything rigidly attached, like a held weapon.
+                if (_rb != null) _rb.interpolation = RigidbodyInterpolation.Interpolate;
 
                 if (DimensionManager.HasInstance)
                     DimensionManager.Instance.OnDimensionChanged += HandleDimensionChanged;
@@ -250,6 +278,13 @@ namespace TestGame
             if (Use3DConvention()) HandleMouseLook();
             if (Input.GetKeyDown(_dashKey) && Time.time >= _nextDashTime && !_isDashing)
                 StartDash();
+
+            // Captured here, not read directly in FixedUpdate/HandleMovement —
+            // GetButtonDown's single-frame edge is only reliable polled once
+            // per rendered frame. See HandleMovement for where this is
+            // consumed and why GetButton (held-down) used to apply the jump
+            // impulse again on every physics tick the button stayed down.
+            if (Input.GetButtonDown("Jump")) _jumpQueued = true;
         }
 
         private void FixedUpdate()
@@ -350,8 +385,14 @@ namespace TestGame
             {
                 Vector3 dir = (transform.right * h + transform.forward * v).normalized;
                 _rb.velocity = new Vector3(dir.x * _moveSpeed3D, _rb.velocity.y, dir.z * _moveSpeed3D);
-                if (_grounded && Input.GetButton("Jump"))
+                // Consumes the queued press exactly once regardless of
+                // grounded state, instead of re-checking a held button — see
+                // _jumpQueued and Update(). A press queued while airborne is
+                // simply dropped here, not buffered for the moment landing
+                // happens.
+                if (_grounded && _jumpQueued)
                     _rb.AddForce(Vector3.up * _jumpForce, ForceMode.Impulse);
+                _jumpQueued = false;
             }
         }
 
@@ -458,10 +499,23 @@ namespace TestGame
                 go.transform.localPosition = new Vector3(0.25f, -0.05f, 0.5f);
                 _shotPoint3D = go.transform;
             }
+            _defaultShotPoint3D = _shotPoint3D;
         }
 
-        private void OnCollisionStay(Collision _) => _grounded = true;
-        private void OnCollisionExit(Collision _) => _grounded = false;
+        // Only a contact whose surface normal points sufficiently upward
+        // counts as ground — a plain "any collision at all" check also
+        // latched true while pressed against a wall or ceiling, which let a
+        // held Jump input (see HandleMovement) apply repeatedly while stuck
+        // against one, launching the player once they broke free.
+        private void OnCollisionStay(Collision collision) => _grounded = IsGroundContact(collision);
+        private void OnCollisionExit(Collision _)          => _grounded = false;
+
+        private static bool IsGroundContact(Collision collision)
+        {
+            for (int i = 0; i < collision.contactCount; i++)
+                if (collision.GetContact(i).normal.y > 0.5f) return true;
+            return false;
+        }
 
         #endregion
     }

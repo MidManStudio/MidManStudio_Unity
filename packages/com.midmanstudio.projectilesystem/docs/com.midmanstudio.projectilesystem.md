@@ -17,6 +17,9 @@ no automated test runner covering them (see CI and Workflows below).
 **What it does:** Player rig: movement, dash, mouse look, dimension (2D/3D)
 switching and the Rigidbody constraints that go with it, and the owner/remote
 tint. Auto-creates its head pivot and shot point transforms if left unassigned.
+`Set3DShotpoint()` lets `WeaponController` redirect the 3D shot point at the
+currently equipped weapon's own muzzle; passing null restores this rig's own
+default point rather than leaving a previous weapon's muzzle active.
 
 **Decisions:**
 - Everything fire- and weapon-specific used to live on this class directly.
@@ -41,6 +44,11 @@ tint. Auto-creates its head pivot and shot point transforms if left unassigned.
 2D and 3D), shot pattern and spread, config-id resolution, the actual
 fire/raycast/physics calls into `MID_MasterProjectileSystem`, and a weapon
 inventory (pickup, ownership, switching with an Animator trigger).
+`EquipLocal()` also swaps the visual weapon model under `_weaponSocket`,
+applies `_modelRotationOffsetEuler` (a local rotation correction for however
+this asset pack's models are authored relative to the socket) to the
+instantiated model, and points the player's 3D shot point at the model's
+`WeaponRef.ShotPoint` when it has one.
 
 **Decisions:**
 - Reads weapon tuning (fire rate, pellets, spread, config type ids, raycast
@@ -58,6 +66,14 @@ inventory (pickup, ownership, switching with an Animator trigger).
 - `PlayerShootMode` is declared in this file rather than
   `NetworkedDimensionPlayer.cs`, since shoot mode is now entirely this
   class's concern.
+
+### `WeaponRef.cs`
+**What it does:** Marker component for a weapon model prefab, holding a
+single `ShotPoint` transform at the barrel tip. `WeaponController.EquipLocal()`
+looks this up on the instantiated model (not the prefab asset — see Fixes
+and Problems) and forwards it to `NetworkedDimensionPlayer.Set3DShotpoint()`.
+Optional: a weapon model with no `WeaponRef` falls back to the player's own
+default shot point.
 
 ### `PlayerHealth.cs`
 **What it does:** PvP health, damage, death, and respawn for players.
@@ -214,6 +230,34 @@ suite; `build.yml` builds the app for Android and Windows only.
   aborted the rest of the method, so movement stopped dead for whoever hit
   that combination. The dash branch already checked `_rb.isKinematic`
   directly for the same reason; movement was written to match.
+- `OnCollisionStay` set `_grounded = true` for any collision at all, wall or
+  ceiling included, with no check on the contact normal. Jumping into a wall
+  could therefore read as grounded, and `HandleMovement()`'s jump check read
+  `Input.GetButton("Jump")` (held-down, true every `FixedUpdate` the key
+  stayed down) rather than a single press — holding Jump while pressed
+  against a wall applied the impulse again every physics tick, stacking
+  velocity that only became visible once the player broke free of the wall,
+  launching far higher than a normal jump. Fixed by checking each contact's
+  normal (`normal.y > 0.5f` counts as ground) and by capturing the press as
+  a single-frame edge in `Update()` (`_jumpQueued`, where `GetButtonDown` is
+  reliable) consumed exactly once in the next `HandleMovement()`.
+- The owner's own Rigidbody was never given `RigidbodyInterpolation
+  .Interpolate` — only the remote/non-owner branch of `OnNetworkSpawn` set
+  it. Movement and turning, both applied in `FixedUpdate` via
+  `MoveRotation`/velocity, only visibly updated at the physics tick rate,
+  which reads as stepped/choppy on any display faster than that — most
+  noticeable while turning, and on anything rigidly parented to the player,
+  such as a held weapon. Added the same interpolation setting to the owner
+  branch.
+- `Set3DShotpoint(Transform)` assigned `_shotPoint3D` unconditionally,
+  including `null`. `WeaponController.EquipLocal()` needs to reset to this
+  rig's own default point when the newly equipped weapon has no model or no
+  `WeaponRef`, and passing null previously would have left `_shotPoint3D`
+  itself null (a NullReferenceException wherever it's later dereferenced)
+  rather than falling back. `EnsureShotPoints()` now also records whatever
+  `_shotPoint3D` resolves to (inspector-assigned or auto-created) as
+  `_defaultShotPoint3D`, and `Set3DShotpoint(null)` falls back to it instead
+  of accepting null directly.
 
 ### `WeaponController.cs`
 - `SpawnPhysicsProjectileLocal()`'s `SetGuidedTarget()` call must run after
@@ -223,6 +267,34 @@ suite; `build.yml` builds the app for Android and Windows only.
   constraint was documented on the original `NetworkedDimensionPlayer` copy
   of this code, but the comment was not carried over when the logic was
   copied into this file. Added it back.
+- `EquipLocal()`'s model-swap block had three separate problems. It called
+  `_player.Set3DShotpoint(shotPoint)` with `shotPoint` typed as `WeaponRef`
+  against a method that takes a `Transform` — a compile error, fixed by
+  passing `shotPoint.ShotPoint`. It read `GetComponent<WeaponRef>()` off
+  `weapon.WeaponModelPrefab`, the source prefab asset, rather than
+  `_currentModelInstance`, the instantiated copy actually in the scene — the
+  prefab asset's own `WeaponRef.ShotPoint` is never part of the live
+  hierarchy, so it would not have moved with the equipped weapon. And
+  `_currentModelInstance.transform.rotation = new Quaternion(0, -180, 0, 0)`
+  ran unconditionally, including when `weapon.WeaponModelPrefab` was null (an
+  anticipated case — see MANIFEST.txt on weapons still being wired up without
+  art) and `_currentModelInstance` was therefore still null or already
+  destroyed, throwing. Separately, `new Quaternion(x, y, z, w)` takes raw
+  quaternion components, not Euler degrees; `(0, -180, 0, 0)` is not a unit
+  quaternion, and it only produced a visually correct 180-degree turn because
+  a lone nonzero y-component happens to normalize to the right answer by
+  coincidence for this one axis — the moment any other axis needed a
+  correction too this would stop working. Also set as world-space `.rotation`
+  rather than local, which does not itself desync from the socket (Unity
+  keeps a child's world rotation following its parent automatically) but
+  bakes in whatever the socket's orientation happened to be at that exact
+  equip instant rather than a fixed, predictable offset. Fixed by guarding
+  the whole block on `weapon.WeaponModelPrefab != null`, reading `WeaponRef`
+  off `_currentModelInstance`, and replacing the rotation assignment with
+  `_currentModelInstance.transform.localRotation =
+  Quaternion.Euler(_modelRotationOffsetEuler)` — a new serialized field
+  (default `(0, 180, 0)`, matching the value already in use) instead of a
+  hardcoded magic number, applied relative to the socket.
 
 ### `PlayerEntryCard.cs`
 - The ready-state text used `\u2713` (checkmark) and `\u2026` (ellipsis).
