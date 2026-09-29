@@ -316,7 +316,6 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Libraries/MID_LibraryRegistry.cs">
       <Link>Runtime/Libraries/MID_LibraryRegistry.cs</Link>
     </Compile>
-    <Compile Include="..\packages\com.midmanstudio.projectilesystem\Tests\Runtime\NewMonoBehaviour.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio/Windows/mid_audio.dll">

@@ -115,6 +115,10 @@ PrefabInstance:
         type: 3}
       insertIndex: -1
       addedObject: {fileID: 7817802862927442989}
+    - targetCorrespondingSourceObject: {fileID: 100000, guid: 6f966b9a7c817ed49973b4a8762cbbdf,
+        type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1008085526533474421}
   m_SourcePrefab: {fileID: 100100000, guid: 6f966b9a7c817ed49973b4a8762cbbdf, type: 3}
 --- !u!1 &1269806610994403144 stripped
 GameObject:
@@ -178,11 +182,23 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _weapon: {fileID: 11400000, guid: 72f38da14fc34effa6c813c1574aa792, type: 2}
-  _shotPoint: {fileID: 2043829258552916991}
   _consumeOnPickup: 1
   _respawnDelay: 15
   _visualRenderers:
   - {fileID: 1269806610996332936}
+--- !u!114 &1008085526533474421
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1269806610994403144}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 085e3e2e16de2427ab3cf74228f0b8f9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  ShotPoint: {fileID: 2043829258552916991}
 --- !u!4 &1269806610994432872 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 400000, guid: 6f966b9a7c817ed49973b4a8762cbbdf,

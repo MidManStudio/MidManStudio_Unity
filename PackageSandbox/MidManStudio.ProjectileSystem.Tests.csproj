@@ -91,6 +91,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/NetworkPlayerObjectObserverProvider.cs">
       <Link>Tests/Runtime/NetworkPlayerObjectObserverProvider.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/WeaponRef.cs">
+      <Link>Tests/Runtime/WeaponRef.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/ProjectileTestLobbyUI.cs">
       <Link>Tests/Runtime/ProjectileTestLobbyUI.cs</Link>
     </Compile>
@@ -118,7 +121,6 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/UI/LocalLobbyData.cs">
       <Link>Tests/Runtime/UI/LocalLobbyData.cs</Link>
     </Compile>
-    <Compile Include="..\packages\com.midmanstudio.projectilesystem\Tests\Runtime\NewMonoBehaviour.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Tests/Runtime/MidManStudio.ProjectileSystem.Tests.asmdef">

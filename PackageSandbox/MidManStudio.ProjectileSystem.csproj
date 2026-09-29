@@ -208,7 +208,6 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/ProjectileGuidanceTracker.cs">
       <Link>Runtime/Managers/ProjectileGuidanceTracker.cs</Link>
     </Compile>
-    <Compile Include="..\packages\com.midmanstudio.projectilesystem\Tests\Runtime\NewMonoBehaviour.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Shaders/InstancedProjectile.shader">
