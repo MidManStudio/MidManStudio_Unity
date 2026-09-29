@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "RustSimCustomShapeAuthoring.cs"
+// ============================================================================
 // Hand-authored custom collider shape for RustSim's impact detector — for
 // anything Unity's built-in colliders can't represent (or that
 // RustSimTargetRegistrar's auto-detection approximates rather than
@@ -92,10 +96,13 @@ namespace MidManStudio.Projectiles.Managers
 
         [Header("Movement")]
         [Tooltip("See RustSimTargetRegistrar's matching field — identical behavior: " +
-                 "on, this stops re-ticking once registration has actually succeeded " +
-                 "at least once (not just once Start() has run — see the race-condition " +
-                 "note on RegisterNow()).")]
+                 "on, this stops the per-tick re-register once registration has " +
+                 "succeeded and refreshes at Static Refresh Seconds instead.")]
         [SerializeField] private bool _isStatic = false;
+
+        [Tooltip("See RustSimTargetRegistrar's matching field. 0 = register once, " +
+                 "never refresh.")]
+        [SerializeField, Min(0f)] private float _staticRefreshSeconds = 0.5f;
 
         [Header("Update Rate")]
         [SerializeField] private bool _useFixedUpdate = true;
@@ -110,6 +117,7 @@ namespace MidManStudio.Projectiles.Managers
         private int  _tickCounter;
         private bool _hasRegisteredOnce;
         private bool _subscribedToReadyEvent;
+        private float _nextStaticRefreshTime;
 
         private readonly Vector3[] _bakedLocalPoints = new Vector3[ShapeCollider2D.MaxPoints];
         private int _bakedCount;
@@ -277,16 +285,14 @@ namespace MidManStudio.Projectiles.Managers
         private void Update()
         {
             if (_useFixedUpdate) return;
-            // See RustSimTargetRegistrar.Update()'s matching comment — same
-            // race-condition fix, same reasoning.
-            if (_isStatic && _hasRegisteredOnce) return;
+            if (_isStatic && _hasRegisteredOnce) { StaticRefreshTick(); return; }
             Tick();
         }
 
         private void FixedUpdate()
         {
             if (!_useFixedUpdate) return;
-            if (_isStatic && _hasRegisteredOnce) return;
+            if (_isStatic && _hasRegisteredOnce) { StaticRefreshTick(); return; }
             Tick();
         }
 
@@ -298,6 +304,15 @@ namespace MidManStudio.Projectiles.Managers
         {
             if (++_tickCounter < _updateEveryNTicks) return;
             _tickCounter = 0;
+            RegisterNow();
+        }
+
+        // See RustSimTargetRegistrar.StaticRefreshTick.
+        private void StaticRefreshTick()
+        {
+            if (_staticRefreshSeconds <= 0f) return;
+            if (Time.unscaledTime < _nextStaticRefreshTime) return;
+            _nextStaticRefreshTime = Time.unscaledTime + _staticRefreshSeconds;
             RegisterNow();
         }
 
@@ -420,7 +435,11 @@ namespace MidManStudio.Projectiles.Managers
         {
             var system = MID_MasterProjectileSystem.HasInstance
                 ? MID_MasterProjectileSystem.Instance : null;
-            if (system == null) return; // retried next tick
+            if (system == null) return;
+
+            // See RustSimTargetRegistrar.RegisterNow: don't mark as registered
+            // when no backend would accept the call.
+            if (!system.CanAcceptTargets) return;
 
             // See RustSimTargetRegistrar.RegisterNow()'s matching comment —
             // same NetworkObjectId timing fix, same reasoning.

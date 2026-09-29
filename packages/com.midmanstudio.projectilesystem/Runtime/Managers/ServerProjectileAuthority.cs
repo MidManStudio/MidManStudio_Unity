@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ServerProjectileAuthority.cs"
+// ============================================================================
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
@@ -297,6 +301,10 @@ namespace MidManStudio.Projectiles.Managers
 
         public int ActiveCount2D    => _count2D;
         public int ActiveCount3D    => _count3D;
+        public int TargetCount2D    => _targetCount2D;
+        public int TargetCount3D    => _targetCount3D;
+        public int ShapeCount2D     => _shapeCount2D;
+        public int ShapeCount3D     => _shapeCount3D;
         public int MaxProjectiles2D => _maxProjectiles2D;
         public int MaxProjectiles3D => _maxProjectiles3D;
 

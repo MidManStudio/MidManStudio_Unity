@@ -4,7 +4,8 @@
 
 Unity package for projectile simulation (RustSim, raycast, and physics paths)
 backed by the native projectile_core Rust library, with Netcode for
-GameObjects integration. This document currently covers the `Tests/` folder:
+GameObjects integration. This document currently covers the `Tests/` folder
+plus the runtime files listed under Modules that carry a `Runtime` note:
 a self-contained test/demo scene (player movement and dimension switching,
 weapon firing and inventory, PvP health, shootable dummy targets, a local
 lobby, and a manual benchmark harness) used to exercise the runtime package
@@ -174,6 +175,27 @@ separate bench data file. Run it through `ProjectileSystemBenchmarkWindow`
 **What it does:** Editor window UI for configuring and running
 `ProjectileSystemBenchmark` from inside the Unity Editor.
 
+### `RustSimTargetRegistrar.cs` / `RustSimCustomShapeAuthoring.cs` (Runtime)
+**What it does:** Components that register a GameObject as a RustSim collision
+target (auto-detected circle or shape for the registrar, hand-authored point
+loop for the custom shape authoring). Moving targets re-register on the update
+cadence; a target with Is Static on registers, then only refreshes on a slow
+real-time interval (`_staticRefreshSeconds`, default 0.5, 0 = never).
+
+### `MID_MasterProjectileSystem.cs` (Runtime)
+**What it does:** Entry point for target and shape registration. Routes each
+call to `ServerProjectileAuthority` when this is a server and to
+`LocalProjectileManager` when offline, using the network state at the moment of
+the call. `CanAcceptTargets` reports whether a call made now would reach a
+backend. The `Log System Status` context menu prints backend target and shape
+counts.
+
+### `ServerProjectileAuthority.cs` / `LocalProjectileManager.cs` (Runtime)
+**What it does:** The two projectile backends. Each owns its own target and
+shape buffers (upserted by TargetId) that are passed to the native library
+every tick. Both expose `TargetCount2D/3D` and `ShapeCount2D/3D` for
+diagnostics.
+
 ## CI and Workflows
 
 None of the workflows below run the `Tests/` scene or any automated test
@@ -320,3 +342,26 @@ suite; `build.yml` builds the app for Android and Windows only.
   unavailable on that device) no longer aborts the rest of this coroutine,
   including the offline auto-spawn further down; registration now runs
   inside its own try/catch per config.
+
+### `RustSimTargetRegistrar.cs` / `RustSimCustomShapeAuthoring.cs`
+- The earlier static-target fix (keep ticking until the first registration
+  succeeds) only checked that the projectile system existed, then marked the
+  target registered. `MID_MasterProjectileSystem` sends each call to one of two
+  separate buffers based on the network state at that instant (server
+  authority when `IsServer`, local manager when offline), and silently does
+  nothing if the matching backend is null or this is a pure client. A static
+  target registers once, so a call that landed in the wrong buffer or nowhere
+  was never repeated: registered offline and then started as host, the target
+  sat in the local buffer while projectiles simulated in the server buffer. A
+  moving target hid this because it re-registers every tick. Fixed two ways:
+  `RegisterNow()` stays unregistered while `CanAcceptTargets` is false, and a
+  static target now refreshes its registration every `_staticRefreshSeconds`
+  (real time) instead of stopping for good, so it lands in whichever backend is
+  active. Setting the field to 0 restores the old register-once behavior.
+
+### `MID_MasterProjectileSystem.cs`
+- Added `CanAcceptTargets`, and backend target and shape counts to
+  `Log System Status`, so it is visible which buffer holds which targets.
+
+### `ServerProjectileAuthority.cs` / `LocalProjectileManager.cs`
+- Added read-only `TargetCount2D/3D` and `ShapeCount2D/3D` properties.

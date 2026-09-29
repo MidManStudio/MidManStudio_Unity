@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "RustSimTargetRegistrar.cs"
+// ============================================================================
 // Auto-registers this GameObject as a RustSim collision target — drop this
 // on any target that should participate in RustSim (native-simulated)
 // projectile hit detection (players, enemies, breakables, ...).
@@ -119,22 +123,23 @@ namespace MidManStudio.Projectiles.Managers
 
         [Header("Movement")]
         [Tooltip(
-            "STATIC TARGET FIX: not every target moves — walls, breakables, level " +
-            "geometry, and plenty of enemies sit still most/all of the time, but this " +
-            "component previously always re-registered on the Update Rate cadence below " +
-            "regardless, silently paying for a linear-scan RegisterTarget2D/3D upsert " +
-            "every tick (see the file header's O(N²) performance note) even when the " +
-            "position hadn't changed at all. Enable this for anything that never moves: " +
-            "Update/FixedUpdate below become a single bool check instead of a full " +
-            "re-register — but only ONCE REGISTRATION HAS ACTUALLY SUCCEEDED, not just " +
-            "once Start() has run — see the race-condition note on RegisterNow(). " +
-            "Leave off for anything that moves, including anything driven by a moving " +
-            "parent transform.")]
+            "Enable for anything that never moves (walls, level geometry, props). " +
+            "A static target skips the per-tick re-register a moving one does, and " +
+            "instead refreshes at the slow rate set by Static Refresh Seconds below. " +
+            "Leave off for anything that moves, including anything driven by a " +
+            "moving parent transform.")]
         [SerializeField] private bool _isStatic = false;
 
+        [Tooltip("How often a static target re-registers itself, in real seconds. " +
+                 "The re-register is an idempotent upsert, so this only costs a " +
+                 "linear scan every few ticks instead of every one, but it lets the " +
+                 "target recover if the projectile backend it was registered with " +
+                 "changes (offline -> host, host -> offline) or drops the call. " +
+                 "0 disables the refresh entirely: register once, never again.")]
+        [SerializeField, Min(0f)] private float _staticRefreshSeconds = 0.5f;
+
         [Header("Update Rate")]
-        [Tooltip("Ignored when Is Static is on — a static target never re-registers " +
-                 "after its initial Start() call, so there's no cadence to configure. " +
+        [Tooltip("Ignored when Is Static is on (see Static Refresh Seconds). " +
                  "FixedUpdate matches physics tick rate — the usual choice for " +
                  "anything moving via Rigidbody. Switch to Update if this " +
                  "target's position changes outside FixedUpdate.")]
@@ -154,6 +159,7 @@ namespace MidManStudio.Projectiles.Managers
         private int  _tickCounter;
         private bool _hasRegisteredOnce;
         private bool _subscribedToReadyEvent;
+        private float _nextStaticRefreshTime;
 
         // SHAPE STATE: populated once at Start() by DetectShape(). Points are
         // stored relative to THIS transform (not the source collider's own
@@ -206,31 +212,14 @@ namespace MidManStudio.Projectiles.Managers
         private void Update()
         {
             if (_useFixedUpdate) return;
-            // STATIC TARGET RACE-CONDITION FIX ("set to static, collisions never
-            // work"): only stop ticking once registration has ACTUALLY
-            // succeeded at least once — not just because _isStatic is set. The
-            // old code skipped Update/FixedUpdate entirely the moment _isStatic
-            // was true, with only ONE registration attempt ever (in Start()).
-            // If MID_MasterProjectileSystem hadn't finished initializing yet at
-            // that exact frame — a genuine, common script-execution-order race,
-            // not a rare edge case — RegisterNow() silently no-op'd and NOTHING
-            // ever retried, so the target just stayed permanently unregistered.
-            // A moving (non-static) target self-healed from the same race
-            // within a few frames purely by continuing to tick normally; a
-            // static one had no such safety net. Now both behave the same way
-            // until the first successful registration, and only then does a
-            // static target actually stop ticking. This tick-based retry runs
-            // ALONGSIDE the OnSystemReady event subscription below (Start()/
-            // TryRegisterOrWaitForReady) as an independent second safety net —
-            // neither mechanism depends on the other for correctness.
-            if (_isStatic && _hasRegisteredOnce) return;
+            if (_isStatic && _hasRegisteredOnce) { StaticRefreshTick(); return; }
             Tick();
         }
 
         private void FixedUpdate()
         {
             if (!_useFixedUpdate) return;
-            if (_isStatic && _hasRegisteredOnce) return; // see Update()'s comment
+            if (_isStatic && _hasRegisteredOnce) { StaticRefreshTick(); return; }
             Tick();
         }
 
@@ -242,6 +231,16 @@ namespace MidManStudio.Projectiles.Managers
         {
             if (++_tickCounter < _updateEveryNTicks) return;
             _tickCounter = 0;
+            RegisterNow();
+        }
+
+        // Static targets stop the per-tick re-register once registered, but
+        // still re-register on a slow real-time cadence (idempotent upsert).
+        private void StaticRefreshTick()
+        {
+            if (_staticRefreshSeconds <= 0f) return;
+            if (Time.unscaledTime < _nextStaticRefreshTime) return;
+            _nextStaticRefreshTime = Time.unscaledTime + _staticRefreshSeconds;
             RegisterNow();
         }
 
@@ -290,7 +289,12 @@ namespace MidManStudio.Projectiles.Managers
         {
             var system = MID_MasterProjectileSystem.HasInstance
                 ? MID_MasterProjectileSystem.Instance : null;
-            if (system == null) return; // retried next tick — see Update()'s comment
+            if (system == null) return;
+
+            // No backend is accepting targets right now (system has no server
+            // or local manager for the current network state). Registering
+            // here would be silently dropped, so stay unregistered and retry.
+            if (!system.CanAcceptTargets) return;
 
             // NETWORK OBJECT ID TIMING FIX ("network objects do not exist in
             // Awake"): a NetworkObject's NetworkObjectId isn't valid/stable

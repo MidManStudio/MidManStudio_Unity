@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "MID_MasterProjectileSystem.cs"
+// ============================================================================
 //   FireNetworkedSim spawns immediately into LocalProjectileManager for the
 //   firing client (non-server). This gives zero-latency visual feedback using the
 //   same Rust sim + GPU instanced rendering path as the host — no pool objects.
@@ -128,6 +132,15 @@ namespace MidManStudio.Projectiles.Managers
             NetworkManager.Singleton != null
             && NetworkManager.Singleton.IsServer
             && NetworkManager.Singleton.IsClient;
+
+        /// <summary>
+        /// True when a RegisterTarget/RegisterShape call made right now would
+        /// actually land in a backend: the server authority when this is a
+        /// server, or the local manager when offline. A pure client, or a
+        /// missing backend, would silently drop the call.
+        /// </summary>
+        public bool CanAcceptTargets
+            => (IsServer && _authority != null) || (!IsNetworked && _localManager != null);
 
         public ServerProjectileAuthority      GetAuthority()         => _authority;
         public MID_ProjectileNetworkBridge    GetBridge()            => _networkBridge;
@@ -924,6 +937,9 @@ namespace MidManStudio.Projectiles.Managers
                 $"Active2D:     {_authority?.ActiveCount2D ?? _localManager?.ActiveCount2D ?? 0}\n" +
                 $"Active3D:     {_authority?.ActiveCount3D ?? _localManager?.ActiveCount3D ?? 0}\n" +
                 $"Registry:     {_registry?.Count ?? 0} configs\n" +
+                $"CanAcceptTargets: {CanAcceptTargets}\n" +
+                $"Authority targets  2D/3D circle {_authority?.TargetCount2D ?? -1}/{_authority?.TargetCount3D ?? -1}, shape {_authority?.ShapeCount2D ?? -1}/{_authority?.ShapeCount3D ?? -1}\n" +
+                $"Local targets      2D/3D circle {_localManager?.TargetCount2D ?? -1}/{_localManager?.TargetCount3D ?? -1}, shape {_localManager?.ShapeCount2D ?? -1}/{_localManager?.ShapeCount3D ?? -1}\n" +
                 $"LocalManager: {(_localManager != null ? "OK" : "NULL")}",
                 nameof(MID_MasterProjectileSystem));
         }
