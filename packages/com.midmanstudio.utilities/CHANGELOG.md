@@ -1,5 +1,6 @@
 # com.midmanstudio.utilities
 
+- **FPS counter** - `MID_FpsCounter` on-screen frame-rate readout and `MID_FrameTimeStats` rolling frame-time window (average, best, worst, 1% low). See `docs/com.midmanstudio.utilities/performance.md`.
 - **Auto Reference system** — attribute-driven auto-wiring of Component/GameObject/interface
   fields on MonoBehaviours. Scans self + children (+ optional external search root) and
   disambiguates multi-candidate fields via a fuzzy name-match scorer (Levenshtein + token

@@ -6,7 +6,7 @@ Shared runtime and editor utility library used across MidManStudio packages
 and projects: singletons, logging, event bus, object/particle pooling,
 scriptable-object libraries, scene management, UI state, FX playback, audio
 playback, auto-reference wiring, hierarchy tooling, timers, and small editor
-windows for each of those systems. 126 files across `Runtime/` and `Editor/`,
+windows for each of those systems. 128 files across `Runtime/` and `Editor/`,
 plus `Samples~/` (optional example scenes/scripts, not part of the shipped
 package) and `Tests/` (manual benchmark runners, not an automated suite).
 
@@ -26,6 +26,9 @@ hand-maintained.
 - [Logging](com.midmanstudio.utilities/logging.md) - `MID_Logger` (level-gated
   static logger), `MID_LogLevel`, `MID_LoggerSettings`, `MID_LoggerEditorWindow`
   (bulk log-level manager), `ExampleScript` (reference/demo only). Done.
+- [Performance](com.midmanstudio.utilities/performance.md) - `MID_FpsCounter`
+  (on-screen frame-rate readout) and `MID_FrameTimeStats` (rolling frame-time
+  window with average, best, worst and 1% low). Done.
 - Events - not yet covered.
 - SequentialProcessRunner - not yet covered.
 - HierarchyArranger - not yet covered.

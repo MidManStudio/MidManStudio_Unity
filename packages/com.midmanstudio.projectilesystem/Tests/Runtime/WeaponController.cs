@@ -2,6 +2,7 @@
 // NOTICE: Full documentation, design decisions, and fix history for this file
 // live in docs/com.midmanstudio.projectilesystem.md, section "WeaponController.cs"
 // ============================================================================
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using Unity.Netcode;
@@ -74,17 +75,23 @@ namespace TestGame
         [SerializeField] private KeyCode _switchNextKey = KeyCode.Tab;
         [SerializeField] private UnityEngine.UI.Button _switchWeaponButton;
 
-        [Header("Switch Animation")]
-        [Tooltip("Animator that plays the weapon-switch animation. Optional — " +
-                 "switching still fully functions (inventory + fire logic) with " +
-                 "no Animator assigned, it just skips the SetTrigger call.")]
-        [SerializeField] private Animator _animator;
-        [Tooltip("Used when the equipped WeaponDefinitionSO doesn't specify its own SwitchAnimTrigger.")]
-        [SerializeField] private string _defaultSwitchAnimTrigger = "SwitchWeapon";
-        [Tooltip("Fire is locked out for this long after a switch, so the draw " +
-                 "animation has time to read before the new weapon can shoot. " +
-                 "Set to 0 to disable the lockout entirely.")]
-        [SerializeField] private float _switchLockDuration = 0.35f;
+        [Header("Switch Animation (procedural, no Animator)")]
+        [Tooltip("Seconds the weapon holder takes to dip before the model swaps. 0 swaps without the dip.")]
+        [SerializeField, Min(0f)] private float _switchLowerDuration = 0.15f;
+        [Tooltip("Seconds the weapon holder takes to come back up after the swap. 0 snaps it back.")]
+        [SerializeField, Min(0f)] private float _switchRaiseDuration = 0.2f;
+        [Tooltip("How far the holder moves at the bottom of the dip, in its parent's space. " +
+                 "The default drops it straight down.")]
+        [SerializeField] private Vector3 _switchLoweredOffset = new Vector3(0f, -0.35f, 0f);
+        [Tooltip("Extra rotation at the bottom of the dip, as Euler degrees applied on top of the " +
+                 "holder's own rest rotation. The default tips the muzzle downward; flip the sign " +
+                 "of X if it tips the wrong way for your rig.")]
+        [SerializeField] private Vector3 _switchLoweredEuler = new Vector3(60f, 0f, 0f);
+        [Tooltip("Easing used for both halves. X = progress 0..1, Y = amount 0..1.")]
+        [SerializeField] private AnimationCurve _switchEase = AnimationCurve.EaseInOut(0f, 0f, 1f, 1f);
+        [Tooltip("Minimum fire lockout after a switch. The lockout is never shorter than the lower " +
+                 "plus raise time. Set to 0 to use only that.")]
+        [SerializeField, Min(0f)] private float _switchLockDuration = 0.35f;
 
         [Header("Weapon Model Socket (optional)")]
         [Tooltip("Where WeaponDefinitionSO.WeaponModelPrefab gets instantiated on " +
@@ -96,6 +103,12 @@ namespace TestGame
                  "same correction; a model already authored to face the socket's " +
                  "own forward direction would use (0, 0, 0) here instead.")]
         [SerializeField] private Vector3 _modelRotationOffsetEuler = new Vector3(0f, 180f, 0f);
+        [Tooltip("Minimum name-match score (0..1) for a child of a weapon model to be accepted as " +
+                 "its shot point when the prefab does not assign WeaponRef.ShotPoint itself. " +
+                 "Against the field name ShotPoint: ShotPoint and Shot_Point score 1.0, " +
+                 "ShotPoint (1) 0.89, ShootPoint 0.52, FirePoint 0.37, Muzzle 0.0. Names the " +
+                 "resolver rejects are still tried against a list of common muzzle names.")]
+        [SerializeField, Range(0f, 1f)] private float _shotPointMinMatchScore = 0.5f;
 
         [Header("Shoot Mode (debug/test)")]
         [SerializeField] private PlayerShootMode _defaultShootMode = PlayerShootMode.LocalOnly;
@@ -142,6 +155,17 @@ namespace TestGame
         private GameObject _currentModelInstance;
         private readonly HashSet<ushort> _ownedWeaponIds = new(8);
 
+        // Switch animation state. The holder's authored pose is captured once and
+        // the dip is applied as an offset from it, so the holder is never driven
+        // to absolute values that could differ from how it was set up in the rig.
+        private Vector3 _socketRestPos;
+        private Quaternion _socketRestRot = Quaternion.identity;
+        private bool _socketRestCaptured;
+        private float _socketDip;                    // 0 = rest, 1 = fully lowered
+        private Coroutine _switchRoutine;
+        private WeaponDefinitionSO _pendingSwapWeapon;
+        private ushort _customCurveWarnedConfigId = ushort.MaxValue;
+
         public WeaponDefinitionSO CurrentWeapon => _current;
         public bool IsUsing3DShootMode
             => _shootMode == PlayerShootMode.RustSim3D
@@ -155,7 +179,23 @@ namespace TestGame
         private void Awake()
         {
             if (_player == null) _player = GetComponent<NetworkedDimensionPlayer>();
+            CaptureSocketRest();
             SetShootMode(_defaultShootMode);
+        }
+
+        private void OnEnable()
+        {
+            if (_pendingSwapWeapon == null) return;
+            SwapModel(_pendingSwapWeapon);
+            _pendingSwapWeapon = null;
+        }
+
+        private void OnDisable()
+        {
+            // A switch cut short by disabling keeps its pending swap so OnEnable
+            // can finish it; the holder goes back to rest either way.
+            if (_switchRoutine != null) { StopCoroutine(_switchRoutine); _switchRoutine = null; }
+            ApplySocketDip(0f);
         }
 
         public override void OnNetworkSpawn()
@@ -306,38 +346,102 @@ namespace TestGame
         {
             bool isSwitch = _current != null && _current != weapon;
             _current = weapon;
-            _switchLockUntil = isSwitch ? Time.time + _switchLockDuration : 0f;
 
-            if (_animator != null)
+            // Interrupting a switch in progress: the new weapon's routine starts from
+            // wherever the holder currently is, so there is no visible pop back to rest.
+            if (_switchRoutine != null) { StopCoroutine(_switchRoutine); _switchRoutine = null; }
+            _pendingSwapWeapon = null;
+
+            bool canAnimate = isSwitch
+                && _weaponSocket != null
+                && _currentModelInstance != null
+                && (_switchLowerDuration > 0f || _switchRaiseDuration > 0f)
+                && isActiveAndEnabled;
+
+            if (!canAnimate)
             {
-                string trig = !string.IsNullOrEmpty(weapon.SwitchAnimTrigger)
-                    ? weapon.SwitchAnimTrigger : _defaultSwitchAnimTrigger;
-                if (!string.IsNullOrEmpty(trig)) _animator.SetTrigger(trig);
+                _switchLockUntil = isSwitch ? Time.time + _switchLockDuration : 0f;
+                ApplySocketDip(0f);
+                SwapModel(weapon);
+                return;
             }
 
-            if (_weaponSocket != null)
+            _switchLockUntil = Time.time + Mathf.Max(_switchLockDuration,
+                                                     _switchLowerDuration + _switchRaiseDuration);
+            _pendingSwapWeapon = weapon;
+            _switchRoutine = StartCoroutine(SwitchRoutine(weapon));
+        }
+
+        /// <summary>Dips the holder, swaps the model at the bottom, then raises it back to rest.</summary>
+        private IEnumerator SwitchRoutine(WeaponDefinitionSO weapon)
+        {
+            // Lower, starting from wherever the holder is now so an interrupted
+            // switch continues smoothly instead of popping back to rest first.
+            float from = _socketDip;
+            float duration = _switchLowerDuration * Mathf.Abs(1f - from);
+            for (float t = 0f; t < duration; t += Time.deltaTime)
             {
-                if (_currentModelInstance != null) Destroy(_currentModelInstance);
-                _currentModelInstance = null;
-
-                if (weapon.WeaponModelPrefab != null)
-                {
-                    _currentModelInstance = Instantiate(weapon.WeaponModelPrefab, _weaponSocket);
-                    _currentModelInstance.transform.localPosition = Vector3.zero;
-                    _currentModelInstance.transform.localRotation = Quaternion.Euler(_modelRotationOffsetEuler);
-
-                    // GetComponent on the instantiated copy, not on
-                    // weapon.WeaponModelPrefab itself — the prefab asset's own
-                    // WeaponRef.ShotPoint is never part of the live scene, so
-                    // it wouldn't move with this weapon instance at all.
-                    var weaponRef = _currentModelInstance.GetComponent<WeaponRef>();
-                    _player.Set3DShotpoint(weaponRef != null ? weaponRef.ShotPoint : null);
-                }
-                else
-                {
-                    _player.Set3DShotpoint(null);
-                }
+                ApplySocketDip(Mathf.Lerp(from, 1f, _switchEase.Evaluate(t / duration)));
+                yield return null;
             }
+            ApplySocketDip(1f);
+
+            SwapModel(weapon);
+            _pendingSwapWeapon = null;
+
+            // Raise back to the authored rest pose.
+            duration = _switchRaiseDuration;
+            for (float t = 0f; t < duration; t += Time.deltaTime)
+            {
+                ApplySocketDip(Mathf.Lerp(1f, 0f, _switchEase.Evaluate(t / duration)));
+                yield return null;
+            }
+            ApplySocketDip(0f);
+            _switchRoutine = null;
+        }
+
+        private void CaptureSocketRest()
+        {
+            if (_socketRestCaptured || _weaponSocket == null) return;
+            _socketRestPos = _weaponSocket.localPosition;
+            _socketRestRot = _weaponSocket.localRotation;
+            _socketRestCaptured = true;
+        }
+
+        /// <summary>dip 0 puts the holder exactly at its rest pose, 1 at the full lowered pose.</summary>
+        private void ApplySocketDip(float dip)
+        {
+            _socketDip = dip;
+            if (_weaponSocket == null) return;
+            CaptureSocketRest();
+            _weaponSocket.localPosition = _socketRestPos + _switchLoweredOffset * dip;
+            _weaponSocket.localRotation = _socketRestRot
+                * Quaternion.Slerp(Quaternion.identity, Quaternion.Euler(_switchLoweredEuler), dip);
+        }
+
+        private void SwapModel(WeaponDefinitionSO weapon)
+        {
+            if (_weaponSocket == null) return;
+
+            if (_currentModelInstance != null) Destroy(_currentModelInstance);
+            _currentModelInstance = null;
+
+            if (weapon.WeaponModelPrefab == null)
+            {
+                _player.Set3DShotpoint(null);
+                return;
+            }
+
+            _currentModelInstance = Instantiate(weapon.WeaponModelPrefab, _weaponSocket);
+            _currentModelInstance.transform.localPosition = Vector3.zero;
+            _currentModelInstance.transform.localRotation = Quaternion.Euler(_modelRotationOffsetEuler);
+
+            // WeaponRef is added to the instantiated copy (never the prefab asset, whose
+            // ShotPoint is not part of the live scene) and its ShotPoint resolved by the
+            // utilities package's auto-reference resolver. Null falls back to the
+            // player's own default shot point.
+            var weaponRef = WeaponRef.EnsureOn(_currentModelInstance, _shotPointMinMatchScore, _logLevel);
+            _player.Set3DShotpoint(weaponRef != null ? weaponRef.ShotPoint : null);
         }
 
         #endregion
@@ -388,6 +492,20 @@ namespace TestGame
 
         #region Sim Fire
 
+        // CustomCurve has no native tick, so a RustSim/LocalOnly shot of that config flies straight.
+        // Warn once per config instead of every shot.
+        private void WarnCustomCurveOnNativeSim(ushort cfgId)
+        {
+            if (_customCurveWarnedConfigId == cfgId) return;
+            _customCurveWarnedConfigId = cfgId;
+            MID_Logger.LogWarning(_logLevel,
+                $"Config {cfgId} uses MovementType.CustomCurve, which only physics projectiles support. " +
+                "The native sim has no tick for it and flies the shot straight. Use a Physics shoot mode " +
+                "(keys 6 and 7) while hosting, or pick Straight, Wave, Circular, Guided or Teleport for " +
+                "native shots.",
+                nameof(WeaponController));
+        }
+
         private void FireSim()
         {
             if (!MID_MasterProjectileSystem.HasInstance) return;
@@ -403,6 +521,9 @@ namespace TestGame
                     nameof(WeaponController));
                 return;
             }
+
+            if (cfg.MovementType == MidManStudio.Projectiles.Core.ProjectileMovementType.CustomCurve)
+                WarnCustomCurveOnNativeSim(cfgId);
 
             Transform sp     = _player.ResolveShotPoint();
             Vector3   origin = sp != null ? sp.position : transform.position;
@@ -659,8 +780,14 @@ namespace TestGame
                     poolType, origin, rot, configId);
                 if (netObj == null)
                 {
+                    bool isServer = MID_MasterProjectileSystem.HasInstance
+                                 && MID_MasterProjectileSystem.Instance.IsServer;
                     MID_Logger.LogWarning(_logLevel,
-                        $"Pool null for {poolType}.", nameof(WeaponController));
+                        isServer
+                            ? $"Pool null for {poolType}."
+                            : "Physics projectiles spawn as server-owned NetworkObjects. Start as Host " +
+                              "(or Server) to fire in a Physics shoot mode.",
+                        nameof(WeaponController));
                     continue;
                 }
 

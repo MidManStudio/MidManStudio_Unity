@@ -44,12 +44,15 @@ default point rather than leaving a previous weapon's muzzle active.
 **What it does:** Shoot-mode dispatch (LocalOnly/RustSim/Raycast/Physics,
 2D and 3D), shot pattern and spread, config-id resolution, the actual
 fire/raycast/physics calls into `MID_MasterProjectileSystem`, and a weapon
-inventory (pickup, ownership, switching with an Animator trigger).
-`EquipLocal()` also swaps the visual weapon model under `_weaponSocket`,
-applies `_modelRotationOffsetEuler` (a local rotation correction for however
-this asset pack's models are authored relative to the socket) to the
-instantiated model, and points the player's 3D shot point at the model's
-`WeaponRef.ShotPoint` when it has one.
+inventory (pickup, ownership, switching). A switch plays a procedural
+animation on the weapon holder (`_weaponSocket`): it dips down and tilts,
+the model is swapped at the bottom, then it returns to the holder's authored
+rest pose. No Animator is involved. `SwapModel()` instantiates the weapon
+model under the holder, applies `_modelRotationOffsetEuler` (a local
+rotation correction for however this asset pack's models are authored
+relative to the holder), calls `WeaponRef.EnsureOn()` on the instance, and
+points the player's 3D shot point at the resulting `ShotPoint`. Firing is
+locked out for the length of the switch animation.
 
 **Decisions:**
 - Reads weapon tuning (fire rate, pellets, spread, config type ids, raycast
@@ -69,12 +72,39 @@ instantiated model, and points the player's 3D shot point at the model's
   class's concern.
 
 ### `WeaponRef.cs`
-**What it does:** Marker component for a weapon model prefab, holding a
-single `ShotPoint` transform at the barrel tip. `WeaponController.EquipLocal()`
-looks this up on the instantiated model (not the prefab asset — see Fixes
-and Problems) and forwards it to `NetworkedDimensionPlayer.Set3DShotpoint()`.
-Optional: a weapon model with no `WeaponRef` falls back to the player's own
-default shot point.
+**What it does:** Marker component for a weapon model, holding a single
+`ShotPoint` transform at the barrel tip. `WeaponRef.EnsureOn()` is called by
+`WeaponController.SwapModel()` on every instantiated model: it adds a
+`WeaponRef` if the prefab has none, keeps a `ShotPoint` the prefab already
+assigns, and otherwise fills it with the utilities package's
+`MID_AutoReferenceResolver` (the class is `[MID_AutoRefable]`). If the
+resolver result scores below `_shotPointMinMatchScore`, or only the model root
+matched, a short list of common muzzle names (`ShotPoint`, `Muzzle`,
+`FirePoint`, `BarrelEnd`, `BulletSpawn` and similar) is tried against the
+model's children. If nothing matches, `ShotPoint` stays null, a warning is
+logged, and the player's own default shot point is used.
+
+**Decisions:**
+- The resolver matches on the field name, so it only scores names close to
+  `ShotPoint`. Measured against the real `MID_NameMatcher`: `ShotPoint` and
+  `Shot_Point` 1.00, `ShotPoint (1)` 0.89, `ShootPoint` 0.52, `FirePoint`
+  0.37, `Muzzle` 0.00. `Muzzle` is a very common name in weapon asset packs,
+  which is why the name-list fallback exists.
+- A resolver pick that is the model root itself is rejected. With a
+  single-transform model the resolver reports the root as the only candidate
+  with a perfect score, which would put the shot point at the model's pivot.
+
+### `WeaponDefinitionSO.cs` (Runtime)
+**What it does:** Per-weapon tuning asset. `SwitchAnimTrigger` is no longer
+read by anything; the field stays so existing assets keep their data.
+
+### `PhysicsProjectileBase.cs` (Runtime)
+**What it does:** Shared base for the 2D and 3D physics projectiles, including
+the per-tick movement types (Wave, Circular, Guided, Teleport, CustomCurve).
+`CustomCurve` is physics-only: the native sim has no tick for movement type 6
+and flies such a shot straight. The path is absolute geometry, so the path's
+own length is the total distance covered over the config's `Lifetime` and the
+config's bullet velocity does not change it.
 
 ### `PlayerHealth.cs`
 **What it does:** PvP health, damage, death, and respawn for players.
@@ -317,6 +347,31 @@ suite; `build.yml` builds the app for Android and Windows only.
   Quaternion.Euler(_modelRotationOffsetEuler)` — a new serialized field
   (default `(0, 180, 0)`, matching the value already in use) instead of a
   hardcoded magic number, applied relative to the socket.
+- The switch animation was an Animator trigger. In use, the trigger left the
+  switch state playing indefinitely, and the clip animated the holder. The
+  Animator controller and clip are not in the repo, so the cause of the weapon
+  turning sideways was inferred and not confirmed: a clip with absolute
+  position or rotation curves on the holder replaces the holder's authored
+  pose every frame, and it fights the code-set model rotation. Replaced with a
+  coroutine that captures the holder's rest pose once and applies the dip as
+  an offset from it (`_switchLoweredOffset`, `_switchLoweredEuler`,
+  `_switchLowerDuration`, `_switchRaiseDuration`, `_switchEase`), so the
+  authored pose is always what it returns to. The model swaps at the bottom of
+  the dip. A switch that is interrupted continues from the holder's current
+  position, and disabling the component mid-switch finishes the pending swap
+  on re-enable. The first equip and any equip with no previous model swap
+  immediately with no dip. The fire lockout is at least the animation length.
+  `_animator` and `_defaultSwitchAnimTrigger` were removed from this class;
+  an Animator on the player must not carry curves for the holder.
+- The model swap moved into `SwapModel()`. The shot point is now found by
+  `WeaponRef.EnsureOn()` (see its section) instead of requiring each prefab to
+  carry a `WeaponRef` with `ShotPoint` already assigned.
+- `FireSim()` now logs a one-time warning (per config id) when the config's
+  movement type is `CustomCurve`, since the native sim flies it straight. The
+  physics fire path now says that physics projectiles need a Host or Server
+  when the pool call returns null while not a server: physics projectiles are
+  server-owned NetworkObjects, so the offline case previously only logged
+  "Pool null".
 
 ### `PlayerEntryCard.cs`
 - The ready-state text used `\u2713` (checkmark) and `\u2026` (ellipsis).
@@ -365,3 +420,16 @@ suite; `build.yml` builds the app for Android and Windows only.
 
 ### `ServerProjectileAuthority.cs` / `LocalProjectileManager.cs`
 - Added read-only `TargetCount2D/3D` and `ShapeCount2D/3D` properties.
+
+### `PhysicsProjectileBase.cs`
+- A `CustomCurve` path formula that divides by zero or takes the root of a
+  negative number gives a non-finite position, and `ApplyCustomCurve()` passed
+  the resulting NaN or infinite velocity to the Rigidbody, which is an engine
+  error and leaves the projectile unusable. The update is now skipped when the
+  velocity is not finite, with a one-time warning per launch that names the
+  config. This was added as hardening; it is not confirmed to be the cause of
+  any reported symptom.
+
+### `WeaponDefinitionSO.cs`
+- The `SwitchAnimTrigger` tooltip described a trigger that is no longer fired.
+  It now says the field is unused.

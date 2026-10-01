@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "PhysicsProjectileBase.cs"
+// ============================================================================
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -93,6 +97,7 @@ namespace MidManStudio.Projectiles.Managers
         // See ApplyCustomCurve()'s doc comment for the full design.
         private Vector3 _movementSpawnPosition;
         private const int PATH_WARP_TABLE_SIZE = 17;
+        private bool _customCurveInvalidLogged;
         private readonly float[] _pathWarpTable = new float[PATH_WARP_TABLE_SIZE];
         private bool _pathWarpTableValid;
 
@@ -402,8 +407,31 @@ namespace MidManStudio.Projectiles.Managers
                 ? (targetPos - transform.position) / dt
                 : Vector3.zero;
 
+            // A path formula that divides by zero or takes the root of a negative
+            // gives a non-finite position. Handing that to a Rigidbody as a velocity
+            // is an engine error and the projectile stops working, so skip the
+            // update and say why once per launch.
+            if (!IsFinite(velocity))
+            {
+                if (!_customCurveInvalidLogged)
+                {
+                    _customCurveInvalidLogged = true;
+                    MID_Logger.LogWarning(_logLevel,
+                        $"CustomCurve path for config {VisualConfigId} produced a non-finite " +
+                        "position. Check the path formula for a division by zero or a square " +
+                        "root of a negative number. Skipping the movement update.",
+                        nameof(PhysicsProjectileBase));
+                }
+                return;
+            }
+
             ApplyMovementVelocity(velocity);
         }
+
+        private static bool IsFinite(Vector3 v)
+            => !(float.IsNaN(v.x) || float.IsInfinity(v.x)
+              || float.IsNaN(v.y) || float.IsInfinity(v.y)
+              || float.IsNaN(v.z) || float.IsInfinity(v.z));
 
         /// <summary>
         /// GUIDED FIX ("didn't setup guided and way to set target for it"):
@@ -611,6 +639,7 @@ namespace MidManStudio.Projectiles.Managers
 
             if (_movementType == ProjectileMovementType.CustomCurve)
             {
+                _customCurveInvalidLogged = false;
                 _movementSpawnPosition = transform.position;
                 BuildPathWarpTable(cfg);
             }

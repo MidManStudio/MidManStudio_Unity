@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "WeaponDefinitionSO.cs"
+// ============================================================================
 using UnityEngine;
 using MidManStudio.Core.Libraries;
 using MidManStudio.Core.Pools;
@@ -47,9 +51,9 @@ namespace MidManStudio.Projectiles.Config
                  "it just won't swap a visible model.")]
         [SerializeField] private GameObject _weaponModelPrefab;
 
-        [Tooltip("Animator trigger name fired on WeaponController's Animator (if one " +
-                 "is assigned) when this weapon becomes the active one. Leave blank " +
-                 "to fall back to WeaponController's own default switch trigger.")]
+        [Tooltip("Unused. WeaponController plays a procedural switch animation on the " +
+                 "weapon holder now and no longer fires an Animator trigger. Kept so " +
+                 "existing assets keep their serialized data.")]
         [SerializeField] private string _switchAnimTrigger;
 
         [Header("Projectile Config Type IDs")]
