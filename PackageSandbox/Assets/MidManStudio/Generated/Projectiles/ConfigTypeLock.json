@@ -2,22 +2,22 @@
     "entries": [
         {
             "packageId": "com.midmanstudio.projectilesystem",
-            "enumName": "Default",
+            "enumName": "DefaultProjectile",
             "value": 0
         },
         {
             "packageId": "com.midmanstudio.projectilesystem",
-            "enumName": "Test_Proj_2D",
+            "enumName": "Test_Proj_Arcing_2D",
             "value": 1
         },
         {
             "packageId": "com.midmanstudio.projectilesystem",
-            "enumName": "Test_Proj_3D",
+            "enumName": "Test_Proj_Big_Flow",
             "value": 2
         },
         {
             "packageId": "com.midmanstudio.projectilesystem",
-            "enumName": "Test_Proj_Circular",
+            "enumName": "Test_Proj_CustomCurve",
             "value": 3
         },
         {
@@ -34,6 +34,31 @@
             "packageId": "com.midmanstudio.projectilesystem",
             "enumName": "Test_Proj_Wave",
             "value": 6
+        },
+        {
+            "packageId": "com.midmanstudio.projectilesystem",
+            "enumName": "Assult_1_Proj",
+            "value": 7
+        },
+        {
+            "packageId": "com.midmanstudio.projectilesystem",
+            "enumName": "Assult_2_Proj",
+            "value": 8
+        },
+        {
+            "packageId": "com.midmanstudio.projectilesystem",
+            "enumName": "EnemyProj",
+            "value": 9
+        },
+        {
+            "packageId": "com.midmanstudio.projectilesystem",
+            "enumName": "Pistole_Proj",
+            "value": 10
+        },
+        {
+            "packageId": "com.midmanstudio.projectilesystem",
+            "enumName": "Shotgun_Proj",
+            "value": 11
         }
     ]
 }

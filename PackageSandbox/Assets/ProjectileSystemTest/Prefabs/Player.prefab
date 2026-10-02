@@ -251,7 +251,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  GlobalObjectIdHash: 1851101981
+  GlobalObjectIdHash: 1088649337
   AlwaysReplicateAsRoot: 0
   SynchronizeTransform: 1
   ActiveSceneSynchronization: 0
@@ -279,8 +279,8 @@ MonoBehaviour:
   _ownerColor: {r: 0.2, g: 0.8, b: 1, a: 1}
   _remoteColor: {r: 1, g: 0.4, b: 0.3, a: 1}
   _moveSpeed2D: 6
-  _moveSpeed3D: 6
-  _jumpForce: 4
+  _moveSpeed3D: 8
+  _jumpForce: 10
   _dashKey: 304
   _dashSpeed: 28
   _dashDuration: 0.3
@@ -503,14 +503,44 @@ MonoBehaviour:
   _availableWeapons:
   - {fileID: 11400000, guid: 72f38da14fc34effa6c813c1574aa792, type: 2}
   - {fileID: 11400000, guid: a9f135d7854034afb89f916903bf0773, type: 2}
+  - {fileID: 11400000, guid: 502b03c98a3fb4e598955a8412f8fef0, type: 2}
+  - {fileID: 11400000, guid: 0deb5e033cdc04046a0a09bb369fe1a8, type: 2}
   _fireKey: 102
   _touchShootButton: {fileID: 299879736753308955}
   _switchNextKey: 113
   _switchWeaponButton: {fileID: 1728011196325491535}
-  _animator: {fileID: 7879709890746942877}
-  _defaultSwitchAnimTrigger: SwitchWeapon
+  _switchLowerDuration: 0.15
+  _switchRaiseDuration: 0.2
+  _switchLoweredOffset: {x: 0, y: -0.35, z: 0}
+  _switchLoweredEuler: {x: 60, y: 0, z: 0}
+  _switchEase:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 0
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 1
+      value: 1
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
   _switchLockDuration: 0.35
   _weaponSocket: {fileID: 8833598740466924514}
+  _modelRotationOffsetEuler: {x: 0, y: 180, z: 0}
+  _shotPointMinMatchScore: 0.5
   _defaultShootMode: 1
   _modeText: {fileID: 8186747673599802949}
   _modeCycleButton: {fileID: 3717547885973104246}

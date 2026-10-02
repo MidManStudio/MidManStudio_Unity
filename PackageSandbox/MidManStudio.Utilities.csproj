@@ -148,6 +148,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Singleton/Singleton.cs">
       <Link>Runtime/Singleton/Singleton.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Performance/MID_FrameTimeStats.cs">
+      <Link>Runtime/Performance/MID_FrameTimeStats.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Libraries/Generated/LibraryItemId.cs">
       <Link>Runtime/Libraries/Generated/LibraryItemId.cs</Link>
     </Compile>
@@ -219,6 +222,9 @@
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/FXSystems/GlobalFXManager.cs">
       <Link>Runtime/FXSystems/GlobalFXManager.cs</Link>
+    </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Performance/MID_FpsCounter.cs">
+      <Link>Runtime/Performance/MID_FpsCounter.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/Config/ObjectPoolTypeProviderSO.cs">
       <Link>Runtime/PoolSystems/Config/ObjectPoolTypeProviderSO.cs</Link>
