@@ -1,7 +1,7 @@
-
-// MonoBehaviour that listens to a MID_GameEvent and fires a UnityEvent response.
-// Self-registers/deregisters on Enable/Disable.
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/events.md, section "MID_GameEventListener.cs"
+// ============================================================================
 using UnityEngine;
 using UnityEngine.Events;
 using MidManStudio.Core.Logging;
@@ -9,8 +9,11 @@ using MidManStudio.Core.Logging;
 namespace MidManStudio.Core.Events
 {
     /// <summary>
-    /// Attach to any GameObject. Assign a MID_GameEvent and wire OnResponse.
-    /// When the event is raised, OnResponse fires.
+    /// Attach to any GameObject. Assign a <see cref="MID_GameEvent"/> and
+    /// wire the response in the inspector (or handle
+    /// <see cref="OnEventRaised"/> in code). Registers itself with the
+    /// event on <see cref="OnEnable"/> and deregisters on
+    /// <see cref="OnDisable"/>, so a disabled listener never responds.
     /// </summary>
     public class MID_GameEventListener : MonoBehaviour
     {
@@ -18,7 +21,8 @@ namespace MidManStudio.Core.Events
         [SerializeField] private UnityEvent    _onResponse;
         [SerializeField] protected MID_LogLevel _logLevel = MID_LogLevel.None;
 
-        private void OnEnable()
+        /// <summary>Registers with the assigned event. Override (calling base) if a subclass needs its own enable-time setup.</summary>
+        protected virtual void OnEnable()
         {
             if (_gameEvent == null)
             {
@@ -29,7 +33,17 @@ namespace MidManStudio.Core.Events
             _gameEvent.Register(this);
         }
 
-        private void OnDisable()
+        /// <summary>
+        /// Deregisters from the assigned event. Declared <c>protected
+        /// virtual</c> rather than private specifically so a subclass can
+        /// override it and call <c>base.OnDisable()</c> instead of
+        /// silently shadowing it: Unity only invokes the most-derived
+        /// declaration of a lifecycle method when both a base and derived
+        /// class declare one privately, so a private override here would
+        /// mean this deregistration never runs for subclass instances (see
+        /// <see cref="MID_DelayedGameEventListener"/>'s fix history).
+        /// </summary>
+        protected virtual void OnDisable()
         {
             _gameEvent?.Deregister(this);
         }

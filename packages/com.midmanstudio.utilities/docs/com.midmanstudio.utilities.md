@@ -6,7 +6,7 @@ Shared runtime and editor utility library used across MidManStudio packages
 and projects: singletons, logging, event bus, object/particle pooling,
 scriptable-object libraries, scene management, UI state, FX playback, audio
 playback, auto-reference wiring, hierarchy tooling, timers, and small editor
-windows for each of those systems. 128 files across `Runtime/` and `Editor/`,
+windows for each of those systems. 126 files across `Runtime/` and `Editor/`,
 plus `Samples~/` (optional example scenes/scripts, not part of the shipped
 package) and `Tests/` (manual benchmark runners, not an automated suite).
 
@@ -26,13 +26,19 @@ hand-maintained.
 - [Logging](com.midmanstudio.utilities/logging.md) - `MID_Logger` (level-gated
   static logger), `MID_LogLevel`, `MID_LoggerSettings`, `MID_LoggerEditorWindow`
   (bulk log-level manager), `ExampleScript` (reference/demo only). Done.
-- [Performance](com.midmanstudio.utilities/performance.md) - `MID_FpsCounter`
-  (on-screen frame-rate readout) and `MID_FrameTimeStats` (rolling frame-time
-  window with average, best, worst and 1% low). Done.
-- Events - not yet covered.
-- SequentialProcessRunner - not yet covered.
-- HierarchyArranger - not yet covered.
-- Timers - not yet covered.
+- [Events](com.midmanstudio.utilities/events.md) - `MID_GameEvent`,
+  `MID_GameEventListener`, `MID_DelayedGameEventListener`, `MID_EventBus<T>`,
+  `MID_EventBusRegistry`, `MID_EventUtilities`. Done.
+- [SequentialProcessRunner](com.midmanstudio.utilities/sequentialprocessrunner.md) -
+  `SequentialTask`, `MID_SequentialProcessRunner` (priority-lane task runner
+  with retry/fallback). Done.
+- [HierarchyArranger](com.midmanstudio.utilities/hierarchyarranger.md) -
+  `MID_HierarchyArranger`, `MID_HierarchyArrangerWindow`,
+  `MID_HierarchyArrangeOptions`, `MID_HierarchySeparatorMarker`. Done.
+- [Timers](com.midmanstudio.utilities/timers.md) - `Timer`, `CountdownTimer`,
+  `StopwatchTimer`, `ValueInterpolationTimer`, `SteppedValueTimer`,
+  `NetworkTimer`, `TimerFactory`, `PerformanceBenchmarkTimer`,
+  `PerformanceBenchmarkRunner`. Done.
 - TickDispatcher - not yet covered.
 - StickyNote - not yet covered.
 - Libraries - not yet covered.
@@ -43,7 +49,8 @@ hand-maintained.
 - UIState - not yet covered.
 - PoolSystems - not yet covered.
 - Helpers - not yet covered.
-- Ui - not yet covered.
+- [Ui](com.midmanstudio.utilities/ui.md) - `MID_Button` (animated button
+  companion component). Done.
 - ScriptableObjectViewer (`Editor/ScriptableObjectViewer`) - not yet covered.
 - `Runtime/Editor/DynamicDebugPanel.cs` - not yet covered; doesn't fit an
   existing part, needs its own small part or a home in Helpers.

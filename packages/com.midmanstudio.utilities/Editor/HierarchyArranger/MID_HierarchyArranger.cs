@@ -1,9 +1,7 @@
-// Core hierarchy-arranging logic — static, reusable from the window or your own
-// editor scripts. Groups a parent's children per MID_HierarchyArrangeOptions,
-// sorts within each group alphabetically, orders the groups themselves, and
-// inserts separator GameObjects between them. One Undo step covers the whole
-// operation, including any recursion.
-//
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/hierarchyarranger.md, section "MID_HierarchyArranger.cs"
+// ============================================================================
 // Reordering uses SetAsLastSibling() applied in the desired final sequence,
 // NOT SetSiblingIndex(cursor++). Interleaving object creation with an
 // incrementing SetSiblingIndex is a known Unity gotcha — a freshly created
@@ -27,6 +25,14 @@ using MidManStudio.Core.AutoReference; // reusing MID_NameMatcher for BySimilari
 
 namespace MidManStudio.Core.EditorUtils.HierarchyArranger
 {
+    /// <summary>
+    /// Core hierarchy-arranging logic: static, reusable from
+    /// <c>MID_HierarchyArrangerWindow</c> or your own editor scripts.
+    /// Groups a parent's children per <see cref="MID_HierarchyArrangeOptions"/>,
+    /// sorts within each group alphabetically, orders the groups
+    /// themselves, and inserts separator GameObjects between them. One
+    /// Undo step covers the whole operation, including any recursion.
+    /// </summary>
     public static class MID_HierarchyArranger
     {
         private const int MaxSeparatorRepeat = 100;
@@ -48,6 +54,7 @@ namespace MidManStudio.Core.EditorUtils.HierarchyArranger
             return processed;
         }
 
+        /// <summary>Calls <see cref="Arrange"/> for each root in turn (each gets its own Undo step) and returns the total objects processed.</summary>
         public static int ArrangeMany(IEnumerable<Transform> roots, MID_HierarchyArrangeOptions options)
         {
             int total = 0;

@@ -1,21 +1,7 @@
-
-// Generic sequential task runner with priority lanes and retry logic.
-// No cloud / internet dependencies — those concerns belong in game code.
-//
-// LANE PRIORITY ORDER (lower = runs first):
-//   Priority0 → runs first (high priority, blocking)
-//   Priority1 → runs after Priority0 completes
-//   Priority2 → runs after Priority1 completes (low priority, background)
-//
-// USAGE:
-//   MID_SequentialProcessRunner.AddTask(
-//       new SequentialTask("LoadUserProfile", lane: 0,
-//           execute: async () => { ... return true; },
-//           fallback: async () => { ... return true; })); // optional offline fallback
-//
-//   MID_SequentialProcessRunner.OnAllLanesComplete += OnInitDone;
-//   await MID_SequentialProcessRunner.RunAll();
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/sequentialprocessrunner.md, section "MID_SequentialProcessRunner.cs"
+// ============================================================================
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -26,14 +12,27 @@ namespace MidManStudio.Core.SequentialProcessing
 {
     // ── Task definition ───────────────────────────────────────────────────────
 
+    /// <summary>
+    /// One unit of work for <see cref="MID_SequentialProcessRunner"/>: an
+    /// async body (<c>execute</c>), an optional offline/local
+    /// <c>fallback</c> tried once the primary body exhausts its retries,
+    /// and a priority <see cref="Lane"/> (lower runs first, and a lane
+    /// only starts once every earlier lane has fully completed).
+    /// </summary>
     public class SequentialTask
     {
+        /// <summary>Retry ceiling shared by every task; not configurable per-task.</summary>
         public const int MaxRetries = 6;
 
+        /// <summary>Human-readable task name, used for logging and <see cref="MID_SequentialProcessRunner.IsCompleted"/> lookups.</summary>
         public string Name            { get; }
+        /// <summary>Priority lane this task runs in. 0 is highest priority and runs first.</summary>
         public int    Lane            { get; }
+        /// <summary>True if a fallback was supplied to the constructor.</summary>
         public bool   HasFallback     { get; }
+        /// <summary>How many times this task has failed and been retried so far.</summary>
         public int    RetryCount      { get; private set; }
+        /// <summary>True once this task (or its fallback) has succeeded.</summary>
         public bool   IsCompleted     { get; private set; }
 
         private readonly Func<Task<bool>> _execute;
@@ -89,22 +88,38 @@ namespace MidManStudio.Core.SequentialProcessing
     // ── Runner ────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Runs tasks sequentially across priority lanes with retry and fallback support.
+    /// Runs tasks sequentially across priority lanes with retry and
+    /// fallback support. No cloud/internet dependencies; those concerns
+    /// belong in the task bodies themselves.
+    ///
+    /// One <see cref="RunAll"/> call makes a single pass through every
+    /// lane. A task that still has retries left when its lane's pass ends
+    /// stays queued and is retried on the *next* <see cref="RunAll"/> call
+    /// rather than looping within the same call; <see cref="OnAllLanesComplete"/>
+    /// therefore means "one pass finished," not "every task ultimately
+    /// succeeded" (check <see cref="OnTaskFailed"/> / <see cref="IsCompleted"/>
+    /// for that).
     /// </summary>
     public static class MID_SequentialProcessRunner
     {
         #region Configuration
 
+        /// <summary>Log level for this runner's own progress/retry/completion logging.</summary>
         public static MID_LogLevel LogLevel       = MID_LogLevel.Info;
+        /// <summary>Delay inserted between each task (and each retry) within a lane, in milliseconds. 0 disables the delay.</summary>
         public static int          DelayBetweenTasksMs = 50;
 
         #endregion
 
         #region Events
 
+        /// <summary>Raised once every lane has completed one pass (see the class summary for what "complete" means here).</summary>
         public static Action        OnAllLanesComplete;
+        /// <summary>Raised after a lane finishes its pass, with the lane index.</summary>
         public static Action<int>   OnLaneComplete;   // lane index
+        /// <summary>Raised when a task (or its fallback) succeeds, with the task name.</summary>
         public static Action<string> OnTaskCompleted; // task name
+        /// <summary>Raised when a task exhausts <see cref="SequentialTask.MaxRetries"/> (fallback included), with the task name.</summary>
         public static Action<string> OnTaskFailed;    // task name after all retries
 
         #endregion
@@ -134,6 +149,7 @@ namespace MidManStudio.Core.SequentialProcessing
                 nameof(MID_SequentialProcessRunner));
         }
 
+        /// <summary>Adds each task via <see cref="AddTask"/>, in enumeration order.</summary>
         public static void AddTasks(IEnumerable<SequentialTask> tasks)
         {
             foreach (var t in tasks) AddTask(t);
@@ -185,7 +201,13 @@ namespace MidManStudio.Core.SequentialProcessing
         /// <summary>Returns true if a task with this name has completed successfully.</summary>
         public static bool IsCompleted(string taskName) => _completed.Contains(taskName);
 
-        /// <summary>Reset all state so RunAll can be called again.</summary>
+        /// <summary>
+        /// Reset all state so RunAll can be called again. Not safe to call
+        /// while <see cref="RunAll"/> is in progress (for example, from an
+        /// event handler wired to one of this class's own events raised
+        /// mid-run): a lane that hasn't started yet will find its queue
+        /// already cleared. Call between full runs, not during one.
+        /// </summary>
         public static void Reset()
         {
             _lanes.Clear();

@@ -1,8 +1,7 @@
-
-// Fires an immediate UnityEvent when the GameEvent is raised, then fires a
-// delayed UnityEvent after _delay seconds using MID_TickDelay (zero allocation).
-// Replaces the old coroutine/Task.Delay pattern.
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/events.md, section "MID_DelayedGameEventListener.cs"
+// ============================================================================
 using UnityEngine;
 using UnityEngine.Events;
 using MidManStudio.Core.Logging;
@@ -12,7 +11,7 @@ namespace MidManStudio.Core.Events
 {
     /// <summary>
     /// Listener that fires an immediate response and a delayed response.
-    /// Uses MID_TickDelay — no coroutine or Task allocation.
+    /// Uses <c>MID_TickDelay</c>, no coroutine or Task allocation.
     /// </summary>
     public class MID_DelayedGameEventListener : MID_GameEventListener
     {
@@ -23,10 +22,12 @@ namespace MidManStudio.Core.Events
 
         private TickDelayHandle _pendingHandle;
 
-        private void OnDisable()
+        /// <summary>Cancels any in-flight delay, then deregisters via <c>base.OnDisable()</c>. See this file's Fixes and Problems entry for why the base call matters here.</summary>
+        protected override void OnDisable()
         {
             // Cancel any in-flight delay when the object is disabled
             _pendingHandle.Cancel();
+            base.OnDisable();
         }
 
         public override void OnEventRaised()

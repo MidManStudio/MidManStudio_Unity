@@ -1,19 +1,21 @@
-
-// ScriptableObject-based event channel. Zero coupling between sender and receiver.
-// Create via: MidManStudio > Utilities > Game Event
-//
-// USAGE:
-//   1. Create a MID_GameEvent asset (e.g. "OnPlayerDied").
-//   2. Assign it to a MID_GameEventListener on the receiving GameObject.
-//   3. Raise from code: myEvent.Raise();
-//   4. Or wire to a UnityEvent in the listener inspector.
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/events.md, section "MID_GameEvent.cs"
+// ============================================================================
 using System.Collections.Generic;
 using UnityEngine;
 using MidManStudio.Core.Logging;
 
 namespace MidManStudio.Core.Events
 {
+    /// <summary>
+    /// ScriptableObject-based event channel: zero coupling between sender
+    /// and receiver. Create via <c>MidManStudio &gt; Utilities &gt; Game
+    /// Event</c>, assign the resulting asset to one or more
+    /// <see cref="MID_GameEventListener"/> components, and call
+    /// <see cref="Raise"/> from code (or wire a UnityEvent in the listener's
+    /// inspector) to notify every listener currently registered.
+    /// </summary>
    [CreateAssetMenu(fileName="New Game Event",
     menuName="MidManStudio/Utilities/Game Event", order=110)]
     public class MID_GameEvent : ScriptableObject
@@ -22,6 +24,7 @@ namespace MidManStudio.Core.Events
 
         private readonly HashSet<MID_GameEventListener> _listeners = new();
 
+        /// <summary>How many listeners are currently registered.</summary>
         public int ListenerCount => _listeners.Count;
 
         /// <summary>Raise the event — notifies all registered listeners.</summary>
@@ -36,12 +39,14 @@ namespace MidManStudio.Core.Events
                 listener.OnEventRaised();
         }
 
+        /// <summary>Registers a listener to receive future <see cref="Raise"/> calls. Called automatically by <see cref="MID_GameEventListener.OnEnable"/>.</summary>
         public void Register(MID_GameEventListener listener)
         {
             if (listener == null) return;
             _listeners.Add(listener);
         }
 
+        /// <summary>Removes a listener. Called automatically by <see cref="MID_GameEventListener.OnDisable"/>. Safe to call for a listener that isn't registered.</summary>
         public void Deregister(MID_GameEventListener listener)
         {
             _listeners.Remove(listener);

@@ -98,6 +98,14 @@ logged, and the player's own default shot point is used.
 **What it does:** Per-weapon tuning asset. `SwitchAnimTrigger` is no longer
 read by anything; the field stays so existing assets keep their data.
 
+### `ProjectileConfigScriptableObjectEditor.cs` (Editor)
+**What it does:** Inspector for `ProjectileConfigSO` and every subclass of it.
+Draws all serialized fields except the custom-path ones, then the custom path
+panel (single selection only) and the Apply JSON panel. Because
+`ProjectileConfigSO` derives from `MID_BaseSO` but this editor takes
+precedence over `MID_BaseSOEditor`, it also does that editor's icon-cache
+invalidation when the custom icon changes.
+
 ### `PhysicsProjectileBase.cs` (Runtime)
 **What it does:** Shared base for the 2D and 3D physics projectiles, including
 the per-tick movement types (Wave, Circular, Guided, Teleport, CustomCurve).
@@ -433,3 +441,30 @@ suite; `build.yml` builds the app for Android and Windows only.
 ### `WeaponDefinitionSO.cs`
 - The `SwitchAnimTrigger` tooltip described a trigger that is no longer fired.
   It now says the field is unused.
+
+### `ProjectileConfigScriptableObjectEditor.cs`
+- A custom icon set on a projectile config would not stick. A change that
+  replaced `DrawDefaultInspector()` with `DrawPropertiesExcluding(
+  serializedObject, ...)` (to hide the custom-path fields behind a panel)
+  dropped the `serializedObject.Update()` and `ApplyModifiedProperties()` that
+  `DrawDefaultInspector()` does internally; `DrawPropertiesExcluding` on a
+  `SerializedObject` does neither. Every field edit made in the inspector,
+  the icon included, was discarded on the next repaint. Restored the pair
+  around the draw call. It also covers multi-selection. This is the cause
+  found by reading the history and the Unity API contract; it has not been
+  run in the editor yet.
+- That change also left out the Project-window icon cache invalidation that
+  `MID_BaseSOEditor` does (it is not the editor in use for these assets), so
+  a changed icon would not repaint until the next domain reload. The editor now
+  calls `MID_BaseSOProjectIconDrawer.InvalidateCache` for each selected asset,
+  but only when the icon property itself changed. Doing it on every field
+  change would walk every selected asset and repaint the Project window on
+  each frame of a slider drag.
+- Multi-edit crashing the editor after a while was not reproduced and no
+  cause was found. The other editor code in both packages was checked for
+  leaked textures, un-removed callbacks and unbounded property loops, and the
+  ScriptableObject viewer window disposes its cached editors correctly.
+  The missing `Update()`/`ApplyModifiedProperties()` pair is the only defect
+  found in this editor and is a plausible contributor, but it is not
+  confirmed. If the crash continues, the end of `Editor.log` (or
+  `Editor-prev.log` after a restart) from the crash will show what failed.

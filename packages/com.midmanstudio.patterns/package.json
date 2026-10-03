@@ -1,0 +1,24 @@
+{
+    "name": "com.midmanstudio.patterns",
+    "version": "0.1.0",
+    "displayName": "MidMan Studio Patterns",
+    "description": "Generic, engine-independent design pattern building blocks for Unity 2022.3+. First pattern: Command (undo/redo history, grouped and merged commands, composite commands, deferred command queue). No dependencies; Singleton, pooling and events live in the utilities package.",
+    "unity": "2022.3",
+    "unityRelease": "0f1",
+    "documentationUrl": "",
+    "changelogUrl": "",
+    "licensesUrl": "",
+    "dependencies": {},
+    "keywords": [
+        "patterns",
+        "command",
+        "undo",
+        "redo",
+        "queue"
+    ],
+    "author": {
+        "name": "MidMan Studio",
+        "email": "midmanstudio@proton.me",
+        "url": "https://github.com/MidManStudio/MidManStudio_Unity"
+    }
+}

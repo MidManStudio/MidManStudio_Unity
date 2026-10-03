@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/hierarchyarranger.md, section "MID_HierarchyArrangerWindow.cs"
+// ============================================================================
 #if UNITY_EDITOR
 using System.Linq;
 using UnityEditor;
@@ -9,6 +13,12 @@ using MidManStudio.Core.EditorUtils.HierarchyArranger;
 using MidManStudio.Core.EditorTools;
 namespace MidManStudio.Core.EditorUtils.HierarchyArranger
 {
+    /// <summary>
+    /// Editor window (<c>MidManStudio &gt; Utilities &gt; Hierarchy
+    /// Arranger</c>) for configuring a <see cref="MID_HierarchyArrangeOptions"/>
+    /// and running <c>MID_HierarchyArranger</c> against either the current
+    /// selection or the whole scene's root objects.
+    /// </summary>
     public class MID_HierarchyArrangerWindow : EditorWindow
     {
         private readonly MID_HierarchyArrangeOptions _options = new();
@@ -23,6 +33,7 @@ namespace MidManStudio.Core.EditorUtils.HierarchyArranger
         private Toggle _sepLabelToggle;
         private Label _resultLabel;
 
+        /// <summary>Opens the Hierarchy Arranger window.</summary>
         [MenuItem("MidManStudio/Utilities/Hierarchy Arranger", priority = 119)]
         public static void Open()
         {
@@ -137,11 +148,10 @@ namespace MidManStudio.Core.EditorUtils.HierarchyArranger
             for (int i = scratch.transform.childCount - 1; i >= 0; i--)
             {
                 // Separators are just plain named GameObjects (see CreateSeparator /
-                // MID_HierarchySeparatorMarker) — nothing about them requires a
-                // parent to render correctly in the Hierarchy window, so they no
-                // longer need special-casing here. Previously these were deleted
-                // during the scratch-object unwind, which is why separators never
-                // showed up when arranging at the scene root.
+                // MID_HierarchySeparatorMarker): nothing about them requires a
+                // parent to render correctly in the Hierarchy window, so this loop
+                // doesn't need to special-case them when unwinding the scratch
+                // object.
                 var child = scratch.transform.GetChild(i);
                 Undo.SetTransformParent(child, null, "Arrange Hierarchy");
                 UnityEngine.SceneManagement.SceneManager.MoveGameObjectToScene(child.gameObject, scene);

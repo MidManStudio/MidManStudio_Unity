@@ -1,19 +1,29 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/timers.md, section "Timer.cs"
+// ============================================================================
 using System;
 using UnityEngine;
 
 namespace MidManStudio.Core.Timers
 {
     /// <summary>
-    /// Base timer class with extended functionality
+    /// Base timer class with extended functionality. Not itself frame-driven:
+    /// call <see cref="Tick"/> every frame (or from whatever tick system you
+    /// use) to advance it.
     /// </summary>
     public abstract class Timer
     {
         protected float initialTime;
         protected float Time { get; set; }
+        /// <summary>True between <see cref="Start"/> and either <see cref="Stop"/> or (for <see cref="CountdownTimer"/>) natural completion.</summary>
         public bool IsRunning { get; protected set; }
+        /// <summary>Elapsed-vs-initial ratio. 0 if <c>initialTime</c> is 0 (e.g. a fresh <see cref="StopwatchTimer"/>).</summary>
         public float Progress => initialTime > 0 ? Time / initialTime : 0f;
 
+        /// <summary>Raised by <see cref="Start"/>, but only on the transition from stopped to running.</summary>
         public Action OnTimerStart = delegate { };
+        /// <summary>Raised by <see cref="Stop"/>, but only on the transition from running to stopped.</summary>
         public Action OnTimerStop = delegate { };
 
         protected Timer(float value)
@@ -22,6 +32,7 @@ namespace MidManStudio.Core.Timers
             IsRunning = false;
         }
 
+        /// <summary>Resets the clock to <c>initialTime</c> and, if not already running, starts it and raises <see cref="OnTimerStart"/>. Safe to call again on an already-running timer to restart it without re-raising the event.</summary>
         public void Start()
         {
             Time = initialTime;
@@ -32,6 +43,7 @@ namespace MidManStudio.Core.Timers
             }
         }
 
+        /// <summary>Stops the timer and raises <see cref="OnTimerStop"/>, but only if it was running.</summary>
         public void Stop()
         {
             if (IsRunning)
@@ -41,8 +53,11 @@ namespace MidManStudio.Core.Timers
             }
         }
 
+        /// <summary>Resumes ticking without resetting the clock or raising <see cref="OnTimerStart"/> (unlike <see cref="Start"/>).</summary>
         public void Resume() => IsRunning = true;
+        /// <summary>Pauses ticking without raising <see cref="OnTimerStop"/> (unlike <see cref="Stop"/>).</summary>
         public void Pause() => IsRunning = false;
+        /// <summary>Advances the timer by <paramref name="deltaTime"/> seconds. Call once per frame while running.</summary>
         public abstract void Tick(float deltaTime);
     }
 
@@ -51,10 +66,12 @@ namespace MidManStudio.Core.Timers
     /// </summary>
     public class CountdownTimer : Timer
     {
+        /// <summary>Raised once, when the countdown reaches zero.</summary>
         public Action OnTimerComplete = delegate { };
 
         public CountdownTimer(float value) : base(value) { }
 
+        /// <summary>Counts down by <paramref name="deltaTime"/>; stops and raises <see cref="OnTimerComplete"/> once it reaches zero.</summary>
         public override void Tick(float deltaTime)
         {
             if (IsRunning && Time > 0)
@@ -70,8 +87,11 @@ namespace MidManStudio.Core.Timers
             }
         }
 
+        /// <summary>True once the countdown has reached zero.</summary>
         public bool IsFinished => Time <= 0;
+        /// <summary>Restores the countdown to its original <c>initialTime</c>.</summary>
         public void Reset() => Time = initialTime;
+        /// <summary>Sets a new countdown length and restarts from it.</summary>
         public void Reset(float newTime)
         {
             initialTime = newTime;
@@ -86,6 +106,7 @@ namespace MidManStudio.Core.Timers
     {
         public StopwatchTimer() : base(0) { }
 
+        /// <summary>Counts up by <paramref name="deltaTime"/> while running. Never completes on its own.</summary>
         public override void Tick(float deltaTime)
         {
             if (IsRunning)
@@ -94,7 +115,9 @@ namespace MidManStudio.Core.Timers
             }
         }
 
+        /// <summary>Resets the elapsed time to zero (does not stop the timer).</summary>
         public void Reset() => Time = 0;
+        /// <summary>Current elapsed time in seconds.</summary>
         public float GetTime() => Time;
     }
 
@@ -103,10 +126,15 @@ namespace MidManStudio.Core.Timers
     /// </summary>
     public enum InterpolationMode
     {
+        /// <summary>Constant rate of change.</summary>
         Linear,
+        /// <summary>Starts slow, speeds up.</summary>
         EaseIn,
+        /// <summary>Starts fast, slows down.</summary>
         EaseOut,
+        /// <summary>Starts slow, speeds up through the middle, slows down again.</summary>
         EaseInOut,
+        /// <summary>Uses the <c>AnimationCurve</c> passed to the constructor or <see cref="ValueInterpolationTimer.SetInterpolationMode"/>.</summary>
         Custom
     }
 
@@ -129,8 +157,11 @@ namespace MidManStudio.Core.Timers
         private AnimationCurve _customCurve;
 
         // Callbacks
+        /// <summary>Raised every time <see cref="Tick"/> updates <see cref="CurrentValue"/>, including the final value on completion.</summary>
         public Action<float> OnValueChanged = delegate { };
+        /// <summary>Raised once, when the interpolation finishes (after both legs of a ping-pong, if enabled).</summary>
         public Action OnInterpolationComplete = delegate { };
+        /// <summary>Raised once, when <see cref="Start"/> or <see cref="StartPingPong"/> actually starts the timer.</summary>
         public Action OnInterpolationStart = delegate { };
 
         /// <summary>
@@ -192,7 +223,8 @@ namespace MidManStudio.Core.Timers
         }
 
         /// <summary>
-        /// Start with ping-pong mode (goes from start to end, then back to start)
+        /// Start with ping-pong mode (goes from start to end, then back to start,
+        /// then stops — this is one round trip, not continuous oscillation).
         /// </summary>
         public void StartPingPong()
         {
@@ -336,8 +368,11 @@ namespace MidManStudio.Core.Timers
         private bool _isIncreasing;
 
         // Callbacks
+        /// <summary>Raised every time <see cref="CurrentValue"/> changes (each step, plus on Start/Reset/Reconfigure).</summary>
         public Action<float> OnValueChanged = delegate { };
+        /// <summary>Raised once, when <see cref="CurrentValue"/> reaches <c>endValue</c> and the timer stops itself.</summary>
         public Action OnComplete = delegate { };
+        /// <summary>Raised after every step, including the final one (alongside <see cref="OnComplete"/>).</summary>
         public Action OnStepComplete = delegate { };
 
         /// <summary>
@@ -601,7 +636,11 @@ namespace MidManStudio.Core.Timers
         }
 
         /// <summary>
-        /// Create a ping-pong timer (goes back and forth)
+        /// Create a timer for a single ping-pong round trip (start to end, then
+        /// back to start). Despite the name, this returns a plain, not-yet-started
+        /// timer configured like any other — call <see cref="ValueInterpolationTimer.StartPingPong"/>
+        /// on the result, not <see cref="ValueInterpolationTimer.Start"/>, or it
+        /// will run one-way only. See this file's Fixes and Problems entry.
         /// </summary>
         public static ValueInterpolationTimer CreatePingPongTimer(
             float minValue,

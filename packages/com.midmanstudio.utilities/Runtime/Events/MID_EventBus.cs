@@ -1,25 +1,7 @@
-
-// Typed static event bus. Fire-and-forget global events without ScriptableObject assets.
-// Pairs with MID_SusValue for fire-and-forget vs persistent-value use cases.
-//
-// WHEN TO USE WHICH:
-//   MID_GameEvent  — designer-wired, inspector-configured, cross-scene
-//   MID_EventBus   — code-only, typed, one-line subscribe/fire, no asset required
-//   MID_SusValue   — reactive value that remembers its current state
-//
-// USAGE:
-//   // Subscribe
-//   MID_EventBus<PlayerDiedEvent>.Subscribe(OnPlayerDied);
-//
-//   // Fire
-//   MID_EventBus<PlayerDiedEvent>.Raise(new PlayerDiedEvent { PlayerId = 5 });
-//
-//   // Unsubscribe
-//   MID_EventBus<PlayerDiedEvent>.Unsubscribe(OnPlayerDied);
-//
-//   // Clear all (call on scene unload)
-//   MID_EventBus<PlayerDiedEvent>.ClearAll();
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/events.md, section "MID_EventBus.cs"
+// ============================================================================
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -47,6 +29,8 @@ namespace MidManStudio.Core.Events
         private static readonly object             _lock        = new();
 
         // ── Log level for this channel — settable at runtime ──────────────────
+
+        /// <summary>Log level for this channel's own Subscribe/Unsubscribe/Raise/ClearAll debug logging. Defaults to <see cref="MID_LogLevel.None"/> (silent); set per channel at startup if you want to see its traffic.</summary>
         public static MID_LogLevel LogLevel = MID_LogLevel.None;
 
         // ── Subscribe ─────────────────────────────────────────────────────────
@@ -132,6 +116,7 @@ namespace MidManStudio.Core.Events
                 nameof(MID_EventBus<T>));
         }
 
+        /// <summary>Number of handlers currently subscribed to this channel.</summary>
         public static int SubscriberCount
         {
             get { lock (_lock) return _subscribers.Count; }

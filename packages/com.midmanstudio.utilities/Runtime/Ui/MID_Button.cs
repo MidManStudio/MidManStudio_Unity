@@ -1,4 +1,7 @@
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/ui.md, section "MID_Button.cs"
+// ============================================================================
 // Generic animated UI button. Zero game-specific dependencies.
 // Animations implemented with coroutines — no external tween library required.
 //
@@ -13,11 +16,21 @@ using UnityEngine.UI;
 
 namespace MidManStudio.Core.UI
 {
+    /// <summary>
+    /// Drop-in replacement for <c>Button</c> that adds a coroutine-driven
+    /// click animation (no tween library dependency), a post-click cooldown
+    /// that disables the button briefly to prevent double-clicks, and
+    /// optional click sound. Works both free-floating (RectTransform
+    /// position/scale/rotation tweens) and inside a <c>LayoutGroup</c>
+    /// (falls back to scale-only animations and rebuilds the layout after,
+    /// since a LayoutGroup fights position tweens every frame).
+    /// </summary>
     [RequireComponent(typeof(Button))]
     public class MID_Button : MonoBehaviour
     {
         #region Enums
 
+        /// <summary>Which click animation to play. <see cref="Bounce"/> falls back to <see cref="Pulse"/> inside a LayoutGroup; the rest degrade similarly (see each Anim* method).</summary>
         public enum AnimationType
         {
             ScalePop,
@@ -91,6 +104,21 @@ namespace MidManStudio.Core.UI
             _button.onClick.AddListener(HandleClick);
         }
 
+        /// <summary>
+        /// Restores the click-cooldown state. Without this, disabling the
+        /// GameObject during the post-click cooldown window (Unity stops
+        /// <see cref="ResetCooldown"/> along with every other coroutine on
+        /// disable) leaves <c>_canClick</c> false and the button
+        /// permanently non-interactable the next time it's enabled, since
+        /// nothing else ever flips it back. Mirrors the transform-state
+        /// reset already done in <see cref="OnDisable"/>.
+        /// </summary>
+        private void OnEnable()
+        {
+            _canClick = true;
+            if (_button != null) _button.interactable = true;
+        }
+
         private void OnDisable()
         {
             if (_rect == null) return;
@@ -104,6 +132,7 @@ namespace MidManStudio.Core.UI
 
         #region Public Methods
 
+        /// <summary>Enables or disables the underlying <c>Button</c> directly, independent of the click-cooldown state.</summary>
         public void SetInteractable(bool value) => _button.interactable = value;
 
         #endregion

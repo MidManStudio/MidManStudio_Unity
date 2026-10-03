@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/timers.md, section "PerformanceBenchmarkTimer.cs"
+// ============================================================================
 // Microbenchmark utility for measuring managed code performance.
 // Handles warmup, GC collection, per-iteration timing, and memory tracking.
 // PerformanceBenchmarkRunner is a MonoBehaviour wrapper for scene use.
@@ -11,22 +15,41 @@ using Debug = UnityEngine.Debug;
 
 namespace MidManStudio.Core.Timers
 {
+    /// <summary>
+    /// Microbenchmarks a managed-code action: warms it up (JIT + cache),
+    /// forces a GC pass, then times and memory-samples a fixed number of
+    /// iterations. Not a managed wrapper over native profiling tools; this
+    /// measures wall-clock time via <see cref="Stopwatch"/> and GC-reported
+    /// memory delta, which is adequate for comparing two managed approaches
+    /// but not a substitute for the Unity Profiler for native/engine cost.
+    /// </summary>
     public class PerformanceBenchmarkTimer
     {
         #region Result
 
+        /// <summary>Aggregated stats from one <see cref="RunBenchmark"/> call.</summary>
         public struct BenchmarkResult
         {
+            /// <summary>Iterations actually recorded (may be less than requested if the action threw).</summary>
             public int    Iterations;
+            /// <summary>Sum of every iteration's time, in milliseconds.</summary>
             public double TotalTimeMs;
+            /// <summary>Mean iteration time, in milliseconds.</summary>
             public double AverageTimeMs;
+            /// <summary>Fastest iteration, in milliseconds.</summary>
             public double MinTimeMs;
+            /// <summary>Slowest iteration, in milliseconds.</summary>
             public double MaxTimeMs;
+            /// <summary>Population standard deviation of iteration times, in milliseconds.</summary>
             public double StandardDeviation;
+            /// <summary>Total managed memory delta across the whole run, in bytes (see <see cref="RunBenchmark"/> for why this can only be approximate).</summary>
             public long   TotalMemoryAllocated;
+            /// <summary><see cref="TotalMemoryAllocated"/> divided by <see cref="Iterations"/>.</summary>
             public long   AverageMemoryPerIteration;
+            /// <summary>How many iterations threw an exception (still counted and timed; see <see cref="RunBenchmark"/>).</summary>
             public int    ExceptionCount;
 
+            /// <summary>Multi-line human-readable summary, rich-text tagged for the Unity console.</summary>
             public override string ToString() =>
                 $"<b>Benchmark Results:</b>\n" +
                 $"Iterations:   {Iterations}\n" +
@@ -39,6 +62,7 @@ namespace MidManStudio.Core.Timers
                 $"Avg Mem/Iter: {AverageMemoryPerIteration} bytes" +
                 (ExceptionCount > 0 ? $"\n⚠ Exceptions: {ExceptionCount}" : "");
 
+            /// <summary>Single CSV line: Iterations,TotalTimeMs,AverageTimeMs,MinTimeMs,MaxTimeMs,StandardDeviation,TotalMemoryAllocated,AverageMemoryPerIteration,ExceptionCount.</summary>
             public string ToCSV() =>
                 $"{Iterations},{TotalTimeMs:F3},{AverageTimeMs:F3},{MinTimeMs:F3}," +
                 $"{MaxTimeMs:F3},{StandardDeviation:F3}," +
@@ -58,6 +82,13 @@ namespace MidManStudio.Core.Timers
 
         /// <summary>
         /// Run a benchmark with warmup, GC collection, and per-iteration timing.
+        /// An iteration that throws is still counted and timed (so the
+        /// iteration count and GC delta stay consistent with the loop that
+        /// actually ran); see <see cref="BenchmarkResult.ExceptionCount"/>.
+        /// The memory delta is measured once across the whole run (before vs.
+        /// after), not per iteration, so a GC pass triggered mid-run by
+        /// something other than this benchmark will skew it — this is an
+        /// approximation, not an exact per-iteration allocation count.
         /// </summary>
         public BenchmarkResult RunBenchmark(Action action, int iterations,
             int warmupIterations = 10)
@@ -115,10 +146,12 @@ namespace MidManStudio.Core.Timers
             return CalculateResults(exceptionCount, memDelta);
         }
 
+        /// <summary>Overload of <see cref="RunBenchmark(Action, int, int)"/> for a one-argument action, binding <paramref name="parameter"/> once up front.</summary>
         public BenchmarkResult RunBenchmark<T>(Action<T> action, T parameter,
             int iterations, int warmup = 10) =>
             RunBenchmark(() => action(parameter), iterations, warmup);
 
+        /// <summary>Overload of <see cref="RunBenchmark(Action, int, int)"/> for a function with a return value; the result is discarded (only the timing is kept).</summary>
         public BenchmarkResult RunBenchmark<TResult>(Func<TResult> func,
             int iterations, int warmup = 10)
         {
@@ -201,10 +234,12 @@ namespace MidManStudio.Core.Timers
 
         #region Static Convenience
 
+        /// <summary>One-shot <see cref="RunBenchmark(Action, int, int)"/> without needing to construct a <see cref="PerformanceBenchmarkTimer"/> yourself.</summary>
         public static BenchmarkResult QuickBenchmark(Action action,
             int iterations = 1000, int warmup = 10) =>
             new PerformanceBenchmarkTimer().RunBenchmark(action, iterations, warmup);
 
+        /// <summary>One-shot <see cref="CompareMethods"/> without needing to construct a <see cref="PerformanceBenchmarkTimer"/> yourself.</summary>
         public static (BenchmarkResult, BenchmarkResult, string) QuickCompare(
             Action a, Action b, int iterations = 1000,
             string nameA = "Method A", string nameB = "Method B") =>
@@ -229,6 +264,7 @@ namespace MidManStudio.Core.Timers
 
         private void Awake() => _timer = new PerformanceBenchmarkTimer();
 
+        /// <summary>Runs <paramref name="action"/> through <see cref="PerformanceBenchmarkTimer.RunBenchmark(Action, int, int)"/> using this component's inspector-configured iteration/warmup counts, and logs the result.</summary>
         public PerformanceBenchmarkTimer.BenchmarkResult RunBenchmark(
             Action action, string benchmarkName = "Benchmark")
         {
@@ -243,6 +279,7 @@ namespace MidManStudio.Core.Timers
             return result;
         }
 
+        /// <summary>Runs both methods through <see cref="PerformanceBenchmarkTimer.CompareMethods"/> using this component's inspector-configured iteration count, and logs the comparison.</summary>
         public void CompareMethods(Action methodA, Action methodB,
             string nameA = "Method A", string nameB = "Method B")
         {

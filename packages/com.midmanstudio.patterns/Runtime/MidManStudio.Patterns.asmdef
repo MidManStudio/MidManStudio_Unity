@@ -1,0 +1,14 @@
+{
+    "name": "MidManStudio.Patterns",
+    "rootNamespace": "MidManStudio.Patterns",
+    "references": [],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": true
+}

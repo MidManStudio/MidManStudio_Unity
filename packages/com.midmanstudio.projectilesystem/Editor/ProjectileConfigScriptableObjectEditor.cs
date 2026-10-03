@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ProjectileConfigScriptableObjectEditor.cs"
+// ============================================================================
 // Custom Inspector for ProjectileConfigScriptableObject. Draws the normal
 // Inspector untouched, then adds an "Apply JSON" panel — paste a JSON object
 // whose keys match this asset's serialized field names (base class fields
@@ -28,37 +32,13 @@ using UnityEngine;
 namespace MidManStudio.Projectiles.EditorUtils
 {
     /// <summary>
-    /// EDITOR INHERITANCE FIX ("my game's ProjectileConfigSO subclass doesn't
-    /// extend the whole JSON-import custom editor stuff from it — what's the
-    /// proper way to do it, do I need my own custom editor too?"):
-    /// [CustomEditor(typeof(ProjectileConfigSO))] previously had NO
-    /// editorForChildClasses — meaning it ONLY applied to exact ProjectileConfigSO
-    /// instances, never to any subclass, so a game-specific
-    /// MyGameProjectileConfigSO : ProjectileConfigSO fell all the way back to
-    /// Unity's plain default Inspector, losing the JSON-import panel entirely.
-    /// (This is the mirror image of the earlier NetworkTransformEditor issue —
-    /// there, editorForChildClasses:true was applying TOO broadly with nothing
-    /// more specific to override it; here, the lack of it meant this editor
-    /// wasn't applying broadly ENOUGH.)
-    ///
-    /// Adding editorForChildClasses:true here is the whole fix — it makes this
-    /// editor (JSON panel, icon-cache fix, everything below) apply
-    /// automatically to ProjectileConfigSO AND any subclass, including a
-    /// game-specific one, with ZERO code needed in the game project. Any extra
-    /// fields declared on a subclass already show up too, since
-    /// DrawDefaultInspector() below draws every serialized field it finds,
-    /// base class and subclass alike — no per-subclass editor required just to
-    /// see new fields.
-    ///
-    /// A subclass only needs its OWN [CustomEditor] if it wants genuinely
-    /// different UI beyond what DrawDefaultInspector + the JSON panel already
-    /// gives it (e.g. a custom widget for a subclass-only field) — in that
-    /// case Unity picks whichever editor is more derived, same rule as
-    /// everywhere else. This class is sealed, so a subclass editor can't
-    /// literally extend it in C# — but it doesn't need to: the JSON panel
-    /// itself now lives in ProjectileConfigJsonPanel (a plain reusable class,
-    /// not tied to this editor) — see that file's own doc comment for a
-    /// usage example. This class is just its reference usage.
+    /// Inspector for ProjectileConfigSO and any subclass of it
+    /// (editorForChildClasses is on). Draws every serialized field except the
+    /// custom-path ones, then the custom path panel (single selection only) and
+    /// the Apply JSON panel. Extra fields on a game-specific subclass show up
+    /// automatically. A subclass that wants different UI can embed
+    /// ProjectileConfigJsonPanel and ProjectileCustomPathPanel in its own editor;
+    /// this class is sealed, so it is the reference usage rather than a base.
     /// </summary>
     [CustomEditor(typeof(ProjectileConfigSO), true)]
     [CanEditMultipleObjects]
@@ -89,64 +69,43 @@ namespace MidManStudio.Projectiles.EditorUtils
 
         public override void OnInspectorGUI()
         {
-            // ── Icon cache fix ───────────────────────────────────────────────
-            // ProjectileConfigSO extends MID_BaseSO, whose per-instance
-            // "custom icon" (_customIcon, a plain Texture2D field — this is
-            // what shows up as the Project window thumbnail/"custom sprite"
-            // for the asset) normally relies on MID_BaseSOEditor
-            // ([CustomEditor(typeof(MID_BaseSO), editorForChildClasses: true)])
-            // to invalidate MID_BaseSOProjectIconDrawer's per-GUID icon cache
-            // the moment that field changes, so the thumbnail updates
-            // immediately. Unity always resolves the MOST DERIVED
-            // [CustomEditor] match for a given type — since THIS class targets
-            // ProjectileConfigSO directly (an exact-type match beats
-            // MID_BaseSOEditor's editorForChildClasses match), MID_BaseSOEditor
-            // never runs for ProjectileConfigSO assets at all, and the plain
-            // DrawDefaultInspector() call below has no idea _customIcon needs
-            // special handling — it just writes the new value like any other
-            // field.
-            //
-            // Net effect (the reported bug): assigning/changing a custom
-            // icon/texture on a ProjectileConfigSO asset silently updates the
-            // underlying data, but MID_BaseSOProjectIconDrawer's cache is
-            // never invalidated, so the Project window keeps painting the
-            // stale/old icon. MID_BaseSOProjectIconDrawer.ClearCacheOnScriptReload()
-            // is [InitializeOnLoadMethod] — it fires after any domain reload,
-            // and entering Play Mode triggers one by default, which is why the
-            // correct icon only ever shows up once Play is hit. Configs that
-            // never set a custom icon (falling back to the MID_BaseSO
-            // default/GroupIconPath behaviour — "the MID_BaseSO thing") never
-            // populate the cache with a stale value in the first place, so
-            // they were never affected — matching the reported "regular
-            // configs update instantly" half of this.
-            //
-            // Fix: reproduce MID_BaseSOEditor's own invalidate+repaint step
-            // here too. EditorGUI.BeginChangeCheck/EndChangeCheck around
-            // the properties draw picks up ANY field edit (not just the
-            // icon) — cheap and harmless to invalidate a couple of extra
-            // times on an unrelated field change, and far simpler/more
-            // robust than trying to diff _customIcon specifically before vs.
-            // after the call. Loops over `targets` (not just `target`) since
-            // this editor supports multi-select ([CanEditMultipleObjects]).
-            EditorGUI.BeginChangeCheck();
+            // DrawPropertiesExcluding(SerializedObject, ...) neither refreshes nor
+            // applies the serialized object (DrawDefaultInspector does both), so the
+            // pair around it is required for any field edit, including the custom
+            // icon, to reach the asset. Works for multi-selection too.
+            serializedObject.Update();
+
+            var iconProp = serializedObject.FindProperty("_customIcon");
+            int  iconBefore      = iconProp != null ? iconProp.objectReferenceInstanceIDValue : 0;
+            bool iconMixedBefore = iconProp != null && iconProp.hasMultipleDifferentValues;
+
             DrawPropertiesExcluding(serializedObject, PathFieldsHandledByPanel);
-            if (EditorGUI.EndChangeCheck())
+
+            bool iconChanged = iconProp != null
+                && (iconProp.objectReferenceInstanceIDValue != iconBefore
+                    || iconProp.hasMultipleDifferentValues != iconMixedBefore);
+            serializedObject.ApplyModifiedProperties();
+
+            // This editor takes precedence over MID_BaseSOEditor for these assets, so
+            // it has to do that editor's icon-cache invalidation itself or the
+            // Project window keeps painting the old icon until the next domain reload.
+            // Only done when the icon itself changed: any other field edit (a slider
+            // drag fires every frame) would otherwise walk every selected asset and
+            // repaint the Project window each time.
+            if (iconChanged)
             {
                 foreach (var t in targets)
                 {
                     if (t == null) continue;
-                    string path = AssetDatabase.GetAssetPath(t);
-                    string guid = AssetDatabase.AssetPathToGUID(path);
+                    string guid = AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(t));
                     if (!string.IsNullOrEmpty(guid))
                         MID_BaseSOProjectIconDrawer.InvalidateCache(guid);
                 }
                 EditorApplication.RepaintProjectWindow();
             }
 
-            // Single-object only — a draggable-point-list-and-preview UI
-            // doesn't have a sensible meaning across a multi-selection the
-            // way plain PropertyField edits do (those apply uniformly; "drag
-            // this point" doesn't).
+            // Single selection only: a draggable point list and preview has no
+            // sensible meaning across several assets.
             if (targets.Length == 1 && target is ProjectileConfigSO cfg)
                 _pathPanel.Draw(serializedObject, cfg);
             else if (targets.Length > 1)
