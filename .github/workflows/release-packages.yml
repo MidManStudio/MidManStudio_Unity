@@ -5,6 +5,7 @@ on:
       - 'utilities/v*'
       - 'netcode/v*'
       - 'projectilesystem/v*'
+      - 'patterns/v*'
   workflow_dispatch:
     inputs:
       package:
@@ -15,6 +16,7 @@ on:
           - utilities
           - netcode
           - projectilesystem
+          - patterns
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -37,6 +39,9 @@ jobs:
           elif [[ "$TAG" == projectilesystem* || "$INPUT" == "projectilesystem" ]]; then
             echo "name=com.midmanstudio.projectilesystem" >> "$GITHUB_OUTPUT"
             echo "path=packages/com.midmanstudio.projectilesystem" >> "$GITHUB_OUTPUT"
+          elif [[ "$TAG" == patterns* || "$INPUT" == "patterns" ]]; then
+            echo "name=com.midmanstudio.patterns" >> "$GITHUB_OUTPUT"
+            echo "path=packages/com.midmanstudio.patterns" >> "$GITHUB_OUTPUT"
           else
             echo "::error::Could not determine package from tag '$TAG' or input '$INPUT'"
             exit 1
