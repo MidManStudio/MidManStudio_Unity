@@ -47,3 +47,63 @@
 | `int Process(int maxCommands = int.MaxValue)` | Runs up to that many of the commands queued when the call began. Returns how many ran. |
 | `Count`, `IsEmpty`, `Clear()` | |
 | `event Action<ICommand, Exception> CommandFailed` | With a subscriber a failed command is dropped and processing continues. With none, the exception is rethrown. |
+
+## State (`MidManStudio.Patterns.State`)
+
+| Type | Members |
+|---|---|
+| `IState<TContext>` | `Enter(TContext)`, `Update(TContext, float deltaTime)`, `Exit(TContext)` |
+| `IPausableState<TContext> : IState<TContext>` | `Pause(TContext)`, `Resume(TContext)` |
+| `State<TContext>` | Abstract base with empty virtual `Enter`, `Update`, `Exit` |
+
+### `StateMachine<TContext>`
+| Member | Description |
+|---|---|
+| `StateMachine(TContext context, int maxChainedTransitions = 64)` | |
+| `Context`, `Current`, `Previous`, `StackDepth`, `IsRunning`, `IsIn<TState>()` | |
+| `ChangeState(IState<TContext>)` | Exits the top state, then enters the new one. Same state is a no-op. |
+| `PushState(IState<TContext>)` | Covers the current state. Pauses it if it is pausable, otherwise exits it. |
+| `PopState()` | Exits the top state and uncovers the one below. Throws when there is nothing below. |
+| `Stop()` | Exits every state, top first |
+| `Update(float deltaTime)` | Updates the top state, then checks transitions. Throws if called from a callback. |
+| `AddTransition(from, to, Func<TContext,bool>)`, `AddAnyTransition(to, Func<TContext,bool>)`, `ClearTransitions()` | Any-state transitions are checked first. First true condition wins. |
+| `event Action<IState<TContext>, IState<TContext>> StateChanged` | (previous, current), after a change completes |
+
+Requests made from inside a callback are queued and applied when the callback returns.
+
+## Event Queue (`MidManStudio.Patterns.EventQueue`)
+
+### `EventQueue<TEvent>`
+| Member | Description |
+|---|---|
+| `EventQueue(int capacity = 0, EventQueueOverflow overflow = DropOldest)` | 0 means unbounded |
+| `bool Post(TEvent)` | False only when `DropNewest` discarded this event. Throws under `Throw` when full. |
+| `IDisposable Subscribe(Action<TEvent>)` | Dispose the handle to unsubscribe, effective immediately |
+| `int Process(int maxEvents = int.MaxValue)` | Delivers up to that many of the events queued when the call began |
+| `Count`, `IsEmpty`, `Capacity`, `SubscriberCount`, `DroppedCount`, `Clear()` | |
+| `event Action<TEvent, Exception> HandlerFailed` | With a subscriber delivery continues. With none, the failure is rethrown after every handler has run. |
+
+`EventQueueOverflow`: `DropOldest`, `DropNewest`, `Throw`.
+
+## Dependency Injection (`MidManStudio.Patterns.DependencyInjection`)
+
+### `ServiceLocator`
+| Member | Description |
+|---|---|
+| `ServiceLocator(ServiceLocator parent = null)` | Lookups fall back to the parent |
+| `Register<T>(T)`, `Unregister<T>()`, `Has<T>()`, `TryGet<T>(out T)`, `Get<T>()`, `Clear()`, `Count` | `Get` throws `ServiceNotFoundException` |
+
+### `Container : IResolver, IDisposable`
+| Member | Description |
+|---|---|
+| `Register<T>(Func<IResolver,T> factory, Lifetime lifetime = Singleton)` | Replaceable only until first resolved |
+| `RegisterInstance<T>(T instance, bool ownsInstance = false)` | Singleton. Disposed with the container only when owned. |
+| `Resolve<T>()`, `TryResolve<T>(out T)`, `Resolve(Type)`, `TryResolve(Type, out object)`, `IsRegistered<T>()` | |
+| `CreateScope()`, `IsRoot` | Child container. Shadows and extends the parent. |
+| `Dispose()` | Disposes owned instances newest first, throws an `AggregateException` if any fail |
+
+`Lifetime`: `Singleton` (one per owning container), `Scoped` (one per scope, not resolvable from the root),
+`Transient` (new each time, not tracked).
+`IResolver`: `Resolve<T>()`, `TryResolve<T>(out T)`, `Resolve(Type)`, `TryResolve(Type, out object)`.
+`ServiceNotFoundException.ServiceType`, `CircularDependencyException.Chain`.
+

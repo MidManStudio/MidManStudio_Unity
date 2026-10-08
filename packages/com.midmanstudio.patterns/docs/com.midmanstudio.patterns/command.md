@@ -21,11 +21,15 @@ burst of small edits can collapse into one undo step. `INamedCommand` exposes a
   Merging on `Execute` order keeps the merge decision inside the command, which
   is the only place that knows whether two edits are the same kind of edit.
 
+**Tests:** `Tests/Editor/CommandTests.cs`.
+
 ### `ActionCommand.cs`
 **What it does:** `ActionCommand` wraps one delegate as a one-way command.
 `UndoableActionCommand` wraps an execute and an undo delegate as an undoable one.
 Both take an optional name. A null delegate throws `ArgumentNullException` at
 construction, so the mistake shows up where it was made and not at the first run.
+
+**Tests:** `Tests/Editor/CommandTests.cs`.
 
 ### `CompositeCommand.cs`
 **What it does:** Runs several undoable commands as one step. `Execute` runs the
@@ -42,6 +46,8 @@ children in order and `Undo` runs them newest first.
   failure would leave the world half undone with no way to finish.
 - A null child throws at construction.
 
+**Tests:** `Tests/Editor/CommandTests.cs`.
+
 ### `CommandHistory.cs`
 **What it does:** Undo/redo stack. `Execute` runs a command and records it,
 `Undo` and `Redo` walk the stack, and executing a new command clears redo.
@@ -54,8 +60,8 @@ names, merging, groups, and a `Changed` event for refreshing UI.
   `Redo` leaves it on the redo stack, so the caller can retry or inspect.
 - Merging is blocked after an undo, a redo, a clear, or a closed group, and when
   `BreakMerge()` is called. Without that, a command executed after an undo would
-  merge into an older step and silently change what that step means. Call
-  `BreakMerge()` when a continuous edit ends, for example on mouse release.
+  merge into an older step and silently change what that step means.
+  `BreakMerge()` is meant for the end of a continuous edit, for example on mouse release.
 - Groups run each command immediately, so later commands in the group see the
   earlier ones' effects, and record the whole group as one `CompositeCommand` when it
   closes. The composite is recorded without being executed again. An unnamed group
@@ -71,6 +77,8 @@ names, merging, groups, and a `Changed` event for refreshing UI.
   `capacity` references per recorded command, which is negligible at the sizes an
   undo stack uses; a ring buffer would add complexity for no visible gain.
 - Not thread-safe. Use it from one thread.
+
+**Tests:** `Tests/Editor/CommandTests.cs`.
 
 ### `CommandQueue.cs`
 **What it does:** First-in, first-out queue of commands to run later.
@@ -92,6 +100,8 @@ dispatcher to spread work across frames.
   own update loop to call `Process` from.
 - Not thread-safe. Use it from one thread.
 
+**Tests:** `Tests/Editor/CommandTests.cs`.
+
 ### `CommandTests.cs`
 **What it does:** Edit-mode NUnit tests for the whole Command API (37 tests):
 history order, redo clearing, failure behavior of execute/undo/redo, capacity,
@@ -107,3 +117,13 @@ project's `testables`.
   merge-after-undo breakage was first missed because redo also breaks the merge,
   which is why `AfterAnUndo_TheNextCommandDoesNotMergeIntoAnOlderStep` exists.
   They have not been run inside the Unity Test Runner yet.
+
+## Fixes and Problems
+
+- `CommandHistory.GroupScope.Dispose` closed whichever group was open at that moment. A scope whose group
+  had already been closed with `EndGroup` could therefore close a later group when it was disposed.
+  Found in review before the first release. Fixed by giving each group an id that the scope carries, so
+  a scope only closes its own group. Covered by `StaleGroupScope_DoesNotCloseALaterGroup`.
+- The first version of the merge tests did not catch an `Undo` that failed to break merging, because
+  `Redo` also breaks it and the tests always redid. Found by deliberately breaking the code. Added
+  `AfterAnUndo_TheNextCommandDoesNotMergeIntoAnOlderStep`. No production code changed.
