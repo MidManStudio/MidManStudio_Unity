@@ -2,11 +2,6 @@
     "objectEntries": [
         {
             "packageId": "com.midmanstudio.utilities",
-            "name": "SpawnableAudio",
-            "value": 0
-        },
-        {
-            "packageId": "com.midmanstudio.utilities",
             "name": "Trail",
             "value": 1
         },
@@ -24,6 +19,11 @@
             "packageId": "com.midmanstudio.projectilesystem",
             "name": "Projectile_Flipbook",
             "value": 102
+        },
+        {
+            "packageId": "com.midmanstudio.audio",
+            "name": "SpawnableAudio",
+            "value": 200
         }
     ],
     "particleEntries": [

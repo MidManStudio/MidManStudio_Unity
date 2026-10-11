@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "com.midmanstudio.audio": "file:../../packages/com.midmanstudio.audio",
     "com.midmanstudio.netcode": "file:../../packages/com.midmanstudio.netcode",
     "com.midmanstudio.patterns": "file:../../packages/com.midmanstudio.patterns",
     "com.midmanstudio.projectilesystem": "file:../../packages/com.midmanstudio.projectilesystem",

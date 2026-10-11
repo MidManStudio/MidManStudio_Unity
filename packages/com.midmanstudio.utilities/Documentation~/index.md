@@ -15,7 +15,7 @@ the systems you use.
 | Observable Values | Change-notifying value wrappers |
 | Events | Lightweight event bus |
 | Pool System | Object/particle pools, trail renderer pool |
-| Audio | Audio manager and playback pooling |
+| Audio | Moved to the `com.midmanstudio.audio` package |
 | FX System | Effect playback/pooling |
 | Timers | Countdown, stopwatch, and value-interpolation timers |
 | Library System | Data library / registry pattern |

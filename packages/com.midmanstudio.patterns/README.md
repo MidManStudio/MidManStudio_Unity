@@ -22,6 +22,7 @@ To see the package's tests in the Test Runner, also add it to the `testables` li
 | State | MidManStudio.Patterns.State | Stack-based state machine with deferred transitions, pausable states, condition-based transitions |
 | Event Queue | MidManStudio.Patterns.EventQueue | Typed queue that separates posting an event from delivering it, bounded or unbounded |
 | Dependency Injection | MidManStudio.Patterns.DependencyInjection | Service locator and a factory-based container with singleton, scoped and transient lifetimes |
+| Broker Chain | MidManStudio.Patterns.BrokerChain | Central broker that runs registered handlers in priority order over one query, with timed handlers and a stat sheet for buffs and modifiers |
 
 ## Quick start
 ```csharp
@@ -55,6 +56,21 @@ var container = new Container();
 container.Register<IClock>(r => new SystemClock());
 container.Register<IShop>(r => new Shop(r.Resolve<IClock>()));
 var shop = container.Resolve<IShop>();
+```
+
+```csharp
+using MidManStudio.Patterns.BrokerChain;
+
+enum Stat { Attack, Speed }
+
+var stats = new StatSheet<Stat>();
+stats.SetBase(Stat.Attack, 10f);
+
+var buff = stats.AddModifier(Stat.Attack, 5f, lifetimeSeconds: 8f);   // +5 for 8 seconds
+stats.MultiplyModifier(Stat.Attack, 2f);                              // runs after flat bonuses
+float attack = stats.Get(Stat.Attack);                                // (10 + 5) * 2 = 30
+// in your update loop:
+stats.Tick(Time.deltaTime);
 ```
 
 See `APICATALOG.md` for the full API and `docs/com.midmanstudio.patterns/` for the design notes of each pattern.

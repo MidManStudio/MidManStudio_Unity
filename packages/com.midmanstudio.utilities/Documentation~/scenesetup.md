@@ -118,20 +118,7 @@ instead — this guide is for when you want to see exactly how each piece is wir
 
 ## Scene 5: Audio System
 
-1. Right-click → `MidManStudio > Utilities > Audio Library`
-   - Create `"MusicLibrary"` and `"SFXLibrary"`
-   - Add entries with string IDs (e.g. `"menu_theme"`, `"button_click"`)
-2. Create empty GameObject `"AudioManager"`
-   - Add `MID_AudioManager`
-   - Assign `MusicLibrary` and `SFXLibrary`
-   - Optionally assign `AudioMixerGroups`
-3. Usage:
-
-   ```csharp
-   MID_AudioManager.Instance.PlayMusic("menu_theme");
-   MID_AudioManager.Instance.PlaySFX("button_click");
-   MID_AudioManager.Instance.SetMusicEnabled(false); // e.g. from settings
-   ```
+Audio moved to the `com.midmanstudio.audio` package. Install it, then follow its `README.md` (Setup section).
 
 ## Scene 6: SceneDependencyInjector (for testing without a bootstrap scene)
 
@@ -154,7 +141,6 @@ Managers (DontDestroyOnLoad)
 ├── LocalObjectPool       ← calls CallInitializePool(), which chains to:
 ├── LocalParticlePool     ←   this (auto-chained, can also be separate)
 ├── TrailRendererPool
-├── MID_AudioManager
 ├── MID_LibraryRegistry
 └── MID_UIStateManager    (one per screen context)
 ```

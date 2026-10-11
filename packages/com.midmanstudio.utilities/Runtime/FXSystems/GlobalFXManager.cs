@@ -1,26 +1,20 @@
-// Unified CPU-based visual + audio effect manager.
-//
-// Contians Convenience overloads for TriggerImpact, TriggerMuzzleFlash, and EjectShell
-//   that do not require an EffectType argument. These default to EffectType.Generic
-//   (Impact/Explosion) or EffectType.SmallMuzzle (MuzzleFlash) / EffectType.BrassShell
-//   (ShellEjection). This preserves backward compatibility with call sites that were
-//   written before EffectType was added to the API.
-//
-// AContians volumeOverride parameter alias on the no-type TriggerImpact overload to
-//   match the named-parameter call style used in TestSceneBootstrapper.
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/fx.md, section "GlobalFXManager.cs"
+// ============================================================================
 using System.Collections.Generic;
 using UnityEngine;
 using MidManStudio.Core.Logging;
 using MidManStudio.Core.Singleton;
 using MidManStudio.Core.EditorUtils;
 using MidManStudio.Core.Pools;
-using MidManStudio.Core.Audio;
 
 namespace MidManStudio.Core.FX
 {
     /// <summary>
-    /// Global fx manager ,Unified CPU-based visual + audio effect manager.
+    /// Plays CPU-driven particle and flipbook effects by category and type, with a spatial throttle and
+    /// per-category frame caps. Raises <see cref="CategoryAudioRequested"/> for each effect so an audio
+    /// component can react without this package depending on it.
     /// </summary>
     public class GlobalFXManager : Singleton<GlobalFXManager>
     {
@@ -44,15 +38,13 @@ namespace MidManStudio.Core.FX
         [Tooltip("Cap applied to any user-added category not listed above.")]
         [SerializeField] private int _maxOtherPerFrame       = 8;
 
-        [Header("Audio Integration")]
-        [SerializeField] private MID_NativeAudioBridge _audio;
+        // ── Events ────────────────────────────────────────────────────────────
 
-        [Tooltip("Clip index (in NativeAudioBridge) for each default category.\n" +
-                 "Set to -1 to skip audio for that category.")]
-        [SerializeField] private int _impactAudioClipIndex    = 0;
-        [SerializeField] private int _muzzleAudioClipIndex    = 1;
-        [SerializeField] private int _shellAudioClipIndex     = 2;
-        [SerializeField] private int _explosionAudioClipIndex = -1;
+        /// <summary>
+        /// Raised for each effect that plays, with its category and volume. MID_FXAudioRelay in
+        /// com.midmanstudio.audio listens to it and plays the matching clip.
+        /// </summary>
+        public static event System.Action<EffectCategory, float> CategoryAudioRequested;
 
         // ── Runtime state ─────────────────────────────────────────────────────
 
@@ -68,9 +60,6 @@ namespace MidManStudio.Core.FX
             base.Awake();
             BuildLookup();
             ValidateSystems();
-
-            if (_audio == null)
-                _audio = FindObjectOfType<MID_NativeAudioBridge>();
         }
 
         private void LateUpdate()
@@ -79,7 +68,7 @@ namespace MidManStudio.Core.FX
             _frameCounts.Clear();
         }
 
-        // ── Public API — primary (with EffectType) ────────────────────────────
+        // ── Public API - primary (with EffectType) ────────────────────────────
 
         /// <summary>Trigger an effect by category and type at the given world position.</summary>
         public void TriggerEffect(EffectCategory category, EffectType effectType,
@@ -110,7 +99,7 @@ namespace MidManStudio.Core.FX
             {
                 EmitFlipbook(entry, position, normal);
                 RecordEmission((EffectCategory)category, position);
-                PlayCategoryAudio((EffectCategory)category, audioVolume);
+                RequestCategoryAudio((EffectCategory)category, audioVolume);
                 return;
             }
 
@@ -127,13 +116,13 @@ namespace MidManStudio.Core.FX
             entry.particleSystem.Emit(_emitParams, count);
 
             RecordEmission((EffectCategory)category, position);
-            PlayCategoryAudio((EffectCategory)category, audioVolume);
+            RequestCategoryAudio((EffectCategory)category, audioVolume);
         }
 
         /// <summary>
         /// Plays an FXEntry's flipbookFrames via a pooled MID_FlipbookEffect instead of
         /// emitting particles. Silently no-ops (with a warning) if the pool type isn't
-        /// registered yet — same "not set up" handling as the rest of this manager.
+        /// registered yet - same "not set up" handling as the rest of this manager.
         /// </summary>
         private void EmitFlipbook(FXEntry entry, Vector3 position, Vector3 normal)
         {
@@ -163,7 +152,7 @@ namespace MidManStudio.Core.FX
             flipbook.Play(entry.flipbookFrames, entry.flipbookFps, position, rot);
         }
 
-        // ── Public API — with EffectType (explicit) ───────────────────────────
+        // ── Public API - with EffectType (explicit) ───────────────────────────
 
         /// <summary>Trigger an impact effect at a surface hit point.</summary>
         public void TriggerImpact(EffectType type, Vector3 position, Vector3 normal,
@@ -191,12 +180,10 @@ namespace MidManStudio.Core.FX
             entry.particleSystem.Emit(_emitParams, 1);
 
             RecordEmission(EffectCategory.ShellEjection, position);
-            PlayCategoryAudio(EffectCategory.ShellEjection, audioVolume);
+            RequestCategoryAudio(EffectCategory.ShellEjection, audioVolume);
         }
 
-        // ── Public API — convenience overloads (no EffectType) ───────────────
-        // These default to Generic/SmallMuzzle/BrassShell for backward compatibility
-        // with call sites that do not specify an EffectType.
+        // ── Public API - convenience overloads (no EffectType) ───────────────
 
         /// <summary>
         /// Trigger a generic impact effect. Defaults to EffectType.Generic.
@@ -230,7 +217,7 @@ namespace MidManStudio.Core.FX
             return ps != null;
         }
 
-        // ── Private — throttling ──────────────────────────────────────────────
+        // ── Private - throttling ──────────────────────────────────────────────
 
         private bool CanEmit(EffectCategory category, Vector3 position)
         {
@@ -269,23 +256,14 @@ namespace MidManStudio.Core.FX
             _frameCounts[cat] = (_frameCounts.TryGetValue(cat, out int c) ? c : 0) + 1;
         }
 
-        // ── Private — audio routing ───────────────────────────────────────────
+        // ── Private - audio hook ──────────────────────────────────────────────
 
-        private void PlayCategoryAudio(EffectCategory category, float volume)
+        private static void RequestCategoryAudio(EffectCategory category, float volume)
         {
-            if (_audio == null) return;
-            int clipIndex = category switch
-            {
-                EffectCategory.Impact        => _impactAudioClipIndex,
-                EffectCategory.MuzzleFlash   => _muzzleAudioClipIndex,
-                EffectCategory.ShellEjection => _shellAudioClipIndex,
-                EffectCategory.Explosion     => _explosionAudioClipIndex,
-                _                            => -1
-            };
-            if (clipIndex >= 0) _audio.PlayClip(clipIndex, volume);
+            CategoryAudioRequested?.Invoke(category, volume);
         }
 
-        // ── Private — setup ───────────────────────────────────────────────────
+        // ── Private - setup ───────────────────────────────────────────────────
 
         private void BuildLookup()
         {

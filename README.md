@@ -1,87 +1,163 @@
 
-# MidManStudio
-
-Unity package monorepo for MidMan Studio packages.
-
----
-
-## Packages
-
-| Package | Description |
-|---------|-------------|
-| `com.midmanstudio.utilities` | Core utilities: tick dispatcher, logger, timers, pools, audio, FX, scene management, UI state |
-| `com.midmanstudio.netcode` | NGO-specific utilities: network singletons, object pooling, connection management, LAN/WiFi lobby |
-| `com.midmanstudio.projectilesystem` | High-performance server-authoritative projectile system (Rust simulation core) |
-| `com.midmanstudio.patterns` | Generic design pattern building blocks, engine-independent (Command: undo/redo history, composite commands, command queue) |
-
----
-
-## Repo Structure
-
-```text
-MidManStudio_Unity/
-├── .github/workflows/                 # CI — stays here, never inside packages
-├── rust_lib/                          # Rust native libraries (one sub-folder per package)
-│   ├── projectile_core/               # Backs com.midmanstudio.projectilesystem
-│   └── mid_audio/                     # Backs com.midmanstudio.utilities' audio limiter
-├── packages/                          # UPM packages
-│   ├── com.midmanstudio.utilities/
-│   ├── com.midmanstudio.netcode/
-│   ├── com.midmanstudio.patterns/
-│   └── com.midmanstudio.projectilesystem/
-└── PackageSandbox/                    # Unity 2022.3 development project (not shipped)
-
-```
-## Development Setup
- 1. Open PackageSandbox/ in Unity 2022.3
- 2. Packages are referenced via file: paths — changes are live immediately
- 3. To rebuild Rust libs:
-   * cd rust_lib/projectile_core && cargo build --release
-   * cd rust_lib/mid_audio && cargo build --release
- 4. CI builds all platforms on push (see .github/workflows/build-rust-libs.yml and build-audio-libs.yml)
-## Installing Packages
-### Via git URL
-*(Unity Package Manager → Add package from git URL)*
-**Utilities:**
-```text
-[https://github.com/MidManStudio/MidManStudio_Unity.git?path=/packages/com.midmanstudio.utilities#utilities/v1.0.0](https://github.com/MidManStudio/MidManStudio_Unity.git?path=/packages/com.midmanstudio.utilities#utilities/v1.0.0)
-
-```
-**Netcode:**
-```text
-[https://github.com/MidManStudio/MidManStudio_Unity.git?path=/packages/com.midmanstudio.netcode#netcode/v1.0.0](https://github.com/MidManStudio/MidManStudio_Unity.git?path=/packages/com.midmanstudio.netcode#netcode/v1.0.0)
-
-```
-**Projectile System:**
-```text
-[https://github.com/MidManStudio/MidManStudio_Unity.git?path=/packages/com.midmanstudio.projectilesystem#projectilesystem/v1.1.0](https://github.com/MidManStudio/MidManStudio_Unity.git?path=/packages/com.midmanstudio.projectilesystem#projectilesystem/v1.1.0)
-
-```
-**Patterns:**
-```text
-[https://github.com/MidManStudio/MidManStudio_Unity.git?path=/packages/com.midmanstudio.patterns#patterns/v0.1.0](https://github.com/MidManStudio/MidManStudio_Unity.git?path=/packages/com.midmanstudio.patterns#patterns/v0.1.0)
-
-```
-> 💡 **Note:** The #tagname segment pins the install to a specific release tag (see **Releases** below). Without it, UPM resolves to the latest commit on master, which is not version-locked and will silently change underneath consumers between sessions.
-> 
-### Via local file path
-*(Development setup — add directly to Packages/manifest.json)*
-```json
-{
-  "dependencies": {
-    "com.midmanstudio.utilities": "file:../../MidManStudio_Unity/packages/com.midmanstudio.utilities"
-  }
-}
-
-```
-### Via OpenUPM
-*(Once published)*
-Add scope com.midmanstudio to your project's scoped registry in Packages/manifest.json.
-## Releases
-Each package is tagged and released independently using a <package>/v<semver> tag, e.g., utilities/v1.0.0, netcode/v1.0.0, or projectilesystem/v1.1.0.
-Pushing a tag in that format triggers .github/workflows/release-packages.yml, which cuts the matching GitHub Release.
-> ⚠️ **Important:** No tags have been pushed yet — the git-URL install lines above will not resolve until the corresponding tag exists. See the individual package's own README for the full release checklist.
-> 
-
-
-
+# com.midmanstudio.utilities
+**MidMan Studio Utilities** v1.0.0 — Core runtime utilities for Unity 2022.3+.
+No game-specific dependencies. Foundation for all MidManStudio packages.
+## Requirements
+| Dependency | Version |
+|---|---|
+| Unity | 2022.3 LTS |
+| com.unity.burst | 1.8.9+ |
+| com.unity.collections | 2.2.1+ |
+| com.unity.mathematics | 1.3.1+ |
+## Installation
+**Via git URL** (Unity Package Manager → Add package from git URL):
+https://github.com/MidManStudio/MidManStudio_Unity.git?path=/packages/com.midmanstudio.utilities#v1.0.0
+**Via local file path** (development — manifest.json):
+"com.midmanstudio.utilities": "file:../../packages/com.midmanstudio.utilities"
+Dependencies are resolved automatically by UPM.
+## What's Included
+| System | Namespace | Description |
+|---|---|---|
+| Tick Dispatcher | MidManStudio.Core.TickDispatcher | Zero-alloc interval-based Update replacement |
+| Tick Delay | MidManStudio.Core.TickDispatcher | Zero-alloc delayed/repeating actions, NGO-ready |
+| Logger | MidManStudio.Core.Logging | Level-gated coloured console logger |
+| Singletons | MidManStudio.Core.Singleton | MonoBehaviour + pure C# singleton bases |
+| Observable Values | MidManStudio.Core.ObservableValues | Reactive value containers with auto-cleanup |
+| Events | MidManStudio.Core.Events | SO event channels + typed static event bus |
+| Pool System | MidManStudio.Core.Pools | Object, particle, and trail renderer pools |
+| Pool Type Generator | MidManStudio.Core.Pools.Generator | Code-generates shared pool enums from SO providers |
+| FX System | MidManStudio.Core.FX | CPU particle and flipbook effect manager with an audio hook (audio itself lives in `com.midmanstudio.audio`) |
+| FX Type Generator | MidManStudio.Core.FX.Generator | Code-generates EffectCategory/EffectType enums |
+| Timers | MidManStudio.Core.Timers | Countdown, stopwatch, interpolation, stepped, network |
+| Library System | MidManStudio.Core.Libraries | Keyed ScriptableObject asset registry |
+| Scene Management | MidManStudio.Core.SceneManagement | Async loader + transition controller |
+| UI State System | MidManStudio.Core.UIState | Per-context [Flags] enum state machine |
+| UI Components | MidManStudio.Core.UI | Animated button with no tween dependency |
+| Helpers | MidManStudio.Core.HelperFunctions | String, UI, JSON, reflection utilities |
+| Sequential Runner | MidManStudio.Core.SequentialProcessing | Priority lane async task runner with retry |
+| Sticky Note | MidManStudio.Core.Notes | In-Game-View overlay note for scene setup docs |
+| Editor Tools | — | Logger manager, pool/library/scene/UI generators, dependency injector |
+## Quick Start
+### Tick Dispatcher
+Replaces per-MonoBehaviour Update(). A system that only needs 5 checks/sec should not run 60×/sec.
+**Rate selection guide:**
+| Rate | Fires/sec | Use for |
+|---|---|---|
+| Tick_0_05 | 20 | Fast weapon systems, projectile checks |
+| Tick_0_1 | 10 | ✅ Recommended minimum — fast AI, cooldowns |
+| Tick_0_2 | 5 | Standard — enemy AI, ability systems |
+| Tick_0_5 | 2 | Area checks, perception |
+| Tick_1 | 1 | Health regen, UI numbers |
+| Tick_2 | 0.5 | Distant object updates |
+| Tick_5 | 0.2 | Spawners, wave logic |
+⚠ Tick_0_01 and Tick_0_02 fire faster than a typical frame — negative saving at normal fps. Never use for gameplay logic.
+### Tick Delay — Zero-Alloc Delayed Actions
+The zero-GC alternative to StartCoroutine and Task.Delay. Works inside Netcode for GameObjects RPCs where IEnumerator is forbidden.
+**Trade-off comparison:**
+|  | MID_TickDelay | Coroutine | Task.Delay |
+|---|---|---|---|
+| GC allocation | **0 B always** | ~80–400 B/call | ~120 B cold |
+| Thread | **Main** | Main | Threadpool — unsafe for Unity APIs |
+| IEnumerator | **Not needed** | Required — breaks RPC signatures | Not needed |
+| Cancellation | **TickDelayHandle** | StopCoroutine | CancellationToken (+alloc) |
+| Timing error | 0–100ms at Tick_0_1 | 0–16ms at 60fps | ~0–2ms (OS timer) |
+### Logger
+Bulk-manage log levels across all scene objects: MidManStudio > Utilities > Logger Manager.
+**Log levels:**
+| Level | Output |
+|---|---|
+| None | No output |
+| Error | Errors only |
+| Info | Info + warnings + errors ← production recommended |
+| Debug | Debug + info + warnings + errors |
+| Verbose | Everything |
+### Object Pool
+ 1. Open MidManStudio > Utilities > Pool Type Generator
+ 2. Create a Pool Type Provider SO, add entries, click Generate Now
+ 3. Add LocalObjectPool to a persistent GameObject, assign prefabs in inspector
+ 4. Initialize at game start via LocalObjectPool.Instance.CallInitializePool()
+### FX System
+Unified CPU-based visual effects. Wrap any in-scene ParticleSystem in an FXEntry and trigger by category/type.
+**Setup:**
+ 1. Place GlobalFXManager on a persistent GameObject
+ 2. Add FXEntry items in the inspector — one per (EffectCategory, EffectType) pair
+ 3. Assign in-scene ParticleSystem references — must have **Simulation Space = World**
+ 4. For effect audio, install `com.midmanstudio.audio` and add its `MID_FXAudioRelay`; GlobalFXManager raises `CategoryAudioRequested` for each effect
+**Adding custom categories/types:**
+ 1. Create EffectCategoryProviderSO or EffectTypeProviderSO (right-click Project)
+ 2. Set priority ≥ 100 for game code (0 = utilities reserved, 10 = projectile reserved)
+ 3. MidManStudio > Utilities > Effect Type Generator > Generate Now
+### Audio
+The audio manager, native audio bridge, limiter and spawnable audio moved to the `com.midmanstudio.audio` package. The namespace is unchanged (`MidManStudio.Core.Audio`).
+### Observable Values
+Use MID_SusValue<T> for plain values (manual cleanup) or ManagedSusValue<T> to have subscriptions cleared automatically when the owner GameObject is destroyed.
+### UI State System
+**Components:**
+| Component | Purpose |
+|---|---|
+| MID_UIStateManager | Drives panel show/hide for one context |
+| MID_UIStateVisibility | Shows element when context flags match |
+| MID_UIStateButton | Transitions context on click |
+| MID_UIStateBackButton | Navigates back + state-based visibility |
+| MID_UIElement | Base CanvasGroup show/hide with child propagation |
+### Library System
+ 1. Right-click > MidManStudio > Utilities > Library Item (Basic) — create items
+ 2. Right-click > MidManStudio > Utilities > Library — create library, add items
+ 3. Add MID_LibraryRegistry to a persistent GameObject, assign library
+ 4. Retrieve via MID_LibraryRegistry.Instance.GetItem(...)
+### Sticky Note
+In-Game-View overlay for scene documentation, setup instructions, or tutorial content. Works in Play Mode and Edit Mode. Supports drag-to-reposition, minimize, and close.
+## Pool Type Generator
+Writes PoolableObjectType.cs and PoolableParticleType.cs under Runtime/PoolSystems/Generated/.
+### Adding your own pool types
+ 1. MidManStudio > Utilities > Pool Type Generator > + Object Provider
+ 2. Set packageId (e.g. com.mygame), priority ≥ 100, add entry names (PascalCase)
+ 3. Generate Now
+### Block ranges
+| Priority | Package | Block |
+|---|---|---|
+| 0 | com.midmanstudio.utilities | 0–99 |
+| 10 | com.midmanstudio.projectilesystem | 100–199 |
+| 100+ | Your game | 200+ |
+**Pinning entries:** Unpinned entries are stabilised by the lock file (Assets/MidManStudio/Generated/Pools/PoolTypeLock.json). **Commit the lock file to source control.**
+## Editor Tools
+| Tool | Open via |
+|---|---|
+| Logger Manager | MidManStudio > Utilities > Logger Manager |
+| Pool Type Generator | MidManStudio > Utilities > Pool Type Generator |
+| Library Type Generator | MidManStudio > Utilities > Library Type Generator |
+| Scene Type Generator | MidManStudio > Utilities > Scene Type Generator |
+| UI State Context Generator | MidManStudio > Utilities > UI State Context Generator |
+| Effect Type Generator | MidManStudio > Utilities > Effect Type Generator |
+| Tick Delay Benchmark | MidManStudio > Utilities > Tests > Tick Delay Bench |
+| Tick Dispatcher Benchmark | MidManStudio > Utilities > Tests > Tick Dispatcher Bench |
+| Script Utilities | MidManStudio > Utilities > Script Utilities |
+| Scene Dependency Injector | Add SceneDependencyInjector component to any scene GameObject |
+## Assembly Structure
+Your game assembly sees MidManStudio.Utilities automatically (autoReferenced: true). Reference MidManStudio.Utilities.Editor explicitly only if you use pool/library generators or custom inspector code in your own editor assembly.
+## Generated File Locations
+All generated files live under Generated/ subfolders inside the package runtime:
+ * Runtime/PoolSystems/Generated/
+ * Runtime/FXSystems/Generated/
+ * Runtime/Libraries/Generated/
+ * Runtime/SceneManagement/Generated/
+ * Runtime/UIState/Generated/
+Lock files (project-level, not inside the package):
+ * Assets/MidManStudio/Generated/Pools/PoolTypeLock.json
+ * Assets/MidManStudio/Generated/FX/EffectTypeLock.json
+**Always commit lock files to source control** — they prevent enum value shifts on regeneration.
+## Persistent Manager Setup
+Recommended hierarchy for a Managers prefab (DontDestroyOnLoad):
+ 1. MID_Logger
+ 2. MID_TickDispatcher
+ 3. SusValueManager
+ 4. LocalObjectPool
+ 5. LocalParticlePool
+ 6. TrailRendererPool
+ 7. GlobalFXManager
+ 8. MID_LibraryRegistry
+ 9. MID_UIStateManager
+**For isolated scene testing:** use SceneDependencyInjector instead of a bootstrap scene. Assign required manager prefabs in Required Dependencies and press Play.
+## License
+MIT — see LICENSE.md.
+Copyright © 2026 Abdulhamid Manman Suleiman / MidMan Studio

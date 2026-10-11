@@ -1,0 +1,21 @@
+{
+    "name": "MidManStudio.Audio.Tests",
+    "rootNamespace": "BenchTests",
+    "references": [
+        "MidManStudio.Audio",
+        "MidManStudio.Utilities",
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

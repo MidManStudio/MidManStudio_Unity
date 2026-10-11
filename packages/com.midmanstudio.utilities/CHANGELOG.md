@@ -1,5 +1,6 @@
 # com.midmanstudio.utilities
 
+- **Audio moved out** - the audio manager, audio library, native audio bridge, limiter, spawnable audio, their inspectors, the audio benchmark and the `mid_audio` native libraries now live in `com.midmanstudio.audio`. The namespace `MidManStudio.Core.Audio` is unchanged. `PoolableObjectType.SpawnableAudio` moved to the audio package and has the value 200 instead of 0. `GlobalFXManager` no longer holds an audio bridge reference or clip indices; it raises the static event `CategoryAudioRequested`, which `MID_FXAudioRelay` in the audio package listens to. See `docs/com.midmanstudio.utilities/fx.md` and `docs/com.midmanstudio.utilities/pool-systems.md`.
 - **FPS counter** - `MID_FpsCounter` on-screen frame-rate readout and `MID_FrameTimeStats` rolling frame-time window (average, best, worst, 1% low). See `docs/com.midmanstudio.utilities/performance.md`.
 - **Auto Reference system** — attribute-driven auto-wiring of Component/GameObject/interface
   fields on MonoBehaviours. Scans self + children (+ optional external search root) and
@@ -26,7 +27,7 @@
 - **Events** — lightweight event bus.
 - **Pool System** — generic object/particle pools, trail renderer pool, enum-refactored pool
   type registration.
-- **Audio** — audio manager and playback pooling.
+- **Audio** - audio manager and playback pooling (moved to `com.midmanstudio.audio`).
 - **FX System** — effect playback/pooling utilities.
 - **Timers** — `CountdownTimer`, `StopwatchTimer`, `ValueInterpolationTimer` (linear/eased/
   custom-curve, ping-pong support).

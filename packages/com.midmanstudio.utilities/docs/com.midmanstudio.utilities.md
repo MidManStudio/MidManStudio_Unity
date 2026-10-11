@@ -4,9 +4,9 @@
 
 Shared runtime and editor utility library used across MidManStudio packages
 and projects: singletons, logging, event bus, object/particle pooling,
-scriptable-object libraries, scene management, UI state, FX playback, audio
-playback, auto-reference wiring, hierarchy tooling, timers, and small editor
-windows for each of those systems. 126 files across `Runtime/` and `Editor/`,
+scriptable-object libraries, scene management, UI state, FX playback,
+auto-reference wiring, hierarchy tooling, timers, and small editor
+windows for each of those systems. 120 files across `Runtime/` and `Editor/`,
 plus `Samples~/` (optional example scenes/scripts, not part of the shipped
 package) and `Tests/` (manual benchmark runners, not an automated suite).
 
@@ -44,10 +44,11 @@ hand-maintained.
 - Libraries - not yet covered.
 - SceneManagement - not yet covered.
 - AutoReference - not yet covered.
-- Audio - not yet covered.
-- FXSystems - not yet covered.
+- [FXSystems](com.midmanstudio.utilities/fx.md) - `GlobalFXManager` only so far. The rest is not yet
+  covered.
 - UIState - not yet covered.
-- PoolSystems - not yet covered.
+- [PoolSystems](com.midmanstudio.utilities/pool-systems.md) - `PackagePoolProviderBootstrapper` only so
+  far. The rest is not yet covered.
 - Helpers - not yet covered.
 - [Ui](com.midmanstudio.utilities/ui.md) - `MID_Button` (animated button
   companion component). Done.
@@ -61,6 +62,5 @@ hand-maintained.
   (`com.midmanstudio.utilities`) from `packages/com.midmanstudio.utilities`
   on a `utilities/v*` tag or manual dispatch.
 - `.github/workflows/build-audio-libs.yml` - builds the native `mid_audio`
-  DSP library used by the Audio part, for all supported Unity platforms.
-  Builds clean every run, no caching, by design (see the Audio part's Fixes
-  and Problems once that part is written).
+  library. It belongs to `com.midmanstudio.audio` now and is documented in
+  `packages/com.midmanstudio.audio/docs/com.midmanstudio.audio.md`.

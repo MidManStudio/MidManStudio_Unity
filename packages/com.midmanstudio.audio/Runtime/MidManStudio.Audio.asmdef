@@ -1,0 +1,16 @@
+{
+    "name": "MidManStudio.Audio",
+    "rootNamespace": "MidManStudio.Core.Audio",
+    "references": [
+        "MidManStudio.Utilities"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

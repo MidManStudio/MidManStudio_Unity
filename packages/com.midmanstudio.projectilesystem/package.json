@@ -10,6 +10,7 @@
     "licensesUrl": "",
     "dependencies": {
         "com.midmanstudio.utilities": "1.0.0",
+        "com.midmanstudio.audio": "1.0.0",
         "com.midmanstudio.netcode": "1.0.0",
         "com.unity.netcode.gameobjects": "1.7.1",
         "com.unity.burst": "1.8.9",

@@ -403,89 +403,24 @@ Same generation rules as `PoolableObjectType`.
 |---|---|
 | 0–99 | `com.midmanstudio.utilities` |
 | 100–199 | `com.midmanstudio.projectilesystem` |
-| 200+ | Game code |
+| 200–299 | `com.midmanstudio.audio` |
+| 300+ | Game code |
 
 ---
 
 ## 8. Audio
 
-**Namespace:** `MidManStudio.Core.Audio`  
-**Files:** `Runtime/Audio/`
-
----
-
-### `MID_AudioManager` (MonoSingleton)
-
-Music crossfade/pitch control + SFX clip-name dispatch.
-
-| Method/Event | Returns | Description |
-|---|---|---|
-| `PlayMusic(string clipName, float fadeDuration = 1f)` | `void` | Crossfade to named music clip |
-| `StopMusic(float fadeDuration = 1f)` | `void` | Fade out current music |
-| `SetMusicEnabled(bool enabled)` | `void` | Toggle music on/off; persisted in PlayerPrefs |
-| `SetSFXEnabled(bool enabled)` | `void` | Toggle SFX on/off; persisted in PlayerPrefs |
-| `SetMusicVolume(float volume)` | `void` | 0–1 master music volume |
-| `SetSFXVolume(float volume)` | `void` | 0–1 master SFX volume |
-| `PlaySFX(string clipName)` | `void` | Play named SFX clip at default pitch |
-| `PlaySFXPitched(string clipName, float pitch)` | `void` | Play named SFX clip at given pitch |
-| `event Action<bool> OnMusicEnabledChanged` | — | Fired when music enabled state changes |
-| `event Action<bool> OnSFXEnabledChanged` | — | Fired when SFX enabled state changes |
-
----
-
-### `MID_AudioLimiter` (MonoBehaviour)
-
-DSP peak limiter on the final mixed output.  
-**Attach to the same GameObject as the `AudioListener`.**
-
-| Platform | Implementation |
-|---|---|
-| Windows / macOS / Android / Linux | Rust DSP via native plugin — zero managed allocation in DSP path |
-| WebGL | Pure C# `OnAudioFilterRead` fallback — same threshold/attack/release behaviour |
-
-| Inspector Field | Type | Description |
-|---|---|---|
-| `Threshold` | `float` | Peak limit in linear gain (default: 0.95) |
-| `AttackMs` | `float` | Attack time in milliseconds |
-| `ReleaseMs` | `float` | Release time in milliseconds |
-
----
-
-### `MID_NativeAudioBridge` (MonoSingleton)
-
-16-voice `AudioSource` steal pool. Circular voice stealing — oldest voice is reused when all 16 are active.  
-Accepts any AudioClip load type — `Decompress On Load` is **not** required.
-
-| Method | Returns | Description |
-|---|---|---|
-| `PlayClip(int clipIndex, float volume = 1f)` | `void` | Play clip at index in inspector list; steals oldest voice if full |
-| `PlayClipAt(int clipIndex, Vector3 position, float volume = 1f)` | `void` | Positional one-shot |
-| `StopAll()` | `void` | Stop all 16 voices immediately |
-
----
-
-### `MID_AudioLibrarySO` (ScriptableObject)
-
-**File:** `Runtime/Audio/MID_AudioLibrarySO.cs`  ← ⚠ FIX: moved from `Libraries/Configs/`  
-**Namespace:** `MidManStudio.Core.Audio`
-
-Named clip registry. Assign to `MID_AudioManager` in inspector.
-
-| Member | Type | Description |
-|---|---|---|
-| `musicClips` | `List<AudioClip>` | Inspector list of music clips |
-| `sfxClips` | `List<AudioClip>` | Inspector list of SFX clips |
-| `GetMusicClip(string name)` | `AudioClip` | Lookup by clip name |
-| `GetSFXClip(string name)` | `AudioClip` | Lookup by clip name |
+Moved to the `com.midmanstudio.audio` package. The namespace is still `MidManStudio.Core.Audio`. See that package's
+`APICATALOG.md`.
 
 ---
 
 ## 9. FX System
 
-**Namespace:** `MidManStudio.Core.FX` ← ⚠ FIX: was `MidManStudio.Core.Audio`  
+**Namespace:** `MidManStudio.Core.FX`  
 **Files:** `Runtime/FXSystems/`
 
-Unified CPU particle + audio effect system.  
+CPU particle and flipbook effect system with an audio hook.  
 All `ParticleSystem` objects must have **Simulation Space = World**.
 
 ---
@@ -502,12 +437,12 @@ All `ParticleSystem` objects must have **Simulation Space = World**.
 | `TriggerMuzzleFlash(Vector3 position, Vector3 direction)` | `void` | Overload — uses default muzzle type |
 | `EjectShell(EffectType type, Vector3 position, Vector3 velocity)` | `void` | Eject shell casing effect |
 | `EjectShell(Vector3 position, Vector3 velocity)` | `void` | Overload — uses default shell type |
-| `TriggerEffect(EffectCategory category, EffectType type, Vector3 position, Quaternion rotation)` | `void` | Generic trigger for any registered category/type pair |
+| `TriggerEffect(EffectCategory category, EffectType type, Vector3 position, Vector3 normal, int particleCount = -1, float audioVolume = 1f)` | `void` | Generic trigger for any registered category/type pair |
+| `static event Action<EffectCategory, float> CategoryAudioRequested` | event | Raised for each effect that plays, with the category and volume. `MID_FXAudioRelay` in `com.midmanstudio.audio` listens to it. |
 
 | Inspector Field | Type | Description |
 |---|---|---|
 | `FxEntries` | `List<FXEntry>` | All registered effect bindings |
-| `AudioBridge` | `MID_NativeAudioBridge` | Optional — for per-category audio |
 
 ---
 
@@ -518,7 +453,6 @@ All `ParticleSystem` objects must have **Simulation Space = World**.
 | `category` | `EffectCategory` | Which category this entry belongs to |
 | `type` | `EffectType` | Specific type within category |
 | `particleSystem` | `ParticleSystem` | In-scene PS reference — must be World space |
-| `audioClip` | `AudioClip` | Optional clip played via AudioBridge |
 
 ---
 
@@ -1095,7 +1029,6 @@ automatically on scan, off by default), and bulk-resolves with a color-coded res
 |---|---|---|
 | Tick Delay Benchmark | `MidManStudio > Utilities > Tests > Tick Delay Bench` | Allocation profile + timing accuracy of MID_TickDelay |
 | Tick Dispatcher Benchmark | `MidManStudio > Utilities > Tests > Tick Dispatcher Bench` | Subscriber overhead at each TickRate |
-| Audio Benchmark | `MidManStudio > Utilities > Tests > Audio Bench` | MID_NativeAudioBridge voice steal performance |
 
 ---
 

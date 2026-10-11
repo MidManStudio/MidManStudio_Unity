@@ -2,7 +2,7 @@
     "name": "com.midmanstudio.patterns",
     "version": "0.1.0",
     "displayName": "MidMan Studio Patterns",
-    "description": "Generic, engine-independent design pattern building blocks for Unity 2022.3+. Command (undo/redo history, grouped and merged commands, composite commands, deferred command queue), State (stack-based state machine), Event Queue (deferred typed events), and Dependency Injection (service locator and a factory-based container). No dependencies; Singleton, pooling and immediate events live in the utilities package.",
+    "description": "Generic, engine-independent design pattern building blocks for Unity 2022.3+. Command (undo/redo history, grouped and merged commands, composite commands, deferred command queue), State (stack-based state machine), Event Queue (deferred typed events), Dependency Injection (service locator and a factory-based container), and Broker Chain (central broker running priority-ordered handlers over a query, with a stat sheet for buffs and modifiers). No dependencies; Singleton, pooling and immediate events live in the utilities package.",
     "unity": "2022.3",
     "unityRelease": "0f1",
     "documentationUrl": "",
@@ -17,7 +17,10 @@
         "state machine",
         "event queue",
         "dependency injection",
-        "service locator"
+        "service locator",
+        "broker chain",
+        "chain of responsibility",
+        "stat modifiers"
     ],
     "author": {
         "name": "MidMan Studio",

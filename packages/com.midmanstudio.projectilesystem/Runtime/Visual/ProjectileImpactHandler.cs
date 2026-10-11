@@ -1,28 +1,21 @@
-// Client-side only. Manages impact effects for confirmed projectile hits.
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ProjectileImpactHandler.cs"
+// ============================================================================
+// Client-side only. Plays the impact effect for confirmed projectile hits.
 // MID_ProjectileNetworkBridge calls PlayImpact() on HitConfirmedClientRpc.
 //
-// UPDATED: GlobalFXManager integration.
-//   When _preferGlobalFX = true (default) AND GlobalFXManager.Instance is present,
-//   PlayImpact routes through GlobalFXManager.TriggerImpact using a configurable
-//   EffectType mapping. This uses the shared in-scene ParticleSystem pool rather
-//   than the separate LocalParticlePool, keeping effects unified.
+// When _preferGlobalFX is true and GlobalFXManager.Instance exists, PlayImpact routes through
+// GlobalFXManager.TriggerImpact with an EffectType chosen per config (_configEffectTypeBindings
+// or RegisterConfigEffectType). Otherwise the strategy path below runs.
 //
-//   If GlobalFXManager is absent or _preferGlobalFX = false, the existing
-//   strategy-based path (PooledParticleSystem / SpriteSheetFlipbook / SharedEmit)
-//   is used unchanged.
+// Impact strategies (path without GlobalFXManager):
+//   PooledParticleSystem: LocalParticlePool (standard hits)
+//   SpriteSheetFlipbook:  pooled GameObjects with SpriteRenderer + ImpactFlipbook
+//   SharedEmit:           ParticleSystem.Emit() for very high hit rates
 //
-//   Per-config EffectType overrides can be set via _configEffectTypeBindings in the
-//   inspector, or registered at runtime via RegisterConfigEffectType(). Unregistered
-//   configs fall back to _defaultGlobalFXType (Generic by default).
-//
-// IMPACT STRATEGIES (when GlobalFXManager is not used):
-//   PooledParticleSystem — LocalParticlePool (standard hits)
-//   SpriteSheetFlipbook  — pooled GameObjects with SpriteRenderer + ImpactFlipbook
-//   SharedEmit           — ParticleSystem.Emit() for very high hit rates
-//
-// POOL TYPES:
-//   All particle types use the generated PoolableParticleType enum.
-//   Flipbook objects use PoolableObjectType.
+// Pool types: particle types use the generated PoolableParticleType enum.
+// Flipbook objects use PoolableObjectType.
 
 using System;
 using System.Collections.Generic;
@@ -32,7 +25,6 @@ using MidManStudio.Core.Pools;
 using MidManStudio.Core.Logging;
 using MidManStudio.Core.FX;
 using MidManStudio.Projectiles.Config;
-using MidManStudio.Core.Audio;
 
 namespace MidManStudio.Projectiles.Visuals
 {
@@ -328,7 +320,7 @@ namespace MidManStudio.Projectiles.Visuals
             GlobalFXManager.Instance.TriggerImpact(
                 effectType,
                 position,
-                Vector3.up,         // normal — caller can override via RegisterConfigEffectType
+                Vector3.up,         // normal - caller can override via RegisterConfigEffectType
                 particleCount);
 
             MID_Logger.LogDebug(_logLevel,
@@ -340,7 +332,7 @@ namespace MidManStudio.Projectiles.Visuals
         /// <summary>
         /// Best-effort mapping from ProjectileConfigSO to a GlobalFX EffectType.
         /// If the config has a registered per-config FX binding that's already been
-        /// checked, this is the fallback — returns Generic unless you add custom
+        /// checked, this is the fallback - returns Generic unless you add custom
         /// mapping logic here or use RegisterConfigEffectType() at startup.
         /// </summary>
         private EffectType DeriveEffectTypeFromConfig(ProjectileConfigSO cfg, bool isHeadshot)

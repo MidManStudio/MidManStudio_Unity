@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/pool-systems.md, section "PackagePoolProviderBootstrapper.cs"
+// ============================================================================
 // Editor-only. Runs automatically after import via [InitializeOnLoad].
 // Creates default PoolTypeProvider ScriptableObject assets for the utilities package.
 #if UNITY_EDITOR
@@ -45,12 +49,6 @@ namespace MidManStudio.Core.EditorUtils
             so.packageId   = "com.midmanstudio.utilities";
             so.displayName = "MidMan Studio Utilities";
             so.priority    = 0;
-            so.entries.Add(new PoolEntryDefinition
-            {
-                entryName      = "SpawnableAudio",
-                comment        = "Pooled one-shot / looping audio source",
-                explicitOffset = 0
-            });
             so.entries.Add(new PoolEntryDefinition
             {
                 entryName      = "Trail",

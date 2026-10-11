@@ -12,6 +12,11 @@ lobby, and a manual benchmark harness) used to exercise the runtime package
 end to end. These are test-scene components, not a unit test suite; there is
 no automated test runner covering them (see CI and Workflows below).
 
+The `Tests/` scripts call `MID_NativeAudioBridge`, which lives in
+`com.midmanstudio.audio`. The Tests assembly therefore references
+`MidManStudio.Audio`, and the package lists the audio package as a dependency.
+The runtime assembly has no audio dependency.
+
 ## Modules
 
 ### `NetworkedDimensionPlayer.cs`
@@ -233,6 +238,33 @@ counts.
 shape buffers (upserted by TargetId) that are passed to the native library
 every tick. Both expose `TargetCount2D/3D` and `ShapeCount2D/3D` for
 diagnostics.
+
+### `ProjectileImpactHandler.cs` (Runtime)
+**What it does:** Client-side singleton that plays the impact effect for each
+confirmed hit. `PlayImpact(position, configId, isHeadshot)` is called by the
+network bridge on the hit RPC. It sends the effect through `GlobalFXManager`
+when one exists, and otherwise through a strategy registered per config:
+a pooled particle system, a pooled sprite-sheet flipbook, or a shared particle
+system that is emitted into.
+
+**How it works:**
+- Routing order: `GlobalFXManager` when `_preferGlobalFX` is on and an instance
+  exists, then the strategy registered for the config id (`RegisterStrategy`),
+  then the default particle type (`_defaultParticleType`).
+- On the `GlobalFXManager` route a headshot uses `_headshotEffectType` when it
+  differs from `_defaultGlobalFXType`. Any other hit uses the binding for the
+  config (`RegisterConfigEffectType` or the `_configEffectTypeBindings` list).
+  A binding with no particle count falls back to `_defaultGlobalFXParticleCount`.
+- A config with no binding is mapped from its impact particle type: the three
+  explosion types give `SmallExplosion`, `MediumExplosion` and `LargeExplosion`,
+  the headshot particle gives `FleshSurface`, and everything else gives
+  `Generic`. Headshots return `_headshotEffectType`.
+- The impact normal passed to `GlobalFXManager` is always `Vector3.up`.
+
+**Decisions:**
+- `GlobalFXManager` is preferred so impacts share its in-scene particle
+  systems instead of a second pool. The strategy path stays for scenes that have
+  no `GlobalFXManager`.
 
 ## CI and Workflows
 
@@ -468,3 +500,9 @@ suite; `build.yml` builds the app for Android and Windows only.
   found in this editor and is a plausible contributor, but it is not
   confirmed. If the crash continues, the end of `Editor.log` (or
   `Editor-prev.log` after a restart) from the crash will show what failed.
+
+### `ProjectileImpactHandler.cs`
+- Removed an unused `using MidManStudio.Core.Audio;`. The file uses no audio
+  type. The directive would stop the file from compiling once the audio code
+  left the utilities assembly for `com.midmanstudio.audio`, since the runtime
+  assembly does not reference the audio assembly.

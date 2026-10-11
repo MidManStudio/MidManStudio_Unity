@@ -107,3 +107,24 @@ Requests made from inside a callback are queued and applied when the callback re
 `IResolver`: `Resolve<T>()`, `TryResolve<T>(out T)`, `Resolve(Type)`, `TryResolve(Type, out object)`.
 `ServiceNotFoundException.ServiceType`, `CircularDependencyException.Chain`.
 
+## Broker Chain (`MidManStudio.Patterns.BrokerChain`)
+
+### `Broker<TQuery>`
+| Member | Description |
+|---|---|
+| `IDisposable Register(BrokerHandler<TQuery> handler, int priority = 0, float lifetimeSeconds = 0f, Action onExpired = null)` | Lower priority runs first, equal priorities in registration order. Dispose the handle to unregister, effective immediately. A lifetime above 0 makes `Tick` remove the handler. |
+| `BrokerResult Run(object sender, ref TQuery query)` | Runs every handler over the query. Returns `Stop` if a handler ended the chain. A handler exception propagates. |
+| `TQuery Query(object sender, TQuery seed)` | Runs the chain on a copy and returns it |
+| `void Tick(float deltaTime)` | Removes timed handlers whose lifetime ran out, then runs their `onExpired` callbacks |
+| `void Clear()`, `Count`, `const int MaxDepth` | `MaxDepth` (16) limits nested `Run` calls on one broker |
+
+`delegate BrokerResult BrokerHandler<TQuery>(object sender, ref TQuery query)`.
+`BrokerResult`: `Continue`, `Stop`.
+`BrokerPriority`: `Add` (0), `Multiply` (100), `Override` (200), `Clamp` (1000).
+
+### Stats
+| Type | Members |
+|---|---|
+| `StatQuery<TStat>` | `Stat`, `Value`, `StatQuery(TStat stat, float value)` |
+| `StatModifiers` | `Add<TStat>(stat, amount)`, `Multiply<TStat>(stat, factor)`, `Override<TStat>(stat, value)`, `Clamp<TStat>(stat, min, max)`, each returning a `BrokerHandler<StatQuery<TStat>>` |
+| `StatSheet<TStat>` | `SetBase`, `GetBase` (0 when unset), `HasBase`, `Get(stat, sender = null)`, `AddModifier`, `MultiplyModifier`, `OverrideModifier`, `ClampModifier`, `Tick(deltaTime)`, `Broker` |

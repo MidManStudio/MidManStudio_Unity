@@ -17,6 +17,9 @@ The package is split by pattern, one doc part per pattern:
   event from delivering it, with bounded or unbounded storage. Done.
 - [Dependency Injection](com.midmanstudio.patterns/dependency-injection.md) - service locator and a
   factory-based container with singleton, scoped and transient lifetimes. Done.
+- [Broker Chain](com.midmanstudio.patterns/broker-chain.md) - a central broker that runs registered handlers
+  in priority order over one query, with timed handlers and a ready-made stat sheet for buffs and
+  modifiers. Done.
 
 Observer is not a part of this package. `com.midmanstudio.utilities` already provides it as
 `MID_EventBus<T>` (immediate typed events) and `MID_SusValue` (observable values), and repeating it here

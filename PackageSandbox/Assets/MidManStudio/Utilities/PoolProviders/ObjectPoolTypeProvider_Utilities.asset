@@ -16,9 +16,6 @@ MonoBehaviour:
   displayName: MidMan Studio Utilities
   priority: 0
   entries:
-  - entryName: SpawnableAudio
-    comment: Pooled one-shot / looping audio source
-    explicitOffset: 0
   - entryName: Trail
     comment: Pooled trail renderer object
     explicitOffset: 1

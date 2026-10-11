@@ -4,6 +4,7 @@
     "references": [
         "MidManStudio.ProjectileSystem",
         "MidManStudio.Utilities",
+        "MidManStudio.Audio",
         "MidManStudio.Netcode",
         "Unity.Netcode.Runtime",
         "Unity.TextMeshPro",
