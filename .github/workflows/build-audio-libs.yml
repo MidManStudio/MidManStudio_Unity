@@ -1,30 +1,22 @@
+# ============================================================================
+# NOTICE: Full documentation, design decisions, and fix history for this file
+# live in packages/com.midmanstudio.audio/docs/com.midmanstudio.audio.md, section "CI and Workflows"
+# ============================================================================
 # .github/workflows/build-audio-libs.yml
 #
-# Builds mid_audio native DSP library for all supported Unity platforms.
-# Mirrors build-rust-libs.yml exactly — same pattern, different crate.
+# Builds the mid_audio native DSP library for the supported Unity platforms.
+# Same pattern as build-projectile-rust-libs.yml, different crate. No cargo or target caching.
 #
-# NOTE: no cargo/target caching on this crate. mid_audio is ~150 lines,
-# zero dependencies, and compiles in under 10s per target even with
-# lto=true + codegen-units=1. A previous version of this workflow cached
-# `target/` keyed only on Cargo.toml — which meant a `restore-keys` prefix
-# fallback could silently restore a build of an OLD version of this crate
-# (from before the v1 PCM-bank -> v2 limiter-only rewrite) whenever the
-# exact cache key missed. That produced 300KB+ "stale" .so files on
-# arm64-v8a/x86_64 that looked fine (correct symbol names, plausible size)
-# but were running old code. Not worth the risk for a build this fast —
-# just build clean every time.
-#
-# ── Platform support ──────────────────────────────────────────────────────────
+# Platform support:
 #   macOS    : universal x86_64 + arm64 dylib  (lipo merged)
 #   Windows  : x64 DLL via MinGW cross-compile
-#   Linux    : x64 .so  (Editor-compat OFF — CI-only, avoids dlclose/TLS segfault on Unity quit)
+#   Linux    : x64 .so  (Editor-compat OFF, CI-only)
 #   Android  : arm64-v8a, armeabi-v7a, x86_64  (via cargo-ndk), symbol-validated
 #   iOS      : device arm64 .a  +  simulator fat .a  (arm64-sim + x86_64)
-#   WebGL    : NOT SUPPORTED — Unity WebGL uses the Web Audio API; there is
-#              no OnAudioFilterRead native callback path available. Skip.
+#   WebGL    : not supported
 #
-# Outputs (committed to utilities package after successful build):
-#   packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio/
+# Outputs (committed to the audio package after a successful build):
+#   packages/com.midmanstudio.audio/Runtime/Plugins/Native/Audio/
 #   ├── macOS/libmid_audio.dylib
 #   ├── Windows/mid_audio.dll
 #   ├── Linux/libmid_audio.so
@@ -203,7 +195,7 @@ jobs:
           path: rust_lib/mid_audio/libmid_audio_sim.a
           retention-days: 1
 
-  # ── Commit all built libs into the utilities package ───────────────────────
+  # ── Commit all built libs into the audio package ───────────────────────────
   commit-to-repo:
     needs: [build-macos, build-windows, build-linux, build-android, build-ios]
     if: always()
@@ -233,10 +225,10 @@ jobs:
         with: { name: audio-ios-sim, path: dl/ios-sim }
         continue-on-error: true
 
-      - name: Copy libs into utilities package + generate/validate .meta
+      - name: Copy libs into audio package + generate/validate .meta
         run: |
           set -e
-          PLUG=packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio
+          PLUG=packages/com.midmanstudio.audio/Runtime/Plugins/Native/Audio
           CORRUPT=0
 
           copy_if() {
@@ -424,7 +416,7 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio/
+          git add packages/com.midmanstudio.audio/Runtime/Plugins/Native/Audio/
           git diff --staged --quiet && echo "no changes" || \
             git commit -m "ci: rebuild mid_audio native libs [skip ci]"
           git push
