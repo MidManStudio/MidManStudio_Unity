@@ -20,6 +20,26 @@ The package is split by pattern, one doc part per pattern:
 - [Broker Chain](com.midmanstudio.patterns/broker-chain.md) - a central broker that runs registered handlers
   in priority order over one query, with timed handlers and a ready-made stat sheet for buffs and
   modifiers. Done.
+- [Dirty Flag](com.midmanstudio.patterns/dirty-flag.md) - a dirty flag and lazily recomputed cached values that
+  recompute only stale links of a dependency chain. Done.
+- [Double Buffer](com.midmanstudio.patterns/double-buffer.md) - two buffers swapped each step so readers see one
+  consistent snapshot. Done.
+- [Flyweight](com.midmanstudio.patterns/flyweight.md) - a cache that shares one immutable instance per key.
+  Done.
+- [Prototype](com.midmanstudio.patterns/prototype.md) - a registry of template objects that creates new ones
+  by cloning. Done.
+- [Type Object](com.midmanstudio.patterns/type-object.md) - data-defined types with attributes inherited from a
+  parent, a catalog, and instances with their own overrides. Done.
+- [Data Locality](com.midmanstudio.patterns/data-locality.md) - items packed in one array with stable handles
+  that survive removal. Done.
+- [Spatial Partition](com.midmanstudio.patterns/spatial-partition.md) - uniform 2D grid for circle and
+  rectangle queries without allocation. Done.
+- [Decorator](com.midmanstudio.patterns/decorator.md) - a base class and a runtime-editable stack that wraps an
+  object in decorators. Done.
+- [Factory](com.midmanstudio.patterns/factory.md) - creates objects by key from registered creator functions,
+  with and without an argument. Done.
+- [Game Loop](com.midmanstudio.patterns/game-loop.md) - fixed-step simulation loop with a step cap,
+  interpolation factor and time scale. Done.
 
 Observer is not a part of this package. `com.midmanstudio.utilities` already provides it as
 `MID_EventBus<T>` (immediate typed events) and `MID_SusValue` (observable values), and repeating it here

@@ -128,3 +128,70 @@ Requests made from inside a callback are queued and applied when the callback re
 | `StatQuery<TStat>` | `Stat`, `Value`, `StatQuery(TStat stat, float value)` |
 | `StatModifiers` | `Add<TStat>(stat, amount)`, `Multiply<TStat>(stat, factor)`, `Override<TStat>(stat, value)`, `Clamp<TStat>(stat, min, max)`, each returning a `BrokerHandler<StatQuery<TStat>>` |
 | `StatSheet<TStat>` | `SetBase`, `GetBase` (0 when unset), `HasBase`, `Get(stat, sender = null)`, `AddModifier`, `MultiplyModifier`, `OverrideModifier`, `ClampModifier`, `Tick(deltaTime)`, `Broker` |
+
+## Dirty Flag (`MidManStudio.Patterns.DirtyFlag`)
+| Type | Members |
+|---|---|
+| `IVersioned` | `int Version` |
+| `DirtyFlag` | `DirtyFlag(bool startDirty = true)`, `IsDirty`, `Version`, `Mark()`, `bool Consume()` |
+| `CachedValue<T>` | `CachedValue(Func<T> compute, params IVersioned[] dependencies)`, `Value`, `Version` (both bring the value up to date), `IsInvalidated`, `Invalidate()` |
+
+## Double Buffer (`MidManStudio.Patterns.DoubleBuffer`)
+| Member | Description |
+|---|---|
+| `DoubleBuffer<T>(T front, T back)`, `static Create(Func<T>)` | Rejects the same instance twice for reference types |
+| `Front`, `Back`, `SwapCount` | Readers use `Front`, the writer fills `Back` |
+| `void Swap()`, `void Swap(Action<T> resetBack)` | The second form resets the new back buffer after swapping |
+
+## Flyweight (`MidManStudio.Patterns.Flyweight`)
+| Member | Description |
+|---|---|
+| `FlyweightCache<TKey, TShared>(Func<TKey, TShared> factory, IEqualityComparer<TKey> comparer = null)` | |
+| `TShared Get(TKey key)` | Creates on first use. A null or throwing factory caches nothing |
+| `TryGet`, `Contains`, `Remove`, `Clear`, `Count`, `CreatedCount` | |
+
+## Prototype (`MidManStudio.Patterns.Prototype`)
+| Member | Description |
+|---|---|
+| `IPrototype<T>` | `T Clone()` |
+| `PrototypeRegistry<TKey, T>` | `Register` (rejects duplicates), `Set`, `Unregister`, `Contains`, `Count`, `Create(key)`, `Create(key, Action<T> customize)`, `TryCreate(key, out T)`. A clone that is null or the prototype itself throws |
+
+## Type Object (`MidManStudio.Patterns.TypeObject`)
+| Type | Members |
+|---|---|
+| `ObjectType` | `ObjectType(string name, ObjectType parent = null)`, `Name`, `Parent`, `Set<T>`, `Remove`, `Has`, `HasOwn`, `Get<T>`, `Get<T>(name, fallback)`, `TryGet<T>`, `IsA`, `AttributeNames()`. A wrong stored type throws `InvalidCastException` |
+| `TypeCatalog` | `Define(name, parentName = null)`, `Get`, `TryGet`, `Contains`, `Count`, `Names` |
+| `TypedObject` | `TypedObject(ObjectType type)`, `Type`, `Set<T>`, `Remove`, `Has`, `HasOwn`, `Get<T>`, `Get<T>(name, fallback)`, `TryGet<T>` |
+
+## Data Locality (`MidManStudio.Patterns.DataLocality`)
+| Type | Members |
+|---|---|
+| `PackedHandle` | `IsAssigned`; `default` is never valid |
+| `PackedList<T>` | `PackedList(int capacity = 16)`, `Count`, `Items` (live backing array, indices 0 to `Count` - 1), `PackedHandle Add(T)`, `bool Remove(handle)`, `IsValid`, `IndexOf`, `TryGet`, indexer get and set, `Clear()` |
+
+## Spatial Partition (`MidManStudio.Patterns.SpatialPartition`)
+| Type | Members |
+|---|---|
+| `GridHandle` | `IsAssigned`; `default` is never valid |
+| `SpatialGrid2D<T>` | `SpatialGrid2D(float cellSize)`, `Count`, `OccupiedCells`, `Add(item, x, y)`, `Move(handle, x, y)`, `Remove`, `IsValid`, `TryGetPosition`, `TryGetItem`, `Clear`, `QueryCircle(cx, cy, radius, List<T> results)`, `QueryRect(minX, minY, maxX, maxY, List<T> results)`. Queries append to the list and return the number added |
+
+## Decorator (`MidManStudio.Patterns.Decorator`)
+| Type | Members |
+|---|---|
+| `Decorator<T>` | Abstract base with `protected readonly T Inner` |
+| `DecoratorStack<T>` | `IDisposable Add(Func<T, T> decorator)`, `T Build(T core)` (first added is innermost), `Count`, `Clear()` |
+
+## Factory (`MidManStudio.Patterns.Factory`)
+| Type | Members |
+|---|---|
+| `Factory<TKey, TProduct>` | `Register`, `Set`, `Unregister`, `Contains`, `Count`, `Keys`, `Create(key)`, `TryCreate(key, out product)` |
+| `Factory<TKey, TArg, TProduct>` | Same, with `Create(key, arg)` and `TryCreate(key, arg, out product)` |
+
+## Game Loop (`MidManStudio.Patterns.GameLoop`)
+| Member | Description |
+|---|---|
+| `FixedStepLoop(float stepSeconds, Action<float> onStep, int maxStepsPerAdvance = 5)` | |
+| `int Advance(float frameSeconds)` | Runs the steps that are due, returns how many ran. Drops steps beyond the cap |
+| `Alpha`, `Accumulator`, `StepSeconds`, `MaxStepsPerAdvance`, `StepCount`, `DroppedSteps` | |
+| `TimeScale`, `Paused` | `TimeScale` of 0 freezes the simulation; `Paused` ignores frames |
+| `void Reset()` | Clears the accumulator and the counters |

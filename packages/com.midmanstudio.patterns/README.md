@@ -23,6 +23,16 @@ To see the package's tests in the Test Runner, also add it to the `testables` li
 | Event Queue | MidManStudio.Patterns.EventQueue | Typed queue that separates posting an event from delivering it, bounded or unbounded |
 | Dependency Injection | MidManStudio.Patterns.DependencyInjection | Service locator and a factory-based container with singleton, scoped and transient lifetimes |
 | Broker Chain | MidManStudio.Patterns.BrokerChain | Central broker that runs registered handlers in priority order over one query, with timed handlers and a stat sheet for buffs and modifiers |
+| Dirty Flag | MidManStudio.Patterns.DirtyFlag | Dirty flag and lazily recomputed cached values with dependency chains |
+| Double Buffer | MidManStudio.Patterns.DoubleBuffer | Two buffers swapped each step so readers see one consistent snapshot |
+| Flyweight | MidManStudio.Patterns.Flyweight | Cache that shares one immutable instance per key |
+| Prototype | MidManStudio.Patterns.Prototype | Registry of template objects that creates new ones by cloning |
+| Type Object | MidManStudio.Patterns.TypeObject | Data-defined types with inherited attributes, a catalog and instances |
+| Data Locality | MidManStudio.Patterns.DataLocality | Items packed in one array with stable handles that survive removal |
+| Spatial Partition | MidManStudio.Patterns.SpatialPartition | Uniform 2D grid for circle and rectangle queries |
+| Decorator | MidManStudio.Patterns.Decorator | Base class and a runtime-editable decorator stack |
+| Factory | MidManStudio.Patterns.Factory | Creates objects by key from registered creators |
+| Game Loop | MidManStudio.Patterns.GameLoop | Fixed-step loop with a step cap, interpolation factor and time scale |
 
 ## Quick start
 ```csharp
@@ -71,6 +81,20 @@ stats.MultiplyModifier(Stat.Attack, 2f);                              // runs af
 float attack = stats.Get(Stat.Attack);                                // (10 + 5) * 2 = 30
 // in your update loop:
 stats.Tick(Time.deltaTime);
+```
+
+```csharp
+using MidManStudio.Patterns.GameLoop;
+using MidManStudio.Patterns.DataLocality;
+
+var loop = new FixedStepLoop(1f / 60f, dt => Simulate(dt));
+// in your update loop:
+loop.Advance(Time.deltaTime);
+float blend = loop.Alpha;                    // draw between the previous and current state
+
+var enemies = new PackedList<Enemy>();
+PackedHandle h = enemies.Add(new Enemy());   // the handle survives other removals
+enemies.Remove(h);
 ```
 
 See `APICATALOG.md` for the full API and `docs/com.midmanstudio.patterns/` for the design notes of each pattern.
