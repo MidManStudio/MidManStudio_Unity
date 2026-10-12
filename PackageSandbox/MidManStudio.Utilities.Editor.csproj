@@ -133,9 +133,6 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/HierarchyArranger/MID_HierarchyArrangerWindow.cs">
       <Link>Editor/HierarchyArranger/MID_HierarchyArrangerWindow.cs</Link>
     </Compile>
-    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/Audio/MID_NativeAudioBridgeEditor.cs">
-      <Link>Editor/Audio/MID_NativeAudioBridgeEditor.cs</Link>
-    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Editor/FXSystems/EffectTypeGenerator.cs">
       <Link>Editor/FXSystems/EffectTypeGenerator.cs</Link>
     </Compile>

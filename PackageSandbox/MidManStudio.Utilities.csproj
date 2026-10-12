@@ -61,9 +61,6 @@
     <Analyzer Include="/Applications/Unity/Hub/Editor/2022.3.13f1/Unity.app/Contents/Tools/Unity.SourceGenerators/Unity.Properties.SourceGenerator.dll" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Audio/MID_AudioLimiter.cs">
-      <Link>Runtime/Audio/MID_AudioLimiter.cs</Link>
-    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/UIState/MID_UIStateManager.cs">
       <Link>Runtime/UIState/MID_UIStateManager.cs</Link>
     </Compile>
@@ -102,9 +99,6 @@
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/LocalParticleReturn.cs">
       <Link>Runtime/PoolSystems/LocalParticleReturn.cs</Link>
-    </Compile>
-    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Audio/MID_NativeAudioBridge.cs">
-      <Link>Runtime/Audio/MID_NativeAudioBridge.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/UIState/MID_UIStateBackButton.cs">
       <Link>Runtime/UIState/MID_UIStateBackButton.cs</Link>
@@ -175,9 +169,6 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/LocalObjectPool.cs">
       <Link>Runtime/PoolSystems/LocalObjectPool.cs</Link>
     </Compile>
-    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Audio/MID_SpawnableAudio.cs">
-      <Link>Runtime/Audio/MID_SpawnableAudio.cs</Link>
-    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Libraries/Generated/LibraryId.cs">
       <Link>Runtime/Libraries/Generated/LibraryId.cs</Link>
     </Compile>
@@ -204,9 +195,6 @@
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/SequentialProcessRunner/MID_SequentialProcessRunner.cs">
       <Link>Runtime/SequentialProcessRunner/MID_SequentialProcessRunner.cs</Link>
-    </Compile>
-    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Audio/MID_AudioManager.cs">
-      <Link>Runtime/Audio/MID_AudioManager.cs</Link>
     </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Libraries/Configs/MID_LibraryItemSO.cs">
       <Link>Runtime/Libraries/Configs/MID_LibraryItemSO.cs</Link>
@@ -292,9 +280,6 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/Config/PoolTypeGeneratorSettingsSO.cs">
       <Link>Runtime/PoolSystems/Config/PoolTypeGeneratorSettingsSO.cs</Link>
     </Compile>
-    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Libraries/Configs/MID_AudioLibrarySO.cs">
-      <Link>Runtime/Libraries/Configs/MID_AudioLibrarySO.cs</Link>
-    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/PoolSystems/Generated/PoolableObjectType.cs">
       <Link>Runtime/PoolSystems/Generated/PoolableObjectType.cs</Link>
     </Compile>
@@ -324,9 +309,6 @@
     </Compile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio/Windows/mid_audio.dll">
-      <Link>Runtime/Plugins/Native/Audio/Windows/mid_audio.dll</Link>
-    </None>
     <None Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.utilities/Runtime/MidManStudio.Utilities.asmdef">
       <Link>Runtime/MidManStudio.Utilities.asmdef</Link>
     </None>

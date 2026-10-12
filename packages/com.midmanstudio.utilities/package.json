@@ -37,7 +37,7 @@
     "samples": [
         {
             "displayName": "Benchmarks",
-            "description": "Test native autio,tick system and timers, benchmark and see numbers",
+            "description": "Test native audio (needs com.midmanstudio.audio), tick system and timers, benchmark and see numbers",
             "path": "Samples~/BenchMarks"
         },
         {
@@ -62,7 +62,7 @@
         },
         {
             "displayName": "Visual Effects",
-            "description": "Test the Vglobal fx manager, and native audio, as well as the local object pool for spawnable audio",
+            "description": "Test the Vglobal fx manager, and native audio and spawnable audio (both need com.midmanstudio.audio), as well as the local object pool",
             "path": "Samples~/VisualEffects"
         }
     ]

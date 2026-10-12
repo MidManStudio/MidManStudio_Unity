@@ -1,20 +1,20 @@
 @CONFIG(
   version    -> "1.0.0"
-  generated  -> "2026-06-27T07:49:15Z"
+  generated  -> "2026-10-12T06:58:19Z"
   debug_mode -> "off"
 )
 
 @DATA(
   template      = ".mdix/patches/patch.mdix"
-  template_hash = "108abccc06bb"
-  last_run      = "2026-06-27T07:49:15Z"
+  template_hash = "5ac374c1ddff"
+  last_run      = "2026-10-12T06:58:19Z"
   new_this_run  = 0
   overridden    = 0
   skipped       = 0
-  deleted       = 0
+  deleted       = 44
   renamed       = 0
-  moved         = 16
-  updated       = 5
+  moved         = 0
+  updated       = 0
 
   created_files::
     "PackageSandbox/Assets/MidManStudio/Generated/Pools.meta"
