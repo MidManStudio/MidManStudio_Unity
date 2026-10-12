@@ -1,31 +1,13 @@
-// =============================================================================
-// MidManStudio_Unity — Generated/ subfolder convention fix
-// =============================================================================
-// Findings (verified against generator source + class defaults, not guessed):
+// Brought to u by MidManStudio
 //
-//  1. PoolableObjectType.cs / PoolableParticleType.cs / PoolableNetworkObjectType.cs
-//     are AUTO-GENERATED but sit outside any Generated/ folder.
-//     PoolTypeGeneratorSettingsSO.cs's own field defaults already say
-//     ".../PoolSystems/Generated/..." — only the checked-in .asset is stale.
+// Audio left com.midmanstudio.utilities for com.midmanstudio.audio.
+// 1. delete_files removes the old audio code, its .meta files and the old native libraries.
+//    delete_files only removes files, not folders, so every file is listed. Git does not track empty
+//    folders, so the leftover empty folders disappear from the repo on commit.
+// 2. patch_files removes the audio entries from the generated sandbox project files (Unity rewrites
+//    them on the next open) and notes the new package in the sample descriptions.
 //
-//  2. LibraryId.cs / LibraryItemId.cs sit in a folder named "Generator"
-//     instead of "Generated". LibraryTypeGenerator.cs already hardcodes
-//     "Runtime/Libraries/Generated/..." as its output path.
-//
-//  3. PoolTypeGeneratorSettings.asset + PoolTypeLock.json sit loose at
-//     Generated/ root, unlike Projectiles' own Generated/Projectiles/
-//     subfolder. PoolTypeGeneratorSettingsSO.cs's lockFilePath default
-//     already says "Generated/Pools/...".
-//
-//  4. ProjectileConfigProvider_ProjectileSystem.asset is a hand-authored
-//     provider (same shape as every other *Provider_*.asset), but it's
-//     sitting inside Generated/Projectiles/ instead of alongside its
-//     siblings in a ConfigProviders/ folder.
-//
-// Run with --dry-run --diff first. None of these moves affect generator
-// discovery — providers/settings are found via AssetDatabase.FindAssets
-// by type, not by folder path.
-// =============================================================================
+// Apply it together with the audio-package replacements archive. Run with --dry-run --diff first.
 
 @CONFIG(
   version    -> "1.0.0"
@@ -36,195 +18,129 @@
 
 @QUICKFUNCS(
 
-  ~f<object>(name, ext) {
-    return { name = name, ext = ext, content = "" }
+  ~delete_file<object>(_path) {
+    return { path = _path }
   }
 
-  ~fc<object>(name, ext, content) {
-    return { name = name, ext = ext, content = content }
+  ~patch_replace_text<object>(_path, _anchor, _content) {
+    return { path = _path, op = "replace_text", anchor = _anchor, content = _content }
   }
 
-  ~fremote<object>(name, ext, url) {
-    return { name = name, ext = ext, content = "remote::" + url }
-  }
-
-  ~gitkeep<object>() {
-    return { name = ".gitkeep", ext = "", content = "" }
-  }
-
-  ~hidden<object>(segment) {
-    return { segment = segment }
-  }
-
-  ~delete_file<object>(path) {
-    return { path = path }
-  }
-
-  ~rename<object>(src, dst) {
-    return { from_path = src, to_path = dst }
-  }
-
-  ~move<object>(src, dst) {
-    return { from_path = src, to_path = dst }
-  }
-
-  ~update<object>(path, content) {
-    return { path = path, content = content }
-  }
-
-  ~patch_insert_after<object>(path, anchor, content) {
-    return { path = path, op = "insert_after", anchor = anchor, content = content }
-  }
-
-  ~patch_insert_before<object>(path, anchor, content) {
-    return { path = path, op = "insert_before", anchor = anchor, content = content }
-  }
-
-  ~patch_replace_text<object>(path, anchor, content) {
-    return { path = path, op = "replace_text", anchor = anchor, content = content }
-  }
-
-  ~patch_replace_text_n<object>(path, anchor, content, match_index) {
+  ~patch_replace_block<object>(_path, _start_anchor, _end_anchor, _content) {
     return {
-      path        = path
-      op          = "replace_text"
-      anchor      = anchor
-      content     = content
-      match_index = match_index
-    }
-  }
-
-  ~patch_replace_block<object>(path, start_anchor, end_anchor, content) {
-    return {
-      path         = path
+      path         = _path
       op           = "replace_block"
-      start_anchor = start_anchor
-      end_anchor   = end_anchor
-      content      = content
+      start_anchor = _start_anchor
+      end_anchor   = _end_anchor
+      content      = _content
     }
-  }
-
-  ~patch_replace_block_keep<object>(path, start_anchor, end_anchor, content) {
-    return {
-      path         = path
-      op           = "replace_block"
-      start_anchor = start_anchor
-      end_anchor   = end_anchor
-      content      = content
-      keep_anchors = "true"
-    }
-  }
-
-  ~patch_replace_regex<object>(path, pattern, content) {
-    return { path = path, op = "replace_regex", pattern = pattern, content = content }
-  }
-
-  ~patch_delete_text<object>(path, anchor) {
-    return { path = path, op = "delete_text", anchor = anchor }
   }
 
 )
 
 @DATA(
   project_name = "MidManStudio_Unity"
-  description  = "Enforce the Generated/ subfolder convention across PoolSystems, Libraries, and MidManStudio/Generated"
+  description  = "Remove the audio code from com.midmanstudio.utilities after the move to com.midmanstudio.audio"
   author       = "Mid-D-Man"
 
-  // ===========================================================================
-  // MOVES — relocate misplaced generated files into their Generated/ subfolder
-  // ===========================================================================
-  move_files::
+  delete_files::
 
-    // --- Fix 1: Pool enums → PoolSystems/Generated/ -------------------------
-    move("packages/com.midmanstudio.utilities/Runtime/PoolSystems/PoolableObjectType.cs",
-         "packages/com.midmanstudio.utilities/Runtime/PoolSystems/Generated/PoolableObjectType.cs")
-    move("packages/com.midmanstudio.utilities/Runtime/PoolSystems/PoolableObjectType.cs.meta",
-         "packages/com.midmanstudio.utilities/Runtime/PoolSystems/Generated/PoolableObjectType.cs.meta")
+    // Runtime/Audio: manager, limiter, bridge, spawnable audio
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Audio.meta")
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Audio/MID_AudioLimiter.cs")
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Audio/MID_AudioLimiter.cs.meta")
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Audio/MID_AudioManager.cs")
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Audio/MID_AudioManager.cs.meta")
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Audio/MID_NativeAudioBridge.cs")
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Audio/MID_NativeAudioBridge.cs.meta")
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Audio/MID_SpawnableAudio.cs")
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Audio/MID_SpawnableAudio.cs.meta")
 
-    move("packages/com.midmanstudio.utilities/Runtime/PoolSystems/PoolableParticleType.cs",
-         "packages/com.midmanstudio.utilities/Runtime/PoolSystems/Generated/PoolableParticleType.cs")
-    move("packages/com.midmanstudio.utilities/Runtime/PoolSystems/PoolableParticleType.cs.meta",
-         "packages/com.midmanstudio.utilities/Runtime/PoolSystems/Generated/PoolableParticleType.cs.meta")
+    // Audio library ScriptableObject
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Libraries/Configs/MID_AudioLibrarySO.cs")
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Libraries/Configs/MID_AudioLibrarySO.cs.meta")
 
-    move("packages/com.midmanstudio.netcode/Runtime/PoolSystems/PoolableNetworkObjectType.cs",
-         "packages/com.midmanstudio.netcode/Runtime/PoolSystems/Generated/PoolableNetworkObjectType.cs")
-    move("packages/com.midmanstudio.netcode/Runtime/PoolSystems/PoolableNetworkObjectType.cs.meta",
-         "packages/com.midmanstudio.netcode/Runtime/PoolSystems/Generated/PoolableNetworkObjectType.cs.meta")
+    // Editor/Audio: inspectors
+    delete_file("packages/com.midmanstudio.utilities/Editor/Audio.meta")
+    delete_file("packages/com.midmanstudio.utilities/Editor/Audio/MID_NativeAudioBridgeEditor.cs")
+    delete_file("packages/com.midmanstudio.utilities/Editor/Audio/MID_NativeAudioBridgeEditor.cs.meta")
 
-    // --- Fix 2: Library enums → Generated/, out of Generator/ ---------------
-    move("packages/com.midmanstudio.utilities/Runtime/Libraries/Generator/LibraryId.cs",
-         "packages/com.midmanstudio.utilities/Runtime/Libraries/Generated/LibraryId.cs")
-    move("packages/com.midmanstudio.utilities/Runtime/Libraries/Generator/LibraryId.cs.meta",
-         "packages/com.midmanstudio.utilities/Runtime/Libraries/Generated/LibraryId.cs.meta")
+    // Tests/Runtime/Audio: benchmark runner
+    delete_file("packages/com.midmanstudio.utilities/Tests/Runtime/Audio.meta")
+    delete_file("packages/com.midmanstudio.utilities/Tests/Runtime/Audio/MID_AudioBenchRunner.cs")
+    delete_file("packages/com.midmanstudio.utilities/Tests/Runtime/Audio/MID_AudioBenchRunner.cs.meta")
 
-    move("packages/com.midmanstudio.utilities/Runtime/Libraries/Generator/LibraryItemId.cs",
-         "packages/com.midmanstudio.utilities/Runtime/Libraries/Generated/LibraryItemId.cs")
-    move("packages/com.midmanstudio.utilities/Runtime/Libraries/Generator/LibraryItemId.cs.meta",
-         "packages/com.midmanstudio.utilities/Runtime/Libraries/Generated/LibraryItemId.cs.meta")
+    // Runtime/Plugins: native mid_audio libraries (rebuilt into the audio package by build-audio-libs.yml)
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Plugins.meta")
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Plugins/Native.meta")
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio.meta")
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio/Android.meta")
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio/Android/arm64-v8a.meta")
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio/Android/arm64-v8a/libmid_audio.so")
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio/Android/arm64-v8a/libmid_audio.so.meta")
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio/Android/armeabi-v7a.meta")
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio/Android/armeabi-v7a/libmid_audio.so")
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio/Android/armeabi-v7a/libmid_audio.so.meta")
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio/Android/x86_64.meta")
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio/Android/x86_64/libmid_audio.so")
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio/Android/x86_64/libmid_audio.so.meta")
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio/Linux.meta")
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio/Linux/libmid_audio.so")
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio/Linux/libmid_audio.so.meta")
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio/Windows.meta")
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio/Windows/mid_audio.dll")
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio/Windows/mid_audio.dll.meta")
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio/iOS.meta")
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio/iOS/libmid_audio.a")
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio/iOS/libmid_audio.a.meta")
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio/iOS/libmid_audio_sim.a")
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio/iOS/libmid_audio_sim.a.meta")
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio/macOS.meta")
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio/macOS/libmid_audio.dylib")
+    delete_file("packages/com.midmanstudio.utilities/Runtime/Plugins/Native/Audio/macOS/libmid_audio.dylib.meta")
 
-    // --- Fix 3: Pool project-level data → Generated/Pools/ -------------------
-    move("PackageSandbox/Assets/MidManStudio/Generated/PoolTypeGeneratorSettings.asset",
-         "PackageSandbox/Assets/MidManStudio/Generated/Pools/PoolTypeGeneratorSettings.asset")
-    move("PackageSandbox/Assets/MidManStudio/Generated/PoolTypeGeneratorSettings.asset.meta",
-         "PackageSandbox/Assets/MidManStudio/Generated/Pools/PoolTypeGeneratorSettings.asset.meta")
-
-    move("PackageSandbox/Assets/MidManStudio/Generated/PoolTypeLock.json",
-         "PackageSandbox/Assets/MidManStudio/Generated/Pools/PoolTypeLock.json")
-    move("PackageSandbox/Assets/MidManStudio/Generated/PoolTypeLock.json.meta",
-         "PackageSandbox/Assets/MidManStudio/Generated/Pools/PoolTypeLock.json.meta")
-
-    // --- Fix 4: hand-authored provider OUT of Generated/Projectiles/ --------
-    move("PackageSandbox/Assets/MidManStudio/Generated/Projectiles/ProjectileConfigProvider_ProjectileSystem.asset",
-         "PackageSandbox/Assets/MidManStudio/ProjectileSystem/ConfigProviders/ProjectileConfigProvider_ProjectileSystem.asset")
-    move("PackageSandbox/Assets/MidManStudio/Generated/Projectiles/ProjectileConfigProvider_ProjectileSystem.asset.meta",
-         "PackageSandbox/Assets/MidManStudio/ProjectileSystem/ConfigProviders/ProjectileConfigProvider_ProjectileSystem.asset.meta")
-
-  // ===========================================================================
-  // NEW FOLDER .meta FILES — Unity needs one per folder created by the moves
-  // above. Fresh GUIDs, never reused elsewhere in the project.
-  // ===========================================================================
-  update_files::
-
-    update("packages/com.midmanstudio.utilities/Runtime/PoolSystems/Generated.meta",
-      "fileFormatVersion: 2\nguid: 0bacbf39b7224d3b9f076401e4eb65f1\nfolderAsset: yes\nDefaultImporter:\n  externalObjects: {}\n  userData: \n  assetBundleName: \n  assetBundleVariant: \n")
-
-    update("packages/com.midmanstudio.netcode/Runtime/PoolSystems/Generated.meta",
-      "fileFormatVersion: 2\nguid: e8501ea264de4535ab195e690f955cf9\nfolderAsset: yes\nDefaultImporter:\n  externalObjects: {}\n  userData: \n  assetBundleName: \n  assetBundleVariant: \n")
-
-    update("packages/com.midmanstudio.utilities/Runtime/Libraries/Generated.meta",
-      "fileFormatVersion: 2\nguid: 0aa021df0f604e429899ab74f6ac0138\nfolderAsset: yes\nDefaultImporter:\n  externalObjects: {}\n  userData: \n  assetBundleName: \n  assetBundleVariant: \n")
-
-    update("PackageSandbox/Assets/MidManStudio/Generated/Pools.meta",
-      "fileFormatVersion: 2\nguid: 2dae040c5cee4ffcb91403b65c70b5aa\nfolderAsset: yes\nDefaultImporter:\n  externalObjects: {}\n  userData: \n  assetBundleName: \n  assetBundleVariant: \n")
-
-    update("PackageSandbox/Assets/MidManStudio/ProjectileSystem/ConfigProviders.meta",
-      "fileFormatVersion: 2\nguid: a5e06761b9af42d38eaa9d0daa65fea7\nfolderAsset: yes\nDefaultImporter:\n  externalObjects: {}\n  userData: \n  assetBundleName: \n  assetBundleVariant: \n")
-
-  // ===========================================================================
-  // PATCHES — fix the stale serialized paths inside the (now-moved) settings
-  // asset so the generator writes to the corrected locations on next run.
-  // Each anchor is an exact literal substring confirmed present in the file.
-  // ===========================================================================
   patch_files::
 
-    patch_replace_text(
-      "PackageSandbox/Assets/MidManStudio/Generated/Pools/PoolTypeGeneratorSettings.asset",
-      "objectEnumOutputPath: packages/com.midmanstudio.utilities/Runtime/PoolSystems/PoolableObjectType.cs",
-      "objectEnumOutputPath: packages/com.midmanstudio.utilities/Runtime/PoolSystems/Generated/PoolableObjectType.cs")
+    // Generated sandbox project files: drop the entries for the deleted files.
+    patch_replace_block("PackageSandbox/MidManStudio.Utilities.csproj",
+      "utilities/Runtime/Audio/MID_AudioLimiter.cs",
+      "</Compile>",
+      "")
+    patch_replace_block("PackageSandbox/MidManStudio.Utilities.csproj",
+      "utilities/Runtime/Audio/MID_NativeAudioBridge.cs",
+      "</Compile>",
+      "")
+    patch_replace_block("PackageSandbox/MidManStudio.Utilities.csproj",
+      "utilities/Runtime/Audio/MID_SpawnableAudio.cs",
+      "</Compile>",
+      "")
+    patch_replace_block("PackageSandbox/MidManStudio.Utilities.csproj",
+      "utilities/Runtime/Audio/MID_AudioManager.cs",
+      "</Compile>",
+      "")
+    patch_replace_block("PackageSandbox/MidManStudio.Utilities.csproj",
+      "utilities/Runtime/Libraries/Configs/MID_AudioLibrarySO.cs",
+      "</Compile>",
+      "")
+    patch_replace_block("PackageSandbox/MidManStudio.Utilities.csproj",
+      "utilities/Runtime/Plugins/Native/Audio/Windows/mid_audio.dll",
+      "</None>",
+      "")
+    patch_replace_block("PackageSandbox/MidManStudio.Utilities.Editor.csproj",
+      "utilities/Editor/Audio/MID_NativeAudioBridgeEditor.cs",
+      "</Compile>",
+      "")
+    patch_replace_block("PackageSandbox/MidManStudio.Utilities.Tests.csproj",
+      "utilities/Tests/Runtime/Audio/MID_AudioBenchRunner.cs",
+      "</Compile>",
+      "")
 
-    patch_replace_text(
-      "PackageSandbox/Assets/MidManStudio/Generated/Pools/PoolTypeGeneratorSettings.asset",
-      "particleEnumOutputPath: packages/com.midmanstudio.utilities/Runtime/PoolSystems/PoolableParticleType.cs",
-      "particleEnumOutputPath: packages/com.midmanstudio.utilities/Runtime/PoolSystems/Generated/PoolableParticleType.cs")
+    // Sample descriptions: the audio parts of these samples need the audio package.
+    patch_replace_text("packages/com.midmanstudio.utilities/package.json",
+      "Test native autio,tick system and timers",
+      "Test native audio (needs com.midmanstudio.audio), tick system and timers")
 
-    patch_replace_text(
-      "PackageSandbox/Assets/MidManStudio/Generated/Pools/PoolTypeGeneratorSettings.asset",
-      "networkEnumOutputPath: packages/com.midmanstudio.netcode/Runtime/PoolSystems/PoolableNetworkObjectType.cs",
-      "networkEnumOutputPath: packages/com.midmanstudio.netcode/Runtime/PoolSystems/Generated/PoolableNetworkObjectType.cs")
-
-    patch_replace_text(
-      "PackageSandbox/Assets/MidManStudio/Generated/Pools/PoolTypeGeneratorSettings.asset",
-      "lockFilePath: Assets/MidManStudio/Generated/PoolTypeLock.json",
-      "lockFilePath: Assets/MidManStudio/Generated/Pools/PoolTypeLock.json")
-
+    patch_replace_text("packages/com.midmanstudio.utilities/package.json",
+      "native audio, as well as the local object pool for spawnable audio",
+      "native audio and spawnable audio (both need com.midmanstudio.audio), as well as the local object pool")
 )
