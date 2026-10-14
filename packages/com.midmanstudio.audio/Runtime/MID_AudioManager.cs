@@ -70,6 +70,7 @@ namespace MidManStudio.Core.Audio
         private bool      _musicEnabled = true;
         private string    _currentMusicId;
         private Coroutine _fadeCoroutine;
+        private float     _currentMusicVolume = 1f;   // per-clip volume of the track now playing
         private Coroutine _pitchCoroutine;
 
         #endregion
@@ -98,6 +99,11 @@ namespace MidManStudio.Core.Audio
             if (_playMusicOnStart && _musicEnabled &&
                 !string.IsNullOrEmpty(_startMusicId))
                 PlayMusic(_startMusicId, fade: false);
+        }
+
+        private void OnDisable()
+        {
+            _fadeCoroutine = null;   // deactivating the GameObject stops its coroutines
         }
 
         #endregion
@@ -142,6 +148,7 @@ namespace MidManStudio.Core.Audio
             {
                 _musicSource.Stop();
                 _musicSource.clip   = entry.clip;
+                _currentMusicVolume = entry.volume;
                 _musicSource.volume = ScaledVolume(entry.volume);
                 _musicSource.loop   = true;
                 _musicSource.Play();
@@ -251,7 +258,8 @@ namespace MidManStudio.Core.Audio
         public void SetMasterVolume(float v)
         {
             _masterVolume = Mathf.Clamp01(v);
-            if (_musicSource != null) _musicSource.volume = _masterVolume;
+            if (_musicSource != null && _fadeCoroutine == null)
+                _musicSource.volume = ScaledVolume(_currentMusicVolume);
         }
 
         public void SetMusicPitch(float targetPitch, bool instant = false)
@@ -309,27 +317,6 @@ namespace MidManStudio.Core.Audio
             _fadeCoroutine      = null;
         }
 
-        private IEnumerator FadeIn(MID_AudioEntry entry)
-        {
-            if (_musicSource.clip != entry.clip || !_musicSource.isPlaying)
-            {
-                _musicSource.Stop();
-                _musicSource.clip   = entry.clip;
-                _musicSource.volume = 0f;
-                _musicSource.loop   = true;
-                _musicSource.Play();
-            }
-
-            float target = ScaledVolume(entry.volume);
-            for (float t = 0f; t < _crossFadeDuration; t += Time.unscaledDeltaTime)
-            {
-                _musicSource.volume = Mathf.Lerp(0f, target, t / _crossFadeDuration);
-                yield return null;
-            }
-            _musicSource.volume = target;
-            _fadeCoroutine      = null;
-        }
-
         private IEnumerator CrossFade(MID_AudioEntry next)
         {
             float startVol = _musicSource.volume;
@@ -344,14 +331,14 @@ namespace MidManStudio.Core.Audio
             _musicSource.volume = 0f;
             _musicSource.loop   = true;
             _musicSource.Play();
+            _currentMusicVolume = next.volume;
 
-            float targetVol = ScaledVolume(next.volume);
             for (float t = 0f; t < _crossFadeDuration; t += Time.unscaledDeltaTime)
             {
-                _musicSource.volume = Mathf.Lerp(0f, targetVol, t / _crossFadeDuration);
+                _musicSource.volume = Mathf.Lerp(0f, ScaledVolume(next.volume), t / _crossFadeDuration);
                 yield return null;
             }
-            _musicSource.volume = targetVol;
+            _musicSource.volume = ScaledVolume(next.volume);
             _fadeCoroutine      = null;
         }
 

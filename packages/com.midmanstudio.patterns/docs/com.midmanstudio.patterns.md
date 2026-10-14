@@ -40,6 +40,14 @@ The package is split by pattern, one doc part per pattern:
   with and without an argument. Done.
 - [Game Loop](com.midmanstudio.patterns/game-loop.md) - fixed-step simulation loop with a step cap,
   interpolation factor and time scale. Done.
+- [Subclass Sandbox](com.midmanstudio.patterns/subclass-sandbox.md) - base classes for behaviours that act
+  only through a context object that exists only while they run. Done.
+- [Facade](com.midmanstudio.patterns/facade.md) - base class that hides lazily created subsystems behind a few
+  methods and disposes them in reverse order. Done.
+- [Template Method](com.midmanstudio.patterns/template-method.md) - a fixed sequence of steps with a
+  guaranteed cleanup step that subclasses fill in. Done.
+- [Bytecode](com.midmanstudio.patterns/bytecode.md) - a small stack virtual machine with a program builder,
+  host functions and safety limits. Done.
 
 Observer is not a part of this package. `com.midmanstudio.utilities` already provides it as
 `MID_EventBus<T>` (immediate typed events) and `MID_SusValue` (observable values), and repeating it here

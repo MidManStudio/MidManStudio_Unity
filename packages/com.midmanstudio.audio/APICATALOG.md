@@ -11,7 +11,7 @@
 | `void PlaySFXPitched(string id, float pitch)` | Library SFX at a custom pitch |
 | `void PlayClipDirect(AudioClip clip, float volume = 1f)` | One-shot of a clip that is not in a library |
 | `void PlayClipDirectPitched(AudioClip clip, float pitch, float volume = 1f)` | Temporary AudioSource through the SFX mixer group. Pitch is clamped to 0.1 to 3. |
-| `void SetMasterVolume(float v)` | 0 to 1 |
+| `void SetMasterVolume(float v)` | 0 to 1. Re-applies master x the playing track's clip volume to the music source |
 | `void SetMusicPitch(float targetPitch, bool instant = false)` | Glide over the configured duration unless `instant` |
 | `event Action<bool> OnMusicEnabledChanged` | |
 | `MasterVolume`, `IsMusicPlaying`, `IsMusicEnabled`, `CurrentMusicId` | |

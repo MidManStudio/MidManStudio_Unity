@@ -49,7 +49,10 @@ second library, directly from a clip, or at a custom pitch. Both outputs can be 
   `Time.timeScale` is 0.
 - `PlayClipDirectPitched` creates a temporary GameObject with its own AudioSource, routes it through the SFX
   mixer group and destroys it after the clip has finished.
-- Per-clip volume is a scalar on top of the master volume. The mixer owns the user-facing volume.
+- Per-clip volume is a scalar on top of the master volume, and the playing track's scalar is remembered.
+  `SetMasterVolume` re-applies `master x scalar` to the music source, so changing the master volume never
+  drops the clip scalar. A change during a crossfade is picked up when the fade-in ends. The mixer owns the
+  user-facing volume.
 
 **Decisions:**
 - The class is generic. It has no references to a settings manager or analytics.
@@ -166,8 +169,9 @@ allocations per call, throughput, voice-count behaviour, and the cost of `proces
   x86_64 and arm64 dylib), Windows (x64 DLL, MinGW cross-compile), Linux (x64 .so), Android (arm64-v8a,
   armeabi-v7a and x86_64 through cargo-ndk, symbol-validated), iOS (device arm64 and a simulator fat static
   library). WebGL is not built.
-- `.github/workflows/bench-audio.yml` runs the Criterion benchmarks of the `mid_audio` crate and commits the
-  results under `.github/bench-results/`.
+- `.github/workflows/bench-audio.yml` runs the Criterion benchmarks of the `mid_audio` limiter
+  (`process_buffer`, the parameter calls and the disabled passthrough). It runs on a push to `master` that
+  touches `rust_lib/mid_audio/**`, or by hand, and commits the results under `.github/bench-results/`.
 - `.github/workflows/release-packages.yml` releases this package from `packages/com.midmanstudio.audio` on an
   `audio/v*` tag or by hand.
 
@@ -198,10 +202,14 @@ is now only a limiter and does not manage voices, so the comparison was removed.
 **Fix:** The class carried hooks to a game-specific settings manager and to analytics. They were removed to make
 it generic.
 
-**Problem:** `SetMasterVolume` assigns the master value straight to the music source volume. The playing track's
-per-clip volume scalar is not applied until the next track starts. Not changed in this move.
+**Fix:** `SetMasterVolume` assigned the master value straight to the music source volume, so the playing
+track lost its per-clip volume scalar until the next track started. The manager now remembers the scalar of the
+track that is playing and applies `master x scalar`. The fade-in of a crossfade reads the master volume on every
+step, so a change during the fade is not overwritten when it ends. A fade handle left over from a deactivated
+GameObject is cleared in `OnDisable`, otherwise `SetMasterVolume` would ignore the music source until the next
+fade.
 
-**Problem:** The private coroutine `FadeIn` is not called anywhere. Not changed in this move.
+**Fix:** The private coroutine `FadeIn` was not called anywhere and was removed.
 
 ### `MID_AudioLibrarySO.cs`
 **Fix:** A ScriptableObject survives scene changes, but its non-serialized dictionary does not survive a domain
@@ -220,6 +228,11 @@ goes through `MID_FXAudioRelay`.
 `SetSFXVolume`, `SetMusicVolume`, `OnSFXEnabledChanged`, `PlayClipAt`, and clip lists named `musicClips` and
 `sfxClips` on the library. This package's `APICATALOG.md` was written from the source.
 
-**Problem:** `.github/workflows/bench-audio.yml` is set to trigger on the `main` branch, while
-`build-audio-libs.yml` uses `master`. Its description also mentions DSP mixing and voice scheduling. Neither was
-checked or changed in this move.
+### `bench-audio.yml`
+**Fix:** The workflow triggered on the `main` branch, but the repository's branch is `master`, so a push never
+started it. It now triggers on `master`. The header, a code comment and the retitle of the HTML report also described
+DSP mixing and voice scheduling, which the crate no longer has; they now describe the peak limiter, which is
+what the benchmarks measure.
+
+**Problem:** `bench-projectile.yml` has the same `main` trigger. It belongs to the projectile system and was not
+changed here.

@@ -11,3 +11,5 @@
   The create-asset menu is `MidManStudio/Audio/Audio Library` and the benchmark window is under
   `MidManStudio > Audio > Tests`.
 - See `docs/com.midmanstudio.audio.md`.
+- **Fixed:** `MID_AudioManager.SetMasterVolume` dropped the playing track's clip volume. The unused `FadeIn` coroutine was removed, and a stale fade handle is cleared when the GameObject is deactivated.
+- **Fixed:** `bench-audio.yml` now triggers on `master` and describes the limiter benchmarks.

@@ -33,6 +33,10 @@ To see the package's tests in the Test Runner, also add it to the `testables` li
 | Decorator | MidManStudio.Patterns.Decorator | Base class and a runtime-editable decorator stack |
 | Factory | MidManStudio.Patterns.Factory | Creates objects by key from registered creators |
 | Game Loop | MidManStudio.Patterns.GameLoop | Fixed-step loop with a step cap, interpolation factor and time scale |
+| Subclass Sandbox | MidManStudio.Patterns.SubclassSandbox | Base classes for behaviours that act only through a context that exists while they run |
+| Facade | MidManStudio.Patterns.Facade | Base class that hides lazily created subsystems and disposes them in reverse order |
+| Template Method | MidManStudio.Patterns.TemplateMethod | Fixed sequence of steps with guaranteed cleanup, filled in by subclasses |
+| Bytecode | MidManStudio.Patterns.Bytecode | Small stack virtual machine with a program builder, host functions and safety limits |
 
 ## Quick start
 ```csharp
@@ -95,6 +99,15 @@ float blend = loop.Alpha;                    // draw between the previous and cu
 var enemies = new PackedList<Enemy>();
 PackedHandle h = enemies.Add(new Enemy());   // the handle survives other removals
 enemies.Remove(h);
+```
+
+```csharp
+using MidManStudio.Patterns.Bytecode;
+
+var program = new ProgramBuilder().Push(2).Push(3).Emit(Opcode.Add).Build();
+var vm = new VirtualMachine();
+vm.RegisterHost(1, m => Heal(m.Pop()));            // the only door into the game
+float five = vm.Run(program);
 ```
 
 See `APICATALOG.md` for the full API and `docs/com.midmanstudio.patterns/` for the design notes of each pattern.

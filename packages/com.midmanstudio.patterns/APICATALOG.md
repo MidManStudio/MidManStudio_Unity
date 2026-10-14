@@ -195,3 +195,39 @@ Requests made from inside a callback are queued and applied when the callback re
 | `Alpha`, `Accumulator`, `StepSeconds`, `MaxStepsPerAdvance`, `StepCount`, `DroppedSteps` | |
 | `TimeScale`, `Paused` | `TimeScale` of 0 freezes the simulation; `Paused` ignores frames |
 | `void Reset()` | Clears the accumulator and the counters |
+
+## Subclass Sandbox (`MidManStudio.Patterns.SubclassSandbox`)
+| Type | Members |
+|---|---|
+| `SandboxedBehavior<TContext>` | `void Run(TContext context)`, `IsRunning`, `protected abstract void Activate()`, `protected TContext Context` (only inside `Activate`) |
+| `SandboxedFunction<TContext, TResult>` | `TResult Run(TContext context)`, `IsRunning`, `protected abstract TResult Evaluate()`, `protected TContext Context` |
+
+## Facade (`MidManStudio.Patterns.Facade`)
+| Member | Description |
+|---|---|
+| `abstract class FacadeBase : IDisposable` | Subclass registers subsystems and exposes simple methods |
+| `protected void Register<T>(Func<T> creator)` | Rejects a duplicate type |
+| `protected T Get<T>()` | Creates on first use. Throws for an unregistered type, a circular creation or a null creator result |
+| `protected bool IsCreated<T>()` | |
+| `void Dispose()`, `IsDisposed` | Disposes created `IDisposable` subsystems newest first. Every subsystem is disposed; the first exception is rethrown |
+
+## Template Method (`MidManStudio.Patterns.TemplateMethod`)
+| Member | Description |
+|---|---|
+| `abstract class TemplateAction<TContext>` | |
+| `bool Run(TContext context)` | Not virtual. `CanRun`, `Begin`, `Execute`, `End`. Returns false when `CanRun` said no |
+| `protected virtual bool CanRun`, `Begin`, `OnFailed(context, Exception)`, `End` | Optional steps. `End` runs after `Execute` succeeds or fails |
+| `protected abstract void Execute(TContext context)` | |
+
+## Bytecode (`MidManStudio.Patterns.Bytecode`)
+| Type | Members |
+|---|---|
+| `Opcode` | 28 instructions: `Halt`, `PushConst`, `Pop`, `Dup`, `Swap`, `Add`, `Sub`, `Mul`, `Div`, `Mod`, `Neg`, `Eq`, `Ne`, `Lt`, `Le`, `Gt`, `Ge`, `Not`, `And`, `Or`, `Load`, `Store`, `Jump`, `JumpIfFalse`, `JumpIfTrue`, `Call`, `Return`, `CallHost` |
+| `ProgramBuilder` | `Push(float)`, `Emit(Opcode)`, `Load`, `Store`, `CallHost`, `NewLabel()`, `Mark(label)`, `Jump`, `JumpIfFalse`, `JumpIfTrue`, `Call`, `Position`, `Build(int localCount = -1)` |
+| `ProgramLabel` | `IsMarked` |
+| `BytecodeProgram` | `BytecodeProgram(int[] code, float[] constants, int localCount)`, `Length`, `ConstantCount`, `LocalCount`, `CodeAt`, `ConstantAt`, `Disassemble()` |
+| `VirtualMachine` | `VirtualMachine(int maxStack = 256, int maxCallDepth = 64, int maxInstructions = 100000)`, `float Run(program, float[] arguments = null)`, `RegisterHost(id, HostFunction)`, `UnregisterHost`, `Push`, `Pop`, `Peek`, `GetLocal`, `SetLocal`, `StackDepth`, `InstructionsExecuted`, `MaxInstructions`, `IsRunning` |
+| `HostFunction` | `delegate void HostFunction(VirtualMachine vm)` |
+| `BytecodeException` | `Error` (`BytecodeError`), `Address` |
+| `BytecodeError` | `StackOverflow`, `StackUnderflow`, `CallDepthExceeded`, `BudgetExceeded`, `InvalidOpcode`, `TruncatedInstruction`, `InvalidJump`, `InvalidConstant`, `InvalidLocal`, `DivideByZero`, `UnknownHostFunction` |
+

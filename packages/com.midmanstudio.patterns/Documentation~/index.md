@@ -19,5 +19,9 @@ Generic design pattern building blocks for Unity 2022.3+. No dependencies.
 | Decorator | Base class and a runtime-editable decorator stack |
 | Factory | Creates objects by key from registered creators |
 | Game Loop | Fixed-step loop with a step cap, interpolation factor and time scale |
+| Subclass Sandbox | Behaviours that act only through a context that exists while they run |
+| Facade | Hides lazily created subsystems behind a few methods |
+| Template Method | Fixed sequence of steps with guaranteed cleanup |
+| Bytecode | Small stack virtual machine with host functions and safety limits |
 
 See the package `README.md` and `APICATALOG.md`.

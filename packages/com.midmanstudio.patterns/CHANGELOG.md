@@ -18,4 +18,8 @@
 - **Decorator**: `Decorator<T>`, `DecoratorStack<T>`.
 - **Factory**: `Factory<TKey, TProduct>`, `Factory<TKey, TArg, TProduct>`.
 - **Game Loop**: `FixedStepLoop` (fixed-step accumulator with a step cap, interpolation factor and time scale).
+- **Subclass Sandbox**: `SandboxedBehavior<TContext>`, `SandboxedFunction<TContext, TResult>`.
+- **Facade**: `FacadeBase` (lazily created subsystems, reverse-order disposal).
+- **Template Method**: `TemplateAction<TContext>` (fixed steps with guaranteed cleanup).
+- **Bytecode**: `VirtualMachine`, `ProgramBuilder`, `BytecodeProgram`, `Opcode`, `HostFunction`, `BytecodeException` (stack machine with host functions and safety limits).
 - Each has a doc part in `docs/com.midmanstudio.patterns/`.
