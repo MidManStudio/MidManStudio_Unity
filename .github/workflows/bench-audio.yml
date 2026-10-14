@@ -1,20 +1,25 @@
+# ============================================================================
+# NOTICE: Full documentation, design decisions, and fix history for this file
+# live in packages/com.midmanstudio.audio/docs/com.midmanstudio.audio.md, section "CI and Workflows"
+# ============================================================================
 # .github/workflows/bench-audio.yml
 #
-# Criterion benchmarks for mid_audio — DSP mixing, voice scheduling, full-cycle cost.
-# Mirrors bench-projectile.yml exactly — same pattern, different crate.
+# Criterion benchmarks for the mid_audio peak limiter: process_buffer at several buffer sizes and
+# input levels, the parameter calls, and the disabled passthrough.
+# Same pattern as bench-projectile.yml, different crate.
 #
-# Triggers: push to main touching rust_lib/mid_audio/, or manual dispatch.
+# Triggers: push to master touching rust_lib/mid_audio/, or manual dispatch.
 #
 # Outputs:
-#   • GitHub Step Summary  — markdown table visible in Actions UI
-#   • .github/bench-results/audio-bench-results.json  (committed)
-#   • .github/bench-results/audio/index.html           (committed)
+#   - GitHub Step Summary: markdown table visible in the Actions UI
+#   - .github/bench-results/audio-bench-results.json  (committed)
+#   - .github/bench-results/audio/index.html           (committed)
 
 name: mid_audio — Benchmarks
 
 on:
   push:
-    branches: [main]
+    branches: [master]
     paths:
       - 'rust_lib/mid_audio/**'
   workflow_dispatch:
@@ -96,7 +101,7 @@ jobs:
               low_ns  = e_data['mean']['confidence_interval']['lower_bound']
               high_ns = e_data['mean']['confidence_interval']['upper_bound']
 
-              # Throughput — for process_buffer this is samples/sec; schedule_voice = calls/sec
+              # Throughput: for process_buffer this is samples/sec
               thrpt_str = '—'
               tp_raw = b_data.get('throughput', [])
               tp = tp_raw[0] if isinstance(tp_raw, list) and tp_raw else tp_raw
@@ -161,7 +166,7 @@ jobs:
                   # Retitle for audio
                   html = html.replace('Projectile Core', 'mid_audio DSP')
                   html = html.replace('SSE2-accelerated simulation + spatial-grid collision',
-                                      'Native DSP mixer — voice scheduling + peak limiter')
+                                      'Native DSP peak limiter')
               else:
                   # Minimal fallback HTML
                   html = f'''<!DOCTYPE html><html><head>
