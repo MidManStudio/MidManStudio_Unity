@@ -17,6 +17,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MidManStudio.Utilities", "M
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MidManStudio.ProjectileSystem.Tests", "MidManStudio.ProjectileSystem.Tests.csproj", "{90412271-10F3-B7DB-3446-4D5F19FEE322}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "com.flipbookgames.scriptinspector3", "com.flipbookgames.scriptinspector3.csproj", "{8B9E06D2-A67B-E99A-26F1-D41CBD7F377D}"
+EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MidManStudio.ProjectileSystem.Editor", "MidManStudio.ProjectileSystem.Editor.csproj", "{90297434-FC3E-74CC-A412-14F0F2A25C40}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Boxophobic.SkyboxCubemapExtended.Editor", "Boxophobic.SkyboxCubemapExtended.Editor.csproj", "{02695CB4-7F7D-EDAE-C358-A32D3FA3A7D6}"
@@ -77,6 +79,10 @@ Global
 		{90412271-10F3-B7DB-3446-4D5F19FEE322}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{90412271-10F3-B7DB-3446-4D5F19FEE322}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{90412271-10F3-B7DB-3446-4D5F19FEE322}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8B9E06D2-A67B-E99A-26F1-D41CBD7F377D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8B9E06D2-A67B-E99A-26F1-D41CBD7F377D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8B9E06D2-A67B-E99A-26F1-D41CBD7F377D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8B9E06D2-A67B-E99A-26F1-D41CBD7F377D}.Release|Any CPU.Build.0 = Release|Any CPU
 		{90297434-FC3E-74CC-A412-14F0F2A25C40}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{90297434-FC3E-74CC-A412-14F0F2A25C40}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{90297434-FC3E-74CC-A412-14F0F2A25C40}.Release|Any CPU.ActiveCfg = Release|Any CPU

@@ -20,11 +20,11 @@ MonoBehaviour:
   _switchAnimTrigger: SwitchWeapon
   _configTypeId2D: 1
   _configTypeId3D: 8
-  _fireRate: 200
+  _fireRate: 15
   _pelletsPerShot: 1
   _spreadDeg: 5
   _raycastPelletCount: 1
-  _shotPattern: {fileID: 11400000, guid: ebbc2edc0e1b44ec886318a872a2bcbd, type: 2}
+  _shotPattern: {fileID: 11400000, guid: 2d8a74db6a71742bd907cb100cff880c, type: 2}
   _raycastLayers:
     serializedVersion: 2
     m_Bits: 320

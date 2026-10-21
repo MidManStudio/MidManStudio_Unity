@@ -63,6 +63,7 @@
   <ItemGroup>
     <Compile Include="Assets/MidManStudio/Generated/Projectiles/ProjectileConfigType.cs" />
     <Compile Include="Assets/TutorialInfo/Scripts/Readme.cs" />
+    <Compile Include="Assets/ProjectileSystemTest/Scripts/MeshCombiner.cs" />
     <Compile Include="Assets/PackagesShowcase/SceneManager/Script/ExampleSceneLoader.cs" />
     <Compile Include="Assets/AA_Scripts/Test_1.cs" />
     <Compile Include="Assets/AA_Scripts/Test_Mdix.cs" />
