@@ -1070,6 +1070,10 @@
       <Project>{10AE8042-F6F9-C47C-03FB-B7CBC5BD0074}</Project>
       <Name>MidManStudio.Utilities</Name>
     </ProjectReference>
+    <ProjectReference Include="MidManStudio.Audio.csproj">
+      <Project>{D3B5380D-6838-83FD-8520-610AC1AEFC84}</Project>
+      <Name>MidManStudio.Audio</Name>
+    </ProjectReference>
     <ProjectReference Include="MidManStudio.Netcode.csproj">
       <Project>{3E22BD0C-C237-C8CB-2253-0CF263B92C50}</Project>
       <Name>MidManStudio.Netcode</Name>

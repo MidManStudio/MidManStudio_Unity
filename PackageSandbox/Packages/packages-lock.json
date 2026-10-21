@@ -1,5 +1,13 @@
 {
   "dependencies": {
+    "com.midmanstudio.audio": {
+      "version": "file:../../packages/com.midmanstudio.audio",
+      "depth": 0,
+      "source": "local",
+      "dependencies": {
+        "com.midmanstudio.utilities": "1.0.0"
+      }
+    },
     "com.midmanstudio.netcode": {
       "version": "file:../../packages/com.midmanstudio.netcode",
       "depth": 0,
@@ -10,12 +18,19 @@
         "com.unity.collections": "2.2.1"
       }
     },
+    "com.midmanstudio.patterns": {
+      "version": "file:../../packages/com.midmanstudio.patterns",
+      "depth": 0,
+      "source": "local",
+      "dependencies": {}
+    },
     "com.midmanstudio.projectilesystem": {
       "version": "file:../../packages/com.midmanstudio.projectilesystem",
       "depth": 0,
       "source": "local",
       "dependencies": {
         "com.midmanstudio.utilities": "1.0.0",
+        "com.midmanstudio.audio": "1.0.0",
         "com.midmanstudio.netcode": "1.0.0",
         "com.unity.netcode.gameobjects": "1.7.1",
         "com.unity.burst": "1.8.9",

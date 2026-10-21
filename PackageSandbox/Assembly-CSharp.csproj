@@ -1292,6 +1292,14 @@
       <Project>{02695CB4-7F7D-EDAE-C358-A32D3FA3A7D6}</Project>
       <Name>Boxophobic.SkyboxCubemapExtended.Editor</Name>
     </ProjectReference>
+    <ProjectReference Include="MidManStudio.Audio.csproj">
+      <Project>{D3B5380D-6838-83FD-8520-610AC1AEFC84}</Project>
+      <Name>MidManStudio.Audio</Name>
+    </ProjectReference>
+    <ProjectReference Include="MidManStudio.Patterns.csproj">
+      <Project>{7779A95A-59C3-88F5-71E5-C1835A571949}</Project>
+      <Name>MidManStudio.Patterns</Name>
+    </ProjectReference>
     <ProjectReference Include="MidManStudio.ProjectileSystem.csproj">
       <Project>{ECC4EC05-A11E-B1A2-52C9-290E5C400F0A}</Project>
       <Name>MidManStudio.ProjectileSystem</Name>
