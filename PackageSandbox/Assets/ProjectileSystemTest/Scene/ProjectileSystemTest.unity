@@ -3104,10 +3104,10 @@ MonoBehaviour:
   _damageSoundVolume: 0.5
   _deathSoundClipIndex: 2
   _deathSoundVolume: 1
-  _collisionRadius: 2
+  _collisionRadius: 0.6
   _weapon: {fileID: 11400000, guid: 2d4bd36acc8ba4e618ed44ae15cc36f4, type: 2}
   _muzzle: {fileID: 99190775}
-  _detectionRadius: 12
+  _detectionRadius: 32
   _fireInterval: 1.5
   _logLevel: 2
 --- !u!114 &339952672
@@ -3150,7 +3150,7 @@ SphereCollider:
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
-  m_Radius: 2
+  m_Radius: 0.6
   m_Center: {x: 0, y: 0, z: 0}
 --- !u!23 &339952674
 MeshRenderer:
@@ -16182,7 +16182,7 @@ SphereCollider:
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
-  m_Radius: 2
+  m_Radius: 0.6
   m_Center: {x: 0, y: 0, z: 0}
 --- !u!23 &1555022475
 MeshRenderer:
@@ -16279,10 +16279,10 @@ MonoBehaviour:
   _damageSoundVolume: 0.5
   _deathSoundClipIndex: 2
   _deathSoundVolume: 1
-  _collisionRadius: 2
+  _collisionRadius: 0.6
   _weapon: {fileID: 11400000, guid: 2d4bd36acc8ba4e618ed44ae15cc36f4, type: 2}
   _muzzle: {fileID: 103361347}
-  _detectionRadius: 12
+  _detectionRadius: 32
   _fireInterval: 1.5
   _logLevel: 2
 --- !u!114 &1555022479
@@ -23573,10 +23573,10 @@ MonoBehaviour:
   _damageSoundVolume: 0.5
   _deathSoundClipIndex: 2
   _deathSoundVolume: 1
-  _collisionRadius: 6
+  _collisionRadius: 0.6
   _weapon: {fileID: 11400000, guid: 2d4bd36acc8ba4e618ed44ae15cc36f4, type: 2}
   _muzzle: {fileID: 203992767}
-  _detectionRadius: 12
+  _detectionRadius: 32
   _fireInterval: 1.5
   _logLevel: 2
 --- !u!114 &1825178627
@@ -23619,7 +23619,7 @@ SphereCollider:
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
-  m_Radius: 6
+  m_Radius: 0.6
   m_Center: {x: 0, y: 0, z: 0}
 --- !u!23 &1825178629
 MeshRenderer:
