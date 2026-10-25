@@ -25,6 +25,13 @@ namespace MidManStudio.Projectiles.Config
         Formula = 7,   // per-projectile H/V from math expressions
     }
 
+    public enum PatternBurstOrder
+    {
+        Index     = 0,   // first to last
+        Reverse   = 1,   // last to first
+        CenterOut = 2    // middle projectile first, then outward
+    }
+
     [CreateAssetMenu(
         fileName = "ProjectilePattern",
         menuName  = "MidManStudio/Projectile System/Projectile Pattern",
@@ -66,6 +73,24 @@ namespace MidManStudio.Projectiles.Config
 
         [SerializeField] private uint _rngSeed = 12345;
         public uint RngSeed => _rngSeed;
+
+        // ── Burst timing ──────────────────────────────────────────────────────
+
+        // Upper bound for any single start delay, so a long pattern cannot
+        // outlive its own projectiles.
+        public const float MaxStartDelay = 2f;
+
+        [Header("Burst Timing")]
+        [Tooltip("Seconds between consecutive projectiles. 0 releases the whole pattern at once.")]
+        [SerializeField, Range(0f, 0.5f)] private float _burstInterval = 0f;
+        public float BurstInterval => _burstInterval;
+
+        [Tooltip("Random change to each delay, as a fraction of the interval.")]
+        [SerializeField, Range(0f, 1f)] private float _burstJitter = 0f;
+
+        [Tooltip("Index: first to last.\nReverse: last to first.\n" +
+                 "CenterOut: middle projectile first, then outward.")]
+        [SerializeField] private PatternBurstOrder _burstOrder = PatternBurstOrder.Index;
 
         // ── Preset shape parameters ───────────────────────────────────────────
 
@@ -114,7 +139,13 @@ namespace MidManStudio.Projectiles.Config
         /// <summary>
         /// Returns N (horizontalDeg, verticalDeg) direction pairs in local weapon space.
         /// </summary>
-        public Vector2[] SampleDirections(int count = -1)
+        public Vector2[] SampleDirections(int count = -1) => SampleDirections(count, _rngSeed);
+
+        /// <summary>
+        /// Same as <see cref="SampleDirections(int)"/> with an explicit seed for the
+        /// random shapes. <see cref="MixSeed"/> builds the per-shot seed.
+        /// </summary>
+        public Vector2[] SampleDirections(int count, uint seed)
         {
             int n = count > 0 ? count : _projectileCount;
             if (n <= 0) n = 1;
@@ -124,7 +155,7 @@ namespace MidManStudio.Projectiles.Config
                 PatternShape.Ring360 => SampleRing360(n),
                 PatternShape.Fan     => SampleFan(n),
                 PatternShape.VShape  => SampleVShape(n),
-                PatternShape.Shotgun => SampleShotgun(n),
+                PatternShape.Shotgun => SampleShotgun(n, seed),
                 PatternShape.Star    => SampleStar(n),
                 PatternShape.Spiral  => SampleSpiral(n),
                 PatternShape.Formula => SampleFormula(n),
@@ -180,10 +211,9 @@ namespace MidManStudio.Projectiles.Config
             return result;
         }
 
-        private Vector2[] SampleShotgun(int n)
+        private Vector2[] SampleShotgun(int n, uint seed)
         {
-            var  result = new Vector2[n];
-            uint seed   = _rngSeed;
+            var result = new Vector2[n];
             for (int i = 0; i < n; i++)
             {
                 float h = (Lcg(ref seed) * 2f - 1f) * _shotgunConeDeg;
@@ -320,6 +350,59 @@ namespace MidManStudio.Projectiles.Config
 
         // ── Speed variance ────────────────────────────────────────────────────
 
+        /// <summary>
+        /// Seed for one shot. A fire seed of 0 returns the asset's own seed, so
+        /// callers that send no seed keep the old fixed layout.
+        /// </summary>
+        public uint MixSeed(ushort fireSeed)
+        {
+            if (fireSeed == 0) return _rngSeed;
+            uint s = _rngSeed ^ unchecked((uint)fireSeed * 2654435761u);
+            return s == 0 ? 1u : s;
+        }
+
+        /// <summary>
+        /// Number of projectiles one shot of this pattern fires. Matches the length
+        /// of <see cref="SampleDirections(int)"/> without allocating, so ammo cost
+        /// can follow the pattern.
+        /// </summary>
+        public int GetFiredProjectileCount()
+        {
+            int n = Mathf.Max(_projectileCount, 1);
+            if (_shape != PatternShape.VShape) return n;
+
+            int perArm = Mathf.Max((_vShapeIncludeCenter ? n - 1 : n) / 2, 1);
+            return _vShapeIncludeCenter ? perArm * 2 + 1 : perArm * 2;
+        }
+
+        // ── Burst delay ───────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Seconds after the shot before projectile <paramref name="index"/> leaves.
+        /// Pure function of its inputs, so every peer computes the same delays.
+        /// </summary>
+        public float GetStartDelay(int index, int count, uint seed)
+        {
+            if (_burstInterval <= 0f || count <= 1) return 0f;
+
+            float rank = _burstOrder switch
+            {
+                PatternBurstOrder.Reverse   => count - 1 - index,
+                PatternBurstOrder.CenterOut => Mathf.Floor(Mathf.Abs(index - (count - 1) * 0.5f)),
+                _                           => index,
+            };
+
+            float delay = rank * _burstInterval;
+            if (_burstJitter > 0f)
+            {
+                uint s = seed.wrapping_add_cs((uint)index * 22695477u + 12345u);
+                s = s.wrapping_mul_cs(1664525u).wrapping_add_cs(1013904223u);
+                float rand01 = (s >> 8) / 16777216f;
+                delay += (rand01 * 2f - 1f) * _burstJitter * _burstInterval;
+            }
+            return Mathf.Clamp(delay, 0f, MaxStartDelay);
+        }
+
         public float GetSpeedMultiplier(int projectileIndex, uint seed)
         {
             if (_speedVariance <= 0f) return 1f;
@@ -404,7 +487,6 @@ namespace MidManStudio.Projectiles.Config
 
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
-            Debug.Log($"[ProjectilePatternSO] Created default pattern assets in {dir}");
         }
 
         private static void Create(string dir, string name, Action<ProjectilePatternSO> cfg)

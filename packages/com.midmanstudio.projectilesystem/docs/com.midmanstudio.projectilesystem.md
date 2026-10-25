@@ -233,11 +233,43 @@ the call. `CanAcceptTargets` reports whether a call made now would reach a
 backend. The `Log System Status` context menu prints backend target and shape
 counts.
 
+`Fire` takes an optional `fireSeed`. It must be the seed that was passed to
+`ProjectileDirectionResolver.Resolve` when the spawn points were built. The Rust
+sim path sends it in `ProjectileFireRequest`, and the local path does not need it
+because it uses the spawn points directly.
+
 ### `ServerProjectileAuthority.cs` / `LocalProjectileManager.cs` (Runtime)
 **What it does:** The two projectile backends. Each owns its own target and
 shape buffers (upserted by TargetId) that are passed to the native library
 every tick. Both expose `TargetCount2D/3D` and `ShapeCount2D/3D` for
 diagnostics.
+
+**Burst timing:** each backend owns a `DelayedSpawnQueue` and advances it at the
+start of `FixedUpdate`, before the sim tick. A shot whose `SpawnPoint[]` has a
+start delay on any entry takes a one-projectile-at-a-time path:
+`ServerProjectileAuthority.SpawnStaggered` on the server,
+`SpawnStaggeredOffline`, `SpawnFiringClientStaggered` and `SpawnNetworkStaggered`
+in `LocalProjectileManager`. Shots with no delay keep the original batch path
+unchanged. A delayed projectile is written to the buffer when its time comes, so
+the native sim, collision, snapshots and renderers never see a pending state.
+
+**Decisions:**
+- The native struct has no start delay field, and changing it would need all
+  platform libraries rebuilt and the SIMD tick and collision code changed. The
+  managed queue avoids that.
+- The whole id block is reserved up front. Projectile `i` always has id
+  `baseId + i`, spawned now or later, so the firing client's temp-to-real id link
+  keeps working. `LinkNetworkProjectileBatch` also relinks entries still in the
+  queue, and `KillNetworkProjectile` drops them.
+- On the server, latency compensation is spent on the start delay first. Only
+  what is left shortens the projectile's lifetime. Other clients treat the time
+  since the server spawn the same way, and move the projectile forward by what
+  remains.
+- A delayed projectile spawns at the origin the shot had when it was fired. The
+  muzzle position is not on the wire, so following the muzzle would differ between
+  peers.
+- The catch-up math for late spawns moved from two inline loops into
+  `ApplyCatchUp2D` and `ApplyCatchUp3D`, shared by the batch and queue paths.
 
 ### `ProjectileImpactHandler.cs` (Runtime)
 **What it does:** Client-side singleton that plays the impact effect for each
@@ -265,6 +297,69 @@ system that is emitted into.
 - `GlobalFXManager` is preferred so impacts share its in-scene particle
   systems instead of a second pool. The strategy path stays for scenes that have
   no `GlobalFXManager`.
+
+### `ProjectilePatternSO.cs` / `ProjectilePatternEditor.cs` (Runtime and Editor)
+**What it does:** Pattern asset for multi-projectile shots, and its inspector.
+The shape settings give one angle pair per projectile. The burst settings give
+each projectile a start delay.
+
+**Burst timing:** `BurstInterval` is the gap between consecutive projectiles in
+seconds, 0 releases the whole pattern at once. `BurstJitter` changes each delay
+by a random fraction of the interval. `BurstOrder` picks which projectile leaves
+first: `Index`, `Reverse`, or `CenterOut` (middle index first, symmetric pairs
+leave together). The order works on the index, so for the V shape, which lists
+both arms before the center, the middle index is not the center projectile. `GetStartDelay(index, count, seed)` is a pure function of its inputs
+and is clamped to `MaxStartDelay` (2 s). The inspector shows the total length of
+the burst.
+
+**Fire seed:** `MixSeed(fireSeed)` combines the asset's own `RngSeed` with the
+per-shot seed. `SampleDirections(count, seed)` uses it for the shotgun shape, and
+`GetSpeedMultiplier` and `GetStartDelay` use it for speed variance and jitter. A
+fire seed of 0 returns the asset seed, which keeps the old fixed layout.
+
+**Ammo count:** `GetFiredProjectileCount()` returns the number of projectiles one
+shot fires without allocating. It differs from `ProjectileCount` for the V shape,
+which builds symmetric arms.
+
+### `ProjectileDirectionResolver.cs` (Runtime)
+**What it does:** Expands a fire event into `SpawnPoint[]` with direction, speed
+and start delay per projectile. The firing client, the server and every other
+client call it with the same inputs. `Resolve` takes an optional `fireSeed`,
+`NewFireSeed()` picks one on the firing side. The seed is 16 bits and travels in
+`ProjectileFireRequest` and `SpawnConfirmation`.
+
+### `BatchSpawnHelper.cs` (Runtime)
+**What it does:** Writes `SpawnPoint[]` into the native projectile buffers, with a
+Burst job for batches of 8 or more. `SpawnPoint.StartDelay` is carried by the
+struct but not read here. `DelayedSpawnQueue` has already held the projectile back
+by the time it reaches this file.
+
+### `DelayedSpawnQueue.cs` (Runtime)
+**What it does:** Managed queue of projectiles that start after the shot. Entries
+carry the spawn point, the projectile id, the config id, the base speed, the
+seconds already flown, the spawn path (`DelayedSpawnKind`) and an owner specific
+context object. `Advance(dt, spawn)` moves a clock by the fixed step and passes
+due entries to the owner in queue order. `Relink` swaps a temp id for a real one,
+`Remove` drops an entry, `AnyDelayed` tells a spawn path whether it needs the
+queue at all.
+
+**Decisions:**
+- The clock is the sum of fixed steps, the same time base the sim runs on, so a
+  delay of 0.08 s is four 0.02 s steps whatever the frame rate.
+- A due entry spawns at the start of the next fixed step, before the sim tick, so
+  it moves in the step it appears in.
+- Entries are removed by compacting the list in one pass, which keeps queue order.
+
+### `MID_ProjectileNetworkBridge.cs` (Runtime)
+**What it does:** Network bridge between the client fire call and the server sim.
+`ProjectileFireRequest` and `SpawnConfirmation` each gained a `FireSeed` field,
+2 bytes on the wire. `FireServerRpc` resolves the shot with it, and a shot with
+any start delay goes through `ServerProjectileAuthority.SpawnStaggered`. The
+confirmation count is the number of projectiles spawned or queued.
+
+**Limits:** raycast fire and physics fire resolve with seed 0 and ignore start
+delays, so they keep the fixed layout. Burst timing applies to the Rust sim and to
+local fire.
 
 ## CI and Workflows
 
@@ -506,3 +601,28 @@ suite; `build.yml` builds the app for Android and Windows only.
   type. The directive would stop the file from compiling once the audio code
   left the utilities assembly for `com.midmanstudio.audio`, since the runtime
   assembly does not reference the audio assembly.
+
+### `ProjectilePatternSO.cs`
+- Shotgun patterns fired the same layout every shot. The seed was baked into the
+  asset, so every peer agreed but no two shots differed. The shotgun shape, speed
+  variance and burst jitter now take a per-shot seed from the fire request.
+- Removed the `Debug.Log` after creating the default pattern assets in the editor
+  menu command.
+
+### `ProjectileDirectionResolver.cs`
+- Resolve no longer ignores the shot. The seed argument is optional, so existing
+  callers compile unchanged and keep the old fixed layout until they pass one.
+
+### `LocalProjectileManager.cs`
+- The late-spawn catch-up code existed twice, inline in `SpawnNetworkBatch2D` and
+  `SpawnNetworkBatch3D`. It moved into `ApplyCatchUp2D` and `ApplyCatchUp3D` with
+  the same arithmetic.
+
+### `DelayedSpawnQueue.cs`
+- Known limit: a queued projectile spawns even if its shooter dies before it
+  leaves. The burst is over in well under a second at the highest settings the
+  inspector allows for normal weapons, so this was left alone.
+- Known limit: a queued projectile that was linked to its server id after the
+  server confirmation arrived is relinked in `LinkNetworkProjectileBatch`. If the
+  confirmation never arrives, the projectile spawns with its temp id and is
+  removed by lifetime like any other.

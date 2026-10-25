@@ -314,6 +314,7 @@ namespace MidManStudio.Projectiles.Managers
 
         private void Awake()
         {
+            _spawnQueuedCb = OnQueuedPellet;
             Adapter = new RustSimAdapter();
             Adapter.OnProjectileDied += OnAdapterProjectileDied;
             AllocateBuffers();
@@ -388,6 +389,8 @@ namespace MidManStudio.Projectiles.Managers
 
             float dt = Time.fixedDeltaTime;
             _fixedUpdateCounter++;
+
+            _delayed.Advance(dt, _spawnQueuedCb);
 
             if (_count2D > 0)
             {
@@ -830,6 +833,109 @@ namespace MidManStudio.Projectiles.Managers
             data.is3D             = true;
             _count3D++;
             Adapter.Register(data);
+            return true;
+        }
+
+        // ── Burst timing ──────────────────────────────────────────────────────
+
+        private readonly DelayedSpawnQueue _delayed = new DelayedSpawnQueue();
+        private Action<DelayedSpawnQueue.Entry> _spawnQueuedCb;
+        private readonly SpawnPoint[] _singlePoint = new SpawnPoint[1];
+
+        private sealed class StaggeredShotContext
+        {
+            public ServerProjectileData Template;
+            public Transform            GuidedTarget;
+        }
+
+        /// <summary>
+        /// Spawns a shot whose projectiles do not all start together. Projectiles
+        /// with no remaining delay are written now, the rest wait in a queue and
+        /// are written when their time comes. Ids are baseId + index either way.
+        /// </summary>
+        /// <param name="latencyComp">
+        /// Seconds since the client fired. It first eats into each start delay,
+        /// and only what is left shortens the projectile's lifetime.
+        /// </param>
+        /// <returns>Projectiles spawned now plus projectiles queued.</returns>
+        public int SpawnStaggered(
+            SpawnPoint[] points, int count, uint baseId, ushort configId, float speed,
+            ProjectileConfigSO cfg, ServerProjectileData template, float latencyComp,
+            Transform guidedTarget)
+        {
+            var context = new StaggeredShotContext
+            {
+                Template     = template,
+                GuidedTarget = cfg.MovementType == ProjectileMovementType.Guided ? guidedTarget : null
+            };
+
+            int accepted = 0;
+            for (int i = 0; i < count; i++)
+            {
+                float wait = points[i].StartDelay - latencyComp;
+                var entry = new DelayedSpawnQueue.Entry
+                {
+                    Point    = points[i],
+                    ProjId   = baseId + (uint)i,
+                    ConfigId = configId,
+                    Speed    = speed,
+                    Kind     = DelayedSpawnKind.Server,
+                    Context  = context
+                };
+
+                if (wait > 0f)
+                {
+                    entry.DueTime = _delayed.Now + wait;
+                    _delayed.Enqueue(entry);
+                    accepted++;
+                }
+                else
+                {
+                    entry.Elapsed = -wait;
+                    if (SpawnServerPellet(entry, cfg)) accepted++;
+                }
+            }
+            return accepted;
+        }
+
+        private void OnQueuedPellet(DelayedSpawnQueue.Entry entry)
+        {
+            var cfg = ProjectileRegistry.Instance != null
+                ? ProjectileRegistry.Instance.Get(entry.ConfigId)
+                : null;
+            if (cfg != null) SpawnServerPellet(entry, cfg);
+        }
+
+        private bool SpawnServerPellet(in DelayedSpawnQueue.Entry entry, ProjectileConfigSO cfg)
+        {
+            var context    = (StaggeredShotContext)entry.Context;
+            var rustParams = ProjectileRegistry.Instance.GetRustSpawnParams(entry.ConfigId, entry.Speed);
+            _singlePoint[0] = entry.Point;
+
+            if (!cfg.Is3D)
+            {
+                var (ptr, rem) = Get2DWriteHead();
+                int written = BatchSpawnHelper.SpawnBatch2D(
+                    _singlePoint, 1, null, rustParams,
+                    entry.ConfigId, 0, entry.ProjId, ptr, rem, entry.Elapsed);
+                if (written <= 0) return false;
+
+                NotifyBatchSpawned2D(written, entry.ProjId, context.Template);
+                if (context.GuidedTarget != null)
+                    ProjectileGuidanceTracker.Instance.RegisterGuidedTarget2D(entry.ProjId, context.GuidedTarget);
+            }
+            else
+            {
+                var (ptr, rem) = Get3DWriteHead();
+                int written = BatchSpawnHelper.SpawnBatch3D(
+                    _singlePoint, 1, rustParams,
+                    entry.ConfigId, 0, entry.ProjId, ptr, rem, entry.Elapsed);
+                if (written <= 0) return false;
+
+                NotifyBatchSpawned3D(written, entry.ProjId, context.Template);
+                if (context.GuidedTarget != null)
+                    ProjectileGuidanceTracker.Instance.RegisterGuidedTarget3D(entry.ProjId, context.GuidedTarget);
+            }
             return true;
         }
 

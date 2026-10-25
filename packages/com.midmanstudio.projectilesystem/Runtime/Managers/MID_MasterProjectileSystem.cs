@@ -361,11 +361,17 @@ namespace MidManStudio.Projectiles.Managers
         /// (default) is a complete no-op, identical to calling Fire() before this
         /// fix existed.
         /// </param>
+        /// <param name="fireSeed">
+        /// The seed that was passed to ProjectileDirectionResolver.Resolve() when
+        /// spawnPoints was built. It travels with the request so the server and
+        /// every other client rebuild the same layout, speeds and burst delays.
+        /// 0 = fixed layout from the pattern asset.
+        /// </param>
         public void Fire(
             ushort configId, SpawnPoint[] spawnPoints, int count, WeaponFireContext context,
             ushort patternId = 0, float spreadDeg = 0f,
             Vector3 baseDirection = default, bool patternIs3D = false,
-            Transform guidedTarget = null)
+            Transform guidedTarget = null, ushort fireSeed = 0)
         {
             if (!_initialised) return;
 
@@ -388,7 +394,7 @@ namespace MidManStudio.Projectiles.Managers
 
                 case SimulationMode.RustSim:
                     FireNetworkedSim(configId, spawnPoints, count, context, cfg,
-                        patternId, spreadDeg, baseDirection, patternIs3D, guidedTarget);
+                        patternId, spreadDeg, baseDirection, patternIs3D, guidedTarget, fireSeed);
                     break;
 
                 case SimulationMode.Raycast:
@@ -429,7 +435,7 @@ namespace MidManStudio.Projectiles.Managers
             ushort configId, SpawnPoint[] spawnPoints, int count,
             WeaponFireContext context, ProjectileConfigSO cfg,
             ushort patternId, float spreadDeg, Vector3 baseDirection, bool patternIs3D,
-            Transform guidedTarget = null)
+            Transform guidedTarget = null, ushort fireSeed = 0)
         {
             if (_networkBridge == null) return;
 
@@ -462,6 +468,7 @@ namespace MidManStudio.Projectiles.Managers
                 PatternId              = patternId,
                 SpreadDeg              = spreadDeg,
                 PatternIs3D            = patternIs3D,
+                FireSeed               = fireSeed,
                 OwnerMidId             = context.OwnerMidId,
                 FiredByNetworkObjectId = context.FiredByNetworkObjectId,
                 IsBotOwner             = context.IsBotOwner,

@@ -41,14 +41,18 @@ namespace MidManStudio.Projectiles.Network
         /// </summary>
         public ulong   TargetNetworkObjectId;
 
-        // NOTE: no direction/speed arrays here, and no RngSeed either — the old
-        // RngSeed field was populated with a fresh UnityEngine.Random.Range() every
-        // shot but never actually read back out server-side (grep confirms zero
-        // reads anywhere in Runtime/); it was dead weight. Direction and per-pellet
-        // speed are regenerated on every recipient via
-        // ProjectileDirectionResolver.Resolve(), which for pattern fire reads the
-        // pattern asset's own fixed RngSeed property — the exact same value the
-        // firing client's local predicted visual already uses.
+        /// <summary>
+        /// Per-shot seed from ProjectileDirectionResolver.NewFireSeed(). Every
+        /// recipient feeds it to Resolve(), so random pattern shapes, speed
+        /// variance and burst jitter differ from shot to shot and still match on
+        /// all peers. 0 = no seed, the pattern asset's own fixed seed is used.
+        /// </summary>
+        public ushort  FireSeed;
+
+        // NOTE: no direction/speed arrays here. Direction, per-pellet speed and
+        // start delay are regenerated on every recipient via
+        // ProjectileDirectionResolver.Resolve(), from the pattern asset and the
+        // 16-bit FireSeed above.
         //
         // PatternIs3D: the client's own Use3DConvention() || cfg.Is3D result.
         // These two CAN diverge (a 2D-configured weapon fired while the player's
@@ -131,6 +135,7 @@ namespace MidManStudio.Projectiles.Network
             // to, and 0 (by far the common case: most fire requests aren't Guided)
             // is only 8 bytes either way.
             s.SerializeValue(ref TargetNetworkObjectId);
+            s.SerializeValue(ref FireSeed);
         }
     }
 
@@ -147,6 +152,7 @@ namespace MidManStudio.Projectiles.Network
         public ushort  PatternId;    // mirrors ProjectileFireRequest.PatternId
         public float   SpreadDeg;    // mirrors ProjectileFireRequest.SpreadDeg
         public bool    PatternIs3D;  // mirrors ProjectileFireRequest.PatternIs3D
+        public ushort  FireSeed;     // mirrors ProjectileFireRequest.FireSeed
 
         /// <summary>
         /// Server-authoritative NetworkTime.TimeAsFloat at spawn.
@@ -210,6 +216,7 @@ namespace MidManStudio.Projectiles.Network
 
             s.SerializeValue(ref PatternIs3D);
             s.SerializeValue(ref ServerNetworkTime);
+            s.SerializeValue(ref FireSeed);
         }
 
         // GetDirection(i) is gone — direction expansion now always goes through
@@ -395,7 +402,8 @@ namespace MidManStudio.Projectiles.Network
 
             var spawnPts = ProjectileDirectionResolver.Resolve(
                 request.PatternId, request.Origin, request.Direction,
-                request.ProjectileCount, request.SpreadDeg, clampedSpeed, request.PatternIs3D);
+                request.ProjectileCount, request.SpreadDeg, clampedSpeed, request.PatternIs3D,
+                request.FireSeed);
 
             var rustParams   = ProjectileRegistry.Instance.GetRustSpawnParams(
                 request.ConfigId, clampedSpeed);
@@ -406,8 +414,19 @@ namespace MidManStudio.Projectiles.Network
                 new Vector2(request.Origin.x, request.Origin.y),
                 request.DamageMultiplier, cfg);
 
+            // A pattern with burst timing releases its projectiles one by one. The
+            // whole id block is still reserved up front, so projectile i keeps id
+            // baseId + i on every peer whether it spawns now or later.
+            bool staggered = DelayedSpawnQueue.AnyDelayed(spawnPts, spawnPts.Length);
+
             int written;
-            if (!cfg.Is3D)
+            if (staggered)
+            {
+                written = Authority.SpawnStaggered(
+                    spawnPts, spawnPts.Length, baseId, request.ConfigId, clampedSpeed,
+                    cfg, dataTemplate, latencyComp, ResolveGuidedTarget(request, cfg));
+            }
+            else if (!cfg.Is3D)
             {
                 var (ptr, rem) = Authority.Get2DWriteHead();
                 written = BatchSpawnHelper.SpawnBatch2D(
@@ -435,7 +454,7 @@ namespace MidManStudio.Projectiles.Network
             // registering here would be a harmless no-op at best (it doesn't own
             // the authoritative sim) and is skipped entirely rather than relying on
             // that no-op.
-            if (request.TargetNetworkObjectId != 0 && cfg.MovementType == ProjectileMovementType.Guided
+            if (!staggered && request.TargetNetworkObjectId != 0 && cfg.MovementType == ProjectileMovementType.Guided
                 && NetworkManager.Singleton != null && NetworkManager.Singleton.SpawnManager != null
                 && NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(
                     request.TargetNetworkObjectId, out var targetNetObj)
@@ -466,7 +485,8 @@ namespace MidManStudio.Projectiles.Network
                 PatternId         = request.PatternId,
                 SpreadDeg         = request.SpreadDeg,
                 PatternIs3D       = request.PatternIs3D,
-                ServerNetworkTime = serverNetworkTime
+                ServerNetworkTime = serverNetworkTime,
+                FireSeed          = request.FireSeed
             };
 
             ulong senderClientId = rpcParams.Receive.SenderClientId;
@@ -553,6 +573,20 @@ namespace MidManStudio.Projectiles.Network
                     }
                 });
             }
+        }
+
+        private static Transform ResolveGuidedTarget(in ProjectileFireRequest request, ProjectileConfigSO cfg)
+        {
+            if (request.TargetNetworkObjectId == 0 || cfg.MovementType != ProjectileMovementType.Guided)
+                return null;
+
+            var nm = NetworkManager.Singleton;
+            if (nm == null || nm.SpawnManager == null) return null;
+
+            return nm.SpawnManager.SpawnedObjects.TryGetValue(request.TargetNetworkObjectId, out var obj)
+                   && obj != null
+                ? obj.transform
+                : null;
         }
 
         // ── Client → Server: Raycast ──────────────────────────────────────────

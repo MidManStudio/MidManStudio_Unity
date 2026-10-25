@@ -14,7 +14,9 @@ namespace MidManStudio.Projectiles.Network
     /// PelletCount/SpreadDeg scalars for non-pattern fire. Must stay a pure
     /// function of its inputs: no Random, no Time, no per-call state, so every
     /// caller reproduces bit-identical results without any direction data ever
-    /// crossing the network.
+    /// crossing the network. The one varying input is the 16-bit fire seed that
+    /// travels with the fire request; it makes random shapes and speed variance
+    /// differ from shot to shot while every peer still gets the same result.
     ///
     /// Ports the exact math that used to live only in
     /// NetworkedDimensionPlayer.BuildSpawnPointsFromPattern / BuildSpawnPointsSpread
@@ -37,9 +39,14 @@ namespace MidManStudio.Projectiles.Network
         /// commits to this for the Rust write-head selection), reused here for the
         /// angle-rotation convention too.
         /// </param>
+        /// <param name="fireSeed">
+        /// Per-shot seed from <see cref="NewFireSeed"/>. 0 uses the pattern asset's
+        /// own fixed seed, which keeps every shot identical.
+        /// </param>
         public static SpawnPoint[] Resolve(
             ushort patternId, Vector3 origin, Vector3 baseDirection,
-            int pelletCount, float spreadDeg, float baseSpeed, bool is3D)
+            int pelletCount, float spreadDeg, float baseSpeed, bool is3D,
+            ushort fireSeed = 0)
         {
             if (patternId != 0)
             {
@@ -48,7 +55,7 @@ namespace MidManStudio.Projectiles.Network
                     : null;
 
                 if (pattern != null)
-                    return ResolvePattern(pattern, origin, baseDirection, baseSpeed, is3D);
+                    return ResolvePattern(pattern, origin, baseDirection, baseSpeed, is3D, fireSeed);
 
                 // Unknown/unregistered pattern id (stale build, registry order
                 // mismatch, etc.) — fail safe to a single shot along BaseDirection
@@ -70,13 +77,21 @@ namespace MidManStudio.Projectiles.Network
 
         // ── Pattern-based (Fan/Ring/VShape/Shotgun/Star/Spiral/Formula/Spline) ──
 
+        /// <summary>
+        /// Picks the seed for one shot. Called once by the firing side, never by
+        /// <see cref="Resolve"/>. Never returns 0, because 0 means "no seed".
+        /// </summary>
+        public static ushort NewFireSeed() => (ushort)Random.Range(1, 65536);
+
         private static SpawnPoint[] ResolvePattern(
-            ProjectilePatternSO pattern, Vector3 origin, Vector3 baseDir, float baseSpeed, bool is3D)
+            ProjectilePatternSO pattern, Vector3 origin, Vector3 baseDir, float baseSpeed, bool is3D,
+            ushort fireSeed)
         {
             // No count override: call exactly as the client does, so both sides
             // read the pattern asset's own ProjectileCount rather than trusting
             // a wire-transmitted number that could theoretically drift from it.
-            Vector2[] angleDirs = pattern.SampleDirections();
+            uint seed = pattern.MixSeed(fireSeed);
+            Vector2[] angleDirs = pattern.SampleDirections(-1, seed);
             var pts = new SpawnPoint[angleDirs.Length];
 
             Vector3 localRight, localUp;
@@ -102,16 +117,16 @@ namespace MidManStudio.Projectiles.Network
 
                 if (sDir.sqrMagnitude < 0.001f) sDir = baseDir;
 
-                // Same fixed, asset-baked seed the firing client already uses for
-                // its local predicted visual — deterministic per pattern asset,
-                // no RngSeed needs to travel on the wire at all.
-                float mul = pattern.GetSpeedMultiplier(i, pattern.RngSeed);
+                // Speed and start delay come from the same per-shot seed the
+                // directions used, so every peer rebuilds identical values.
+                float mul = pattern.GetSpeedMultiplier(i, seed);
 
                 pts[i] = new SpawnPoint
                 {
-                    Origin    = origin,
-                    Direction = sDir.normalized,
-                    Speed     = baseSpeed * mul
+                    Origin     = origin,
+                    Direction  = sDir.normalized,
+                    Speed      = baseSpeed * mul,
+                    StartDelay = pattern.GetStartDelay(i, angleDirs.Length, seed)
                 };
             }
             return pts;

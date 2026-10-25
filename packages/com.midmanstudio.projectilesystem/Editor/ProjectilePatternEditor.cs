@@ -84,6 +84,9 @@ namespace MidManStudio.Projectiles.EditorTools
                 DrawShapeSpecificFields(pattern.Shape);
             }
 
+            EditorGUILayout.Space(6);
+            DrawBurstFields(pattern);
+
             serializedObject.ApplyModifiedProperties();
             EditorGUILayout.Space(10);
 
@@ -113,6 +116,28 @@ namespace MidManStudio.Projectiles.EditorTools
                     "Override Count (-1 = use config)", _simulationCount);
                 if (GUILayout.Button("Refresh Scene Gizmo")) SceneView.RepaintAll();
             }
+        }
+
+        // ── Burst timing fields ───────────────────────────────────────────────
+
+        private void DrawBurstFields(ProjectilePatternSO pattern)
+        {
+            // The [Header] on the first field draws the section title.
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("_burstInterval"));
+            if (pattern.BurstInterval <= 0f) return;
+
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("_burstJitter"));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("_burstOrder"));
+
+            int   count = pattern.GetFiredProjectileCount();
+            float last  = 0f;
+            for (int i = 0; i < count; i++)
+                last = Mathf.Max(last, pattern.GetStartDelay(i, count, pattern.RngSeed));
+
+            EditorGUILayout.HelpBox(
+                $"{count} projectiles leave over {last:0.###} s. " +
+                "Burst timing applies to Rust sim and local fire. Raycast and physics fire ignore it.",
+                MessageType.None);
         }
 
         // ── Formula fields ────────────────────────────────────────────────────

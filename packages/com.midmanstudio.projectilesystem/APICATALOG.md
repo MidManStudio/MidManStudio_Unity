@@ -277,6 +277,11 @@ for (int i = 0; i < dirs.Length; i++)
 | Member | Returns | Description |
 |---|---|---|
 | `SampleDirections(int count = -1)` | `Vector2[]` | Returns `(H°, V°)` pairs. -1 uses `ProjectileCount` from inspector. |
+| `SampleDirections(int count, uint seed)` | `Vector2[]` | Same, with an explicit seed for the Shotgun shape. |
+| `MixSeed(ushort fireSeed)` | `uint` | Per-shot seed from the asset `RngSeed` and a fire seed. 0 returns the asset seed. |
+| `GetFiredProjectileCount()` | `int` | Projectiles one shot fires. Equals `ProjectileCount` except for the V shape. Use it for ammo cost. |
+| `GetStartDelay(int index, int count, uint seed)` | `float` | Seconds before projectile `index` leaves, 0 to `MaxStartDelay`. |
+| `BurstInterval` | `float` | Seconds between consecutive projectiles. 0 releases the pattern at once. |
 | `EvaluateSpline(float t)` | `Vector2` | Spline-only: evaluates the control-point curve at `t ∈ [0,1]`. |
 | `GetSpeedMultiplier(int index, uint seed)` | `float` | Speed variance multiplier for projectile at index. 1.0 if `SpeedVariance = 0`. |
 | `Shape` | `PatternShape` | |
@@ -537,6 +542,7 @@ Pure routing functions — deterministic, no side effects. Called by `MID_Master
 ```csharp
 // Fire any simulation mode — router decides which path to take
 void Fire(ushort configId, SpawnPoint[] spawnPoints, int count, WeaponFireContext context)
+// Optional trailing arguments: patternId, spreadDeg, baseDirection, patternIs3D, guidedTarget, fireSeed
 
 // Identity — call once after network connection is established
 void SetLocalPlayerMidId(ulong midId)
@@ -1170,8 +1176,24 @@ public struct SpawnPoint
     public Vector3 Origin;
     public Vector3 Direction;  // normalised
     public float   Speed;      // 0 = use config speed
+    public float   StartDelay; // seconds after the shot before this projectile spawns, 0 = with the batch
 }
 ```
+
+A shot with any `StartDelay` above 0 goes through `DelayedSpawnQueue` on the Rust sim and local paths. Raycast and physics fire ignore it.
+
+---
+
+### `ProjectileDirectionResolver`
+
+**Namespace:** `MidManStudio.Projectiles.Network`
+
+Expands a fire event into `SpawnPoint[]`. The firing client, the server and every other client call it with the same inputs.
+
+| Member | Returns | Description |
+|---|---|---|
+| `Resolve(ushort patternId, Vector3 origin, Vector3 baseDirection, int pelletCount, float spreadDeg, float baseSpeed, bool is3D, ushort fireSeed = 0)` | `SpawnPoint[]` | Direction, speed and start delay per projectile. A fire seed of 0 keeps the asset's fixed layout. |
+| `NewFireSeed()` | `ushort` | Random non-zero seed. Call once per shot on the firing side and pass the same value to `Resolve` and `MID_MasterProjectileSystem.Fire`. |
 
 ---
 

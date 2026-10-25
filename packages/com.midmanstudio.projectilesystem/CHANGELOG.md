@@ -1,5 +1,11 @@
 # com.midmanstudio.projectilesystem
 
+- `ProjectilePatternSO` burst timing: `BurstInterval`, `BurstJitter` and `BurstOrder` give each projectile of a pattern a start delay, `GetStartDelay()` reads it
+- `SpawnPoint.StartDelay` and `DelayedSpawnQueue`: projectiles with a start delay are written to the sim buffer when their time comes, on the server, the firing client, other clients and offline
+- `FireSeed` in `ProjectileFireRequest` and `SpawnConfirmation`, `ProjectileDirectionResolver.NewFireSeed()` and an optional `fireSeed` on `ProjectileDirectionResolver.Resolve()` and `MID_MasterProjectileSystem.Fire()`: shotgun layout, speed variance and burst jitter now differ from shot to shot and still match on every peer
+- `ProjectilePatternSO.GetFiredProjectileCount()` and `MixSeed()`; `SampleDirections(count, seed)` overload
+- `ServerProjectileAuthority.SpawnStaggered()`
+- `ProjectilePatternEditor` shows the burst fields and the length of the burst
 - `ProjectileConfigSO._hitLayers` — `LayerMask` controlling which Unity layers a projectile can register hits against
 - `ProjectileConfigSO` public accessors for wave/circular movement parameters (`WaveAmplitude`, `WaveFrequency`, `WavePhaseOffset`, `WaveVertical`, `CircularRadius`, `CircularAngularSpeed`, `CircularStartAngle`) so `DeterministicMotionMath` can read them without reflection
 - `ProjectileConfigManager` + `ProjectileConfigMappingSO` — enum-based config resolution system (`ProjectileConfigType.MyBullet` → `ushort configId`)

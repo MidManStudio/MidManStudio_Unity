@@ -31,6 +31,11 @@ namespace MidManStudio.Projectiles.Adapters
         public Vector3 Origin;
         public Vector3 Direction;
         public float   Speed;
+
+        // Seconds after the fire event before this projectile is written to the
+        // sim buffer. 0 spawns with the rest of the batch. BatchSpawnHelper itself
+        // ignores it: DelayedSpawnQueue holds the projectile back first.
+        public float   StartDelay;
     }
 
     public static class BatchSpawnHelper

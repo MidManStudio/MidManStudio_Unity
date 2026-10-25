@@ -285,6 +285,7 @@ namespace MidManStudio.Projectiles.Managers
         protected override void Awake()
         {
             base.Awake();
+            _spawnQueuedCb = OnQueuedPellet;
             AllocateBuffers();
             BatchSpawnHelper.Initialise();
             MID_Logger.LogInfo(_logLevel, "LocalProjectileManager initialised.",
@@ -337,6 +338,8 @@ namespace MidManStudio.Projectiles.Managers
         private void FixedUpdate()
         {
             float dt = Time.fixedDeltaTime;
+
+            _delayed.Advance(dt, _spawnQueuedCb);
 
             if (_count2D > 0)
             {
@@ -633,6 +636,12 @@ namespace MidManStudio.Projectiles.Managers
                 MID_Logger.LogWarning(_logLevel, "2D buffer full.", nameof(LocalProjectileManager));
                 return;
             }
+            if (DelayedSpawnQueue.AnyDelayed(spawnPoints, count))
+            {
+                SpawnStaggeredOffline(spawnPoints, count, configId, ownerLocalId, damageMultiplier, guidedTarget);
+                return;
+            }
+
             var  rustParams = ProjectileRegistry.Instance.GetRustSpawnParams(configId);
             uint baseId     = AllocateProjIds(count);
             var (writePtr, remaining) = GetWriteHead2D();
@@ -673,6 +682,12 @@ namespace MidManStudio.Projectiles.Managers
                 MID_Logger.LogWarning(_logLevel, "3D buffer full.", nameof(LocalProjectileManager));
                 return;
             }
+            if (DelayedSpawnQueue.AnyDelayed(spawnPoints, count))
+            {
+                SpawnStaggeredOffline(spawnPoints, count, configId, ownerLocalId, damageMultiplier, guidedTarget);
+                return;
+            }
+
             var  rustParams = ProjectileRegistry.Instance.GetRustSpawnParams(configId);
             uint baseId     = AllocateProjIds(count);
             var (writePtr, remaining) = GetWriteHead3D();
@@ -713,6 +728,9 @@ namespace MidManStudio.Projectiles.Managers
             SpawnPoint[] spawnPoints, int count, ushort configId, float resolvedSpeed)
         {
             if (_count2D >= _maxProjectiles2D) return 0;
+            if (DelayedSpawnQueue.AnyDelayed(spawnPoints, count))
+                return SpawnFiringClientStaggered(spawnPoints, count, configId, resolvedSpeed);
+
             var  rustParams = ProjectileRegistry.Instance.GetRustSpawnParams(configId, resolvedSpeed);
             uint baseTempId = _nextTempId;
             _nextTempId += (uint)count;
@@ -732,6 +750,9 @@ namespace MidManStudio.Projectiles.Managers
             SpawnPoint[] spawnPoints, int count, ushort configId, float resolvedSpeed)
         {
             if (_count3D >= _maxProjectiles3D) return 0;
+            if (DelayedSpawnQueue.AnyDelayed(spawnPoints, count))
+                return SpawnFiringClientStaggered(spawnPoints, count, configId, resolvedSpeed);
+
             var  rustParams = ProjectileRegistry.Instance.GetRustSpawnParams(configId, resolvedSpeed);
             uint baseTempId = _nextTempId;
             _nextTempId += (uint)count;
@@ -759,6 +780,12 @@ namespace MidManStudio.Projectiles.Managers
 
             var rustParams = ProjectileRegistry.Instance.GetRustSpawnParams(conf.ConfigId, conf.Speed);
             var spawnPts   = BuildSpawnPointsFromConfirmation(conf);
+            if (DelayedSpawnQueue.AnyDelayed(spawnPts, count))
+            {
+                SpawnNetworkStaggered(spawnPts, count, conf, elapsedSinceSpawn);
+                return;
+            }
+
             var (writePtr, remaining) = GetWriteHead2D();
             int startIdx = _count2D;
             int written  = BatchSpawnHelper.SpawnBatch2D(
@@ -769,29 +796,8 @@ namespace MidManStudio.Projectiles.Managers
 
             if (elapsedSinceSpawn > 0f)
             {
-                float t = Mathf.Clamp(elapsedSinceSpawn, 0f, rustParams.Lifetime * 0.9f);
                 for (int i = 0; i < written; i++)
-                {
-                    ref var p = ref _projs2D[startIdx + i];
-                    // Wave/Circular: Rust handles via registered params; skip Euler advance
-                    if (p.MovementType == MT_WAVE || p.MovementType == MT_CIRCULAR)
-                    { p.Lifetime -= t; if (p.Lifetime <= 0f) p.Alive = 0; continue; }
-                    // Straight and Guided: linear Euler position advance first...
-                    p.X += p.Vx * t;
-                    p.Y += p.Vy * t;
-                    // ...then Straight specifically adds the quadratic term for
-                    // whatever constant Ay it's carrying — gravity, if this config
-                    // wants an arc (see ProjectileMovementType.Straight's doc
-                    // comment on why arcs live here now, not on a separate
-                    // Arching mode this used to check for). Guided's Ax/Ay is a
-                    // steering heading, not a real acceleration, so it correctly
-                    // stays linear-only — this condition must NOT become "always
-                    // apply", only the MT_ARCHING → MT_STRAIGHT retarget.
-                    if (p.MovementType == MT_STRAIGHT)
-                    { p.Y += 0.5f * p.Ay * t * t; p.Vy += p.Ay * t; }
-                    p.Lifetime -= t;
-                    if (p.Lifetime <= 0f) p.Alive = 0;
-                }
+                    ApplyCatchUp2D(ref _projs2D[startIdx + i], elapsedSinceSpawn, rustParams.Lifetime);
             }
             _count2D += written;
         }
@@ -806,6 +812,12 @@ namespace MidManStudio.Projectiles.Managers
 
             var rustParams = ProjectileRegistry.Instance.GetRustSpawnParams(conf.ConfigId, conf.Speed);
             var spawnPts   = BuildSpawnPointsFromConfirmation(conf);
+            if (DelayedSpawnQueue.AnyDelayed(spawnPts, count))
+            {
+                SpawnNetworkStaggered(spawnPts, count, conf, elapsedSinceSpawn);
+                return;
+            }
+
             var (writePtr, remaining) = GetWriteHead3D();
             int startIdx = _count3D;
             int written  = BatchSpawnHelper.SpawnBatch3D(
@@ -816,23 +828,8 @@ namespace MidManStudio.Projectiles.Managers
 
             if (elapsedSinceSpawn > 0f)
             {
-                float t = Mathf.Clamp(elapsedSinceSpawn, 0f, rustParams.Lifetime * 0.9f);
                 for (int i = 0; i < written; i++)
-                {
-                    ref var p = ref _projs3D[startIdx + i];
-                    if (p.MovementType == MT_WAVE || p.MovementType == MT_CIRCULAR)
-                    { p.Lifetime -= t; if (p.Lifetime <= 0f) p.Alive = 0; continue; }
-                    p.X += p.Vx * t;
-                    p.Y += p.Vy * t;
-                    p.Z += p.Vz * t;
-                    // Straight only — see the 2D SpawnNetworkBatch2D's matching
-                    // comment for why (Guided's Ax/Ay is a steering heading, not
-                    // acceleration; this used to check MT_ARCHING).
-                    if (p.MovementType == MT_STRAIGHT)
-                    { p.Y += 0.5f * p.Ay * t * t; p.Vy += p.Ay * t; }
-                    p.Lifetime -= t;
-                    if (p.Lifetime <= 0f) p.Alive = 0;
-                }
+                    ApplyCatchUp3D(ref _projs3D[startIdx + i], elapsedSinceSpawn, rustParams.Lifetime);
             }
             _count3D += written;
         }
@@ -853,7 +850,10 @@ namespace MidManStudio.Projectiles.Managers
                     if (_projs2D[j].ProjId == tempId) { _projs2D[j].ProjId = realId; found = true; }
                 if (!found)
                     for (int j = 0; j < _count3D; j++)
-                        if (_projs3D[j].ProjId == tempId) { _projs3D[j].ProjId = realId; break; }
+                        if (_projs3D[j].ProjId == tempId) { _projs3D[j].ProjId = realId; found = true; break; }
+
+                // A burst projectile that has not spawned yet still carries the temp id.
+                if (!found) _delayed.Relink(tempId, realId);
 
                 // BUG FIX: TrailObjectPool._projToSlot is keyed by ProjId and was
                 // populated under tempId by earlier SyncToSimulation calls (this
@@ -882,6 +882,7 @@ namespace MidManStudio.Projectiles.Managers
         public void KillNetworkProjectile(uint projId)
         {
             _locallyOwnedProjIds.Remove(projId);
+            _delayed.Remove(projId);
 
             for (int i = 0; i < _count2D; i++)
                 if (_projs2D[i].ProjId == projId) { _projs2D[i].Alive = 0; return; }
@@ -1335,6 +1336,219 @@ namespace MidManStudio.Projectiles.Managers
             }
             pos = default;
             return false;
+        }
+
+        #endregion
+
+        #region Burst Timing
+
+        private readonly DelayedSpawnQueue _delayed = new DelayedSpawnQueue();
+        private System.Action<DelayedSpawnQueue.Entry> _spawnQueuedCb;
+        private readonly SpawnPoint[] _singlePoint = new SpawnPoint[1];
+
+        private sealed class OfflineShotContext
+        {
+            public uint      OwnerLocalId;
+            public float     DamageMultiplier;
+            public Transform GuidedTarget;
+        }
+
+        // Offline shot: every projectile with a start delay waits in the queue,
+        // the rest spawn now. Ids are reserved as one block either way.
+        private void SpawnStaggeredOffline(
+            SpawnPoint[] points, int count, ushort configId,
+            uint ownerLocalId, float damageMultiplier, Transform guidedTarget)
+        {
+            uint baseId  = AllocateProjIds(count);
+            var  context = new OfflineShotContext
+            {
+                OwnerLocalId     = ownerLocalId,
+                DamageMultiplier = damageMultiplier,
+                GuidedTarget     = guidedTarget
+            };
+
+            for (int i = 0; i < count; i++)
+            {
+                var entry = new DelayedSpawnQueue.Entry
+                {
+                    Point    = points[i],
+                    ProjId   = baseId + (uint)i,
+                    ConfigId = configId,
+                    Kind     = DelayedSpawnKind.Offline,
+                    Context  = context
+                };
+                QueueOrSpawn(entry, points[i].StartDelay);
+            }
+        }
+
+        // Predicted shot of the firing client. All ids are temp ids, the batch is
+        // linked to the server ids later by LinkNetworkProjectileBatch.
+        private uint SpawnFiringClientStaggered(
+            SpawnPoint[] points, int count, ushort configId, float resolvedSpeed)
+        {
+            uint baseTempId = _nextTempId;
+            _nextTempId += (uint)count;
+
+            int accepted = 0;
+            for (int i = 0; i < count; i++)
+            {
+                var entry = new DelayedSpawnQueue.Entry
+                {
+                    Point    = points[i],
+                    ProjId   = baseTempId + (uint)i,
+                    ConfigId = configId,
+                    Speed    = resolvedSpeed,
+                    Kind     = DelayedSpawnKind.FiringClient
+                };
+                if (QueueOrSpawn(entry, points[i].StartDelay)) accepted++;
+            }
+
+            if (accepted > 0) _pendingTempBases.Enqueue((baseTempId, count));
+            return baseTempId;
+        }
+
+        // Shot fired by another client. Time already flown since the server spawned
+        // the shot counts against each start delay first, and what is left moves
+        // the projectile forward along its path.
+        private void SpawnNetworkStaggered(
+            SpawnPoint[] points, int count, SpawnConfirmation conf, float elapsedSinceSpawn)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                var entry = new DelayedSpawnQueue.Entry
+                {
+                    Point    = points[i],
+                    ProjId   = conf.BaseProjId + (uint)i,
+                    ConfigId = conf.ConfigId,
+                    Speed    = conf.Speed,
+                    Kind     = DelayedSpawnKind.Network
+                };
+                QueueOrSpawn(entry, points[i].StartDelay - elapsedSinceSpawn);
+            }
+        }
+
+        // wait > 0 queues the projectile, otherwise it spawns now and the unused
+        // negative part of the wait becomes time already flown.
+        private bool QueueOrSpawn(DelayedSpawnQueue.Entry entry, float wait)
+        {
+            if (wait > 0f)
+            {
+                entry.DueTime = _delayed.Now + wait;
+                _delayed.Enqueue(entry);
+                return true;
+            }
+
+            entry.Elapsed = -wait;
+            return SpawnPellet(entry);
+        }
+
+        private void OnQueuedPellet(DelayedSpawnQueue.Entry entry) => SpawnPellet(entry);
+
+        private bool SpawnPellet(in DelayedSpawnQueue.Entry entry)
+        {
+            var cfg = ProjectileRegistry.Instance.Get(entry.ConfigId);
+            if (cfg == null) return false;
+
+            var rustParams = ProjectileRegistry.Instance.GetRustSpawnParams(
+                entry.ConfigId, entry.Speed > 0f ? entry.Speed : -1f);
+            _singlePoint[0] = entry.Point;
+
+            bool catchUp = entry.Kind == DelayedSpawnKind.Network && entry.Elapsed > 0f;
+
+            if (!cfg.Is3D)
+            {
+                if (_count2D >= _maxProjectiles2D) return false;
+                var (ptr, remaining) = GetWriteHead2D();
+                int startIdx = _count2D;
+                int written  = BatchSpawnHelper.SpawnBatch2D(
+                    _singlePoint, 1, null, rustParams,
+                    entry.ConfigId, 0, entry.ProjId, ptr, remaining, 0f);
+                if (written <= 0) return false;
+
+                _count2D += written;
+                if (catchUp) ApplyCatchUp2D(ref _projs2D[startIdx], entry.Elapsed, rustParams.Lifetime);
+            }
+            else
+            {
+                if (_count3D >= _maxProjectiles3D) return false;
+                var (ptr, remaining) = GetWriteHead3D();
+                int startIdx = _count3D;
+                int written  = BatchSpawnHelper.SpawnBatch3D(
+                    _singlePoint, 1, rustParams,
+                    entry.ConfigId, 0, entry.ProjId, ptr, remaining, 0f);
+                if (written <= 0) return false;
+
+                _count3D += written;
+                if (catchUp) ApplyCatchUp3D(ref _projs3D[startIdx], entry.Elapsed, rustParams.Lifetime);
+            }
+
+            if (entry.Kind == DelayedSpawnKind.Offline)
+                RegisterOfflinePellet(entry, cfg, rustParams);
+            return true;
+        }
+
+        private void RegisterOfflinePellet(
+            in DelayedSpawnQueue.Entry entry, ProjectileConfigSO cfg, RustSpawnParams rustParams)
+        {
+            var context = (OfflineShotContext)entry.Context;
+            _localData[entry.ProjId] = new LocalProjectileData
+            {
+                ConfigId            = entry.ConfigId,
+                OwnerLocalId        = context.OwnerLocalId,
+                DamageMultiplier    = context.DamageMultiplier,
+                IsCrit              = UnityEngine.Random.value < cfg.CritChance,
+                CollisionsRemaining = rustParams.MaxCollisions
+            };
+
+            if (context.GuidedTarget == null || cfg.MovementType != ProjectileMovementType.Guided) return;
+
+            var tracker = ProjectileGuidanceTracker.Instance;
+            if (cfg.Is3D) tracker.RegisterGuidedTarget3D(entry.ProjId, context.GuidedTarget);
+            else          tracker.RegisterGuidedTarget2D(entry.ProjId, context.GuidedTarget);
+        }
+
+        // Moves a projectile spawned late (shot fired before this client heard
+        // about it, or a burst delay already used up) along its path.
+        // Wave and circular motion is closed-form in Rust, so only the lifetime
+        // moves for those. Straight carries gravity in Ay and gets the quadratic
+        // term. Guided uses Ax/Ay as a steering heading and stays linear only.
+        private static void ApplyCatchUp2D(ref NativeProjectile p, float elapsed, float lifetime)
+        {
+            float t = Mathf.Clamp(elapsed, 0f, lifetime * 0.9f);
+
+            if (p.MovementType != MT_WAVE && p.MovementType != MT_CIRCULAR)
+            {
+                p.X += p.Vx * t;
+                p.Y += p.Vy * t;
+                if (p.MovementType == MT_STRAIGHT)
+                {
+                    p.Y  += 0.5f * p.Ay * t * t;
+                    p.Vy += p.Ay * t;
+                }
+            }
+
+            p.Lifetime -= t;
+            if (p.Lifetime <= 0f) p.Alive = 0;
+        }
+
+        private static void ApplyCatchUp3D(ref NativeProjectile3D p, float elapsed, float lifetime)
+        {
+            float t = Mathf.Clamp(elapsed, 0f, lifetime * 0.9f);
+
+            if (p.MovementType != MT_WAVE && p.MovementType != MT_CIRCULAR)
+            {
+                p.X += p.Vx * t;
+                p.Y += p.Vy * t;
+                p.Z += p.Vz * t;
+                if (p.MovementType == MT_STRAIGHT)
+                {
+                    p.Y  += 0.5f * p.Ay * t * t;
+                    p.Vy += p.Ay * t;
+                }
+            }
+
+            p.Lifetime -= t;
+            if (p.Lifetime <= 0f) p.Alive = 0;
         }
 
         #endregion
