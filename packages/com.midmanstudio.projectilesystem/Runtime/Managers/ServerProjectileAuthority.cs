@@ -854,8 +854,11 @@ namespace MidManStudio.Projectiles.Managers
         /// are written when their time comes. Ids are baseId + index either way.
         /// </summary>
         /// <param name="latencyComp">
-        /// Seconds since the client fired. It first eats into each start delay,
-        /// and only what is left shortens the projectile's lifetime.
+        /// Seconds since the client fired. Server side compensation only shortens
+        /// the projectile's lifetime and never moves it, so it must not be taken
+        /// from the start delay: that would spawn the delayed projectiles on top
+        /// of each other and the burst would collapse into one shot. Every
+        /// projectile keeps its full delay and gets the same lifetime cut.
         /// </param>
         /// <returns>Projectiles spawned now plus projectiles queued.</returns>
         public int SpawnStaggered(
@@ -872,27 +875,27 @@ namespace MidManStudio.Projectiles.Managers
             int accepted = 0;
             for (int i = 0; i < count; i++)
             {
-                float wait = points[i].StartDelay - latencyComp;
+                float delay = points[i].StartDelay;
                 var entry = new DelayedSpawnQueue.Entry
                 {
                     Point    = points[i],
                     ProjId   = baseId + (uint)i,
                     ConfigId = configId,
                     Speed    = speed,
+                    Elapsed  = latencyComp,
                     Kind     = DelayedSpawnKind.Server,
                     Context  = context
                 };
 
-                if (wait > 0f)
+                if (delay > 0f)
                 {
-                    entry.DueTime = _delayed.Now + wait;
+                    entry.DueTime = _delayed.Now + delay;
                     _delayed.Enqueue(entry);
                     accepted++;
                 }
-                else
+                else if (SpawnServerPellet(entry, cfg))
                 {
-                    entry.Elapsed = -wait;
-                    if (SpawnServerPellet(entry, cfg)) accepted++;
+                    accepted++;
                 }
             }
             return accepted;

@@ -1,5 +1,6 @@
 # com.midmanstudio.projectilesystem
 
+- `ServerProjectileAuthority.SpawnStaggered()`: burst fired by a non-host client collapsed into one shot because latency was subtracted from the start delays; delays are kept whole and latency only shortens the lifetime
 - `ProjectilePatternSO` burst timing: `BurstInterval`, `BurstJitter` and `BurstOrder` give each projectile of a pattern a start delay, `GetStartDelay()` reads it
 - `SpawnPoint.StartDelay` and `DelayedSpawnQueue`: projectiles with a start delay are written to the sim buffer when their time comes, on the server, the firing client, other clients and offline
 - `FireSeed` in `ProjectileFireRequest` and `SpawnConfirmation`, `ProjectileDirectionResolver.NewFireSeed()` and an optional `fireSeed` on `ProjectileDirectionResolver.Resolve()` and `MID_MasterProjectileSystem.Fire()`: shotgun layout, speed variance and burst jitter now differ from shot to shot and still match on every peer

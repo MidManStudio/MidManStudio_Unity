@@ -261,10 +261,13 @@ the native sim, collision, snapshots and renderers never see a pending state.
   `baseId + i`, spawned now or later, so the firing client's temp-to-real id link
   keeps working. `LinkNetworkProjectileBatch` also relinks entries still in the
   queue, and `KillNetworkProjectile` drops them.
-- On the server, latency compensation is spent on the start delay first. Only
-  what is left shortens the projectile's lifetime. Other clients treat the time
-  since the server spawn the same way, and move the projectile forward by what
-  remains.
+- On the server, latency compensation only shortens the projectile's lifetime,
+  it never moves the projectile. Taking it from the start delay would spawn the
+  delayed projectiles on top of each other, so every projectile keeps its full
+  delay and gets the same lifetime cut. Other clients do move the projectile
+  forward, so they subtract the time since the server spawn from each delay and
+  advance the projectile by what remains. The spacing between projectiles stays
+  the same.
 - A delayed projectile spawns at the origin the shot had when it was fired. The
   muzzle position is not on the wire, so following the muzzle would differ between
   peers.
@@ -617,6 +620,12 @@ suite; `build.yml` builds the app for Android and Windows only.
 - The late-spawn catch-up code existed twice, inline in `SpawnNetworkBatch2D` and
   `SpawnNetworkBatch3D`. It moved into `ApplyCatchUp2D` and `ApplyCatchUp3D` with
   the same arithmetic.
+
+### `ServerProjectileAuthority.cs`
+- A burst fired by a non-host client came out as one shot. The latency of the
+  shot was taken from each start delay, and a delay shorter than the latency
+  spawned the projectile at once on the same point as the first. The delay is
+  kept whole now.
 
 ### `DelayedSpawnQueue.cs`
 - Known limit: a queued projectile spawns even if its shooter dies before it
