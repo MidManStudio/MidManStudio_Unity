@@ -15,6 +15,60 @@
 | `void SetMusicPitch(float targetPitch, bool instant = false)` | Glide over the configured duration unless `instant` |
 | `event Action<bool> OnMusicEnabledChanged` | |
 | `MasterVolume`, `IsMusicPlaying`, `IsMusicEnabled`, `CurrentMusicId` | |
+| `int CurrentMusicAudioId` | Numeric id of the enum track that is playing, or -1 |
+
+Play by generated enum. `T` is any `unmanaged, System.Enum`, normally the generated `AudioId`; `TCategory` is
+normally `AudioCategory`. Each method has an int twin named with the suffix `ById`.
+
+| Member | Description |
+|---|---|
+| `void PlayMusic<T>(T id, bool fade = true)` | Music by audio id. The clip's category decides the mixer group and volume scale. Twin: `PlayMusicById(int id, bool fade = true)` |
+| `void PlaySFX<T>(T id)` | One-shot through the category's mixer group. Skipped when the category is muted. Twin: `PlaySFXById(int id)` |
+| `void PlaySFXPitched<T>(T id, float pitch)` | Temporary AudioSource through the category group, or the SFX group when the category has none. Twin: `PlaySFXPitchedById(int id, float pitch)` |
+| `void PlayRandomSFX<TCategory>(TCategory category)` | Random clip of the category, never the same twice in a row. Twin: `PlayRandomSFXInCategoryById(int category)` |
+| `bool TryGetClip<T>(T id, out AudioClip clip)` | Looks up a clip without playing it. Twin: `TryGetClipById(int id, out AudioClip clip)` |
+| `void SetCategoryVolume<T>(T category, float volume)` | Runtime scale from 0 to 1 on top of the catalog volume. Twin: `SetCategoryVolumeById(int category, float volume)` |
+| `float GetCategoryVolume<T>(T category)` | 1 until set. Twin: `GetCategoryVolumeById(int category)` |
+| `void SetCategoryMuted<T>(T category, bool muted)` | Twin: `SetCategoryMutedById(int category, bool muted)` |
+| `bool IsCategoryMuted<T>(T category)` | Twin: `IsCategoryMutedById(int category)` |
+| `void AddCatalog(MID_AudioCatalogSO catalog)`, `void RemoveCatalog(MID_AudioCatalogSO catalog)` | Change the merged catalogs at runtime |
+| `void RebuildCatalogLookup()` | Call after editing a catalog at runtime. Awake, `AddCatalog` and `RemoveCatalog` call it |
+
+Final volume of an enum sound: clip volume x category volume in the catalog x runtime category scale x master volume.
+A wrong-kind enum (for example `AudioCategory` passed to `PlaySFX<T>`) logs a warning once per type in the editor and in
+development builds.
+
+## `MID_AudioCatalogSO` (ScriptableObject)
+Create it from `MidManStudio/Audio/Audio Catalog`. Assign one or more to `MID_AudioManager`.
+
+| Member | Description |
+|---|---|
+| `IReadOnlyList<MID_AudioCategorySettings> Categories` | Mixer group and volume per category |
+| `IReadOnlyList<MID_AudioClipEntry> Clips` | One row per playable clip |
+| `int Validate(List<string> problems)` | Adds each problem found and returns the count. Context menu: `Validate Catalog` |
+
+`MID_AudioCategorySettings`: `int category`, `AudioMixerGroup mixerGroup`, `float volume` (0 to 1).
+`MID_AudioClipEntry`: `int id`, `int category`, `AudioClip clip`, `float volume` (0 to 1). Both `id` and
+`category` are plain ints drawn as enum popups.
+
+## Generated enums
+`AudioId` and `AudioCategory`, written by the Audio Type Generator (`MidManStudio > Audio > Audio Type Generator`),
+by default to `Assets/MidManStudio/Generated/Audio/`. Namespace `MidManStudio.Core.Audio` (a setting). Both carry
+`[MID_AudioEnum(MID_AudioEnumKind.Id)]` or `[MID_AudioEnum(MID_AudioEnumKind.Category)]`.
+
+| Default member | Value |
+|---|---|
+| `AudioId.None` | 0 |
+| `AudioCategory.None`, `Music`, `Sfx`, `Ui`, `Ambience`, `Voice` | 0, 1, 2, 3, 4, 5 |
+
+## Providers and attributes
+| Type | Description |
+|---|---|
+| `AudioIdProviderSO`, `AudioCategoryProviderSO` | Namespace `MidManStudio.Core.Audio.Generator`. Fields `packageId`, `displayName`, `priority`, `entries`. Menu: `MidManStudio/Audio/Audio Id Provider` and `Audio Category Provider` |
+| `AudioEntryDefinition` | `entryName`, `comment`, `explicitOffset` (-1 auto, 0 or more pins the offset in the block) |
+| `AudioTypeGeneratorSettingsSO` | Output paths, lock file path, block sizes (category 100, id 1000), namespace, `autoGenerateOnAssetChange` (off) |
+| `[MID_AudioId]`, `[MID_AudioCategory]` | Put on an `int` field to draw it as a popup of the generated enum |
+| `MID_AudioEnumKind`, `MID_AudioEnumAttribute` | Marks a generated enum as the id or the category enum |
 
 ## `MID_AudioLibrarySO` (ScriptableObject)
 | Member | Description |
@@ -57,6 +111,10 @@ explosion (-1). -1 skips audio.
 |---|---|
 | `MID_NativeAudioBridgeEditor`, `MID_AudioLimiterEditor` | Custom inspectors (namespace `MidManStudio.Core.EditorUtils.Audio`) |
 | `AudioPoolProviderBootstrapper` | Creates the audio pool provider asset. Menu: `MidManStudio > Audio > Internal > Recreate Audio Pool Provider` |
+| `AudioTypeGeneratorWindow`, `AudioTypeGeneratorCore` | The generator window and its `Generate(settings)` entry point (namespace `MidManStudio.Core.EditorUtils.Audio`) |
+| `AudioEnumProviderBootstrapper` | Creates the default id and category providers and the settings asset. Menu: `MidManStudio > Audio > Internal > Recreate Default Audio Providers` |
+| `MID_AudioIdDrawer`, `MID_AudioCategoryDrawer` | Property drawers for `[MID_AudioId]` and `[MID_AudioCategory]` |
+| `MID_AudioEnumLookup` | Editor-only list of the names and values of the generated enums |
 | `MID_AudioBenchWindow` | `MidManStudio > Audio > Tests > Audio Bench` |
 
 ## Native library

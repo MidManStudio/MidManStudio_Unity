@@ -2,10 +2,13 @@
 
 ## Overview
 
-Audio package for Unity 2022.3+: music with crossfade and pitch glide, SFX playback by library id, a pooled-voice
-clip player, pooled spatial audio objects, a peak limiter for the final mix, and a relay that plays audio for
-`GlobalFXManager` effects. 9 source files: 6 in `Runtime/`, 2 in `Editor/` and 1 in `Tests/Runtime/`. That is
-small enough for a single doc file.
+Audio package for Unity 2022.3+: music with crossfade and pitch glide, SFX playback by library id or by generated
+enum, audio categories with a mixer group and volume, a pooled-voice clip player, pooled spatial audio objects, a
+peak limiter for the final mix, and a relay that plays audio for `GlobalFXManager` effects. The package has 22
+source files. The 9 files documented on this page cover playback: 6 in `Runtime/`, 2 in `Editor/` and 1 in
+`Tests/Runtime/`. The 13 files behind the generated `AudioId` and `AudioCategory` enums (catalogs, providers, the
+generator, the inspector drawers and their tests) are documented in
+[Enum Ids and Categories](com.midmanstudio.audio/enum-ids.md).
 
 The package was split out of `com.midmanstudio.utilities`, where these files lived under `Runtime/Audio`. The
 namespace `MidManStudio.Core.Audio` did not change, so code that used the types only needs a reference to the
@@ -14,6 +17,12 @@ the named-list attribute and `GlobalFXManager`). Utilities does not depend on th
 
 The native `mid_audio` Rust crate stays in `rust_lib/mid_audio`. Its prebuilt libraries are committed under
 `Runtime/Plugins/Native/Audio`.
+
+## Parts
+
+- [Enum Ids and Categories](com.midmanstudio.audio/enum-ids.md) - `MID_AudioCatalogSO`, the `AudioIdProviderSO`
+  and `AudioCategoryProviderSO` provider assets, the Audio Type Generator and its lock file, the
+  `[MID_AudioId]` and `[MID_AudioCategory]` inspector popups, and the tests for the numbering logic.
 
 ## Modules
 
@@ -38,13 +47,40 @@ release parameters.
 - The managed fallback exists because the native library is not built for WebGL (see the workflow below).
 
 ### `MID_AudioManager.cs`
-**What it does:** Singleton for music and SFX. Music plays by id from a `MID_AudioLibrarySO` with crossfade,
-pause and resume, an enabled flag that raises `OnMusicEnabledChanged`, and a pitch glide. SFX play by id from a
-second library, directly from a clip, or at a custom pitch. Both outputs can be routed to AudioMixerGroups.
+**What it does:** Singleton for music and SFX. Music plays by id with crossfade, pause and resume, an enabled
+flag that raises `OnMusicEnabledChanged`, and a pitch glide. SFX play by id, directly from a clip, or at a custom
+pitch. Both outputs can be routed to AudioMixerGroups. There are two ways to name a sound. A string id is looked
+up in a `MID_AudioLibrarySO`. A generated enum value (`AudioId`) is looked up in the assigned
+`MID_AudioCatalogSO` assets, and its category decides the mixer group and a volume scale. Both can be used in the
+same project.
+
+**Public API (by enum):**
+- `void PlayMusic<T>(T id, bool fade = true)`, `void PlaySFX<T>(T id)`, `void PlaySFXPitched<T>(T id, float
+  pitch)`, `void PlayRandomSFX<TCategory>(TCategory category)`, `bool TryGetClip<T>(T id, out AudioClip clip)`.
+- `void SetCategoryVolume<T>(T category, float volume)`, `float GetCategoryVolume<T>(T category)`,
+  `void SetCategoryMuted<T>(T category, bool muted)`, `bool IsCategoryMuted<T>(T category)`.
+- Every generic method has a twin that takes the raw int: `PlayMusicById`, `PlaySFXById`, `PlaySFXPitchedById`,
+  `PlayRandomSFXInCategoryById`, `TryGetClipById`, `SetCategoryVolumeById`, `GetCategoryVolumeById`,
+  `SetCategoryMutedById`, `IsCategoryMutedById`.
+- Catalogs: `void AddCatalog(MID_AudioCatalogSO catalog)`, `void RemoveCatalog(MID_AudioCatalogSO catalog)`,
+  `void RebuildCatalogLookup()`. The inspector has a `Catalogs` list and a `Start Music Audio Id` field.
+- `int CurrentMusicAudioId`: the numeric id of the enum track that is playing, or -1.
+- The string overloads (`PlayMusic(string id, bool fade = true)`, `PlaySFX(string id)` and the rest) keep their
+  old signatures and behaviour.
+
+**Usage:**
+```csharp
+var audio = MID_AudioManager.Instance;
+audio.PlayMusic(AudioId.TavernTheme);                 // crossfades, uses the clip's category group and scale
+audio.PlaySFX(AudioId.SwordHit);
+audio.PlayRandomSFX(AudioCategory.Sfx);               // never the same clip twice in a row
+audio.SetCategoryVolume(AudioCategory.Music, 0.5f);   // a runtime scale on top of the catalog volume
+audio.SetCategoryMuted(AudioCategory.Voice, true);
+```
 
 **How it works:**
 - `PlayMusic` remembers the requested id even while music is disabled, and `SetMusicEnabled(true)` then plays
-  the remembered id (or the start id).
+  the remembered id (or the start id). This holds for string ids and enum ids.
 - Crossfades, fades and the pitch glide run as coroutines on unscaled time, so they continue while
   `Time.timeScale` is 0.
 - `PlayClipDirectPitched` creates a temporary GameObject with its own AudioSource, routes it through the SFX
@@ -53,11 +89,34 @@ second library, directly from a clip, or at a custom pitch. Both outputs can be 
   `SetMasterVolume` re-applies `master x scalar` to the music source, so changing the master volume never
   drops the clip scalar. A change during a crossfade is picked up when the fade-in ends. The mixer owns the
   user-facing volume.
+- The volume of an enum sound is clip volume x category volume from the catalog x the runtime category scale x
+  master volume. A muted category has a gain of 0: its sound effects are skipped and its music is silent.
+- The catalogs are merged in list order into int-keyed lookups. The first catalog that defines an id or a
+  category wins, and a later duplicate is reported with a warning.
+- An SFX in a category with its own mixer group plays on a separate AudioSource for that group, created on first
+  use as a child of the manager. A category with no group, or no settings row, uses the manager's SFX group.
+- The generic overloads accept any unmanaged enum, so a game's own enum with the same values works. A generated
+  enum of the wrong kind (an `AudioCategory` passed to `PlaySFX`) logs a warning once per type, in the editor and
+  in development builds only.
+- Id 0 is `AudioId.None`, the value of an unassigned field. Playing it logs a warning and plays nothing, unless
+  a catalog row uses id 0 (`MID_AudioCatalogSO.Validate` reports such a row).
 
 **Decisions:**
 - The class is generic. It has no references to a settings manager or analytics.
 - Pitched one-shots allocate a GameObject per call. They are meant for occasional use; hot paths should use
   `MID_NativeAudioBridge.PlayClip`.
+- The enum overloads are generic over `unmanaged, System.Enum` and the manager stores plain ints. The manager
+  therefore does not need to see the generated enums, which can live in any assembly or in the game project.
+- A track started by string id belongs to no category. The manager marks it with an internal value of -1, so a
+  category scale or mute never reaches it, not even the `None` category. Code that uses string ids behaves as
+  it did before.
+- When music crossfades to a track in another mixer group, the group changes at the point where the old clip has
+  faded out and the new one starts. Changing it earlier would move the clip that is still fading.
+- Pitched SFX by enum use the clip's category group and fall back to the manager's SFX group, the same group
+  `PlayClipDirectPitched` uses.
+
+**Tests:** the playback logic has no automated test in the package, because it needs a running AudioSource. The
+numbering logic behind the ids does (see `AudioTypeLogicTests.cs` in Enum Ids and Categories).
 
 ### `MID_NativeAudioBridge.cs`
 **What it does:** Singleton that owns a pool of AudioSources (4 to 32, default 16) and plays clips from an
@@ -100,6 +159,8 @@ string ids to entries. `TryGet`, `HasClip` and `Count` build the lookup on first
 - The lookup is rebuilt in `OnEnable` and whenever the dictionary is missing.
 
 **Decisions:**
+- The library stays the string-id source. Enum-based playback uses `MID_AudioCatalogSO` instead, and the manager
+  can use both at once. The library's ids are not part of the generated `AudioId` enum.
 - The create-asset menu entry is `MidManStudio/Audio/Audio Library`. It was `MidManStudio/Utilities/Audio
   Library` when the file lived in utilities. Existing library assets are not affected.
 
@@ -210,6 +271,19 @@ GameObject is cleared in `OnDisable`, otherwise `SetMasterVolume` would ignore t
 fade.
 
 **Fix:** The private coroutine `FadeIn` was not called anywhere and was removed.
+
+**Change:** The enum, catalog and category API was added. The existing string-id members keep their signatures.
+The private `CrossFade` coroutine now also takes the category and mixer group of the next track, and the music
+volume includes the category gain.
+
+**Problem:** After `SetMusicEnabled(false)` and then `SetMusicEnabled(true)`, the track that was playing is not
+resumed, because `StopMusic` clears the remembered id. Only a start track (`Start Music Id` or `Start Music Audio
+Id`) or an id requested while music was disabled plays again. Enum tracks behave the same way as string tracks.
+This was left as it was.
+
+**Problem:** `PlayMusic(id, fade: false)` while a crossfade is running does not stop the fade coroutine, so the
+fade can replace the clip again when it reaches its switch point. This is how the code behaved before the enum
+API was added, and it was left as it was.
 
 ### `MID_AudioLibrarySO.cs`
 **Fix:** A ScriptableObject survives scene changes, but its non-serialized dictionary does not survive a domain
