@@ -196,6 +196,9 @@
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Core/ProjectileLib.cs">
       <Link>Runtime/Core/ProjectileLib.cs</Link>
     </Compile>
+    <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Managers/DelayedSpawnQueue.cs">
+      <Link>Runtime/Managers/DelayedSpawnQueue.cs</Link>
+    </Compile>
     <Compile Include="/Users/midman/Desktop/MidManStudio_Unity/packages/com.midmanstudio.projectilesystem/Runtime/Network/NetworkProjectileBase.cs">
       <Link>Runtime/Network/NetworkProjectileBase.cs</Link>
     </Compile>
