@@ -44,11 +44,13 @@ hand-maintained.
 - Libraries - not yet covered.
 - SceneManagement - not yet covered.
 - AutoReference - not yet covered.
-- [FXSystems](com.midmanstudio.utilities/fx.md) - `GlobalFXManager` only so far. The rest is not yet
-  covered.
+- [FXSystems](com.midmanstudio.utilities/fx.md) - `GlobalFXManager` and `EffectTypeGenerator`. The rest is not
+  yet covered.
 - UIState - not yet covered.
-- [PoolSystems](com.midmanstudio.utilities/pool-systems.md) - `PackagePoolProviderBootstrapper` only so
-  far. The rest is not yet covered.
+- [Enum generators](com.midmanstudio.utilities/enum-generators.md) - `EnumBlockLogic` (shared numbering for
+  the effect and pool generators) and its tests. Done.
+- [PoolSystems](com.midmanstudio.utilities/pool-systems.md) - `PackagePoolProviderBootstrapper` and
+  `PoolTypeGenerator`. The rest is not yet covered.
 - Helpers - not yet covered.
 - [Ui](com.midmanstudio.utilities/ui.md) - `MID_Button` (animated button
   companion component). Done.

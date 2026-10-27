@@ -1,5 +1,8 @@
-// Generates EffectCategory.cs and EffectType.cs from provider assets.
-// Follows the same block/priority/lock pattern as PoolTypeGenerator.
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/fx.md, section "EffectTypeGenerator.cs"
+// ============================================================================
+// Generates EffectCategory.cs and EffectType.cs from the provider assets in the project.
 // Open via: MidManStudio > Utilities > Effect Type Generator
 
 #if UNITY_EDITOR
@@ -10,6 +13,7 @@ using System.Linq;
 using System.Text;
 using UnityEditor;
 using UnityEngine;
+using MidManStudio.Core.EditorUtils.Generators;
 using MidManStudio.Core.FX.Generator;
 
 namespace MidManStudio.Core.EditorUtils.FX
@@ -28,36 +32,52 @@ namespace MidManStudio.Core.EditorUtils.FX
         public void AddWarning(string m) => Warnings.Add(m);
     }
 
-    // ── Internal data ─────────────────────────────────────────────────────────
-
-    internal class FXProviderData
-    {
-        public string PackageId, DisplayName;
-        public int    Priority;
-        public List<(string name, string comment, int offset)> Entries;
-    }
-
-    internal class FXResolvedBlock
-    {
-        public string PackageId, DisplayName;
-        public int    Priority, BlockStart, BlockSize;
-        public List<(string Name, int Value, string Comment, bool Pinned)> Entries = new();
-    }
-
     // ── Lock file ─────────────────────────────────────────────────────────────
 
+    // One group of three lists per enum: the numbers in use, the block ranges, and the numbers
+    // of removed entries. A lock file written before blocks and retired numbers existed only
+    // has the two *Entries lists. The other lists stay empty when it is read.
     [Serializable]
     internal class FXLockFile
     {
-        public List<FXLockEntry> categoryEntries = new();
-        public List<FXLockEntry> typeEntries     = new();
-    }
+        public List<EnumLockEntry> categoryEntries = new();
+        public List<EnumLockBlock> categoryBlocks  = new();
+        public List<EnumLockEntry> categoryRetired = new();
 
-    [Serializable]
-    internal class FXLockEntry
-    {
-        public string packageId, name;
-        public int    value;
+        public List<EnumLockEntry> typeEntries = new();
+        public List<EnumLockBlock> typeBlocks  = new();
+        public List<EnumLockEntry> typeRetired = new();
+
+        // JsonUtility can leave a list null when the file has the key with no value.
+        public void Normalize()
+        {
+            categoryEntries ??= new();
+            categoryBlocks  ??= new();
+            categoryRetired ??= new();
+            typeEntries     ??= new();
+            typeBlocks      ??= new();
+            typeRetired     ??= new();
+        }
+
+        public EnumLockSection CategorySection() =>
+            new EnumLockSection { entries = categoryEntries, blocks = categoryBlocks, retired = categoryRetired };
+
+        public EnumLockSection TypeSection() =>
+            new EnumLockSection { entries = typeEntries, blocks = typeBlocks, retired = typeRetired };
+
+        public void SetCategory(EnumLockSection s)
+        {
+            categoryEntries = s.entries;
+            categoryBlocks  = s.blocks;
+            categoryRetired = s.retired;
+        }
+
+        public void SetType(EnumLockSection s)
+        {
+            typeEntries = s.entries;
+            typeBlocks  = s.blocks;
+            typeRetired = s.retired;
+        }
     }
 
     // ── Generator core ────────────────────────────────────────────────────────
@@ -81,145 +101,80 @@ namespace MidManStudio.Core.EditorUtils.FX
                 return result;
             }
 
-            var lockFile = LoadLock(settings.lockFilePath);
+            var lockFile = LoadLock(settings.lockFilePath, result);
+            if (lockFile == null) return result;
 
-            // ── Category enum ─────────────────────────────────────────────────
-            {
-                var providers = Collect<EffectCategoryProviderSO>(a => (a.packageId, a.displayName, a.priority, a.entries.Select(e => (e.entryName, e.comment, e.explicitOffset)).ToList()));
-                var blocks    = AssignBlocks(providers, settings.minimumBlockSize, lockFile.categoryEntries, result, "Category");
-                if (!result.HasErrors)
-                {
-                    WriteEnum(blocks, settings.categoryEnumOutputPath, settings.generatedNamespace, "EffectCategory",
-                        "Effect category IDs. AUTO-GENERATED — do not edit manually.");
-                    UpdateLock(blocks, lockFile.categoryEntries);
-                    result.CategoryBlocksWritten = blocks.Count;
-                }
-            }
+            // Both enums are worked out before any file is written, so an error in one
+            // leaves the files and the lock file as they were.
+            var categoryBlocks = EnumBlockLogic.Assign(
+                CollectCategoryProviders(), settings.minimumBlockSize, lockFile.CategorySection(),
+                result.Errors, result.Warnings, "Category", out var newCategories);
+            var typeBlocks = EnumBlockLogic.Assign(
+                CollectTypeProviders(), settings.minimumBlockSize, lockFile.TypeSection(),
+                result.Errors, result.Warnings, "Type", out var newTypes);
             if (result.HasErrors) return result;
 
-            // ── Type enum ─────────────────────────────────────────────────────
+            try
             {
-                var providers = Collect<EffectTypeProviderSO>(a => (a.packageId, a.displayName, a.priority, a.entries.Select(e => (e.entryName, e.comment, e.explicitOffset)).ToList()));
-                var blocks    = AssignBlocks(providers, settings.minimumBlockSize, lockFile.typeEntries, result, "Type");
-                if (!result.HasErrors)
-                {
-                    WriteEnum(blocks, settings.typeEnumOutputPath, settings.generatedNamespace, "EffectType",
-                        "Specific effect variant IDs. AUTO-GENERATED — do not edit manually.");
-                    UpdateLock(blocks, lockFile.typeEntries);
-                    result.TypeBlocksWritten = blocks.Count;
-                }
+                WriteEnum(categoryBlocks, settings.categoryEnumOutputPath, settings.generatedNamespace, "EffectCategory",
+                    "Effect category IDs. AUTO-GENERATED — do not edit manually.");
+                WriteEnum(typeBlocks, settings.typeEnumOutputPath, settings.generatedNamespace, "EffectType",
+                    "Specific effect variant IDs. AUTO-GENERATED — do not edit manually.");
+
+                lockFile.SetCategory(newCategories);
+                lockFile.SetType(newTypes);
+                SaveLock(lockFile, settings.lockFilePath);
+            }
+            catch (Exception e)
+            {
+                result.AddError("Could not write the generated files: " + e.Message);
+                return result;
             }
 
-            if (!result.HasErrors)
-            {
-                SaveLock(lockFile, settings.lockFilePath);
-                AssetDatabase.Refresh();
-                result.Success = true;
-            }
+            result.CategoryBlocksWritten = categoryBlocks.Count;
+            result.TypeBlocksWritten     = typeBlocks.Count;
+            AssetDatabase.Refresh();
+            result.Success = true;
             return result;
         }
 
         // ── Provider collection ───────────────────────────────────────────────
 
-        private static List<FXProviderData> Collect<T>(
-            Func<T, (string id, string display, int pri, List<(string, string, int)> entries)> extract)
-            where T : ScriptableObject
+        private static List<EnumProviderData> CollectCategoryProviders()
         {
-            var list  = new List<FXProviderData>();
-            var guids = AssetDatabase.FindAssets($"t:{typeof(T).Name}");
-            foreach (var g in guids)
+            var list = new List<EnumProviderData>();
+            foreach (var g in AssetDatabase.FindAssets($"t:{nameof(EffectCategoryProviderSO)}"))
             {
-                var asset = AssetDatabase.LoadAssetAtPath<T>(AssetDatabase.GUIDToAssetPath(g));
-                if (asset == null) continue;
-                var (id, display, pri, entries) = extract(asset);
-                list.Add(new FXProviderData { PackageId = id, DisplayName = display, Priority = pri, Entries = entries });
+                var a = AssetDatabase.LoadAssetAtPath<EffectCategoryProviderSO>(AssetDatabase.GUIDToAssetPath(g));
+                if (a != null) list.Add(ToProvider(a.packageId, a.displayName, a.priority, a.entries));
             }
             return list;
         }
 
-        // ── Block assignment — identical algorithm to PoolTypeGeneratorCore ───
-
-        private static List<FXResolvedBlock> AssignBlocks(
-            List<FXProviderData> providers, int minBlock,
-            List<FXLockEntry> lockEntries, FXGenerationResult result, string kind)
+        private static List<EnumProviderData> CollectTypeProviders()
         {
-            var sorted = providers.OrderBy(p => p.Priority).ThenBy(p => p.PackageId).ToList();
-
-            // Duplicate package ID check
-            foreach (var d in sorted.GroupBy(p => p.PackageId).Where(g => g.Count() > 1).Select(g => g.Key))
-                result.AddError($"[{kind}] Duplicate packageId '{d}'.");
-            if (result.HasErrors) return null;
-
-            // Duplicate entry name check
-            foreach (var d in sorted.SelectMany(p => p.Entries.Select(e => e.name))
-                .Where(n => !string.IsNullOrWhiteSpace(n))
-                .GroupBy(x => x).Where(g => g.Count() > 1).Select(g => g.Key))
-                result.AddError($"[{kind}] Duplicate entry name '{d}'.");
-            if (result.HasErrors) return null;
-
-            var blocks = new List<FXResolvedBlock>();
-            int cursor = 0;
-
-            foreach (var p in sorted)
+            var list = new List<EnumProviderData>();
+            foreach (var g in AssetDatabase.FindAssets($"t:{nameof(EffectTypeProviderSO)}"))
             {
-                int n         = p.Entries.Count;
-                int blockSize = Math.Max(minBlock, (int)Math.Ceiling((double)n / minBlock) * minBlock);
-                int start     = cursor;
-                var entries   = ResolveEntries(p.PackageId, p.Entries, start, blockSize, lockEntries, result, kind);
-                if (result.HasErrors) return null;
-
-                blocks.Add(new FXResolvedBlock { PackageId = p.PackageId, DisplayName = p.DisplayName, Priority = p.Priority, BlockStart = start, BlockSize = blockSize, Entries = entries });
-                cursor = start + blockSize;
+                var a = AssetDatabase.LoadAssetAtPath<EffectTypeProviderSO>(AssetDatabase.GUIDToAssetPath(g));
+                if (a != null) list.Add(ToProvider(a.packageId, a.displayName, a.priority, a.entries));
             }
-            return blocks;
+            return list;
         }
 
-        private static List<(string Name, int Value, string Comment, bool Pinned)> ResolveEntries(
-            string pkg, List<(string name, string comment, int offset)> raw,
-            int start, int size, List<FXLockEntry> lockEntries, FXGenerationResult result, string kind)
+        private static EnumProviderData ToProvider(string packageId, string displayName, int priority,
+            List<FXEntryDefinition> entries)
         {
-            var resolved = new List<(string, int, string, bool)>();
-            var slotMap  = new Dictionary<int, string>();
-
-            // Pass 1 — pinned
-            foreach (var (name, comment, offset) in raw)
-            {
-                if (offset < 0) continue;
-                if (offset >= size) { result.AddError($"[{kind}] '{name}' in '{pkg}' pins to offset {offset} but block size is {size}."); return null; }
-                int abs = start + offset;
-                if (slotMap.ContainsKey(abs)) { result.AddError($"[{kind}] Collision at offset {offset} in '{pkg}'."); return null; }
-                slotMap[abs] = name;
-                resolved.Add((name, abs, comment, true));
-            }
-
-            // Pass 2 — auto
-            int autoSlot = start;
-            foreach (var (name, comment, offset) in raw)
-            {
-                if (offset >= 0) continue;
-                var locked = lockEntries.FirstOrDefault(l => l.packageId == pkg && l.name == name);
-                int target;
-                if (locked != null && locked.value >= start && locked.value < start + size && !slotMap.ContainsKey(locked.value))
-                    target = locked.value;
-                else
-                {
-                    while (slotMap.ContainsKey(autoSlot) && autoSlot < start + size) autoSlot++;
-                    if (autoSlot >= start + size) { result.AddError($"[{kind}] Block overflow for '{pkg}'."); return null; }
-                    target = autoSlot++;
-                }
-                if (locked != null && locked.value != target)
-                    result.AddWarning($"[{kind}] '{name}' in '{pkg}' changed {locked.value} → {target}.");
-                slotMap[target] = name;
-                resolved.Add((name, target, comment, false));
-            }
-
-            resolved.Sort((a, b) => a.Item2.CompareTo(b.Item2));
-            return resolved;
+            var data = new EnumProviderData { PackageId = packageId, DisplayName = displayName, Priority = priority };
+            if (entries == null) return data;
+            foreach (var e in entries)
+                if (e != null) data.Entries.Add(new EnumEntryData(e.entryName, e.comment, e.explicitOffset));
+            return data;
         }
 
         // ── File writing ──────────────────────────────────────────────────────
 
-        private static void WriteEnum(List<FXResolvedBlock> blocks, string path,
+        private static void WriteEnum(List<EnumResolvedBlock> blocks, string path,
             string ns, string enumName, string doc)
         {
             var sb = new StringBuilder();
@@ -237,13 +192,14 @@ namespace MidManStudio.Core.EditorUtils.FX
             for (int b = 0; b < blocks.Count; b++)
             {
                 var blk = blocks[b];
-                sb.AppendLine($"        // ── {blk.DisplayName}  [{blk.PackageId}]  (block {blk.BlockStart}–{blk.BlockStart + blk.BlockSize - 1})  priority={blk.Priority}  ──");
+                sb.AppendLine($"        // ── {EnumBlockLogic.OneLine(blk.DisplayName)}  [{EnumBlockLogic.OneLine(blk.PackageId)}]  (block {blk.BlockStart}–{blk.BlockStart + blk.BlockSize - 1})  priority={blk.Priority}  ──");
                 if (blk.Entries.Count == 0) { sb.AppendLine("        // (no entries defined)"); }
-                else foreach (var (name, value, comment, pinned) in blk.Entries)
+                else foreach (var e in blk.Entries)
                 {
-                    string pin  = pinned ? " //[pinned]" : "";
-                    string cmt  = string.IsNullOrWhiteSpace(comment) ? pin : $" // {comment}{pin}";
-                    sb.AppendLine($"        {name} = {value},{cmt}");
+                    string pin     = e.Pinned ? " //[pinned]" : "";
+                    string comment = EnumBlockLogic.OneLine(e.Comment);
+                    string cmt     = comment.Length == 0 ? pin : $" // {comment}{pin}";
+                    sb.AppendLine($"        {e.Name} = {e.Value},{cmt}");
                 }
                 if (b < blocks.Count - 1) sb.AppendLine();
             }
@@ -259,11 +215,22 @@ namespace MidManStudio.Core.EditorUtils.FX
 
         // ── Lock file ─────────────────────────────────────────────────────────
 
-        private static FXLockFile LoadLock(string path)
+        private static FXLockFile LoadLock(string path, FXGenerationResult result)
         {
             if (!File.Exists(path)) return new FXLockFile();
-            try { return JsonUtility.FromJson<FXLockFile>(File.ReadAllText(path)) ?? new FXLockFile(); }
-            catch { Debug.LogWarning("[EffectTypeGenerator] Could not parse lock file — starting fresh."); return new FXLockFile(); }
+            try
+            {
+                var file = JsonUtility.FromJson<FXLockFile>(File.ReadAllText(path));
+                if (file != null) { file.Normalize(); return file; }
+            }
+            catch (Exception)
+            {
+                // Falls through to the error below.
+            }
+            // Starting over would renumber every effect, so stop and let the owner decide.
+            result.AddError($"The lock file '{path}' could not be read. Fix it or delete it, then generate again. " +
+                            "Deleting it lets all values be assigned again.");
+            return null;
         }
 
         private static void SaveLock(FXLockFile lf, string path)
@@ -271,13 +238,6 @@ namespace MidManStudio.Core.EditorUtils.FX
             var dir = Path.GetDirectoryName(path);
             if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
             File.WriteAllText(path, JsonUtility.ToJson(lf, prettyPrint: true), Encoding.UTF8);
-        }
-
-        private static void UpdateLock(List<FXResolvedBlock> blocks, List<FXLockEntry> entries)
-        {
-            entries.Clear();
-            foreach (var b in blocks) foreach (var (name, value, _, _) in b.Entries)
-                entries.Add(new FXLockEntry { packageId = b.PackageId, name = name, value = value });
         }
     }
 
@@ -445,7 +405,7 @@ namespace MidManStudio.Core.EditorUtils.FX
         }
     }
 
-    // ── Auto-generate hook -_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-__--__--__--__--__--__--___---___---___---___---___---____----____----____----____----_____-----_____------_____-----
+    // ── Auto-generate hook ────────────────────────────────────────────────────
 
     internal class FXTypeAssetPostprocessor : AssetPostprocessor
     {

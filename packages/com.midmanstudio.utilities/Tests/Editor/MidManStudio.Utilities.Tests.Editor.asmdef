@@ -4,7 +4,10 @@
     "references": [
         "MidManStudio.Utilities",
         "Unity.Burst",
-        "Unity.Collections"
+        "Unity.Collections",
+        "MidManStudio.Utilities.Editor",
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner"
     ],
     "includePlatforms": [
         "Editor"

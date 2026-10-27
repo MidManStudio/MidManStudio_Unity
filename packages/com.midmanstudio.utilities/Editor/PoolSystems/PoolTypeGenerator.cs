@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/pool-systems.md, section "PoolTypeGenerator.cs"
+// ============================================================================
 // Reads all ObjectPoolTypeProviderSO / ParticlePoolTypeProviderSO / NetworkPoolTypeProviderSO
 // assets found anywhere in the project and writes the three generated enum files.
 //
@@ -12,57 +16,75 @@ using System.Linq;
 using System.Text;
 using UnityEditor;
 using UnityEngine;
+using MidManStudio.Core.EditorUtils.Generators;
 
 namespace MidManStudio.Core.Pools.Generator
 {
     // ─────────────────────────────────────────────────────────────────────────
-    //  Internal data types
-    // ─────────────────────────────────────────────────────────────────────────
-
-    internal class ProviderData
-    {
-        public string PackageId;
-        public string DisplayName;
-        public int    Priority;
-        public List<(string name, string comment, int offset)> Entries;
-    }
-
-    internal class ResolvedBlock
-    {
-        public string              PackageId;
-        public string              DisplayName;
-        public int                 Priority;
-        public int                 BlockStart;
-        public int                 BlockSize;
-        public List<ResolvedEntry> Entries = new();
-    }
-
-    internal class ResolvedEntry
-    {
-        public string Name;
-        public int    Value;
-        public string Comment;
-        public bool   WasPinned;
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
     //  Lock file
     // ─────────────────────────────────────────────────────────────────────────
 
+    // One group of three lists per enum: the numbers in use, the block ranges, and the numbers
+    // of removed entries. A lock file written before blocks and retired numbers existed only
+    // has the three *Entries lists. The other lists stay empty when it is read.
     [Serializable]
     internal class LockFile
     {
-        public List<LockEntry> objectEntries   = new();
-        public List<LockEntry> particleEntries = new();
-        public List<LockEntry> networkEntries  = new();
-    }
+        public List<EnumLockEntry> objectEntries = new();
+        public List<EnumLockBlock> objectBlocks  = new();
+        public List<EnumLockEntry> objectRetired = new();
 
-    [Serializable]
-    internal class LockEntry
-    {
-        public string packageId;
-        public string name;
-        public int    value;
+        public List<EnumLockEntry> particleEntries = new();
+        public List<EnumLockBlock> particleBlocks  = new();
+        public List<EnumLockEntry> particleRetired = new();
+
+        public List<EnumLockEntry> networkEntries = new();
+        public List<EnumLockBlock> networkBlocks  = new();
+        public List<EnumLockEntry> networkRetired = new();
+
+        // JsonUtility can leave a list null when the file has the key with no value.
+        public void Normalize()
+        {
+            objectEntries   ??= new();
+            objectBlocks    ??= new();
+            objectRetired   ??= new();
+            particleEntries ??= new();
+            particleBlocks  ??= new();
+            particleRetired ??= new();
+            networkEntries  ??= new();
+            networkBlocks   ??= new();
+            networkRetired  ??= new();
+        }
+
+        public EnumLockSection ObjectSection() =>
+            new EnumLockSection { entries = objectEntries, blocks = objectBlocks, retired = objectRetired };
+
+        public EnumLockSection ParticleSection() =>
+            new EnumLockSection { entries = particleEntries, blocks = particleBlocks, retired = particleRetired };
+
+        public EnumLockSection NetworkSection() =>
+            new EnumLockSection { entries = networkEntries, blocks = networkBlocks, retired = networkRetired };
+
+        public void SetObject(EnumLockSection s)
+        {
+            objectEntries = s.entries;
+            objectBlocks  = s.blocks;
+            objectRetired = s.retired;
+        }
+
+        public void SetParticle(EnumLockSection s)
+        {
+            particleEntries = s.entries;
+            particleBlocks  = s.blocks;
+            particleRetired = s.retired;
+        }
+
+        public void SetNetwork(EnumLockSection s)
+        {
+            networkEntries = s.entries;
+            networkBlocks  = s.blocks;
+            networkRetired = s.retired;
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -111,125 +133,98 @@ namespace MidManStudio.Core.Pools.Generator
                 return result;
             }
 
-            var lockFile = LoadLockFile(settings.lockFilePath);
+            var lockFile = LoadLockFile(settings.lockFilePath, result);
+            if (lockFile == null) return result;
 
-            // ── Object pool ───────────────────────────────────────────────────
-            {
-                var providers = CollectObjectProviders();
-                LogProviders("Object", providers);
-                var blocks = AssignBlocks(providers, settings.minimumBlockSize,
-                    lockFile.objectEntries, result, "Object");
+            // All three enums are worked out before any file is written, so an error in one
+            // leaves the files and the lock file as they were.
+            var objectProviders = CollectObjectProviders();
+            LogProviders("Object", objectProviders);
+            var objectBlocks = EnumBlockLogic.Assign(
+                objectProviders, settings.minimumBlockSize, lockFile.ObjectSection(),
+                result.Errors, result.Warnings, "Object", out var newObject);
 
-                if (!result.HasErrors)
-                {
-                    WriteEnumFile(blocks, settings.objectEnumOutputPath,
-                        settings.generatedNamespace, "PoolableObjectType",
-                        "Object pool type IDs. AUTO-GENERATED — do not edit manually.");
-                    UpdateLockEntries(blocks, lockFile.objectEntries);
-                    result.ObjectBlocksWritten = blocks.Count;
-                }
-            }
+            var particleProviders = CollectParticleProviders();
+            LogProviders("Particle", particleProviders);
+            var particleBlocks = EnumBlockLogic.Assign(
+                particleProviders, settings.minimumBlockSize, lockFile.ParticleSection(),
+                result.Errors, result.Warnings, "Particle", out var newParticle);
 
-            if (result.HasErrors) return result;
-
-            // ── Particle pool ─────────────────────────────────────────────────
-            {
-                var providers = CollectParticleProviders();
-                LogProviders("Particle", providers);
-                var blocks = AssignBlocks(providers, settings.minimumBlockSize,
-                    lockFile.particleEntries, result, "Particle");
-
-                if (!result.HasErrors)
-                {
-                    WriteEnumFile(blocks, settings.particleEnumOutputPath,
-                        settings.generatedNamespace, "PoolableParticleType",
-                        "Particle pool type IDs. AUTO-GENERATED — do not edit manually.");
-                    UpdateLockEntries(blocks, lockFile.particleEntries);
-                    result.ParticleBlocksWritten = blocks.Count;
-                }
-            }
-
-            if (result.HasErrors) return result;
-
-            // ── Network object pool ───────────────────────────────────────────
             // Loaded via SerializedObject reflection — no netcode assembly reference needed.
-            {
-                var providers = CollectNetworkProviders();
-                LogProviders("NetworkObject", providers);
-                var blocks = AssignBlocks(providers, settings.minimumBlockSize,
-                    lockFile.networkEntries, result, "NetworkObject");
+            var networkProviders = CollectNetworkProviders();
+            LogProviders("NetworkObject", networkProviders);
+            var networkBlocks = EnumBlockLogic.Assign(
+                networkProviders, settings.minimumBlockSize, lockFile.NetworkSection(),
+                result.Errors, result.Warnings, "NetworkObject", out var newNetwork);
 
-                if (!result.HasErrors)
-                {
-                    WriteEnumFile(blocks, settings.networkEnumOutputPath,
-                        settings.generatedNamespace, "PoolableNetworkObjectType",
-                        "Network object pool type IDs. AUTO-GENERATED — do not edit manually.");
-                    UpdateLockEntries(blocks, lockFile.networkEntries);
-                    result.NetworkBlocksWritten = blocks.Count;
-                }
-            }
+            if (result.HasErrors) return result;
 
-            if (!result.HasErrors)
+            try
             {
+                WriteEnumFile(objectBlocks, settings.objectEnumOutputPath,
+                    settings.generatedNamespace, "PoolableObjectType",
+                    "Object pool type IDs. AUTO-GENERATED — do not edit manually.");
+                WriteEnumFile(particleBlocks, settings.particleEnumOutputPath,
+                    settings.generatedNamespace, "PoolableParticleType",
+                    "Particle pool type IDs. AUTO-GENERATED — do not edit manually.");
+                WriteEnumFile(networkBlocks, settings.networkEnumOutputPath,
+                    settings.generatedNamespace, "PoolableNetworkObjectType",
+                    "Network object pool type IDs. AUTO-GENERATED — do not edit manually.");
+
+                lockFile.SetObject(newObject);
+                lockFile.SetParticle(newParticle);
+                lockFile.SetNetwork(newNetwork);
                 SaveLockFile(lockFile, settings.lockFilePath);
-                AssetDatabase.Refresh();
-                result.Success = true;
+            }
+            catch (Exception e)
+            {
+                result.AddError("Could not write the generated files: " + e.Message);
+                return result;
             }
 
+            result.ObjectBlocksWritten   = objectBlocks.Count;
+            result.ParticleBlocksWritten = particleBlocks.Count;
+            result.NetworkBlocksWritten  = networkBlocks.Count;
+            AssetDatabase.Refresh();
+            result.Success = true;
             return result;
         }
 
         // ── Provider collection ───────────────────────────────────────────────
 
-        private static List<ProviderData> CollectObjectProviders()
+        private static List<EnumProviderData> CollectObjectProviders()
         {
-            var list  = new List<ProviderData>();
+            var list  = new List<EnumProviderData>();
             var guids = AssetDatabase.FindAssets("t:ObjectPoolTypeProviderSO");
             foreach (var g in guids)
             {
                 var asset = AssetDatabase.LoadAssetAtPath<ObjectPoolTypeProviderSO>(
                     AssetDatabase.GUIDToAssetPath(g));
                 if (asset == null) continue;
-                list.Add(new ProviderData
-                {
-                    PackageId   = asset.packageId,
-                    DisplayName = asset.displayName,
-                    Priority    = asset.priority,
-                    Entries     = asset.entries
-                        .Select(e => (e.entryName, e.comment, e.explicitOffset))
-                        .ToList()
-                });
+                list.Add(ToProvider(asset.packageId, asset.displayName, asset.priority, asset.entries));
             }
             return list;
         }
 
-        private static List<ProviderData> CollectParticleProviders()
+        private static List<EnumProviderData> CollectParticleProviders()
         {
-            var list  = new List<ProviderData>();
+            var list  = new List<EnumProviderData>();
             var guids = AssetDatabase.FindAssets("t:ParticlePoolTypeProviderSO");
             foreach (var g in guids)
             {
                 var asset = AssetDatabase.LoadAssetAtPath<ParticlePoolTypeProviderSO>(
                     AssetDatabase.GUIDToAssetPath(g));
                 if (asset == null) continue;
-                list.Add(new ProviderData
-                {
-                    PackageId   = asset.packageId,
-                    DisplayName = asset.displayName,
-                    Priority    = asset.priority,
-                    Entries     = asset.entries
-                        .Select(e => (e.entryName, e.comment, e.explicitOffset))
-                        .ToList()
-                });
+                list.Add(ToProvider(asset.packageId, asset.displayName, asset.priority, asset.entries));
             }
             return list;
         }
 
         // Reflection-based — no direct reference to NetworkPoolTypeProviderSO type.
         // Works regardless of whether com.midmanstudio.netcode is in the project.
-        private static List<ProviderData> CollectNetworkProviders()
+        private static List<EnumProviderData> CollectNetworkProviders()
         {
-            var list  = new List<ProviderData>();
+            var list  = new List<EnumProviderData>();
             var guids = AssetDatabase.FindAssets("t:NetworkPoolTypeProviderSO");
             foreach (var g in guids)
             {
@@ -243,7 +238,12 @@ namespace MidManStudio.Core.Pools.Generator
                 var priority    = so.FindProperty("priority")?.intValue       ?? 100;
                 var entriesProp = so.FindProperty("entries");
 
-                var entries = new List<(string name, string comment, int offset)>();
+                var data = new EnumProviderData
+                {
+                    PackageId   = packageId,
+                    DisplayName = displayName,
+                    Priority    = priority
+                };
                 if (entriesProp != null)
                 {
                     for (int i = 0; i < entriesProp.arraySize; i++)
@@ -252,22 +252,25 @@ namespace MidManStudio.Core.Pools.Generator
                         var eName   = elem.FindPropertyRelative("entryName")?.stringValue    ?? "";
                         var comment = elem.FindPropertyRelative("comment")?.stringValue      ?? "";
                         var offset  = elem.FindPropertyRelative("explicitOffset")?.intValue  ?? -1;
-                        entries.Add((eName, comment, offset));
+                        data.Entries.Add(new EnumEntryData(eName, comment, offset));
                     }
                 }
-
-                list.Add(new ProviderData
-                {
-                    PackageId   = packageId,
-                    DisplayName = displayName,
-                    Priority    = priority,
-                    Entries     = entries
-                });
+                list.Add(data);
             }
             return list;
         }
 
-        private static void LogProviders(string kind, List<ProviderData> providers)
+        private static EnumProviderData ToProvider(string packageId, string displayName, int priority,
+            List<PoolEntryDefinition> entries)
+        {
+            var data = new EnumProviderData { PackageId = packageId, DisplayName = displayName, Priority = priority };
+            if (entries == null) return data;
+            foreach (var e in entries)
+                if (e != null) data.Entries.Add(new EnumEntryData(e.entryName, e.comment, e.explicitOffset));
+            return data;
+        }
+
+        private static void LogProviders(string kind, List<EnumProviderData> providers)
         {
             if (providers.Count == 0)
             {
@@ -280,141 +283,10 @@ namespace MidManStudio.Core.Pools.Generator
             Debug.Log(sb.ToString());
         }
 
-        // ── Block assignment ──────────────────────────────────────────────────
-
-        private static List<ResolvedBlock> AssignBlocks(
-            List<ProviderData> providers,
-            int                minBlockSize,
-            List<LockEntry>    lockEntries,
-            GenerationResult   result,
-            string             poolKind)
-        {
-            var sorted = providers
-                .OrderBy(p => p.Priority)
-                .ThenBy(p => p.PackageId)
-                .ToList();
-
-            var dupes = sorted.GroupBy(p => p.PackageId)
-                .Where(g => g.Count() > 1).Select(g => g.Key).ToList();
-            foreach (var d in dupes)
-                result.AddError(
-                    $"[{poolKind}] Duplicate packageId '{d}'. Each provider must have a unique package ID.");
-
-            if (result.HasErrors) return null;
-
-            var allNames = sorted.SelectMany(p => p.Entries.Select(e => e.name))
-                .Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
-            var dupeNames = allNames.GroupBy(x => x).Where(g => g.Count() > 1)
-                .Select(g => g.Key).ToList();
-            foreach (var d in dupeNames)
-                result.AddError(
-                    $"[{poolKind}] Duplicate entry name '{d}'. All entry names must be globally unique.");
-
-            if (result.HasErrors) return null;
-
-            foreach (var p in sorted)
-                foreach (var (name, _, _) in p.Entries)
-                {
-                    if (string.IsNullOrWhiteSpace(name))
-                    { result.AddError($"[{poolKind}] Provider '{p.PackageId}' has an entry with an empty name."); continue; }
-                    if (!IsValidIdentifier(name))
-                        result.AddError($"[{poolKind}] '{name}' in '{p.PackageId}' is not a valid C# identifier.");
-                }
-
-            if (result.HasErrors) return null;
-
-            var blocks = new List<ResolvedBlock>();
-            int cursor = 0;
-
-            foreach (var p in sorted)
-            {
-                int entryCount = p.Entries.Count;
-                int blockSize  = entryCount == 0
-                    ? minBlockSize
-                    : (int)Math.Ceiling((double)entryCount / minBlockSize) * minBlockSize;
-                blockSize = Math.Max(blockSize, minBlockSize);
-
-                int blockStart = cursor;
-                var entries    = ResolveEntries(p.PackageId, p.Entries,
-                    blockStart, blockSize, lockEntries, result, poolKind);
-                if (result.HasErrors) return null;
-
-                blocks.Add(new ResolvedBlock
-                {
-                    PackageId   = p.PackageId,
-                    DisplayName = p.DisplayName,
-                    Priority    = p.Priority,
-                    BlockStart  = blockStart,
-                    BlockSize   = blockSize,
-                    Entries     = entries
-                });
-                cursor = blockStart + blockSize;
-            }
-
-            return blocks;
-        }
-
-        private static List<ResolvedEntry> ResolveEntries(
-            string                                           packageId,
-            List<(string name, string comment, int offset)> rawEntries,
-            int                                              blockStart,
-            int                                              blockSize,
-            List<LockEntry>                                  lockEntries,
-            GenerationResult                                 result,
-            string                                           poolKind)
-        {
-            var resolved = new List<ResolvedEntry>();
-            var slotMap  = new Dictionary<int, string>();
-
-            // Pass 1: pinned offsets
-            foreach (var (name, comment, offset) in rawEntries)
-            {
-                if (offset < 0) continue;
-                if (offset >= blockSize)
-                { result.AddError($"[{poolKind}] '{name}' in '{packageId}' pins to offset {offset} but block size is {blockSize}."); return null; }
-                int absValue = blockStart + offset;
-                if (slotMap.ContainsKey(absValue))
-                { result.AddError($"[{poolKind}] '{name}' and '{slotMap[absValue]}' in '{packageId}' both pin to offset {offset}."); return null; }
-                slotMap[absValue] = name;
-                resolved.Add(new ResolvedEntry { Name = name, Value = absValue, Comment = comment, WasPinned = true });
-            }
-
-            // Pass 2: auto-assign
-            int autoSlot = blockStart;
-            foreach (var (name, comment, offset) in rawEntries)
-            {
-                if (offset >= 0) continue;
-                var locked = lockEntries.FirstOrDefault(l => l.packageId == packageId && l.name == name);
-                int targetValue;
-
-                if (locked != null && locked.value >= blockStart &&
-                    locked.value < blockStart + blockSize && !slotMap.ContainsKey(locked.value))
-                {
-                    targetValue = locked.value;
-                }
-                else
-                {
-                    while (slotMap.ContainsKey(autoSlot) && autoSlot < blockStart + blockSize) autoSlot++;
-                    if (autoSlot >= blockStart + blockSize)
-                    { result.AddError($"[{poolKind}] Provider '{packageId}' has overflowed its block (size {blockSize})."); return null; }
-                    targetValue = autoSlot++;
-                }
-
-                if (locked != null && locked.value != targetValue)
-                    result.AddWarning($"[{poolKind}] '{name}' in '{packageId}' changed value {locked.value} → {targetValue}.");
-
-                slotMap[targetValue] = name;
-                resolved.Add(new ResolvedEntry { Name = name, Value = targetValue, Comment = comment, WasPinned = false });
-            }
-
-            resolved.Sort((a, b) => a.Value.CompareTo(b.Value));
-            return resolved;
-        }
-
         // ── File writing ──────────────────────────────────────────────────────
 
         private static void WriteEnumFile(
-            List<ResolvedBlock> blocks, string outputPath,
+            List<EnumResolvedBlock> blocks, string outputPath,
             string namespaceName, string enumName, string docComment)
         {
             var sb = new StringBuilder();
@@ -434,7 +306,7 @@ namespace MidManStudio.Core.Pools.Generator
                 var blk     = blocks[b];
                 int blockEnd = blk.BlockStart + blk.BlockSize - 1;
                 sb.AppendLine(
-                    $"        // ── {blk.DisplayName}  [{blk.PackageId}]" +
+                    $"        // ── {EnumBlockLogic.OneLine(blk.DisplayName)}  [{EnumBlockLogic.OneLine(blk.PackageId)}]" +
                     $"  (block {blk.BlockStart}–{blockEnd})" +
                     $"  priority={blk.Priority}  ──────────────────────────");
 
@@ -446,10 +318,10 @@ namespace MidManStudio.Core.Pools.Generator
                 {
                     foreach (var entry in blk.Entries)
                     {
-                        string pinTag  = entry.WasPinned ? " //[pinned]" : "";
-                        string comment = string.IsNullOrWhiteSpace(entry.Comment)
-                            ? pinTag : $" // {entry.Comment}{pinTag}";
-                        sb.AppendLine($"        {entry.Name} = {entry.Value},{comment}");
+                        string pinTag  = entry.Pinned ? " //[pinned]" : "";
+                        string comment = EnumBlockLogic.OneLine(entry.Comment);
+                        string text    = comment.Length == 0 ? pinTag : $" // {comment}{pinTag}";
+                        sb.AppendLine($"        {entry.Name} = {entry.Value},{text}");
                     }
                 }
 
@@ -466,11 +338,22 @@ namespace MidManStudio.Core.Pools.Generator
 
         // ── Lock file ─────────────────────────────────────────────────────────
 
-        private static LockFile LoadLockFile(string path)
+        private static LockFile LoadLockFile(string path, GenerationResult result)
         {
             if (!File.Exists(path)) return new LockFile();
-            try { return JsonUtility.FromJson<LockFile>(File.ReadAllText(path)) ?? new LockFile(); }
-            catch { Debug.LogWarning("[PoolTypeGenerator] Could not parse lock file — starting fresh."); return new LockFile(); }
+            try
+            {
+                var file = JsonUtility.FromJson<LockFile>(File.ReadAllText(path));
+                if (file != null) { file.Normalize(); return file; }
+            }
+            catch (Exception)
+            {
+                // Falls through to the error below.
+            }
+            // Starting over would renumber every pool type, so stop and let the owner decide.
+            result.AddError($"The lock file '{path}' could not be read. Fix it or delete it, then generate again. " +
+                            "Deleting it lets all values be assigned again.");
+            return null;
         }
 
         private static void SaveLockFile(LockFile lf, string path)
@@ -480,44 +363,12 @@ namespace MidManStudio.Core.Pools.Generator
             Debug.Log($"[PoolTypeGenerator] Lock file saved → {path}");
         }
 
-        private static void UpdateLockEntries(List<ResolvedBlock> blocks, List<LockEntry> lockEntries)
-        {
-            lockEntries.Clear();
-            foreach (var blk in blocks)
-                foreach (var entry in blk.Entries)
-                    lockEntries.Add(new LockEntry { packageId = blk.PackageId, name = entry.Name, value = entry.Value });
-        }
-
-        // ── Utilities ─────────────────────────────────────────────────────────
-
         private static void EnsureDirectory(string filePath)
         {
             var dir = Path.GetDirectoryName(filePath);
             if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
                 Directory.CreateDirectory(dir);
         }
-
-        private static bool IsValidIdentifier(string name)
-        {
-            if (string.IsNullOrEmpty(name)) return false;
-            if (!char.IsLetter(name[0]) && name[0] != '_') return false;
-            foreach (var c in name)
-                if (!char.IsLetterOrDigit(c) && c != '_') return false;
-            return !CSharpKeywords.Contains(name);
-        }
-
-        private static readonly HashSet<string> CSharpKeywords = new()
-        {
-            "abstract","as","base","bool","break","byte","case","catch","char","checked",
-            "class","const","continue","decimal","default","delegate","do","double","else",
-            "enum","event","explicit","extern","false","finally","fixed","float","for",
-            "foreach","goto","if","implicit","in","int","interface","internal","is","lock",
-            "long","namespace","new","null","object","operator","out","override","params",
-            "private","protected","public","readonly","ref","return","sbyte","sealed",
-            "short","sizeof","stackalloc","static","string","struct","switch","this",
-            "throw","true","try","typeof","uint","ulong","unchecked","unsafe","ushort",
-            "using","virtual","void","volatile","while"
-        };
     }
 
     // ─────────────────────────────────────────────────────────────────────────
