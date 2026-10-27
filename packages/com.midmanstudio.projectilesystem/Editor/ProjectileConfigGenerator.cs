@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ProjectileConfigGenerator.cs"
+// ============================================================================
 // Editor-only. Scans all ProjectileConfigProviderSO assets, assigns stable enum
 // values (lock-file backed), writes the ProjectileConfigType enum, and
 // auto-generates/updates the ProjectileConfigMappingSO asset.
@@ -11,45 +15,53 @@ using System.Linq;
 using System.Text;
 using UnityEditor;
 using UnityEngine;
+using MidManStudio.Core.EditorUtils.Generators;
 using MidManStudio.Projectiles.Config;
 
 namespace MidManStudio.Projectiles.EditorUtils
 {
     // ─────────────────────────────────────────────────────────────────────────
-    //  Internal data types
+    //  Lock file
     // ─────────────────────────────────────────────────────────────────────────
 
-    internal class ConfigProviderData
-    {
-        public string PackageId;
-        public string DisplayName;
-        public int    Priority;
-        public List<(string name, ProjectileConfigSO so, string comment, int offset)> Entries;
-    }
-
-    internal class ConfigResolvedBlock
-    {
-        public string PackageId;
-        public string DisplayName;
-        public int    Priority;
-        public int    BlockStart;
-        public int    BlockSize;
-        public List<ConfigResolvedEntry> Entries = new();
-    }
-
-    internal class ConfigResolvedEntry
-    {
-        public string             EnumName;
-        public ProjectileConfigSO ConfigSO;
-        public int                Value;
-        public string             Comment;
-        public bool               WasPinned;
-    }
-
+    // Three lists: the numbers in use, the block ranges, and the numbers of removed entries.
+    // A lock file written before blocks and retired numbers existed only has `entries`.
+    // The other two lists stay empty when it is read. Entries use the field name `enumName`.
     [Serializable]
     internal class ConfigLockFile
     {
         public List<ConfigLockEntry> entries = new();
+        public List<EnumLockBlock>   blocks  = new();
+        public List<ConfigLockEntry> retired = new();
+
+        // JsonUtility can leave a list null when the file has the key with no value.
+        public void Normalize()
+        {
+            entries ??= new();
+            blocks  ??= new();
+            retired ??= new();
+        }
+
+        public EnumLockSection ToSection()
+        {
+            var s = new EnumLockSection { blocks = blocks };
+            foreach (var e in entries) if (e != null) s.entries.Add(ToLogic(e));
+            foreach (var e in retired) if (e != null) s.retired.Add(ToLogic(e));
+            return s;
+        }
+
+        public void SetFrom(EnumLockSection s)
+        {
+            blocks  = s.blocks;
+            entries = s.entries.Select(FromLogic).ToList();
+            retired = s.retired.Select(FromLogic).ToList();
+        }
+
+        private static EnumLockEntry ToLogic(ConfigLockEntry e) =>
+            new EnumLockEntry { packageId = e.packageId, name = e.enumName, value = e.value };
+
+        private static ConfigLockEntry FromLogic(EnumLockEntry e) =>
+            new ConfigLockEntry { packageId = e.packageId, enumName = e.name, value = e.value };
     }
 
     [Serializable]
@@ -101,25 +113,38 @@ namespace MidManStudio.Projectiles.EditorUtils
                 return result;
             }
 
-            var lockFile  = LoadLockFile(settings.lockFilePath);
-            var providers = CollectProviders();
+            var lockFile = LoadLockFile(settings.lockFilePath, result);
+            if (lockFile == null) return result;
+
+            var providers = CollectProviders(out var configByName);
 
             if (providers.Count == 0)
                 result.AddWarning("No ProjectileConfigProviderSO assets found.");
 
-            var blocks = AssignBlocks(
-                providers, settings.minimumBlockSize, lockFile.entries, result);
+            // The numbers are worked out before any file is written, so an error leaves the
+            // enum file, the mapping asset and the lock file as they were.
+            var blocks = EnumBlockLogic.Assign(
+                providers, settings.minimumBlockSize, lockFile.ToSection(),
+                result.Errors, result.Warnings, "Config", out var newLock);
 
             if (result.HasErrors) return result;
 
-            WriteEnumFile(blocks, settings.enumOutputPath, settings.generatedNamespace);
-            UpdateMappingSO(blocks, settings.mappingAssetPath, result);
+            try
+            {
+                WriteEnumFile(blocks, settings.enumOutputPath, settings.generatedNamespace);
+                UpdateMappingSO(blocks, configByName, settings.mappingAssetPath, result);
+
+                lockFile.SetFrom(newLock);
+                SaveLockFile(lockFile, settings.lockFilePath);
+            }
+            catch (Exception e)
+            {
+                result.AddError("Could not write the generated files: " + e.Message);
+                return result;
+            }
 
             result.BlocksWritten  = blocks.Count;
             result.EntriesWritten = blocks.Sum(b => b.Entries.Count);
-
-            UpdateLockEntries(blocks, lockFile.entries);
-            SaveLockFile(lockFile, settings.lockFilePath);
 
             AssetDatabase.Refresh();
             result.Success = true;
@@ -128,9 +153,13 @@ namespace MidManStudio.Projectiles.EditorUtils
 
         // ── Provider collection ───────────────────────────────────────────────
 
-        private static List<ConfigProviderData> CollectProviders()
+        // Each entry becomes an enum name. The config asset behind a name is returned in
+        // configByName, because the numbering only deals with names.
+        private static List<EnumProviderData> CollectProviders(
+            out Dictionary<string, ProjectileConfigSO> configByName)
         {
-            var list  = new List<ConfigProviderData>();
+            var list  = new List<EnumProviderData>();
+            configByName = new Dictionary<string, ProjectileConfigSO>(StringComparer.Ordinal);
             var guids = AssetDatabase.FindAssets("t:ProjectileConfigProviderSO");
 
             foreach (var g in guids)
@@ -139,151 +168,36 @@ namespace MidManStudio.Projectiles.EditorUtils
                     AssetDatabase.GUIDToAssetPath(g));
                 if (asset == null) continue;
 
-                var entries = new List<(string, ProjectileConfigSO, string, int)>();
-                foreach (var e in asset.entries ?? new())
-                {
-                    if (string.IsNullOrWhiteSpace(e.enumName) && e.configSO == null)
-                        continue;
-
-                    string resolvedName = !string.IsNullOrWhiteSpace(e.enumName)
-                        ? e.enumName
-                        : SanitiseIdentifier(e.configSO.name);
-
-                    entries.Add((resolvedName, e.configSO, e.comment ?? "", e.explicitOffset));
-                }
-
-                list.Add(new ConfigProviderData
+                var data = new EnumProviderData
                 {
                     PackageId   = asset.packageId,
                     DisplayName = asset.displayName,
-                    Priority    = asset.priority,
-                    Entries     = entries
-                });
+                    Priority    = asset.priority
+                };
+
+                foreach (var e in asset.entries ?? new())
+                {
+                    if (e == null) continue;
+                    if (string.IsNullOrWhiteSpace(e.enumName) && e.configSO == null)
+                        continue;
+
+                    string resolvedName = (!string.IsNullOrWhiteSpace(e.enumName)
+                        ? e.enumName
+                        : SanitiseIdentifier(e.configSO.name)).Trim();
+
+                    configByName[resolvedName] = e.configSO;
+                    data.Entries.Add(new EnumEntryData(resolvedName, e.comment ?? "", e.explicitOffset));
+                }
+
+                list.Add(data);
             }
             return list;
-        }
-
-        // ── Block assignment ──────────────────────────────────────────────────
-
-        private static List<ConfigResolvedBlock> AssignBlocks(
-            List<ConfigProviderData> providers,
-            int                      minBlock,
-            List<ConfigLockEntry>    lockEntries,
-            ConfigGenerationResult   result)
-        {
-            var sorted = providers
-                .OrderBy(p => p.Priority).ThenBy(p => p.PackageId)
-                .ToList();
-
-            // Duplicate package ID
-            foreach (var d in sorted.GroupBy(p => p.PackageId).Where(g => g.Count() > 1))
-                result.AddError($"Duplicate packageId '{d.Key}' — each provider must be unique.");
-
-            // Duplicate enum names globally
-            var allNames = sorted.SelectMany(p => p.Entries.Select(e => e.name)).ToList();
-            foreach (var d in allNames.GroupBy(x => x).Where(g => g.Count() > 1))
-                result.AddError($"Duplicate enum name '{d.Key}' — all names must be globally unique.");
-
-            // Identifier validation
-            foreach (var p in sorted)
-                foreach (var (name, _, _, _) in p.Entries)
-                    if (!IsValidIdentifier(name))
-                        result.AddError($"'{name}' in '{p.PackageId}' is not a valid C# identifier.");
-
-            if (result.HasErrors) return null;
-
-            var blocks = new List<ConfigResolvedBlock>();
-            int cursor  = 0;
-
-            foreach (var p in sorted)
-            {
-                int n         = p.Entries.Count;
-                int blockSize = n == 0
-                    ? minBlock
-                    : (int)Math.Ceiling((double)n / minBlock) * minBlock;
-                blockSize = Math.Max(blockSize, minBlock);
-
-                var entries = ResolveEntries(
-                    p.PackageId, p.Entries, cursor, blockSize, lockEntries, result);
-                if (result.HasErrors) return null;
-
-                blocks.Add(new ConfigResolvedBlock
-                {
-                    PackageId   = p.PackageId,
-                    DisplayName = p.DisplayName,
-                    Priority    = p.Priority,
-                    BlockStart  = cursor,
-                    BlockSize   = blockSize,
-                    Entries     = entries
-                });
-                cursor += blockSize;
-            }
-
-            return blocks;
-        }
-
-        private static List<ConfigResolvedEntry> ResolveEntries(
-            string packageId,
-            List<(string name, ProjectileConfigSO so, string comment, int offset)> raw,
-            int blockStart, int blockSize,
-            List<ConfigLockEntry> lockEntries,
-            ConfigGenerationResult result)
-        {
-            var resolved = new List<ConfigResolvedEntry>();
-            var slotMap  = new Dictionary<int, string>();
-
-            // Pass 1: pinned offsets
-            foreach (var (name, so, comment, offset) in raw)
-            {
-                if (offset < 0) continue;
-                if (offset >= blockSize)
-                { result.AddError($"'{name}' pins to offset {offset} >= block size {blockSize}."); return null; }
-                int abs = blockStart + offset;
-                if (slotMap.ContainsKey(abs))
-                { result.AddError($"'{name}' and '{slotMap[abs]}' both pin to offset {offset}."); return null; }
-                slotMap[abs] = name;
-                resolved.Add(new ConfigResolvedEntry { EnumName = name, ConfigSO = so, Value = abs, Comment = comment, WasPinned = true });
-            }
-
-            // Pass 2: auto-assign
-            int autoSlot = blockStart;
-            foreach (var (name, so, comment, offset) in raw)
-            {
-                if (offset >= 0) continue;
-                var locked = lockEntries.FirstOrDefault(l => l.packageId == packageId && l.enumName == name);
-                int target;
-
-                if (locked != null &&
-                    locked.value >= blockStart &&
-                    locked.value < blockStart + blockSize &&
-                    !slotMap.ContainsKey(locked.value))
-                {
-                    target = locked.value;
-                }
-                else
-                {
-                    while (slotMap.ContainsKey(autoSlot) && autoSlot < blockStart + blockSize)
-                        autoSlot++;
-                    if (autoSlot >= blockStart + blockSize)
-                    { result.AddError($"Provider '{packageId}' overflowed block (size {blockSize})."); return null; }
-                    target = autoSlot++;
-                }
-
-                if (locked != null && locked.value != target)
-                    result.AddWarning($"'{name}' in '{packageId}' changed value {locked.value} → {target}.");
-
-                slotMap[target] = name;
-                resolved.Add(new ConfigResolvedEntry { EnumName = name, ConfigSO = so, Value = target, Comment = comment, WasPinned = false });
-            }
-
-            resolved.Sort((a, b) => a.Value.CompareTo(b.Value));
-            return resolved;
         }
 
         // ── Enum file writer ──────────────────────────────────────────────────
 
         private static void WriteEnumFile(
-            List<ConfigResolvedBlock> blocks, string outputPath, string ns)
+            List<EnumResolvedBlock> blocks, string outputPath, string ns)
         {
             var sb = new StringBuilder();
             sb.AppendLine("// AUTO-GENERATED by MidManStudio Projectile Config Type Generator.");
@@ -307,7 +221,7 @@ namespace MidManStudio.Projectiles.EditorUtils
                 var blk      = blocks[b];
                 int blockEnd = blk.BlockStart + blk.BlockSize - 1;
                 sb.AppendLine(
-                    $"        // ── {blk.DisplayName}  [{blk.PackageId}]" +
+                    $"        // ── {EnumBlockLogic.OneLine(blk.DisplayName)}  [{EnumBlockLogic.OneLine(blk.PackageId)}]" +
                     $"  (block {blk.BlockStart}–{blockEnd})" +
                     $"  priority={blk.Priority}  ──────────────────────────");
 
@@ -316,11 +230,10 @@ namespace MidManStudio.Projectiles.EditorUtils
                 else
                     foreach (var e in blk.Entries)
                     {
-                        // FIX: always emit the trailing text inside a // comment.
-                        // Previously: pin = " [pinned]" was appended without //,
-                        // producing invalid syntax when Comment was empty.
-                        string pinTag  = e.WasPinned ? "[pinned]" : "";
-                        string comment = e.Comment?.Trim() ?? "";
+                        // Everything after the value goes inside a // comment, so an entry
+                        // with no comment text and a pin still compiles.
+                        string pinTag  = e.Pinned ? "[pinned]" : "";
+                        string comment = EnumBlockLogic.OneLine(e.Comment);
                         string cmt;
                         if (comment.Length > 0 && pinTag.Length > 0)
                             cmt = $" // {comment} {pinTag}";
@@ -330,7 +243,7 @@ namespace MidManStudio.Projectiles.EditorUtils
                             cmt = $" // {pinTag}";
                         else
                             cmt = "";
-                        sb.AppendLine($"        {e.EnumName} = {e.Value},{cmt}");
+                        sb.AppendLine($"        {e.Name} = {e.Value},{cmt}");
                     }
 
                 if (b < blocks.Count - 1) sb.AppendLine();
@@ -346,8 +259,11 @@ namespace MidManStudio.Projectiles.EditorUtils
 
         // ── Mapping SO ────────────────────────────────────────────────────────
 
+        // The mapping asset is an array indexed by enum value. Numbers that no entry uses
+        // (the rest of a block, numbers of removed entries) stay null.
         private static void UpdateMappingSO(
-            List<ConfigResolvedBlock> blocks,
+            List<EnumResolvedBlock> blocks,
+            Dictionary<string, ProjectileConfigSO> configByName,
             string mappingPath,
             ConfigGenerationResult result)
         {
@@ -361,7 +277,7 @@ namespace MidManStudio.Projectiles.EditorUtils
             var configs = new ProjectileConfigSO[maxValue + 1];
             foreach (var blk in blocks)
                 foreach (var e in blk.Entries)
-                    configs[e.Value] = e.ConfigSO;
+                    configs[e.Value] = configByName[e.Name];
 
             var mapping = AssetDatabase.LoadAssetAtPath<ProjectileConfigMappingSO>(mappingPath);
             if (mapping == null)
@@ -381,25 +297,29 @@ namespace MidManStudio.Projectiles.EditorUtils
 
         // ── Lock file ─────────────────────────────────────────────────────────
 
-        private static ConfigLockFile LoadLockFile(string path)
+        private static ConfigLockFile LoadLockFile(string path, ConfigGenerationResult result)
         {
             if (!File.Exists(path)) return new ConfigLockFile();
-            try { return JsonUtility.FromJson<ConfigLockFile>(File.ReadAllText(path)) ?? new ConfigLockFile(); }
-            catch { Debug.LogWarning("[ProjectileConfigGenerator] Lock file unreadable — starting fresh."); return new ConfigLockFile(); }
+            try
+            {
+                var file = JsonUtility.FromJson<ConfigLockFile>(File.ReadAllText(path));
+                if (file != null) { file.Normalize(); return file; }
+            }
+            catch (Exception)
+            {
+                // Falls through to the error below.
+            }
+            // Starting over would renumber every projectile config, and the numbers are stored
+            // in the mapping asset and in scenes, so stop and let the owner decide.
+            result.AddError($"The lock file '{path}' could not be read. Fix it or delete it, then generate again. " +
+                            "Deleting it lets all values be assigned again.");
+            return null;
         }
 
         private static void SaveLockFile(ConfigLockFile lf, string path)
         {
             EnsureDirectory(path);
             File.WriteAllText(path, JsonUtility.ToJson(lf, prettyPrint: true), Encoding.UTF8);
-        }
-
-        private static void UpdateLockEntries(List<ConfigResolvedBlock> blocks, List<ConfigLockEntry> entries)
-        {
-            entries.Clear();
-            foreach (var blk in blocks)
-                foreach (var e in blk.Entries)
-                    entries.Add(new ConfigLockEntry { packageId = blk.PackageId, enumName = e.EnumName, value = e.Value });
         }
 
         // ── Utilities ─────────────────────────────────────────────────────────
@@ -421,28 +341,6 @@ namespace MidManStudio.Projectiles.EditorUtils
             string s = sb.ToString();
             if (s.Length > 0 && char.IsDigit(s[0])) s = "_" + s;
             return string.IsNullOrEmpty(s) ? "Config" : s;
-        }
-
-        private static readonly HashSet<string> CSharpKeywords = new()
-        {
-            "abstract","as","base","bool","break","byte","case","catch","char","checked",
-            "class","const","continue","decimal","default","delegate","do","double","else",
-            "enum","event","explicit","extern","false","finally","fixed","float","for",
-            "foreach","goto","if","implicit","in","int","interface","internal","is","lock",
-            "long","namespace","new","null","object","operator","out","override","params",
-            "private","protected","public","readonly","ref","return","sbyte","sealed",
-            "short","sizeof","stackalloc","static","string","struct","switch","this",
-            "throw","true","try","typeof","uint","ulong","unchecked","unsafe","ushort",
-            "using","virtual","void","volatile","while"
-        };
-
-        internal static bool IsValidIdentifier(string name)
-        {
-            if (string.IsNullOrEmpty(name)) return false;
-            if (!char.IsLetter(name[0]) && name[0] != '_') return false;
-            foreach (char c in name)
-                if (!char.IsLetterOrDigit(c) && c != '_') return false;
-            return !CSharpKeywords.Contains(name);
         }
     }
 
@@ -703,6 +601,8 @@ namespace MidManStudio.Projectiles.EditorUtils
             EditorApplication.delayCall += () =>
             {
                 var r = ProjectileConfigGeneratorCore.Generate(settings);
+                // A warning can mean a number changed, so it is never left out of the console.
+                foreach (var w in r.Warnings) Debug.LogWarning($"[ProjectileConfigGenerator Auto] {w}");
                 if (r.HasErrors)
                     foreach (var e in r.Errors) Debug.LogError($"[ProjectileConfigGenerator Auto] {e}");
                 else

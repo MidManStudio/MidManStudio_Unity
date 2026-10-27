@@ -1,9 +1,10 @@
 # com.midmanstudio.utilities: Enum generators
 
-The Effect Type Generator and the Pool Type Generator both turn provider assets into generated enum files and keep
-the numbers stable through a lock file. The number handling lives in one shared file, `EnumBlockLogic.cs`, which
-both generators call. The generator files themselves are documented with their systems:
-`EffectTypeGenerator.cs` in [fx.md](fx.md) and `PoolTypeGenerator.cs` in [pool-systems.md](pool-systems.md).
+The Effect Type Generator, the Pool Type Generator and the Projectile Config Generator turn provider assets into
+generated enum files and keep the numbers stable through a lock file. The number handling lives in one shared file,
+`EnumBlockLogic.cs`, which all three call. The generator files themselves are documented with their systems:
+`EffectTypeGenerator.cs` in [fx.md](fx.md), `PoolTypeGenerator.cs` in [pool-systems.md](pool-systems.md) and
+`ProjectileConfigGenerator.cs` in the documentation of `com.midmanstudio.projectilesystem`.
 
 ## Modules
 
@@ -11,7 +12,10 @@ both generators call. The generator files themselves are documented with their s
 **What it does:** Editor-only, with no Unity API calls. Given the providers found in the project and the lock
 file state from the last run, `EnumBlockLogic.Assign` places each provider's block of numbers, gives every entry a
 number, and returns the state to save back into the lock file. It also holds the name checks
-(`IsValidIdentifier`, `IsValidNamespace`) and `OneLine`, which keeps a comment on one line.
+(`IsValidIdentifier`, `IsValidNamespace`) and `OneLine`, which keeps a comment on one line. The types are public
+(`EnumBlockLogic`, `EnumProviderData`, `EnumEntryData`, `EnumResolvedBlock`, `EnumResolvedEntry`, `EnumLockSection`,
+`EnumLockBlock`, `EnumLockEntry`) and live in the namespace `MidManStudio.Core.EditorUtils.Generators`, so a generator
+in another package can call them. An editor assembly that does so references `MidManStudio.Utilities.Editor`.
 
 **How the numbers are chosen:**
 - Providers are sorted by priority, then by package id. Each provider owns a block, a start number and a size. The
@@ -35,7 +39,9 @@ number, and returns the state to save back into the lock file. It also holds the
 
 **Lock file:** Each lock file holds three lists per enum. The effect lock file has `categoryEntries`,
 `categoryBlocks`, `categoryRetired`, `typeEntries`, `typeBlocks` and `typeRetired`. The pool lock file has the
-same three lists for `object`, `particle` and `network`. An entry is `packageId`, `name`, `value`. A block is
+same three lists for `object`, `particle` and `network`. The projectile lock file has `entries`, `blocks` and
+`retired`. An entry is `packageId`, `name`, `value`; the projectile lock file calls the name field `enumName`, as it
+did before. A block is
 `packageId`, `start`, `size`. Lock files written before this change only have the `*Entries` lists. When a lock
 file has entries but no blocks, the blocks are worked out from where the entries sit: the start is the lowest
 value of the provider rounded down to the minimum block size, and the size covers the highest value. The first run
@@ -43,7 +49,9 @@ after an update therefore does not move anything, and the run writes the real bl
 package that reads a new lock file ignores the extra lists.
 
 **Decisions:**
-- One shared file instead of a copy per generator. The two copies had to be changed together and drift apart.
+- One shared file instead of a copy per generator. The copies had to be changed together and drift apart.
+- The types are public because the projectile generator is in another package. They were internal with an
+  `InternalsVisibleTo` entry for the test assembly before.
 - A name that is empty after trimming is ignored with a warning. The pool generator used to stop with an error on
   this, and a blank row in an inspector list is a common leftover.
 - A name that is not a valid C# member name is an error in both generators. The effect generator did not check
@@ -67,9 +75,8 @@ format, lock files with broken blocks, bad input, and 40 random sequences of edi
 changes number and no number is given to two different names.
 
 **Decisions:**
-- The test assembly is `MidManStudio.Utilities.Tests.Editor`. `EnumBlockLogic.cs` names it in an
-  `InternalsVisibleTo` attribute, because the logic classes are internal. The test assembly definition references
-  `MidManStudio.Utilities.Editor` for the same reason.
+- The test assembly is `MidManStudio.Utilities.Tests.Editor`. Its assembly definition references
+  `MidManStudio.Utilities.Editor` and the Unity test runner assemblies.
 - The tests call `Assign` directly and need no project assets, so they run in any project.
 
 ## CI and Workflows
@@ -100,6 +107,10 @@ provider took the next free number.
 auto-generate hook, and the Test Runner picking up the test assembly. The stand-in for `JsonUtility` is not the
 real one.
 
-**Problem:** Three other generators copied the old algorithm and still renumber on insert:
-`ProjectileConfigGenerator.cs` in `com.midmanstudio.projectilesystem`, `HudItemTypeGenerator.cs` in
-`com.midmanstudio.hudman` and `SettingsEnumGenerator.cs` in `com.midmanstudio.gensettings`. They were not changed.
+**Problem:** Two more generators copied the old algorithm and still renumber on insert: `HudItemTypeGenerator.cs` in
+`com.midmanstudio.hudman` and `SettingsEnumGenerator.cs` in `com.midmanstudio.gensettings`. Both packages are in the
+`unity-chem-sim` repository, so they were not changed. The projectile generator was the third copy and now uses this
+file.
+
+**Fix:** `ProjectileConfigGenerator.cs` in `com.midmanstudio.projectilesystem` calls `EnumBlockLogic.Assign`. Its
+section in the projectile documentation has the details and the checks that were run.

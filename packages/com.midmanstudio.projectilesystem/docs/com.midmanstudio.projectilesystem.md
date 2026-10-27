@@ -364,6 +364,66 @@ confirmation count is the number of projectiles spawned or queued.
 delays, so they keep the fixed layout. Burst timing applies to the Rust sim and to
 local fire.
 
+### `ProjectileConfigGenerator.cs` (Editor)
+**What it does:** Reads every `ProjectileConfigProviderSO` in the project, gives each entry an enum value, writes
+`ProjectileConfigType.cs`, fills `ProjectileConfigMappingSO` and saves the lock file. It runs from
+`MidManStudio > Projectile System > Config Type Generator > Generate Now`, and from the same window's auto-generate
+option when `autoGenerateOnAssetChange` is on. `ProjectileConfigMappingSO.Configs` is an array indexed by the enum
+value. A slot that no entry uses (the rest of a block, the number of a removed entry) is null.
+
+**How the numbers are chosen:** The rules are in `EnumBlockLogic` in `com.midmanstudio.utilities`, shared with the
+FX and pool generators and written up in `docs/com.midmanstudio.utilities/enum-generators.md`. In short:
+- Each provider owns a block of numbers. The block size is the minimum block size, rounded up so every entry and
+  every pinned offset fits. Priority only decides where a provider goes the first time.
+- An entry keeps its number wherever it sits in the list. Inserting an entry at the top or reordering the list does
+  not move anything.
+- A new entry takes the lowest free number in its block that no removed entry used.
+- A removed entry keeps its number reserved. If an entry with the same name comes back, it gets the same number.
+- A pinned entry (offset 0 or more) gets the block start plus the offset.
+- A provider that is missing keeps its block and its numbers in the lock file.
+
+**Lock file:** `ConfigTypeLock.json` has three lists: `entries` (`packageId`, `enumName`, `value`), `blocks`
+(`packageId`, `start`, `size`) and `retired` (the same fields as `entries`, for removed entries). A lock file written
+before this change only has `entries`. The blocks are then worked out from where the entries sit, so the first run
+does not move anything and writes the real blocks. An older version of the package that reads a new lock file
+ignores the extra lists. Commit the file.
+
+**Decisions:**
+- The generator calls `EnumBlockLogic.Assign` instead of keeping its own copy of the block code. The package
+  already depends on `com.midmanstudio.utilities`, and its editor assembly already references
+  `MidManStudio.Utilities.Editor`.
+- The lock file keeps the field name `enumName`, so lock files that are already in projects read without a change.
+  The shared logic uses `name`, and two small conversions in `ConfigLockFile` map between them.
+- The numbers for all providers are worked out before a file is written. An error (a name that is not a valid C#
+  member name, a duplicate name, a duplicate package id) leaves the enum file, the mapping asset and the lock file
+  as they were.
+- A lock file that cannot be read stops the run with an error. Starting over would renumber every projectile config,
+  and the numbers are stored in the mapping asset and in scenes and prefabs. Deleting the lock file lets all numbers
+  be assigned again.
+- An entry with no `enumName` and a config asset takes the asset name with characters that are not allowed replaced
+  by `_`. An entry with neither is skipped. Two entries that end up with the same name are an error.
+- A comment is written on one line. A line break inside a comment used to leave the second line outside the `//`
+  and the enum file did not compile.
+- A failure while writing the enum file, the mapping asset or the lock file is reported as an error in the result,
+  and the lock file is only written after the other two succeeded.
+- The auto-generate hook writes the warnings of a run to the console as warnings. It only logged errors before. A
+  warning can mean that a number changed.
+
+**Limits:** The auto-generate hook runs when a provider asset is imported or moved. A provider asset that is deleted
+does not start a run. Generate by hand after deleting one. The numbers of that provider stay in the lock file.
+
+**Checked outside Unity:** The file was compiled against hand-written Unity stand-ins and run on real files. The
+real `ConfigTypeLock.json` from `PackageSandbox` (12 entries, old format, with a byte order mark) gave no changed
+number and no warning, a second run changed nothing, and a new entry at the top of the provider took 12. The
+insert-first, reorder, remove and add back, corrupt lock, bad name, duplicate name, write failure, and block growth
+cases all behaved as described. A fresh run of the old and the new generator on the same providers gave the same
+mapping and the same lock entries, and enum files that match line for line apart from the timestamp and the
+comment with a line break. Six deliberate breakages of the new code (forgetting the retired numbers, forgetting
+the block ranges, ignoring the lock file, not saving the lock file, filling the mapping in list order, treating an
+unreadable lock file as a warning) each made at least one check fail. **Not checked in Unity:** `JsonUtility`
+reading and writing the new lists, the generator window and the auto-generate hook. The stand-in for `JsonUtility`
+is not the real one.
+
 ## CI and Workflows
 
 None of the workflows below run the `Tests/` scene or any automated test
@@ -635,3 +695,19 @@ suite; `build.yml` builds the app for Android and Windows only.
   server confirmation arrived is relinked in `LinkNetworkProjectileBatch`. If the
   confirmation never arrives, the projectile spawns with its temp id and is
   removed by lifetime like any other.
+
+### `ProjectileConfigGenerator.cs`
+- The generator laid out the numbers again on every run. An entry inserted before others pushed them all up by one.
+  Running the old generator with the entries A, B, C (0, 1, 2) and then adding New at the top gave New 0, A 1, B 2,
+  C 3, with three warnings, and the mapping asset followed. A `ProjectileConfigType` value that is stored in a
+  scene, a prefab or a ScriptableObject then points at a different projectile config. The same run now gives A 0,
+  B 1, C 2 and New 3, with no warnings.
+- An unreadable lock file only logged a warning and the run started over with no remembered numbers, then wrote a
+  new lock file over the old one. The run now stops with an error.
+- A comment with a line break in it produced an enum file that did not compile.
+- Known limit: a provider that moves to a new block because it outgrew its old one and the numbers after it are
+  taken changes its values, pinned entries included, because a pin is an offset inside the block. The result lists a
+  warning for the move and one for every entry that changed. A provider that is expected to grow needs a large
+  enough `minimumBlockSize` before the first generate, since a block that already exists keeps its size.
+- Known limit: the lock file has to be committed. A project that does not commit it gets the numbers from the entry
+  order again on a fresh checkout.

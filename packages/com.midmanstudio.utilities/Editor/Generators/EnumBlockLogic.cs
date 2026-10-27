@@ -5,14 +5,11 @@
 #if UNITY_EDITOR
 using System;
 using System.Collections.Generic;
-using System.Runtime.CompilerServices;
-
-[assembly: InternalsVisibleTo("MidManStudio.Utilities.Tests.Editor")]
 
 namespace MidManStudio.Core.EditorUtils.Generators
 {
     /// <summary>One entry as read from a provider asset.</summary>
-    internal sealed class EnumEntryData
+    public sealed class EnumEntryData
     {
         public readonly string Name;
         public readonly string Comment;
@@ -27,7 +24,7 @@ namespace MidManStudio.Core.EditorUtils.Generators
     }
 
     /// <summary>One provider asset: an identity, a priority and a list of entries.</summary>
-    internal sealed class EnumProviderData
+    public sealed class EnumProviderData
     {
         public string PackageId;
         public string DisplayName;
@@ -35,7 +32,8 @@ namespace MidManStudio.Core.EditorUtils.Generators
         public List<EnumEntryData> Entries = new List<EnumEntryData>();
     }
 
-    internal sealed class EnumResolvedEntry
+    /// <summary>An entry with the number it was given.</summary>
+    public sealed class EnumResolvedEntry
     {
         public string Name;
         public int Value;
@@ -43,7 +41,8 @@ namespace MidManStudio.Core.EditorUtils.Generators
         public bool Pinned;
     }
 
-    internal sealed class EnumResolvedBlock
+    /// <summary>A provider's block with its entries, in number order.</summary>
+    public sealed class EnumResolvedBlock
     {
         public string PackageId;
         public string DisplayName;
@@ -55,16 +54,16 @@ namespace MidManStudio.Core.EditorUtils.Generators
 
     /// <summary>A remembered number. The field names match the lock files written before blocks were stored.</summary>
     [Serializable]
-    internal sealed class EnumLockEntry
+    public sealed class EnumLockEntry
     {
         public string packageId;
         public string name;
         public int value;
     }
 
-    /// <summary>The range of numbers a provider owns.</summary>
+    /// <summary>The range of numbers a provider owns. Saved in lock files.</summary>
     [Serializable]
-    internal sealed class EnumLockBlock
+    public sealed class EnumLockBlock
     {
         public string packageId;
         public int start;
@@ -76,7 +75,7 @@ namespace MidManStudio.Core.EditorUtils.Generators
     /// numbers of entries that were removed. A lock file holds one of these per enum, stored as
     /// three lists with its own field names.
     /// </summary>
-    internal sealed class EnumLockSection
+    public sealed class EnumLockSection
     {
         public List<EnumLockBlock> blocks = new List<EnumLockBlock>();
         public List<EnumLockEntry> entries = new List<EnumLockEntry>();
@@ -85,10 +84,10 @@ namespace MidManStudio.Core.EditorUtils.Generators
 
     /// <summary>
     /// The Unity-free part of the enum generators: validation, block placement and value
-    /// assignment. The effect and pool generators both run their providers through
-    /// <see cref="Assign"/>.
+    /// assignment. Every generator that writes an enum from provider assets and keeps a lock
+    /// file runs its providers through <see cref="Assign"/>.
     /// </summary>
-    internal static class EnumBlockLogic
+    public static class EnumBlockLogic
     {
         private static readonly HashSet<string> Keywords = new HashSet<string>(new string[]
         {
