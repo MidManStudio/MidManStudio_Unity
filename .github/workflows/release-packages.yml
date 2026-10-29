@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       package:
-        description: 'Package to release'
+        description: 'Package to release (tag is created as <package>/v<version from package.json>)'
         required: true
         type: choice
         options:
@@ -27,36 +27,87 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Determine package
+      - name: Determine package, version and tag
         id: pkg
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_PACKAGE: ${{ github.event.inputs.package }}
         run: |
-          TAG="${{ github.ref_name }}"
-          INPUT="${{ github.event.inputs.package }}"
-          if [[ "$TAG" == utilities* || "$INPUT" == "utilities" ]]; then
-            echo "name=com.midmanstudio.utilities" >> "$GITHUB_OUTPUT"
-            echo "path=packages/com.midmanstudio.utilities" >> "$GITHUB_OUTPUT"
-          elif [[ "$TAG" == netcode* || "$INPUT" == "netcode" ]]; then
-            echo "name=com.midmanstudio.netcode" >> "$GITHUB_OUTPUT"
-            echo "path=packages/com.midmanstudio.netcode" >> "$GITHUB_OUTPUT"
-          elif [[ "$TAG" == projectilesystem* || "$INPUT" == "projectilesystem" ]]; then
-            echo "name=com.midmanstudio.projectilesystem" >> "$GITHUB_OUTPUT"
-            echo "path=packages/com.midmanstudio.projectilesystem" >> "$GITHUB_OUTPUT"
-          elif [[ "$TAG" == patterns* || "$INPUT" == "patterns" ]]; then
-            echo "name=com.midmanstudio.patterns" >> "$GITHUB_OUTPUT"
-            echo "path=packages/com.midmanstudio.patterns" >> "$GITHUB_OUTPUT"
-          elif [[ "$TAG" == audio* || "$INPUT" == "audio" ]]; then
-            echo "name=com.midmanstudio.audio" >> "$GITHUB_OUTPUT"
-            echo "path=packages/com.midmanstudio.audio" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+
+          # A pushed tag names its package before the first slash. A manual run
+          # takes the package from the input, because github.ref_name is then a
+          # branch name and says nothing about the package.
+          if [[ "$REF_TYPE" == "tag" ]]; then
+            SHORT="${REF_NAME%%/*}"
           else
-            echo "::error::Could not determine package from tag '$TAG' or input '$INPUT'"
+            SHORT="$INPUT_PACKAGE"
+          fi
+
+          case "$SHORT" in
+            utilities|netcode|projectilesystem|patterns|audio) ;;
+            *)
+              echo "::error::Unknown package '$SHORT' (ref type '$REF_TYPE', ref '$REF_NAME')"
+              exit 1
+              ;;
+          esac
+
+          NAME="com.midmanstudio.$SHORT"
+          PKG_PATH="packages/$NAME"
+          if [[ ! -f "$PKG_PATH/package.json" ]]; then
+            echo "::error::$PKG_PATH/package.json not found at this commit"
             exit 1
+          fi
+
+          VERSION="$(jq -r '.version // empty' "$PKG_PATH/package.json")"
+          if [[ -z "$VERSION" ]]; then
+            echo "::error::No version in $PKG_PATH/package.json"
+            exit 1
+          fi
+
+          TAG="$SHORT/v$VERSION"
+          if [[ "$REF_TYPE" == "tag" && "$REF_NAME" != "$TAG" ]]; then
+            echo "::error::Tag '$REF_NAME' does not match package.json version. Expected '$TAG'."
+            exit 1
+          fi
+
+          {
+            echo "short=$SHORT"
+            echo "name=$NAME"
+            echo "path=$PKG_PATH"
+            echo "version=$VERSION"
+            echo "tag=$TAG"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Extract release notes
+        env:
+          PKG_PATH: ${{ steps.pkg.outputs.path }}
+          VERSION: ${{ steps.pkg.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          # Notes are the "## <version>" section of the package CHANGELOG.md,
+          # up to the next "## " heading.
+          awk -v v="$VERSION" '
+            /^## / {
+              if (found) exit
+              if ($2 == v) { found = 1; next }
+            }
+            found { print }
+          ' "$PKG_PATH/CHANGELOG.md" > release-notes.md
+
+          if [[ ! -s release-notes.md ]]; then
+            echo "::warning::$PKG_PATH/CHANGELOG.md has no '## $VERSION' section. Using the whole file."
+            cp "$PKG_PATH/CHANGELOG.md" release-notes.md
           fi
 
       - name: Create release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ github.ref_name }}
-          name: "${{ steps.pkg.outputs.name }} ${{ github.ref_name }}"
-          body_path: ${{ steps.pkg.outputs.path }}/CHANGELOG.md
+          tag_name: ${{ steps.pkg.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: "${{ steps.pkg.outputs.name }} ${{ steps.pkg.outputs.tag }}"
+          body_path: release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
