@@ -32,9 +32,8 @@ Step-by-step instructions for hand-building a manual test scene for each system.
    netObj.Spawn();
    ```
 
-8. Confirm in the Hierarchy: the object appears under the pool's despawned-object
-   tracking when returned via `ReturnNetworkObject`, and is fully despawned (not just
-   deactivated) if the whole session ends.
+8. Confirm in the Hierarchy: an object returned through `ReturnNetworkObject` is deactivated
+   (not destroyed) and stays in the scene that holds the pool until it is handed out again.
 
 ## Scene 2: Local Lobby (LAN/WiFi)
 
@@ -74,9 +73,10 @@ via ParrelSync, or one Editor + one built player.
 
 6. On instance A: click Host. On instance B: click Search, wait for the lobby to appear
    in the list, click it to call `JoinLobby`.
-7. Expected result: `OnPlayerJoined` fires on the host, `OnGameStartReceived` fires on
-   both once the host actually starts the match (however your game defines "start" —
-   this manager handles discovery/connection, not match flow).
+7. Expected result: `OnPlayerJoined` fires on the host. After every real player has called
+   `SetPlayerReady(clientId, true)`, the host's `RequestGameStart()` raises
+   `OnGameStartReceived` on both (this manager handles discovery, connection and the
+   ready/start handshake, not match flow).
 
 > **If discovery doesn't find anything:** confirm both instances are on the same
 > physical network/subnet, and that nothing (OS firewall, corporate network policy) is
@@ -89,10 +89,17 @@ via ParrelSync, or one Editor + one built player.
    with a `NetworkTransform`, moving in a fixed pattern so hits are reproducible)
 2. Add `MID_LagCompensatedTarget` to the target
 3. Add `MID_LagCompensator` to a persistent manager object
-4. From your hit-detection code (server-side), rewind to the client's observed time
-   before resolving the hit — see [`APICATALOG.md`](../APICATALOG.md) for the exact
-   rewind/restore call shape, since it depends on whether you're compensating a raycast
-   or an overlap check.
+4. From your hit-detection code (server-side), rewind to the client's fire tick before
+   resolving the hit. The call is the same for a raycast or an overlap check, and the
+   scope restores every target when it is disposed (see section 9 of
+   [`APICATALOG.md`](../APICATALOG.md)):
+
+   ```csharp
+   using (MID_LagCompensator.BeginRewind(clientFireTick))
+   {
+       Physics.Raycast(origin, direction, out var hit, maxDistance);
+   }
+   ```
 5. Test with an artificial latency simulator (Unity's Multiplayer Tools package, or
    Netcode for GameObjects' own simulated latency in the Editor) to confirm a shot that
    visually lines up on the client's screen actually registers server-side, even though

@@ -1,3 +1,8 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.netcode.md, section "NetworkPoolTypeProviderSO.cs"
+// ============================================================================
+
 // Contributes entries to the generated PoolableNetworkObjectType enum.
 // Same system as PoolTypeProviderSO but for the network object pool.
 //
@@ -36,9 +41,8 @@ namespace MidManStudio.Netcode.Generator
 
         public int EntryCount => entries?.Count ?? 0;
 
-        // IPoolEntryProviderSO — lets PoolTypeProviderEditorBase (defined in
-        // com.midmanstudio.utilities, already referenced by this package's
-        // Editor asmdef) drive this provider's JSON-import panel too.
+        // IPoolEntryProviderSO lets PoolTypeProviderEditorBase (in
+        // com.midmanstudio.utilities) drive this provider's JSON-import panel.
         List<PoolEntryDefinition> IPoolEntryProviderSO.Entries => entries;
     }
 }

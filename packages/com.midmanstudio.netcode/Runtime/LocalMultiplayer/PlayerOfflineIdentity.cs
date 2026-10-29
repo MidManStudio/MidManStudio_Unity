@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.netcode.md, section "PlayerOfflineIdentity.cs"
+// ============================================================================
 
 using System;
 using UnityEngine;
@@ -6,8 +10,8 @@ using MidManStudio.Core.Singleton;
 namespace MidManStudio.Netcode.LocalMultiplayer
 {
     /// <summary>
-    ///Persistent offline player identity. Survives scene loads via DontDestroyOnLoad.
-    ///Saves to PlayerPrefs. Structured for clean migration to an online account.
+    /// Persistent offline player identity. Survives scene loads via DontDestroyOnLoad.
+    /// Saves to PlayerPrefs. Structured for clean migration to an online account.
     /// </summary>
     public class PlayerOfflineIdentity : Singleton<PlayerOfflineIdentity>
     {

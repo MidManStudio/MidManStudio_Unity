@@ -1,5 +1,10 @@
-// MID_NetworkString<T> — pick your own capacity instead of one hardcoded size,
-// by choosing which Unity FixedString type T is:
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.netcode.md, section "MID_NetworkString.cs"
+// ============================================================================
+
+// MID_NetworkString<T> - a NetworkVariable-friendly string whose capacity is
+// chosen by T, one of Unity's FixedString types:
 //
 //   MID_NetworkString<FixedString32Bytes>    - 29 usable bytes
 //   MID_NetworkString<FixedString64Bytes>    - 61 usable bytes
@@ -7,31 +12,21 @@
 //   MID_NetworkString<FixedString512Bytes>   - 509 usable bytes
 //   MID_NetworkString<FixedString4096Bytes>  - 4093 usable bytes
 //
-// (Usable BYTES, not characters — multi-byte UTF8 characters eat more than
-// one byte each, so those numbers are worst-case-ASCII character counts.)
+// Usable BYTES, not characters: multi-byte UTF-8 characters use more than one,
+// so the numbers are worst-case-ASCII character counts.
 //
-// ONE generic wrapper instead of five duplicated ones works because every
-// FixedString type implements the same two interfaces (INativeList<byte>,
-// IUTF8Bytes), and Netcode's own BufferSerializer<T>.SerializeValue has a
-// generic overload constrained to exactly those two interfaces — confirmed
-// against the actual 1.7.1 API:
+// One generic wrapper covers every size because all FixedString types implement
+// INativeList<byte> and IUTF8Bytes, and BufferSerializer<T>.SerializeValue has an
+// overload constrained to exactly those two interfaces, so every size takes the
+// same path that sends only the used bytes:
 //
 //   public void SerializeValue<T>(ref T value, FastBufferWriter.ForFixedStrings unused = default)
 //       where T : unmanaged, INativeList<byte>, IUTF8Bytes
 //
-// So this hits the same efficient "send only the used bytes" path regardless
-// of which concrete size T is — no duplicated per-size wrapper needed.
-//
-// NO TRUE "GROWABLE" OPTION EXISTS, and this generic version doesn't change
-// that — every FixedString size is still a fixed byte buffer baked into the
-// struct's own memory layout, which is what makes it blittable/allocation-
-// free in the first place. If you genuinely need unbounded length as
-// continuously-synced state (not a one-off RPC argument), that's a real
-// design tradeoff: Unity.Collections.NativeList<byte> is an actual growable
-// option Netcode supports directly, but it's native-allocated memory you
-// have to Allocator-allocate and Dispose() yourself, not a value type — pick
-// it only if you specifically need growability and are willing to own that
-// lifecycle management.
+// There is no growable option: a FixedString is a fixed buffer inside the
+// struct, which is what keeps it blittable and allocation free. Unbounded text
+// as continuously synced state would need Unity.Collections.NativeList<byte>,
+// which the owner allocates and disposes.
 //
 // USAGE:
 //   private readonly NetworkVariable<MID_NetworkString<FixedString64Bytes>> _displayName = new(
@@ -82,12 +77,9 @@ namespace MidManStudio.Netcode.Collections
                 return;
             }
 
-            // Same version note as the previous non-generic version: this
-            // resolves to the matching generic FixedStringMethods.
-            // CopyFromTruncated<T>(ref T, string) overload — returns CopyError
-            // on com.unity.collections 2.2.1 (this package's pin), void on
-            // 1.4.0. If that dependency version ever drops below ~2.0, this
-            // line stops compiling and needs to go back to a plain
+            // Resolves to FixedStringMethods.CopyFromTruncated<T>(ref T, string), which
+            // returns CopyError on com.unity.collections 2.2.1 (this package's pin) and
+            // void on 1.4.0. Below ~2.0 this line stops compiling and must become
             // `_value.CopyFromTruncated(value); WasTruncated = false;`.
             var result = _value.CopyFromTruncated(value);
             WasTruncated = result != CopyError.None;
@@ -96,9 +88,7 @@ namespace MidManStudio.Netcode.Collections
         public void NetworkSerialize<TReaderWriter>(BufferSerializer<TReaderWriter> serializer)
             where TReaderWriter : IReaderWriter
         {
-            // Delegates to T's own FixedString serialization — the actual
-            // point of this class. See the file header for why a plain
-            // unmanaged wrapper struct wouldn't get this for free.
+            // Delegates to T's own FixedString serialization (see the file header).
             serializer.SerializeValue(ref _value);
         }
 

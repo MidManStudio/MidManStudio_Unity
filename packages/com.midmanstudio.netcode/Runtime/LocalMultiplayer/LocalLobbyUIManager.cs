@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.netcode.md, section "LocalLobbyUIManager.cs"
+// ============================================================================
 
 using System.Collections.Generic;
 using UnityEngine;
@@ -8,7 +12,10 @@ using MidManStudio.Netcode.LocalMultiplayer;
 namespace MidManStudio.Netcode.UI
 {
     /// <summary>
-    /// Overridable ui manager for offline lobbies, subscribes to callbacks from lobbymanager , and invokes events that can be ovveriden to perform some logic, useful for ui and stuff
+    /// Abstract UI base for the local lobby. Subscribes to LocalLobbyManager (and the
+    /// optional MobileNetworkStatusMonitor), moves a MID_UIStateContext between the
+    /// lobby states and calls the protected virtual hooks, which subclasses override
+    /// to drive their own panels.
     /// </summary>
     [RequireComponent(typeof(Canvas))]
     public abstract class LocalLobbyUIManager : MonoBehaviour
@@ -161,7 +168,7 @@ namespace MidManStudio.Netcode.UI
             if (success)
                 GoToInLobby();
             else
-                GoToMain(); // FIX: previously stayed on Loading panel on failure
+                GoToMain(); // a failed attempt returns to Main
 
             OnHostResult(success);
         }
@@ -174,7 +181,7 @@ namespace MidManStudio.Netcode.UI
             if (success)
                 GoToInLobby();
             else
-                GoToMain(); // FIX: previously stayed on Loading panel on failure
+                GoToMain(); // a failed attempt returns to Main
 
             OnJoinResult(success);
         }

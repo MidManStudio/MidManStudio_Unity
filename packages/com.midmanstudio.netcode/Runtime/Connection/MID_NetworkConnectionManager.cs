@@ -1,3 +1,8 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.netcode.md, section "MID_NetworkConnectionManager.cs"
+// ============================================================================
+
 // Generic internet connectivity monitor.
 // Fires onConnectionStatusChanged when connectivity state changes.
 // No game-specific dependencies.
@@ -29,8 +34,8 @@ namespace MidManStudio.Netcode
         HttpPing,
     }
     /// <summary>
-    /// Dedicated network connction manger, checks for internet connection via options such as ping,httpRequest,dnsLookup e.t.c
-    /// can be configured to run continiously or just one time lookup
+    /// Internet connectivity monitor. Checks by ping, HTTP request, DNS lookup, TCP
+    /// connection or HTTP GET, either continuously in the background or once on demand.
     /// </summary>
     public class MID_NetworkConnectionManager : Singleton<MID_NetworkConnectionManager>
     {
@@ -261,8 +266,14 @@ namespace MidManStudio.Netcode
             for (int attempt = 0; attempt < 2; attempt++)
             {
                 using var request = UnityWebRequest.Get(HttpCheckUrl);
-                request.timeout = _timeoutMs / 1000;
-                 request.SendWebRequest();
+                // timeout 0 would mean "no timeout", so keep it at one second or more.
+                request.timeout = Mathf.Max(1, _timeoutMs / 1000);
+
+                // SendWebRequest only starts the request; request.result is not
+                // valid until the operation reports isDone.
+                var op = request.SendWebRequest();
+                while (!op.isDone) await Task.Yield();
+
                 if (request.result == UnityWebRequest.Result.Success) return true;
                 if (attempt < 1) await Task.Delay(1000);
             }
@@ -296,8 +307,10 @@ namespace MidManStudio.Netcode
         {
             try
             {
-                _httpClient.Timeout = TimeSpan.FromMilliseconds(_timeoutMs);
-                var response = await _httpClient.GetAsync(HttpPingUrl);
+                // HttpClient.Timeout cannot be changed once the instance has sent a
+                // request, so the timeout is applied per request with a token.
+                using var cts = new CancellationTokenSource(_timeoutMs);
+                var response = await _httpClient.GetAsync(HttpPingUrl, cts.Token);
                 return response.IsSuccessStatusCode;
             }
             catch { return false; }

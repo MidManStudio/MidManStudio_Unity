@@ -1,3 +1,8 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.netcode.md, section "MobileNetworkStatusMonitor.cs"
+// ============================================================================
+
 using System;
 using System.Collections;
 using System.Net.NetworkInformation;

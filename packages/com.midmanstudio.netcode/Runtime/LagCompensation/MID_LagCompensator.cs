@@ -1,3 +1,8 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.netcode.md, section "MID_LagCompensator.cs"
+// ============================================================================
+
 // MID_LagCompensator — server-side lag compensation coordinator.
 //
 // WHAT THIS IS FOR:
@@ -30,15 +35,14 @@
 //   2. Add MID_LagCompensatedTarget to every prefab that should be
 //      rewindable for hit-checks (player capsule, etc).
 //   3. Thread the shooter's fire tick (NetworkManager.ServerTime.Tick, taken
-//      client-side at the moment of firing — see ProjectileFireRequest.
-//      ClientFireTick, already wired in this package) through to wherever
+//      client-side at the moment of firing; com.midmanstudio.projectilesystem
+//      carries it as ProjectileFireRequest.ClientFireTick) through to wherever
 //      you call BeginRewind server-side.
 //
 // NOT reentrant / not nestable: don't open a second BeginRewind scope before
-// disposing the first. Every raycast fire event in this package only ever
-// needs one scope open at a time (a whole pattern's N pellets share one
-// rewind — see RaycastProjectileHandler.ServerHandleFirePattern), so this
-// keeps the implementation simple rather than stack-based.
+// disposing the first (a second call returns a no-op scope). The projectile
+// system only needs one scope at a time: a whole pattern's pellets share one
+// rewind (RaycastProjectileHandler.ServerHandleFirePattern).
 
 using System;
 using System.Collections.Generic;

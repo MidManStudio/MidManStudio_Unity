@@ -1,10 +1,12 @@
-// Custom Inspector for NetworkPoolTypeProviderSO. All the actual UI (the
-// "Import Entries from JSON" panel) lives in PoolTypeProviderEditorBase, over
-// in com.midmanstudio.utilities — this package's Editor asmdef already
-// references both MidManStudio.Utilities and MidManStudio.Utilities.Editor
-// (needed for IPoolableNetworkObject / MID_NamedList already), so this is
-// just the one-line hookup, same as ObjectPoolTypeProviderEditor /
-// ParticlePoolTypeProviderEditor.
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.netcode.md, section "NetworkPoolTypeProviderEditor.cs"
+// ============================================================================
+
+// Custom Inspector for NetworkPoolTypeProviderSO. The UI (including the
+// "Import Entries from JSON" panel) lives in PoolTypeProviderEditorBase in
+// com.midmanstudio.utilities. This class only hooks it up, the same way
+// ObjectPoolTypeProviderEditor and ParticlePoolTypeProviderEditor do.
 
 using UnityEditor;
 using MidManStudio.Core.Pools.Generator;

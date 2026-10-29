@@ -1,3 +1,8 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.netcode.md, section "LocalLobbyData.cs"
+// ============================================================================
+
 // Generic lobby data container. No game-specific fields.
 // Game code can use CustomData (JSON string) for game-specific fields
 // without creating a dependency on this package.

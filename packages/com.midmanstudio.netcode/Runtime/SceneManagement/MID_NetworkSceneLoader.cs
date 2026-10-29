@@ -1,10 +1,16 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.netcode.md, section "MID_NetworkSceneLoader.cs"
+// ============================================================================
+
 // NGO-managed additive scene loader. Implements ISceneLoader.
 // Uses HybridNetworkSingleton — available before NGO spawns.
 // Scene names resolved via generated SceneRegistry.
 //
 // SETUP:
 //   1. Add to a persistent NetworkBehaviour GameObject with a NetworkObject.
-//   2. Call MID_SceneTransitionController.Instance.SetNetworkLoader(Instance) at runtime.
+//   2. At runtime call
+//      MID_SceneTransitionController.Instance.SetNetworkLoader(MID_NetworkSceneLoader.Instance).
 //   3. Host calls LoadScene(..., SceneLoadType.NetworkAdditive) — synced to all clients.
 
 using System;

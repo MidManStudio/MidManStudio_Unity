@@ -1,31 +1,23 @@
-// MID_BitPacker — compact bit-packed storage for network sync.
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.netcode.md, section "MID_BitPacker.cs"
+// ============================================================================
+
+// MID_BitPacker - compact bit-packed storage for network sync.
 //
-// Two related tools in this file:
+// Two tools in this file:
 //
 //   MID_BitMask32 / MID_BitMask64
-//     Single-bit flag storage — "is slot N true or false". API is a direct
-//     port of mid-math's storage mask family (Mid-D-Man/mid-engine,
-//     crates/mid-math/src/storage/storage_mask.rs — BitMask8/16/32/64/128/256),
-//     translated from Rust snake_case to C# PascalCase but otherwise the same
-//     names and semantics: FromBits/ToBits, FromIndices, Get/Set/Clear/Toggle,
-//     Any/All/None, CountOnes/CountZeros, Intersection/Union/Difference/
-//     SymmetricDifference, Matches (ECS-style "has all required bits"),
-//     IsDisjoint/IsSubsetOf, IterOnes. Only 32/64-bit widths are included
-//     here; port BitMask128/256 the same way (two/four ulong words +
-//     WideIterOnes, same macro shape as the Rust file) if a wider flag set is
-//     ever needed.
+//     Single-bit flag storage: "is slot N true or false". API: FromBits/ToBits,
+//     FromIndices, Get/Set/Clear/Toggle, Any/All/None, CountOnes/CountZeros,
+//     Intersection/Union/Difference/SymmetricDifference, Matches (true when
+//     every required bit is set), IsDisjoint/IsSubsetOf, IterOnes.
 //
 //   MID_BitPacker64 + MID_BitFieldLayout
-//     What was actually asked for: pack several small MULTI-BIT fields —
-//     enums, small ints, bools — into a single ulong instead of syncing each
-//     one as its own NetworkVariable. A NetworkVariable<T> has fixed overhead
-//     per variable (dirty tracking, header, delta message) regardless of how
-//     small T is, so five 3-bit enums as five separate NetworkVariable<byte>
-//     costs five times that overhead for 15 bits of actual data. Packed into
-//     one MID_BitPacker64, it's one NetworkVariable, one ulong on the wire,
-//     one dirty check.
+//     Packs several small multi-bit fields (enums, small ints, bools) into one
+//     ulong, so they sync as one NetworkVariable instead of one each.
 //
-// USAGE — packing a handful of enums into one synced ulong:
+// USAGE: packing a handful of enums into one synced ulong:
 //
 //   public enum WeaponState : byte { Idle, Firing, Reloading, Jammed }
 //   public enum AmmoType    : byte { Standard, Explosive, Incendiary, EMP, Tracer }
@@ -54,9 +46,9 @@
 //   var ammo   = n_Packed.Value.GetEnum<AmmoType>(AmmoField);
 //   var charge = n_Packed.Value.GetField(ChargeField);
 //
-// MID_BitFieldLayout.Reserve throws if the total exceeds 64 bits — build the
+// MID_BitFieldLayout.Reserve throws if the total exceeds 64 bits. Build the
 // layout once at startup (e.g. a static readonly block) so a config mistake
-// surfaces immediately instead of silently truncating a field at runtime.
+// shows immediately instead of silently truncating a field at runtime.
 
 using System;
 using System.Collections.Generic;
@@ -377,12 +369,8 @@ namespace MidManStudio.Netcode.Collections
             => (_bits >> field.Offset) & field.Mask;
 
         /// <summary>
-        /// Writes <paramref name="value"/> into <paramref name="field"/>. Values
-        /// wider than the field are silently truncated to its low bits (masked,
-        /// not clamped) — same "your responsibility to size the field right"
-        /// contract as mid-math's BitMask index checks, minus the throw, since
-        /// truncation here is recoverable and a thrown exception mid-tick on a
-        /// hot networked write path is worse than a wrong-but-bounded value.
+        /// Writes <paramref name="value"/> into <paramref name="field"/>. A value wider
+        /// than the field is masked to its low bits (not clamped, no exception).
         /// </summary>
         public void SetField(in MID_BitField field, ulong value)
         {
@@ -396,13 +384,8 @@ namespace MidManStudio.Netcode.Collections
         public void SetBool(in MID_BitField field, bool value) => SetField(field, value ? 1UL : 0UL);
 
         // ── Enum convenience ────────────────────────────────────────────────
-        // NOTE: boxes the enum value (Convert.ToUInt64 / Enum.ToObject) — fine
-        // for config/state-style fields that change occasionally, which is what
-        // this packer targets. If profiling ever shows this matters on a truly
-        // hot per-tick field, replace with a Unity.Collections.LowLevel.Unsafe
-        // .UnsafeUtility-based reinterpret cast sized off
-        // Enum.GetUnderlyingType(typeof(TEnum)) — not done here to keep this
-        // first pass straightforward and safe on any API compatibility level.
+        // Boxes the enum value (Convert.ToUInt64 / Enum.ToObject). Fine for state
+        // that changes now and then, avoid it on a field written every tick.
 
         public TEnum GetEnum<TEnum>(in MID_BitField field) where TEnum : unmanaged, Enum
             => (TEnum)Enum.ToObject(typeof(TEnum), GetField(field));

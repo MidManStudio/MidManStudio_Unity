@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.netcode.md, section "NetcodePoolProviderBootstrapper.cs"
+// ============================================================================
 
 #if UNITY_EDITOR
 using System.IO;
@@ -8,8 +12,8 @@ using MidManStudio.Netcode.Generator;
 namespace MidManStudio.Netcode.Editor
 {
     /// <summary>
-    /// Creates default NetworkPoolTypeProvider assets for the netcode package on first import.
-
+    /// Creates the default NetworkPoolTypeProvider asset for the netcode package
+    /// on first import.
     /// </summary>
     [InitializeOnLoad]
     internal static class NetcodePoolProviderBootstrapper

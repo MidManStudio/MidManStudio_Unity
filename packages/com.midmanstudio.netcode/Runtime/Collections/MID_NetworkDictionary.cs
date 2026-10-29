@@ -1,27 +1,14 @@
-// MID_NetworkDictionary<TKey, TValue> — event-based NetworkVariable container
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.netcode.md, section "MID_NetworkDictionary.cs"
+// ============================================================================
+
+// MID_NetworkDictionary<TKey, TValue> - event-based NetworkVariable container
 // for syncing Dictionaries over Netcode for GameObjects.
 //
-// Based on the community MID_NetworkDictionary from
-// Unity-Technologies/multiplayer-community-contributions
-// (com.community.netcode.extensions/Runtime/MID_NetworkDictionary/MID_NetworkDictionary.cs),
-// adapted into MidManStudio.Netcode with one real bug fixed and naming aligned
-// to this package's conventions:
-//
-//   FIX — unhandled Full delta on read: WriteDelta has a branch that fires
-//   when the NetworkVariable's OWN base dirty flag is set (base.IsDirty()) —
-//   separate from the incremental Add/Remove/Value/Clear event queue this
-//   class tracks itself. That branch writes a single EventType.Full entry
-//   followed by the whole field. The reference implementation's ReadDelta
-//   switch has cases for Add/Remove/Value/Clear but NONE for Full — so if
-//   that branch is ever taken, the receiving side reads nothing for it,
-//   silently drops the resync, and desyncs with no error. ReadDelta below
-//   adds the missing case (clears + reads the full field, exactly like
-//   ReadField, then raises OnDictionaryChanged with Type = Full).
-//
-//   Everything else — the two-list NativeList<TKey>/NativeList<TValue>
-//   storage, the isSceneObject / KeysAtLastReset split in WriteField, the
-//   dirty-event queue — is the same design as the reference and is kept as
-//   is; it's solid, it just needed that one missing case.
+// Adapted from the community NetworkDictionary in
+// Unity-Technologies/multiplayer-community-contributions (MIT, see
+// THIRD-PARTY-NOTICES.md at the package root).
 //
 // USAGE:
 //   // 1. Declare on a NetworkBehaviour (TKey/TValue must be unmanaged):
@@ -40,11 +27,9 @@
 //   };
 //
 // CONSTRAINT: TKey must be unmanaged + IEquatable<TKey>, TValue must be
-// unmanaged — same requirement NetworkVariableSerialization<T> imposes.
-// Need a multi-bit-field VALUE (e.g. a handful of small enums packed
-// together) instead of a plain unmanaged struct? See MID_BitPacker.cs —
-// MID_BitPacker64 is itself unmanaged and implements INetworkSerializable,
-// so it drops straight into TValue here or into a plain NetworkVariable.
+// unmanaged (the same requirement NetworkVariableSerialization<T> imposes).
+// For a value made of several small fields, MID_BitPacker64 (MID_BitPacker.cs)
+// is unmanaged and implements INetworkSerializable, so it works as TValue.
 
 using System;
 using System.Collections;
@@ -213,10 +198,9 @@ namespace MidManStudio.Netcode.Collections
         /// <inheritdoc />
         public override void WriteField(FastBufferWriter writer)
         {
-            // The keysAtLastReset and valuesAtLastReset mechanism was put in place to deal with duplicate adds
-            // upon initial spawn. However, it causes issues with in-scene placed objects
-            // due to difference in spawn order. In order to address this, we pick the right
-            // list based on the type of object.
+            // The AtLastReset lists avoid duplicate adds on initial spawn but cause
+            // problems for in-scene placed objects (their spawn order differs), so
+            // the list is picked by the type of object.
             bool isSceneObject = GetBehaviour().NetworkObject.IsSceneObject != false;
 
             if (isSceneObject)
@@ -393,14 +377,10 @@ namespace MidManStudio.Netcode.Collections
                         }
                         break;
 
-                    // FIX: this case did not exist in the reference implementation.
-                    // WriteDelta emits exactly this (count=1, Type=Full, then the
-                    // whole field) whenever base.IsDirty() is set. Without a case
-                    // here, that write had no matching read: the receiver silently
-                    // discarded the resync and desynced with zero error. Handled
-                    // the same way ReadField applies a full snapshot — clear, then
-                    // repopulate from the wire — and raise one Full event so
-                    // subscribers can tell a resync from an incremental change.
+                    // Sent by WriteDelta when the variable's own dirty flag is set: one
+                    // Full entry followed by the whole field. Clear, repopulate the way
+                    // ReadField does, and raise one Full event so subscribers can tell
+                    // a resync from an incremental change.
                     case MID_NetworkDictionaryEvent<TKey, TValue>.EventType.Full:
                         {
                             m_Keys.Clear();

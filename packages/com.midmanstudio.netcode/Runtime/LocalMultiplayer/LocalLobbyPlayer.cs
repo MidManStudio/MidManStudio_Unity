@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.netcode.md, section "LocalLobbyPlayer.cs"
+// ============================================================================
 
 using System;
 using Unity.Collections;
@@ -6,7 +10,7 @@ namespace MidManStudio.Netcode.LocalMultiplayer
 {
     /// <summary>
     /// Generic player representation for a local lobby session.
-     /// NetworkLobbyPlayerData is the wire format for NGO NetworkList syncing.
+    /// NetworkLobbyPlayerData (below) is its wire format for NGO NetworkList syncing.
     /// </summary>
     [Serializable]
     public class LocalLobbyPlayer

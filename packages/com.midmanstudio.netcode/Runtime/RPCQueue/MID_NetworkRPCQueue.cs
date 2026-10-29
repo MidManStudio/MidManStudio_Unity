@@ -1,3 +1,8 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.netcode.md, section "MID_NetworkRPCQueue.cs"
+// ============================================================================
+
 // Batches NGO ClientRpc/ServerRpc payloads into one send per network tick.
 // Reduces packet overhead when many small state updates fire in one frame.
 //

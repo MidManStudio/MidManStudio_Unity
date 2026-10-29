@@ -1,11 +1,14 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.netcode.md, section "MID_LagCompensatedTarget.cs"
+// ============================================================================
+
 // MID_LagCompensatedTarget — attach to any networked hitbox root that raycast
 // hit-checks should be lag-compensated against (player capsule, etc).
 //
 // Records a fixed-capacity ring of (tick, position, rotation) snapshots,
-// server-side only. Ring buffer shape is a direct port of mid-log's
-// console_buffer.rs (ConsoleBufferInner): fixed array, wrapping write head,
-// monotonic write counter, oldest entry silently overwritten once full —
-// same structure, applied to pose history instead of log entries.
+// server-side only: fixed array, wrapping write head, monotonic count, oldest
+// entry overwritten once full.
 //
 // Does nothing on clients — history and rewinding are both server-only
 // concerns; clients never call Rewind/Restore.

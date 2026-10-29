@@ -1,4 +1,7 @@
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.netcode.md, section "MID_NetworkObjectPool.cs"
+// ============================================================================
 
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
@@ -34,21 +37,21 @@ namespace MidManStudio.Netcode.Pools
 
 
     /// <summary>
-    ///  Generic NGO network object pool.
-    
+    /// Generic NGO network object pool. Registers each configured prefab with
+    /// NGO's PrefabHandler, so NGO's own spawn and despawn go through the pool.
+    ///
     /// SETUP:
     ///   1. Add this component to a persistent NetworkBehaviour in your scene.
     ///   2. Fill pooledPrefabsList in the inspector. Each prefab needs a NetworkObject
     ///      component. Add a component implementing IPoolableNetworkObject for cleanup hooks.
-    ///   3. Pool initialises automatically on OnNetworkSpawn (server and client).
-    ///      You no longer need to call InitializePool() manually.
+    ///   3. The pool initialises itself on OnNetworkSpawn (server and clients).
     ///
     /// USAGE (server-side only):
-    ///   var netObj = MID_NetworkObjectPool.Singleton
+    ///   var netObj = MID_NetworkObjectPool.Instance
     ///       .GetNetworkObject(PoolableNetworkObjectType.MyWeapon, pos, rot);
     ///   netObj.Spawn();
     ///   
-    ///   MID_NetworkObjectPool.Singleton
+    ///   MID_NetworkObjectPool.Instance
     ///       .ReturnNetworkObject(netObj, PoolableNetworkObjectType.MyWeapon);
     /// </summary>
     public class MID_NetworkObjectPool : NetworkSingleton<MID_NetworkObjectPool>
@@ -72,13 +75,15 @@ namespace MidManStudio.Netcode.Pools
 
         // ── Unity / NGO lifecycle ─────────────────────────────────────────────
 
+        // Only records the scene. Does not call base.Awake(), so the static
+        // instance is set lazily the first time Instance is read.
         protected override void Awake()
         {
             _targetScene = gameObject.scene;
         }
 
-        //  auto-initialise on NGO spawn so the pool is ready without a
-        // manual InitializePool() call from external game code.
+        // Initialises on spawn, on the server and on clients, so every peer has
+        // its prefab handlers registered before the first pooled spawn.
         public override void OnNetworkSpawn()
         {
             base.OnNetworkSpawn();

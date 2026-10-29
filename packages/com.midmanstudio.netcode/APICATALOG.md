@@ -16,7 +16,10 @@ Requires: `com.midmanstudio.utilities 1.0.0`, `com.unity.netcode.gameobjects 1.7
 5. [Local Multiplayer Lobby](#5-local-multiplayer-lobby)
 6. [Network Scene Loader](#6-network-scene-loader)
 7. [Network Timer](#7-network-timer)
-8. [Assembly Definitions](#8-assembly-definitions)
+8. [Collections](#8-collections)
+9. [Lag Compensation](#9-lag-compensation)
+10. [Components](#10-components)
+11. [Assembly Definitions](#11-assembly-definitions)
 
 ---
 
@@ -24,7 +27,7 @@ Requires: `com.midmanstudio.utilities 1.0.0`, `com.unity.netcode.gameobjects 1.7
 
 ### `NetworkSingleton<T> : NetworkBehaviour`
 
-**Namespace:** `MidManStudio.Netcode`  
+**Namespace:** `MidManStudio.Netcode.Singleton`  
 **File:** `Runtime/Singleton/NetworkSingleton.cs`
 
 NGO-aware singleton. Instance is set in `Awake`; network features (RPCs, ownership, IsServer etc.) are only valid after `OnNetworkSpawn`. Use when the manager is always spawned by NGO.
@@ -72,7 +75,7 @@ void OnNetworkSceneChange(string previousScene, string currentScene);
 
 ### `HybridNetworkSingleton<T> : NetworkBehaviour`
 
-**Namespace:** `MidManStudio.Netcode`  
+**Namespace:** `MidManStudio.Netcode.Singleton`  
 **File:** `Runtime/Singleton/HybridNetworkSingleton.cs`
 
 Instance is available immediately in `Awake` — before any NGO spawn. Network features layer on top when spawned. Persists across scenes by default. Use for managers that must function in both online and offline contexts.
@@ -135,7 +138,7 @@ void OnSceneChange(string sceneName); // non-NGO scene loads
 
 ## 2. Network Object Pool
 
-### `MID_NetworkObjectPool : NetworkBehaviour`
+### `MID_NetworkObjectPool : NetworkSingleton<MID_NetworkObjectPool>`
 
 **Namespace:** `MidManStudio.Netcode.Pools`  
 **File:** `Runtime/PoolSystems/MID_NetworkObjectPool.cs`
@@ -152,12 +155,12 @@ Generic NGO-managed object pool. Uses `INetworkPrefabInstanceHandler` so NGO's o
 
 ```csharp
 // Spawn
-var netObj = MID_NetworkObjectPool.Singleton
+var netObj = MID_NetworkObjectPool.Instance
     .GetNetworkObject(PoolableNetworkObjectType.MyWeapon, pos, rot);
 netObj.Spawn();
 
 // Return — call BEFORE Despawn
-MID_NetworkObjectPool.Singleton
+MID_NetworkObjectPool.Instance
     .ReturnNetworkObject(netObj, PoolableNetworkObjectType.MyWeapon);
 ```
 
@@ -171,7 +174,7 @@ MID_NetworkObjectPool.Singleton
 | `ReturnNetworkObject(NetworkObject netObj, PoolableNetworkObjectType type)` | `void` | Reset and return to pool; call BEFORE `Despawn` |
 | `IsRegistered(PoolableNetworkObjectType type)` | `bool` | Check if type has a pool entry |
 | `ClearPool()` | `void` | Remove all handlers and empty all queues |
-| `Singleton` | `MID_NetworkObjectPool` | Static instance reference |
+| `Instance` | `MID_NetworkObjectPool` | Static instance (from `NetworkSingleton<T>`) |
 
 ---
 
@@ -317,7 +320,7 @@ MID_NetworkConnectionManager.StopContinuousCheck();
 
 ## 4. Network RPC Queue
 
-### `MID_NetworkRPCQueue : NetworkBehaviour`
+### `MID_NetworkRPCQueue : HybridNetworkSingleton<MID_NetworkRPCQueue>`
 
 **Namespace:** `MidManStudio.Netcode`  
 **File:** `Runtime/RPCQueue/MID_NetworkRPCQueue.cs`
@@ -381,7 +384,7 @@ string CollapseKey { get; }
 
 ## 5. Local Multiplayer Lobby
 
-### `LocalLobbyManager : NetworkBehaviour`
+### `LocalLobbyManager : HybridNetworkSingleton<LocalLobbyManager>`
 
 **Namespace:** `MidManStudio.Netcode.LocalMultiplayer`  
 **File:** `Runtime/LocalMultiplayer/LocalLobbyManager.cs`
@@ -906,7 +909,175 @@ float alpha = timer.LerpFraction; // 0..1
 
 ---
 
-## 8. Assembly Definitions
+## 8. Collections
+
+**Namespace:** `MidManStudio.Netcode.Collections`  
+**Files:** `Runtime/Collections/MID_BitPacker.cs`, `MID_NetworkDictionary.cs`, `MID_NetworkEvent.cs`, `MID_NetworkString.cs`
+
+### `MID_BitMask32` / `MID_BitMask64` (structs)
+
+32 or 64 single-bit flags in a `uint` or `ulong`. Implement `INetworkSerializable` and `IEquatable<T>`, so they work directly as `NetworkVariable<MID_BitMask32>` values. The API is shown for `MID_BitMask32`; `MID_BitMask64` is identical with `ulong` bits.
+
+| Member | Description |
+|---|---|
+| `CAPACITY` | 32 (64 for `MID_BitMask64`) |
+| `NONE`, `ALL` | Static masks with no bits or all bits set |
+| `MID_BitMask32(uint bits)`, `FromBits(uint)`, `ToBits()` | Construct from and read the raw bits |
+| `FromIndices(IEnumerable<int>)` | Mask with the listed bit positions set; positions outside the range are ignored |
+| `Get(int)`, `Set(int)`, `Clear(int)`, `Toggle(int)` | Single-bit access; throws `ArgumentOutOfRangeException` for an index outside the range |
+| `Any()`, `All()`, `None()` | Whole-mask tests |
+| `CountOnes()`, `CountZeros()` | Bit counts |
+| `Intersection`, `Union`, `Difference`, `SymmetricDifference` | Set operations; operators `&`, `\|`, `^` and `~` do the same |
+| `Matches(required)` | True when every bit set in `required` is also set here |
+| `IsDisjoint(other)`, `IsSubsetOf(other)` | Set relations |
+| `IterOnes()` | Indices of the set bits, ascending |
+
+---
+
+### `MID_BitFieldLayout`, `MID_BitField`, `MID_BitPacker64`
+
+Pack several small multi-bit fields (enums, small integers, booleans) into one `ulong` so they sync as one `NetworkVariable<MID_BitPacker64>`.
+
+```csharp
+private static readonly MID_BitFieldLayout Layout = new MID_BitFieldLayout();
+private static readonly MID_BitField StateField  = Layout.ReserveEnum<WeaponState>();
+private static readonly MID_BitField ChargeField = Layout.Reserve(7);
+private static readonly MID_BitField JammedFlag  = Layout.ReserveBool();
+private readonly NetworkVariable<MID_BitPacker64> _packed = new();
+
+var p = _packed.Value;
+p.SetEnum(StateField, WeaponState.Reloading);
+p.SetField(ChargeField, 42);
+p.SetBool(JammedFlag, false);
+_packed.Value = p;
+```
+
+| `MID_BitFieldLayout` member | Description |
+|---|---|
+| `Reserve(int width)` | Reserve a raw field of 1 to 64 bits; throws `InvalidOperationException` when the layout would exceed 64 bits |
+| `ReserveBool()` | One-bit field |
+| `ReserveEnum<TEnum>()` | Smallest width that holds the largest underlying value of `TEnum` (assumes non-negative values) |
+| `ReserveForMaxValue(ulong)` | Smallest width that holds 0 up to the given value |
+| `UsedBits`, `RemainingBits` | Bits reserved so far and bits left |
+
+| `MID_BitPacker64` member | Description |
+|---|---|
+| `GetField(in MID_BitField)` / `SetField(in MID_BitField, ulong)` | Raw access; a value wider than the field is masked to its low bits |
+| `GetBool` / `SetBool` | Boolean field |
+| `GetEnum<TEnum>` / `SetEnum<TEnum>` | Enum field; boxes the value, so avoid it on a field written every tick |
+| `GetUInt` / `SetUInt`, `GetByte` / `SetByte` | Integer convenience |
+| `MinBitsForValue(ulong)`, `MinBitsForEnum<TEnum>()` | Width helpers |
+| `FromBits(ulong)`, `ToBits()`, `Empty`, `CAPACITY` | Raw bits, empty value, 64 |
+
+`MID_BitField` is an immutable `{Offset, Width, Mask}` handle returned by the layout.
+
+---
+
+### `MID_NetworkDictionary<TKey, TValue> : NetworkVariableBase`
+
+Synced dictionary with an event for every change. `TKey` must be `unmanaged` and `IEquatable<TKey>`, `TValue` must be `unmanaged`. Lookups are linear, so it suits small dictionaries.
+
+| Member | Description |
+|---|---|
+| `MID_NetworkDictionary()`, `(IDictionary)`, `(NetworkVariableReadPermission, IDictionary)` | Constructors |
+| `Add(key, value)` | Throws when the key already exists |
+| `Remove(key)` | Returns false when the key is missing |
+| `Clear()` | Removes everything |
+| `ContainsKey(key)`, `TryGetValue(key, out value)`, `Count` | Queries |
+| `this[key]` | Get throws when the key is missing; set adds or replaces |
+| `Keys`, `Values` | Snapshots (allocate a temporary array per access) |
+| `GetEnumerator()` | Enumerates `(Key, Value)` tuples |
+| `OnDictionaryChanged` | `event OnDictionaryChangedDelegate`; the handler receives a `MID_NetworkDictionaryEvent<TKey, TValue>` |
+| `Dispose()` | Releases the native lists |
+
+`MID_NetworkDictionaryEvent<TKey, TValue>` has `Type` (`Add`, `Remove`, `Value`, `Clear`, `Full`), `Key`, `Value` and `PreviousValue` (set for `Value` events). `Full` means the whole dictionary was resent and replaced.
+
+---
+
+### `MID_NetworkEvent<T>` and `None`
+
+Fire-and-forget signal on top of a `[ClientRpc]` or `[ServerRpc]`. No state, no replay for late joiners. `T` has no constraint; the RPC method signature decides what can be sent. `None` is an empty struct for events without data.
+
+```csharp
+public readonly MID_NetworkEvent<Vector3> OnExplosion = new();
+
+public void TriggerExplosion(Vector3 position) => OnExplosion.Raise(position, ExplosionClientRpc);
+
+[ClientRpc]
+private void ExplosionClientRpc(Vector3 position) => OnExplosion.Receive(position);
+```
+
+| Member | Description |
+|---|---|
+| `MID_NetworkEvent(bool invokeLocally = true)` | When true, `Raise` also fires `OnRaised` on the calling peer |
+| `OnRaised` | `event Action<T>` |
+| `Raise(T value, Action<T> sendRpc)` | Fires locally (if enabled), then calls the delegate that sends the RPC |
+| `Receive(T value)` | Call from the body of the RPC method |
+
+---
+
+### `MID_NetworkString<T>` and `MID_NetworkString`
+
+Synced string whose capacity is set by `T`, a Unity `FixedString` type (`FixedString32Bytes` 29 usable bytes, 64: 61, 128: 125, 512: 509, 4096: 4093). The numbers are bytes, so multi-byte UTF-8 characters use more than one. It converts implicitly to and from `string` and is unmanaged, so it also works as a `MID_NetworkDictionary` value.
+
+| Member | Description |
+|---|---|
+| `MID_NetworkString<T>(string)` | Copies the string, truncating when it does not fit |
+| `WasTruncated` | True when the source string was cut |
+| `Length`, `Capacity` | Used and total bytes |
+| `MID_NetworkString.Short / Small / Default / Long / VeryLong(string)` | Factories for the 32, 64, 128, 512 and 4096 byte types |
+
+---
+
+## 9. Lag Compensation
+
+**Namespace:** `MidManStudio.Netcode.LagCompensation`  
+**Files:** `Runtime/LagCompensation/MID_LagCompensator.cs`, `MID_LagCompensatedTarget.cs`
+
+### `MID_LagCompensator : Singleton<MID_LagCompensator>`
+
+Server-side coordinator. Add it to one persistent GameObject in the networked scene. On the server it records one snapshot per network tick for every registered target. It does nothing on clients.
+
+```csharp
+using (MID_LagCompensator.BeginRewind(clientFireTick))
+{
+    Physics.Raycast(...);   // every target is at its pose for clientFireTick
+}                           // restored on dispose
+```
+
+| Member | Description |
+|---|---|
+| `static BeginRewind(int tick)` | Returns a `MID_LagCompensationScope`. Returns an empty scope when `tick <= 0` or no compensator exists; never creates one. A second call while a scope is open logs a warning and returns an empty scope |
+
+`MID_LagCompensationScope` is a `readonly struct` that implements `IDisposable`; disposing restores every target the scope rewound.
+
+---
+
+### `MID_LagCompensatedTarget : NetworkBehaviour`
+
+Attach to the root of a hitbox. On the server it keeps a ring buffer of `(tick, position, rotation)` and registers with the compensator if one exists when the target spawns. A compensator that appears after the target has spawned does not pick it up, so have the compensator in the scene before targets spawn.
+
+| Inspector field | Description |
+|---|---|
+| `_hitboxRoot` | Transform moved during a rewind; defaults to this object's transform. Keep the colliders under it |
+| `_historyCapacity` | Snapshots kept (default 64, minimum 4). At a 30 Hz tick, 64 is about 2.1 seconds |
+
+A rewind to a tick newer than the newest snapshot uses the newest pose; older than the whole window uses the oldest.
+
+---
+
+## 10. Components
+
+### `OwnerAuthoritativeNetworkTransform : NetworkTransform`
+
+**Namespace:** `MidManStudio.Netcode.Components`  
+**File:** `Runtime/Components/OwnerAuthoritativeNetworkTransform.cs`
+
+`NetworkTransform` whose authority is the owning client (`OnIsServerAuthoritative()` returns false). It adds no serialized fields, so it can replace the stock component on a prefab without losing the configured axes, thresholds and interpolation. `NetworkRigidbody` mirrors the authority of its `NetworkTransform`.
+
+---
+
+## 11. Assembly Definitions
 
 ### Runtime — `MidManStudio.Netcode`
 
@@ -919,7 +1090,8 @@ float alpha = timer.LerpFraction; // 0..1
   "references": [
     "MidManStudio.Utilities",
     "Unity.Netcode.Runtime",
-    "Unity.Collections"
+    "Unity.Collections",
+    "Unity.Netcode.Components"
   ],
   "autoReferenced": true,
   "versionDefines": [
@@ -959,7 +1131,8 @@ YourGame.asmdef
 └── MidManStudio.Netcode        (autoReferenced — implicit)
     ├── MidManStudio.Utilities
     ├── Unity.Netcode.Runtime
-    └── Unity.Collections
+    ├── Unity.Collections
+    └── Unity.Netcode.Components
 
 YourGame.Editor.asmdef
 ├── MidManStudio.Utilities.Editor

@@ -2,12 +2,12 @@
   "name": "com.midmanstudio.netcode",
   "version": "1.0.0",
   "displayName": "MidMan Studio Netcode Utilities",
-  "description": "NGO-specific utilities for Unity 2022.3+. NetworkSingleton, HybridNetworkSingleton, MID_NetworkObjectPool with IPoolableNetworkObject, MID_NetworkConnectionManager, MID_NetworkRPCQueue, LocalLobbyManager for LAN/WiFi play, MID_NetworkSceneLoader, NetworkTimer.",
+  "description": "NGO-specific utilities for Unity 2022.3+. NetworkSingleton, HybridNetworkSingleton, MID_NetworkObjectPool with IPoolableNetworkObject, MID_NetworkConnectionManager, MID_NetworkRPCQueue, networked collections, lag compensation, OwnerAuthoritativeNetworkTransform, LocalLobbyManager for LAN/WiFi play, MID_NetworkSceneLoader, NetworkTimer.",
   "unity": "2022.3",
   "unityRelease": "0f1",
-  "documentationUrl": "",
-  "changelogUrl": "",
-  "licensesUrl": "",
+  "documentationUrl": "https://github.com/MidManStudio/MidManStudio_Unity/blob/netcode/v1.0.0/packages/com.midmanstudio.netcode/README.md",
+  "changelogUrl": "https://github.com/MidManStudio/MidManStudio_Unity/blob/netcode/v1.0.0/packages/com.midmanstudio.netcode/CHANGELOG.md",
+  "licensesUrl": "https://github.com/MidManStudio/MidManStudio_Unity/blob/netcode/v1.0.0/packages/com.midmanstudio.netcode/LICENSE.md",
   "dependencies": {
     "com.midmanstudio.utilities": "1.0.0",
     "com.unity.netcode.gameobjects": "1.7.1",
@@ -15,11 +15,12 @@
   },
   "keywords": [
     "netcode", "ngo", "networking", "multiplayer",
-    "singleton", "pool", "lobby", "lan", "wifi", "scene"
+    "singleton", "pool", "lobby", "lan", "wifi", "scene",
+    "lag-compensation"
   ],
-    "author": {
-        "name": "MidMan Studio",
-        "email": "midmanstudio@proton.me",
-        "url": "https://github.com/MidManStudio/MidManStudio_Unity"
-    }
+  "author": {
+    "name": "MidMan Studio",
+    "email": "midmanstudio@proton.me",
+    "url": "https://github.com/MidManStudio/MidManStudio_Unity"
+  }
 }

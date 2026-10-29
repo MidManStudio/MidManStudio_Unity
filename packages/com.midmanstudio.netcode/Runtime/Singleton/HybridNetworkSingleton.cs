@@ -1,3 +1,8 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.netcode.md, section "HybridNetworkSingleton.cs"
+// ============================================================================
+
 // Like NetworkSingleton but instance is available immediately in Awake —
 // before any network spawn occurs. Network features layer on top when spawned.
 // Persists across scenes by default.

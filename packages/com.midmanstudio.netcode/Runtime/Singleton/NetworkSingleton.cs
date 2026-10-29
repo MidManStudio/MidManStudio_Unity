@@ -1,3 +1,8 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.netcode.md, section "NetworkSingleton.cs"
+// ============================================================================
+
 // NGO-aware singleton base class.
 // Instance is available after Awake but network features only activate post-spawn.
 // Requires Unity Netcode for GameObjects (com.unity.netcode.gameobjects).

@@ -1,32 +1,23 @@
-// MID_NetworkEvent<T> — the "invoke something, everyone gets it" pattern,
-// as opposed to NetworkVariable's "set a value, subscribe to OnValueChanged"
-// pattern. The actual underlying mechanism for this in Netcode is
-// [ServerRpc]/[ClientRpc] — genuinely fire-and-forget, no persisted state,
-// no late-join replay (confirmed against Unity's own 1.7.1 docs — an RPC
-// simply doesn't run for anyone who wasn't connected at the moment it was
-// sent; OnSynchronize is the separate mechanism you'd add if you also wanted
-// late joiners caught up on *state*, which is explicitly not what this is
-// for).
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.netcode.md, section "MID_NetworkEvent.cs"
+// ============================================================================
+
+// MID_NetworkEvent<T> - "invoke something, everyone gets it", as opposed to
+// NetworkVariable's "set a value, subscribe to OnValueChanged". The transport is
+// a [ServerRpc]/[ClientRpc]: fire-and-forget, no persisted state, no replay for
+// late joiners (an RPC only reaches peers that are connected when it is sent).
+// To catch late joiners up on state, use a NetworkVariable or OnSynchronize.
 //
-// WHY THIS IS COMPOSITION, NOT A READY-MADE BASE CLASS:
-// Netcode's RPC support is IL-post-processing-generated for whichever
-// NetworkBehaviour a [ServerRpc]/[ClientRpc]-attributed method is physically
-// declared on. I looked for a way to supply that method from a shared base
-// class so consumers wouldn't need to declare anything at all, but couldn't
-// find a source confirming inherited RPC methods behave correctly across
-// NetworkBehaviour subclasses on this specific version (1.7.1) — rather than
-// assume, this composes instead: you still declare ONE thin forwarding RPC
-// method per usage site, and this class gives you the clean C# event API
-// (+=/-=) around it instead of hand-rolling subscriber lists.
+// This is composition, not a base class. Netcode generates the RPC code for the
+// NetworkBehaviour that declares the [ServerRpc]/[ClientRpc] method, so each
+// usage site declares one thin forwarding RPC and this class supplies the C#
+// event (+= / -=) around it.
 //
-// No type constraint on T — unlike MID_NetworkString/MID_NetworkDictionary,
-// this class does zero serialization itself, it just holds and invokes a C#
-// delegate. Whatever type Netcode's RPC serialization actually needs to
-// support is enforced by your own [ClientRpc]/[ServerRpc] method signature,
-// not by this wrapper — which means this works for plain `string` too (a
-// real allocation-per-call, but for a one-off signal that's fine — see
-// MID_NetworkString's file header for why that's NOT fine for continuously-
-// synced state).
+// T has no constraint: nothing is serialized here. What T may be is decided by
+// the signature of your own RPC method. A plain string works too, with an
+// allocation per call (fine for a one-off signal, not for continuously synced
+// state, see MID_NetworkString).
 //
 // USAGE:
 //   public class ExplosionSignaler : NetworkBehaviour

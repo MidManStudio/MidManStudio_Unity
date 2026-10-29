@@ -1,3 +1,8 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.netcode.md, section "NetworkTimer.cs"
+// ============================================================================
+
 // Fixed-interval network tick timer.
 // Tracks elapsed time and exposes ShouldTick() to drive server tick loops.
 // Part of com.midmanstudio.netcode.
