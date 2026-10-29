@@ -1,12 +1,7 @@
 // .mdix/replacements/replacements.mdix
 // "README.md" below also matches every nested file named README.md, because a bare name in
 // overrides:: is checked before the nested-path rule. Each nested README therefore needs its own
-// entry keyed by its full relative path, which is checked first.
-@CONFIG(
-  version    -> "1.0.0"
 
-  debug_mode -> "off"
-)
 
 @QUICKFUNCS(
   ~target<object>(name, path) { return { name = name, path = path } }
