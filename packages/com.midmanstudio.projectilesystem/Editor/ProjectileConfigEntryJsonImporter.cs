@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ProjectileConfigEntryJsonImporter.cs"
+// ============================================================================
 // Editor-only JSON → ProjectileConfigEntry importer, used by the "Import from
 // JSON" section on ProjectileConfigProviderSO's custom Inspector (see
 // ProjectileConfigProviderEditor.cs). Mirrors PoolEntryJsonImporter exactly —

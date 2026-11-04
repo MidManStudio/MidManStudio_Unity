@@ -1,33 +1,24 @@
-// ProjectileGuidanceTracker — the missing "assign a target, it homes
-// automatically" layer on top of the RustSim Guided movement type.
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ProjectileGuidanceTracker.cs"
+// ============================================================================
+// ProjectileGuidanceTracker: "assign a target once, it homes automatically" for
+// RustSim projectiles whose config uses the Guided movement type.
 //
-// WHAT ALREADY EXISTED before this file:
-//   - ProjectileMovementType.Guided is a real, selectable value on
-//     ProjectileConfigSO / RustSpawnParams.
-//   - MID_MasterProjectileSystem.SetHomingDirection2D/3D writes a desired
-//     steering direction straight into the native sim's Ax/Ay fields for a
-//     given ProjId (the Rust tick then presumably turns the projectile
-//     toward that heading each tick — this file doesn't change or guess at
-//     that turn-rate behaviour, it only supplies a fresh direction).
-//   - Nothing called SetHomingDirection2D/3D more than once, and nothing
-//     tracked a target over time. You had to compute and push a direction
-//     yourself, every tick, forever.
+// MID_MasterProjectileSystem.SetHomingDirection2D/3D writes a desired heading
+// into the native sim's Ax/Ay (Az) fields for one ProjId, and the native
+// guided tick turns the velocity toward that heading at a fixed rate while
+// keeping the speed. That heading has to be refreshed as the target moves.
+// This component does it: register a ProjId against a Transform (or a fixed
+// point) once, and every frame it recomputes (target - current position) and
+// pushes it, until the projectile is gone or the target is destroyed.
 //
-// WHAT THIS FILE ADDS:
-//   Register a ProjId against a Transform (or a fixed point) once, and this
-//   component recomputes (target - currentPos) and pushes it every frame
-//   for you until the projectile dies or the target is gone.
-//
-// SCOPE NOTE: this only drives the AUTHORITATIVE copy of a projectile (see
-// MID_MasterProjectileSystem.SetHomingDirection2D/3D — it only writes when
-// IsServer or !IsNetworked, matching every other per-projectile call in that
-// class). On a pure network client that doesn't own the projectile, calls
-// here are harmless no-ops, same as calling SetHomingDirection2D directly
-// would be. Client-side visual prediction of a curving path is a separate,
-// larger problem — the existing snapshot-reconciliation code in
-// LocalProjectileManager already documents that it approximates Guided
-// movement as a straight line between snapshots, and this file doesn't
-// change that.
+// Scope: it drives only the authoritative copy of a projectile.
+// SetHomingDirection2D/3D write only when this instance is the server or the
+// session is not networked, so on a pure network client the calls here are
+// harmless no-ops. Client-side prediction of a curving path is not handled:
+// LocalProjectileManager's snapshot reconciliation approximates Guided
+// movement as a straight line between snapshots.
 
 using System;
 using System.Collections.Generic;
@@ -106,12 +97,11 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Update Loop
         //
-        // Runs in Update(), not FixedUpdate(). The sim tick consumes Ax/Ay
-        // once per FixedUpdate; Update() always runs at least once before the
-        // next FixedUpdate regardless of framerate or this component's
-        // position in Script Execution Order, so the direction is always
-        // fresh by the time it's read — without requiring Su to configure
-        // execution order at all.
+        // Runs in Update(), not FixedUpdate(). The sim tick consumes Ax/Ay once
+        // per FixedUpdate, and Update() runs at least once before the next
+        // FixedUpdate regardless of frame rate or this component's position in
+        // Script Execution Order, so the direction is fresh by the time it is
+        // read and no execution order has to be configured.
 
         private void Update()
         {

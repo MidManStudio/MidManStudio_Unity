@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "RustSpawnParams.cs"
+// ============================================================================
 // Minimal Rust-facing spawn parameters derived from ProjectileConfigSO.
 // Passed from ProjectileRegistry / ProjectileConfigSO to BatchSpawnHelper.
 // Only contains what the Rust sim and Burst fill jobs need — no Unity objects.
@@ -19,22 +23,34 @@ namespace MidManStudio.Projectiles.Core
         /// <summary>ProjectilePiercingType cast to byte.</summary>
         public byte   PiercingType;
 
-        /// <summary>Maximum collision count (piercing).</summary>
+        /// <summary>
+        /// Maximum collision count (piercing). Carried with the config data;
+        /// BatchSpawnHelper does not read it (the collision budget lives in ServerProjectileData).
+        /// </summary>
         public byte   MaxCollisions;
 
         /// <summary>Projectile lifetime in seconds.</summary>
         public float  Lifetime;
 
-        /// <summary>Gravity acceleration (maps to NativeProjectile.Ay).</summary>
+        /// <summary>
+        /// Gravity acceleration (NativeProjectile.Ay). Wave and Circular
+        /// projectiles use Ax/Ay for their perpendicular axis instead.
+        /// </summary>
         public float  GravityAy;
 
-        /// <summary>Starting scale (0..1 fraction of FullSize, or 1 if no growth).</summary>
+        /// <summary>
+        /// Starting scale in world units: FullSizeX times the spawn scale fraction
+        /// when growth is on, FullSizeX when it is off. Written to every scale axis.
+        /// </summary>
         public float  ScaleStart;
 
-        /// <summary>Target scale to grow toward (FullSize, or 1 if no growth).</summary>
+        /// <summary>Scale the projectile grows toward, in world units (FullSizeX).</summary>
         public float  ScaleTarget;
 
-        /// <summary>Scale lerp speed per second. 0 = no growth (skip tick_scale).</summary>
+        /// <summary>
+        /// Growth rate. Each tick the scale moves by (ScaleTarget - scale) * ScaleSpeed * dt
+        /// until it is within 0.001 of the target. 0 = no growth (the native tick skips it).
+        /// </summary>
         public float  ScaleSpeed;
 
         /// <summary>True when this config uses the 3D sim buffer.</summary>

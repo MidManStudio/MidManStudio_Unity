@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "TrailObjectPool.cs"
+// ============================================================================
 using UnityEngine;
 using MidManStudio.Core.Logging;
 using MidManStudio.Core.Pools;
@@ -52,7 +56,7 @@ namespace MidManStudio.Projectiles.Visuals
             }
         }
 
-        // ── 3D sync (NEW) ─────────────────────────────────────────────────────
+        // ── 3D sync ──────────────────────────────────────────────────────
 
         /// <summary>Sync active 3D projectile positions to trail slots. Call every FixedUpdate.</summary>
         public void SyncToSimulation3D(NativeProjectile3D[] projs, int count)

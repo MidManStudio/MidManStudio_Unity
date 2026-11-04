@@ -1,22 +1,19 @@
-// SIMPLIFIED: The Rust sim prediction path has been removed entirely.
-//   LocalProjectileManager now handles all Rust sim visuals on clients using the
-//   same GPU instanced renderer (ProjectileRenderer2D/3D) as the host.
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ClientPredictionManager.cs"
+// ============================================================================
+// Client-side helper for physics projectiles. Rust sim projectiles are not
+// handled here: LocalProjectileManager draws them on clients with the same GPU
+// instanced renderer (ProjectileRenderer2D/3D) the host uses.
 //
-//   This class now only manages:
-//     1. Physics projectile pool visuals (SpawnLocalPhysicsVisual) —
-//        a temporary pool-object visual on the firing client during RPC round-trip.
-//        Expires after MaxLifetime or on HitConfirmed.
-//     2. Static rotation utilities — used by RaycastProjectileHandler and
-//        PhysicsProjectileBase. These must remain public static.
-//     3. SetLocalPlayerMidId — kept for bridge compatibility.
-//
-//   Removed:
-//     - SpawnImmediatePrediction (Rust sim temp visual → now SpawnFiringClientBatch*)
-//     - OnSpawnConfirmed (Rust sim ID linking → now LinkNetworkProjectileBatch)
-//     - ReconcileSnapshot (Rust buffer position correction → now ReconcileSnapshots2D/3D)
-//     - All PredictedProjectile, CircularBuffer, DeterministicMotionMath usage
-//       (DeterministicMotionMath.cs stays — its formulas are still correct reference
-//        material and may be used for Wave/Circular non-visual calculations.)
+// This class manages:
+//   1. Physics projectile pool visuals (SpawnLocalPhysicsVisual): a temporary
+//      pool-object visual on the firing client that covers the RPC round trip.
+//      It expires after the config's Lifetime, or glides to the hit point on
+//      HitConfirmed.
+//   2. Static rotation utilities (GetDirectionRotation, ApplyDirectionRotation),
+//      used by RaycastProjectileHandler and PhysicsProjectileBase.
+//   3. SetLocalPlayerMidId, which stores an id that nothing in this class reads.
 
 using System;
 using System.Collections.Generic;
@@ -151,27 +148,17 @@ namespace MidManStudio.Projectiles.Network
         }
 
         /// <summary>
-        /// OBSOLETE — no longer called from anywhere. This reconciled the
-        /// firing client's own predicted visual against the real, server-
-        /// confirmed PhysicsProjectileBase once it arrived on that client,
-        /// which was the wrong fix for "physics projectile fires twice on
-        /// client": the firing client was never supposed to receive the real
-        /// object at all. MID_MasterProjectileSystem.SpawnPhysicsProjectile now
-        /// NetworkHides it from the firing client entirely instead, so
-        /// PhysicsProjectileBase.OnNetworkSpawn no longer has anything to call
-        /// this with (IsOwner is no longer meaningful there either, since
-        /// ownership is no longer transferred to the firing client).
-        ///
-        /// The prediction ghost this would have killed instead lives out its
-        /// own MaxLifetime and glides to the confirmed hit point on its own via
-        /// HitConfirmedClientRpc -> OnHitConfirmed below, which already
-        /// broadcasts to every client including the firer.
-        ///
-        /// Left in place rather than deleted in case a future projectile type
-        /// genuinely wants the "let the real object reach the firer and
-        /// reconcile" approach instead of "hide it and let the ghost play out
-        /// on its own" — the nearest-by-Origin matching below is still valid
-        /// for that use case, just unused by anything today.
+        /// Obsolete: nothing calls this. It matched the real, server-confirmed
+        /// PhysicsProjectileBase to the nearest predicted visual by spawn position
+        /// (within 0.5 units) and killed that visual.
+        /// The firing client no longer receives the real object.
+        /// MID_MasterProjectileSystem.SpawnPhysicsProjectile network-hides it from
+        /// that client, so the predicted visual lives out its own lifetime and
+        /// glides to the confirmed hit point via HitConfirmedClientRpc ->
+        /// OnHitConfirmed below, which reaches every client including the firer.
+        /// The method is kept for a projectile type that wants the real object to
+        /// reach the firer. When called it logs with Debug.LogError and a
+        /// [PHYSDIAG] tag.
         /// </summary>
         public void OnRealPhysicsProjectileSpawned(Vector3 spawnPosition)
         {
@@ -307,8 +294,9 @@ namespace MidManStudio.Projectiles.Network
         #endregion
 
         #region Static Rotation Utilities
-        // These are used by RaycastProjectileHandler, PhysicsProjectileBase,
-        // and previously by this class. Kept public static for compatibility.
+        // Used by RaycastProjectileHandler, PhysicsProjectileBase and this class.
+        // Keep them public static. A direction with a near-zero Z gets a Z rotation
+        // (2D), anything else gets LookRotation.
 
         public static Quaternion GetDirectionRotation(Vector3 dir)
         {

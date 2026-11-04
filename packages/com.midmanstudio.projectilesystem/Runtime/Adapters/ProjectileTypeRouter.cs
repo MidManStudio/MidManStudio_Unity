@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ProjectileTypeRouter.cs"
+// ============================================================================
 
 using MidManStudio.Projectiles.Core;
 using MidManStudio.Projectiles.Config;

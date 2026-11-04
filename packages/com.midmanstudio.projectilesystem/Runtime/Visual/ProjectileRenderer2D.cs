@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ProjectileRenderer2D.cs"
+// ============================================================================
 
 using System.Collections.Generic;
 using MidManStudio.Projectiles.Config;
@@ -19,29 +23,22 @@ namespace MidManStudio.Projectiles.Visuals
 
         // ── Sorting workaround ──────────────────────────────────────────────
         //
-        // Graphics.DrawMesh / DrawMeshInstanced are immediate-mode calls — they
-        // don't go through a Renderer component, so there is no
-        // sortingLayerID/sortingOrder to set on them at all, full stop. That's
-        // a genuine Unity limitation of this API, not something this package
-        // was missing an accessor for.
+        // Graphics.DrawMesh and DrawMeshInstanced are immediate-mode calls. They
+        // do not go through a Renderer component, so there is no sortingLayerID
+        // or sortingOrder to set on them. That is a Unity limitation of the API.
         //
-        // WORKAROUND: nudge each config-group's Z position by an amount derived
-        // from ProjectileConfigSO.SortingPriority (which folds SortingLayerName
-        // + SortingOrderInLayer into one comparable number). This DOES give you
-        // correct, stable ordering between RustSim-drawn projectiles.
+        // Workaround: each config group's Z position is nudged by an amount
+        // derived from ProjectileConfigSO.SortingPriority (which folds
+        // SortingLayerName and SortingOrderInLayer into one comparable number).
+        // That gives correct, stable ordering among RustSim-drawn projectiles.
         //
-        // CAVEAT — please actually check this: whether it also sorts correctly
-        // against your OTHER SpriteRenderer-based objects (enemies, player, UI-
-        // in-world, etc.) depends on your 2D camera's "Transparency Sort Mode"
-        // (Camera Inspector, or Project Settings → Graphics for the project
-        // default). It needs to be set to sort by distance along an axis that
-        // this Z offset actually moves things along — e.g. Orthographic mode
-        // with sort axis (0,0,1), which is the standard 2D-camera setup. If
-        // your project's other sprites don't vary in Z at all today, this will
-        // still self-consistently order every RustSim projectile against every
-        // other RustSim projectile; the "does it also correctly land in front
-        // of / behind a specific enemy sprite" part is the piece I can't verify
-        // without seeing your camera/render pipeline settings.
+        // Whether they also sort correctly against SpriteRenderer-based objects
+        // (enemies, player, world-space UI) depends on the camera's Transparency
+        // Sort Mode (Camera inspector, or Project Settings > Graphics for the
+        // default). It has to sort by distance along an axis the Z offset moves
+        // things along, for example Orthographic with sort axis (0, 0, 1), the
+        // standard 2D setup. Check it against your own camera and render pipeline
+        // settings; the package cannot verify it.
         [Header("Sorting Workaround")]
         [Tooltip("World-Z distance per SortingPriority unit, used to fake sorting " +
                  "layer/order for these DrawMesh calls. See the class header comment.")]
@@ -242,12 +239,10 @@ namespace MidManStudio.Projectiles.Visuals
             RenderCombinedGroup(projs, count, spritePass: false, mesh: _shapeMesh);
         }
 
-        // FIX (response 3): vBase and tBase are tracked dynamically using each
-        // shape's actual vertex / triangle-index count, so Arrow (7 verts),
-        // Needle (5 verts), Cross (12 verts), LetterI (12 verts), and any Custom
-        // shape all render correctly. The previous code used fixed qi*4 / qi*6
-        // which assumed 4 verts per shape and silently corrupted geometry for
-        // any shape with more verts.
+        // vBase and tBase advance by each shape's actual vertex and
+        // triangle-index count, so shapes with other than 4 vertices (Arrow 7,
+        // Needle 5, Cross 12, LetterI 12, any Custom shape) are laid out
+        // correctly in the combined mesh.
         private void RenderCombinedGroup(
             NativeProjectile[] projs, int count, bool spritePass, Mesh mesh)
         {

@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "MID_BuildTargets.cs"
+// ============================================================================
 
 // Central build target detection. Import this namespace anywhere you need platform guards.
 

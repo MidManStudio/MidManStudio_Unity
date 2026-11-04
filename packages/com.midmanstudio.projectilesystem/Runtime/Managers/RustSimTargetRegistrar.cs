@@ -8,8 +8,8 @@
 //
 // WHY THIS EXISTS: RustSim's target system (MID_MasterProjectileSystem.
 // RegisterTarget2D/3D → ServerProjectileAuthority/LocalProjectileManager)
-// needs three things done correctly for every target, none of which were
-// previously handled automatically:
+// needs three things done correctly for every target, which this component
+// handles:
 //
 //   1. A STABLE TargetId. Handled here — NetworkObjectId if this object has
 //      a NetworkObject, otherwise a locally-generated id.
@@ -245,19 +245,15 @@ namespace MidManStudio.Projectiles.Managers
         }
 
         /// <summary>
-        /// DYNAMICALLY SPAWNED OBJECTS FIX, BOTH NET AND NON-NET: checks
-        /// MID_MasterProjectileSystem.IsReady FIRST — if the system is
-        /// already initialised (the common case for anything Instantiate()'d
-        /// during normal gameplay, well after scene load), registers
-        /// immediately with zero extra latency, exactly as if this were a
-        /// direct RegisterNow() call. Only subscribes to OnSystemReady when
-        /// it genuinely isn't ready yet (the case a scene-present object can
-        /// hit at startup, racing this system's own Awake()). Subscribing
-        /// unconditionally instead — without this readiness check — would be
-        /// the actual bug: an object spawned AFTER OnSystemReady already
-        /// fired would subscribe to an event that's never firing again and
-        /// hang forever waiting for it, with only the tick-based retry below
-        /// left to save it.
+        /// Checks MID_MasterProjectileSystem.IsReady first. If the system is
+        /// already initialised (the usual case for anything instantiated during
+        /// normal gameplay), it registers at once, as a direct RegisterNow() call
+        /// would. It subscribes to OnSystemReady only when the system is not ready
+        /// yet, which a scene object can hit at startup while racing the system's
+        /// Awake(). Subscribing unconditionally would leave an object spawned after
+        /// OnSystemReady has fired waiting for an event that never fires again,
+        /// with only the tick-based retry left to register it. Works the same in
+        /// networked and non-networked sessions.
         /// </summary>
         private void TryRegisterOrWaitForReady()
         {
@@ -296,15 +292,12 @@ namespace MidManStudio.Projectiles.Managers
             // here would be silently dropped, so stay unregistered and retry.
             if (!system.CanAcceptTargets) return;
 
-            // NETWORK OBJECT ID TIMING FIX ("network objects do not exist in
-            // Awake"): a NetworkObject's NetworkObjectId isn't valid/stable
-            // until Netcode has actually spawned it — not guaranteed by
-            // Start(), let alone Awake(). Resolving (and caching) _targetId
-            // any earlier than this check would bake in whatever placeholder
-            // value NetworkObjectId happens to hold pre-spawn — likely the
-            // same value for every such object, i.e. TargetId collisions
-            // between every one of them still waiting to spawn. Held off (and
-            // retried next tick) until IsSpawned is actually true.
+            // A NetworkObject's NetworkObjectId is not valid or stable until
+            // Netcode has spawned it, which Start() does not guarantee, let alone
+            // Awake(). Resolving and caching _targetId earlier would bake in the
+            // pre-spawn placeholder, probably the same value for every such
+            // object, so their TargetIds would collide. Registration is held off
+            // and retried next tick until IsSpawned is true.
             if (_isNetworkedObject)
             {
                 var netObj = GetComponent<Unity.Netcode.NetworkObject>();

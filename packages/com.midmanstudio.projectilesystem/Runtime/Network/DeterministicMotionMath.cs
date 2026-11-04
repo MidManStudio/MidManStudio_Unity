@@ -1,9 +1,20 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "DeterministicMotionMath.cs"
+// ============================================================================
 // Closed-form parametric position and velocity-direction formulas for Wave and
-// Circular projectile types. Used by ClientPredictionManager to replace noisy
-// snapshot-velocity-estimation with analytically exact client-side simulation.
+// Circular projectile types, derived from the Rust tick functions in
+// simulation.rs.
 //
-// CONTRACT: every formula in this file must exactly match the corresponding Rust
-// simulation differential equation in simulation.rs. Verified derivations below.
+// WHO USES IT: only PhysicsProjectileBase, which calls the four
+// Calculate*VelocityDirection functions and the two ComputePerpAxis helpers to
+// drive a Rigidbody. The position functions and the two look-rotation helpers
+// have no callers. ClientPredictionManager does not use this class.
+//
+// CONTRACT: the formulas are meant to match the Rust tick functions. The two
+// circular formulas, both position formulas and the perpendicular axis helpers
+// do. The two wave VELOCITY functions do not: see the note on
+// CalculateWave2DVelocityDirection.
 //
 // CIRCULAR 2D — derived from tick_circular:
 //   Rust rotates velocity vector by omega*dt each tick (true arc, no drift).
@@ -137,8 +148,16 @@ namespace MidManStudio.Projectiles.Network
         }
 
         /// <summary>
-        /// Instantaneous velocity direction for 2D wave motion.
-        /// base_vel + perp * d/dt[wave_displacement] — use for Z-rotation calculation.
+        /// Instantaneous velocity for 2D wave motion: base velocity plus the
+        /// perpendicular axis times a wave term. PhysicsProjectileBase sets the
+        /// Rigidbody velocity from it.
+        ///
+        /// NOTE: the wave term in the code is -amplitude * a * sin(a*t + phase),
+        /// with a = frequency * 2π. The derivative of the displacement in
+        /// CalculateWave2DPosition, and the rate Rust's tick_wave applies, is
+        /// amplitude * sin(a*t + phase). The code is therefore larger by a factor
+        /// of a and has the opposite sign, so a physics wave projectile does not
+        /// follow the same path as a RustSim one with the same config.
         /// </summary>
         public static Vector3 CalculateWave2DVelocityDirection(
             float dirX,
@@ -156,7 +175,8 @@ namespace MidManStudio.Projectiles.Network
             if (frequency < 0.001f)
                 return baseVel;
 
-            // d/dt[wave_displacement] = amplitude * sin(a*t + phase) (the original integrand)
+            // See the note in the summary above: this term is -amplitude * a * sin(...),
+            // not amplitude * sin(...).
             float a       = frequency * 2f * Mathf.PI;
             float waveVel = amplitude * a * (-Mathf.Sin(a * timeAlive + phaseOffset));
             return baseVel + new Vector3(perpX, perpY, 0f) * waveVel;
@@ -260,7 +280,11 @@ namespace MidManStudio.Projectiles.Network
             return basePos + perpAxis * waveDisplacement;
         }
 
-        /// <summary>Instantaneous velocity direction for 3D wave motion.</summary>
+        /// <summary>
+        /// Instantaneous velocity for 3D wave motion. It has the same wave term as
+        /// CalculateWave2DVelocityDirection and the same mismatch with Rust's
+        /// tick_wave_3d (see the note there).
+        /// </summary>
         public static Vector3 CalculateWave3DVelocityDirection(
             Vector3 velocity,
             float   amplitude,

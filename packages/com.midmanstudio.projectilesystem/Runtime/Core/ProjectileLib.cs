@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ProjectileLib.cs"
+// ============================================================================
 // Complete FFI layer for projectile_core Rust native library.
 // ALL P/Invoke bindings live here. Nothing else uses DllImport.
 //
@@ -334,17 +338,10 @@ namespace MidManStudio.Projectiles.Core
     {
         Straight  = 0,
 
-        // Arching (was 1) REMOVED: tick_arching/tick_arching_3d in Rust's
-        // simulation.rs were byte-for-byte identical to tick_straight/
-        // tick_straight_3d — same vel += accel*dt; pos += vel*dt integration,
-        // same accel gather (which already applies gravity via a nonzero Ay
-        // set at spawn time, regardless of movement type). An "arc" was never
-        // a second mode — it was Straight with gravity, wearing a different
-        // name. Value 1 is intentionally left unassigned rather than reused,
-        // so any already-serialized ProjectileConfigSO still carrying byte
-        // value 1 falls through Rust's tick_scalar_one default arm to
-        // tick_straight — exactly what it always computed anyway, not a
-        // behavior change for old data.
+        // Value 1 is unassigned. A gravity arc is Straight with a nonzero Ay set
+        // at spawn time, so there is no separate arching mode. A config that
+        // still stores byte value 1 reaches the native tick's default arm,
+        // which runs the straight tick.
 
         Guided    = 2,
         Teleport  = 3,
@@ -380,7 +377,7 @@ namespace MidManStudio.Projectiles.Core
     public class MovementTypeConstants
     {
         public byte Straight  { get; internal set; }
-        // Arching removed — see ProjectileMovementType.Straight's doc comment.
+        // No Arching entry: byte value 1 is unassigned (see ProjectileMovementType).
         public byte Guided    { get; internal set; }
         public byte Teleport  { get; internal set; }
         public byte Wave      { get; internal set; }
@@ -433,24 +430,17 @@ namespace MidManStudio.Projectiles.Core
 
         // ── Native availability probe ─────────────────────────────────────────
         //
-        // FIX (device-specific DllNotFoundException hardening):
-        // Every P/Invoke call site below assumed the native library would either
-        // load correctly or the caller would already be inside ValidateStructSizes()'s
-        // try/catch. In practice, a missing/misconfigured per-architecture .so
-        // (e.g. an Android Plugin Importer entry missing its CPU tag) throws
-        // DllNotFoundException the instant ANY of these extern methods is called —
-        // including from call sites like ProjectileConfigSO.RegisterMovementParams()
-        // that never went through ValidateStructSizes() at all. Since that
-        // exception type was never being caught anywhere, it could escape
-        // uncaught out of a MonoBehaviour.Awake() or, worse, out of a running
-        // Coroutine — silently killing everything queued after it in that
-        // coroutine (see TestSceneBootstrapper.Start()).
+        // A missing or misconfigured per-architecture library (for example an
+        // Android Plugin Importer entry without its CPU tag) makes the first
+        // extern call throw DllNotFoundException, from any call site, including
+        // ones that never ran ValidateStructSizes (ProjectileConfigSO.RegisterMovementParams).
+        // Escaping from Awake or from a coroutine, the exception stops everything
+        // queued after it.
         //
-        // IsAvailable performs ONE cheap probe call the first time it's touched
-        // and caches the result for the rest of the session. Callers that can't
-        // function without the native lib (RegisterMovementParams, etc.) should
-        // check this BEFORE calling any other extern method, and degrade
-        // gracefully (log + return) instead of letting the exception propagate.
+        // IsAvailable makes one cheap probe call the first time it is read and
+        // caches the result for the session. Callers that cannot work without the
+        // native library check it before calling any other extern method, and log
+        // and return instead of letting the exception propagate.
         private static bool? _isAvailable;
 
         public static bool IsAvailable
@@ -497,7 +487,7 @@ namespace MidManStudio.Projectiles.Core
         // ── Movement type constant fetchers ───────────────────────────────────
 
         [DllImport(DLL)] private static extern byte movement_type_straight();
-        // movement_type_arching() removed — see ProjectileMovementType.Straight's doc comment.
+        // There is no movement_type_arching(): byte value 1 is unassigned.
         [DllImport(DLL)] private static extern byte movement_type_guided();
         [DllImport(DLL)] private static extern byte movement_type_teleport();
         [DllImport(DLL)] private static extern byte movement_type_wave();
@@ -635,13 +625,11 @@ namespace MidManStudio.Projectiles.Core
 
         /// <summary>
         /// Verify all C# struct sizes match the compiled Rust library.
-        /// Throws InvalidOperationException on mismatch, AND now also throws
-        /// InvalidOperationException (instead of letting DllNotFoundException
-        /// escape uncaught) if the native library isn't available on this
-        /// platform/architecture at all. This keeps every existing call site
-        /// that already does `catch (InvalidOperationException)` working
-        /// correctly for the "lib missing" case, with no changes needed there.
-        /// Call ONCE on startup before any FFI call.
+        /// Throws InvalidOperationException on a size mismatch, and also when the
+        /// native library is not available on this platform or architecture at all
+        /// (instead of letting DllNotFoundException escape), so a caller needs one
+        /// catch (InvalidOperationException) for both cases.
+        /// Call once on startup before any FFI call.
         /// </summary>
         public static void ValidateStructSizes()
         {

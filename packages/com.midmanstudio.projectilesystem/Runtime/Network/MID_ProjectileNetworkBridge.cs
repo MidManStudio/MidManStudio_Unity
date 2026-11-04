@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "MID_ProjectileNetworkBridge.cs"
+// ============================================================================
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -32,12 +36,12 @@ namespace MidManStudio.Projectiles.Network
         public int     ClientFireTick;
 
         /// <summary>
-        /// RUSTSIM GUIDED FIX ("guided doesn't work — dead wire"): 0 = no guided
-        /// target (the default — every fire request before this fix behaves
-        /// identically). Non-zero is resolved server-side in FireServerRpc back to
-        /// a live NetworkObject's Transform and handed to ProjectileGuidanceTracker
-        /// for every proj_id this request ends up spawning — same target for the
-        /// whole batch, including every pellet of a pattern/spread shot.
+        /// 0 = no guided target (the default). A non-zero value is resolved
+        /// server-side in FireServerRpc back to a live NetworkObject's Transform
+        /// and handed to ProjectileGuidanceTracker for every proj_id this request
+        /// spawns: the same target for the whole batch, including every pellet of
+        /// a pattern or spread shot. Only used when the config's MovementType is
+        /// Guided.
         /// </summary>
         public ulong   TargetNetworkObjectId;
 
@@ -55,21 +59,20 @@ namespace MidManStudio.Projectiles.Network
         // 16-bit FireSeed above.
         //
         // PatternIs3D: the client's own Use3DConvention() || cfg.Is3D result.
-        // These two CAN diverge (a 2D-configured weapon fired while the player's
-        // current mode/dimension is 3D, or vice versa) — cfg.Is3D alone, resolved
-        // fresh server-side from ConfigId, is not guaranteed to match what the
-        // firing client actually used for its own pattern/spread rotation basis.
-        // Sending the resolved bit directly removes that ambiguity entirely rather
-        // than trying to reconstruct player-local UI state server-side.
+        // These two can differ (a 2D-configured weapon fired while the player's
+        // current mode is 3D, or the other way round), so cfg.Is3D resolved on the
+        // server from ConfigId is not guaranteed to match the rotation basis the
+        // firing client used for its pattern or spread. Sending the resolved bit
+        // removes that ambiguity.
         //
-        // WIRE COMPRESSION: every field here is still the plain type it always
-        // was (Vector3 Origin, Vector3 Direction, float SpreadDeg, bool
-        // IsBotOwner/PatternIs3D) — nothing outside this method changed at all.
-        // Only how they're PACKED changed: Direction goes through octahedral
-        // encoding (12 -> 4 bytes), Origin through half-precision (12 -> 6),
-        // SpreadDeg through byte quantization (4 -> 1), and the two bools share
-        // one packed byte instead of one each. See WireCompression.cs for the
-        // encode/decode math and precision reasoning on each. 64 -> 46 bytes.
+        // WIRE FORMAT: the public fields are plain types (Vector3 Origin, Vector3
+        // Direction, float SpreadDeg, bool IsBotOwner and PatternIs3D) and only
+        // the packing differs: Direction is octahedral (12 -> 4 bytes), Origin is
+        // half precision (12 -> 6), SpreadDeg is byte quantized (4 -> 1), and the
+        // two bools share one byte. See WireCompression.cs for the precision of
+        // each. The serialized request is 56 bytes. What a receiver reads back is
+        // the quantized value, so the server and other clients can differ slightly
+        // from the exact values the firing client used locally.
         public void NetworkSerialize<T>(BufferSerializer<T> s) where T : IReaderWriter
         {
             s.SerializeValue(ref ConfigId);
@@ -130,10 +133,8 @@ namespace MidManStudio.Projectiles.Network
             s.SerializeValue(ref WeaponLevel);
             s.SerializeValue(ref DamageMultiplier);
             s.SerializeValue(ref ClientFireTick);
-            // RUSTSIM GUIDED FIX: plain ulong, not compressed — a NetworkObjectId
-            // isn't a spatial/angular value WireCompression's lossy encodings apply
-            // to, and 0 (by far the common case: most fire requests aren't Guided)
-            // is only 8 bytes either way.
+            // Plain ulong, not compressed: a NetworkObjectId is not a spatial or
+            // angular value, so WireCompression's lossy encodings do not apply.
             s.SerializeValue(ref TargetNetworkObjectId);
             s.SerializeValue(ref FireSeed);
         }
@@ -161,11 +162,11 @@ namespace MidManStudio.Projectiles.Network
         /// </summary>
         public float ServerNetworkTime;
 
-        // WIRE COMPRESSION: same treatment as ProjectileFireRequest — see that
-        // struct's comment for the full reasoning. Public fields unchanged.
-        // 58 -> 41 bytes. This one matters more than the fire request's own
-        // shrink, since it's the one that gets sent to every OTHER connected
-        // client, not just once to the server.
+        // WIRE FORMAT: Origin, Direction and SpreadDeg are packed the same way as
+        // in ProjectileFireRequest (see the comment there); PatternIs3D keeps its
+        // own byte here. The serialized confirmation is 43 bytes. It is the struct
+        // that goes to every other connected client, so its size matters more than
+        // the fire request's.
         public void NetworkSerialize<T>(BufferSerializer<T> s) where T : IReaderWriter
         {
             s.SerializeValue(ref BaseProjId);
@@ -219,11 +220,10 @@ namespace MidManStudio.Projectiles.Network
             s.SerializeValue(ref FireSeed);
         }
 
-        // GetDirection(i) is gone — direction expansion now always goes through
-        // ProjectileDirectionResolver.Resolve(PatternId, ..., ProjectileCount,
-        // SpreadDeg, ...) so every recipient regenerates the full pellet set the
-        // same way instead of indexing into a transmitted array. See
-        // LocalProjectileManager.BuildSpawnPointsFromConfirmation.
+        // No per-pellet directions are stored. Every recipient expands the shot
+        // with ProjectileDirectionResolver.Resolve(PatternId, ..., ProjectileCount,
+        // SpreadDeg, ..., FireSeed), so all peers regenerate the same pellet set.
+        // See LocalProjectileManager.BuildSpawnPointsFromConfirmation.
     }
 
     public struct HitConfirmation : INetworkSerializable
@@ -261,16 +261,16 @@ namespace MidManStudio.Projectiles.Network
 
         public event Action<HitConfirmation> OnHitConfirmedLocal;
 
-        // Independent of any pattern's own count — just a sanity ceiling so a
-        // corrupt/hostile ProjectileCount can't be used to over-allocate proj IDs
-        // or spam the batch buffer. Comfortably above the pattern SO's own
-        // [Range(1,64)] ProjectileCount ceiling.
+        // Independent of any pattern's own count: a sanity ceiling so a corrupt or
+        // hostile ProjectileCount cannot be used to over-allocate proj ids or spam
+        // the batch buffer. Above the pattern asset's own [Range(1,64)]
+        // ProjectileCount ceiling.
         private const int MaxProjectileCountSanity = 128;
 
         [SerializeField] private MID_LogLevel _logLevel = MID_LogLevel.Info;
 
-        // Still stored for ClientPredictionManager physics visual routing.
-        // No longer used for SpawnConfirmedClientRpc routing (that now uses TargetClientIds).
+        // Set by SetLocalPlayerMidId. Nothing in this class reads it: routing uses
+        // the sender's client id and TargetClientIds instead.
         private ulong _localPlayerMidId;
         private bool  _isShuttingDown;
 
@@ -289,28 +289,24 @@ namespace MidManStudio.Projectiles.Network
             }
             transport.MaxSendQueueSize = 16 * 1024 * 1024;
 
-            // FIX: "Receive queue is full, some packets could be dropped" — this
-            // is a DIFFERENT setting from MaxSendQueueSize above. That one is the
-            // byte-size batching/accumulation buffer; MaxPacketQueueSize is the
-            // count of discrete packets UTP can hold per internal send/receive
-            // queue, i.e. how many packets can actually be processed in a single
-            // frame. Culling's per-client dispatch (SendSnapshotsCulled) fires N
-            // separate targeted RPC calls per snapshot tick instead of the
-            // previous handful of broadcasts — each individually chunked, so it's
-            // now genuinely possible to have more discrete packets land in one
-            // frame than the transport's default packet-count queue was sized
-            // for, independent of total bytes (which is already bounded by the
-            // chunking fix). 2048 gives real headroom at "10s/100s of players"
-            // scale — UTP's own practical ceiling is in the 13-14k range before
-            // other problems start, so this is nowhere close to that.
+            // MaxPacketQueueSize is a different setting from MaxSendQueueSize
+            // above. MaxSendQueueSize is the byte-size send buffer;
+            // MaxPacketQueueSize is the number of discrete packets the transport
+            // holds per internal send and receive queue, which bounds how many
+            // packets can be processed in one frame. Per-client culled snapshot
+            // dispatch (SendSnapshotsCulled) sends N separate targeted RPCs per
+            // snapshot tick, each chunked on its own, so many packets can arrive
+            // in one frame even when the total byte count is small. Too small a
+            // queue logs "Receive queue is full, some packets could be dropped".
+            // 2048 leaves headroom for tens to hundreds of players.
             transport.MaxPacketQueueSize = 2048;
         }
 
         // ── Public API ────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Stored for ClientPredictionManager physics visual routing.
-        /// No longer needed for Rust sim routing — that uses TargetClientIds now.
+        /// Stores the local player's id. Nothing in this class reads the value
+        /// (routing uses TargetClientIds), so calling it is optional.
         /// </summary>
         public void SetLocalPlayerMidId(ulong midId) => _localPlayerMidId = midId;
 
@@ -445,15 +441,13 @@ namespace MidManStudio.Projectiles.Network
 
             if (written <= 0) return;
 
-            // RUSTSIM GUIDED FIX ("guided doesn't work — dead wire"): baseId/written
-            // are exactly the proj_id range this request just spawned — the same
-            // values used for the confirmation below. ProjectileGuidanceTracker's
-            // own Update() loop then drives every one of them from here on; nothing
-            // further to do per-tick on this end. Server-only, deliberately — see
-            // ProjectileGuidanceTracker's file header for why a pure network client
-            // registering here would be a harmless no-op at best (it doesn't own
-            // the authoritative sim) and is skipped entirely rather than relying on
-            // that no-op.
+            // Guided shots: baseId and written are the proj id range this request
+            // just spawned (the same range the confirmation below carries). Each
+            // id is registered with ProjectileGuidanceTracker, whose own Update()
+            // loop steers it from then on. This runs on the server only, because
+            // the tracker steers the authoritative copy in the server's Rust
+            // buffer. A staggered shot is not registered here: it passes the
+            // resolved target to Authority.SpawnStaggered instead.
             if (!staggered && request.TargetNetworkObjectId != 0 && cfg.MovementType == ProjectileMovementType.Guided
                 && NetworkManager.Singleton != null && NetworkManager.Singleton.SpawnManager != null
                 && NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(
@@ -492,20 +486,22 @@ namespace MidManStudio.Projectiles.Network
             ulong senderClientId = rpcParams.Receive.SenderClientId;
 
 
-            // FIX: Route differently to sender vs all other clients.
+            // The sender and every other client are routed differently.
             //
-            // Sender (firing client): already has the projectile in their Rust buffer
-            // under temp IDs. Send LinkProjectileIdsClientRpc to swap temp→real IDs.
-            // No new projectiles spawned on their end — they already have theirs.
+            // Sender (firing client): already has the projectile in its own Rust
+            // buffer under temporary ids, so it gets LinkProjectileIdsClientRpc to
+            // swap temporary ids for the real ones. No new projectile is spawned
+            // on its side.
             //
-            // All other clients: have no existing entries. Send SpawnConfirmedClientRpc
-            // so they spawn fresh Rust buffer entries with the real server IDs.
+            // All other clients: have no entry yet, so they get
+            // SpawnConfirmedClientRpc and spawn fresh Rust buffer entries under
+            // the real server ids.
             //
-            // Host (IsServer && IsClient): fires via MasterProjectileSystem which
-            // skips SpawnFiringClientBatch (IsServer guard) and renders from
-            // ServerProjectileAuthority. Both RPCs return early via if(IsServer).
-            // Including host in TargetClientIds for LinkProjectileIds is harmless
-            // but we exclude it for clarity.
+            // Host (IsServer and IsClient): fires through MID_MasterProjectileSystem,
+            // which skips SpawnFiringClientBatch on the server and renders from
+            // ServerProjectileAuthority. Both client RPCs return early when
+            // IsServer, so including the host in TargetClientIds would be harmless;
+            // when the host is the sender it is the only target of the link RPC.
 
             // Send ID link to the sender only
             LinkProjectileIdsClientRpc(baseId, written, new ClientRpcParams
@@ -516,15 +512,13 @@ namespace MidManStudio.Projectiles.Network
                 }
             });
 
-            // Send spawn to all other connected clients — distance-filtered if
-            // culling is on. This is the actual mechanism that matters: once a
-            // client spawns a projectile locally (via this RPC), its own local
-            // sim keeps it moving and rendering independently — it does NOT need
-            // further snapshot updates to stay alive or visible. Culling only the
-            // periodic SendSnapshotClientRpc and not this one meant every shot
-            // still reached every client at the moment of firing regardless of
-            // distance, and just kept running from there — the snapshot culling
-            // from a previous pass never had anything visible left to prevent.
+            // Send the spawn to all other connected clients, distance-filtered when
+            // culling is on. This is where culling takes effect: once a client
+            // spawns a projectile from this RPC, its own local sim keeps it moving
+            // and rendering without further snapshots. Culling only the periodic
+            // snapshot RPC would leave every shot reaching every client at fire
+            // time regardless of distance. A client outside the range never spawns
+            // the shot at all, even if it later moves into range.
             var otherClients = new List<ulong>(
                 NetworkManager.Singleton.ConnectedClientsIds.Count);
 
@@ -622,17 +616,14 @@ namespace MidManStudio.Projectiles.Network
         }
 
         /// <summary>
-        /// PATTERN SUPPORT: raycast fire previously had no pattern concept at all —
-        /// only ever a single ray. This resolves request.PatternId (or
-        /// ProjectileCount/SpreadDeg for the no-pattern spread case) into N
-        /// directions via the same ProjectileDirectionResolver every other fire
-        /// path uses, and has the server independently cast all N rays itself.
-        /// Unlike RaycastFireServerRpc above, there's no client hit-claim to
-        /// validate against here — for a multi-pellet spread weapon, fully
-        /// server-authoritative is both simpler and a perfectly reasonable trust
-        /// model (a shotgun's pellets don't need the same tight validation a
-        /// precision single-ray weapon does). request.Direction is the raw,
-        /// un-rotated aim direction — same convention as the Rust-sim path.
+        /// Raycast fire for a pattern or a spread. Resolves request.PatternId (or
+        /// ProjectileCount and SpreadDeg for the no-pattern spread case) into N
+        /// directions through the same ProjectileDirectionResolver every other
+        /// fire path uses, and the server casts all N rays itself. Unlike
+        /// RaycastFireServerRpc, no client hit claim is sent, so nothing needs
+        /// validating: the result is fully server-authoritative. request.Direction
+        /// is the raw, un-rotated aim direction, the same convention as the
+        /// Rust sim path.
         /// </summary>
         [ServerRpc(RequireOwnership = false)]
         public void RaycastPatternFireServerRpc(
@@ -660,30 +651,24 @@ namespace MidManStudio.Projectiles.Network
         // ── Client → Server: Physics ──────────────────────────────────────────
 
         /// <summary>
-        /// BUG FIX: configId was never part of this RPC at all — SpawnPhysicsProjectile
-        /// had no way to know which config it was representing, so every physics
-        /// projectile used whatever was hardcoded in its prefab's Inspector
-        /// (_visualConfigId defaulting to 0) regardless of what was actually fired.
-        /// That's why the real sprite never showed up.
+        /// Spawns one server-owned physics NetworkObject per resolved direction.
         ///
-        /// PATTERN SUPPORT: patternId != 0 (or spreadCount > 1) resolves multiple
-        /// directions via the same ProjectileDirectionResolver every other fire
-        /// path already uses, and spawns one physics NetworkObject per direction —
-        /// same deterministic regeneration principle as the Rust-sim path, just
-        /// producing N discrete physics bodies instead of N entries in a batch
-        /// buffer. No raw direction data crosses the wire here either.
+        /// configId tells SpawnPhysicsProjectile which config the projectile
+        /// represents, so the visual and stats come from that config rather than
+        /// from the prefab's inspector defaults.
         ///
-        /// GUIDED FIX ("guided doesn't work for physics projectiles over the
-        /// network"): this RPC previously had no way to carry a homing target
-        /// across the wire at all — PhysicsProjectileBase.SetGuidedTarget()
-        /// existed and worked correctly, but nothing here ever called it, so
-        /// every networked physics projectile with MovementType.Guided just
-        /// flew straight. targetNetworkObjectId (0 = none) is resolved back to
-        /// a live NetworkObject via SpawnManager and handed to SetGuidedTarget
-        /// once the projectile exists. Only meaningful when the fired config's
-        /// MovementType is actually Guided — harmless no-op otherwise. Target
-        /// SELECTION (who to lock onto) is deliberately left to the caller;
-        /// this only plumbs an already-chosen target through.
+        /// When patternId is not 0 (or spreadCount is above 1) the directions come
+        /// from ProjectileDirectionResolver, the same deterministic resolution the
+        /// Rust sim path uses, and one NetworkObject is spawned per direction. No
+        /// raw direction data crosses the wire. No fire seed is sent on this RPC,
+        /// so a pattern with random shapes uses its asset's own fixed seed.
+        ///
+        /// targetNetworkObjectId (0 = none) is resolved on the server to a live
+        /// NetworkObject and handed to PhysicsProjectileBase.SetGuidedTarget once
+        /// the projectile exists. Every projectile of one call shares the target.
+        /// It only matters when the config's MovementType is Guided. Choosing the
+        /// target is left to the caller; this only carries an already chosen
+        /// target through.
         /// </summary>
         [ServerRpc(RequireOwnership = false)]
         public void FirePhysicsProjectileServerRpc(
@@ -699,10 +684,9 @@ namespace MidManStudio.Projectiles.Network
             if (!IsServer || !IsSpawned || _isShuttingDown) return;
             if (!MID_MasterProjectileSystem.HasInstance) return;
 
-            // BUG FIX ("physics projectile fires twice on client"): this is the
-            // actual NGO id of whoever called this RPC — see the firingClientId
-            // doc on MID_MasterProjectileSystem.SpawnPhysicsProjectile for why it
-            // needs to be passed through instead of spawning server-owned.
+            // The NGO client id of whoever called this RPC. It is passed to
+            // MID_MasterProjectileSystem.SpawnPhysicsProjectile, whose
+            // firingClientId doc explains how it is used for the firing client.
             ulong firingClientId = rpcParams.Receive.SenderClientId;
 
             // Resolved once, up-front — every direction/spread instance from this
@@ -773,18 +757,18 @@ namespace MidManStudio.Projectiles.Network
         // ── Server → Clients ──────────────────────────────────────────────────
 
         /// <summary>
-        /// FIX: Sent to OTHER clients only (not the firing client).
+        /// Sent to other clients only, not to the firing client.
         /// Spawns fresh Rust buffer entries for projectiles fired by remote players.
-        /// Position is advanced by elapsed server time to account for RPC travel time.
+        /// Position is advanced by the elapsed server time (clamped to 0.5 s) to
+        /// account for RPC travel time.
         ///
-        /// Delivery = Unreliable on purpose: this is a one-shot cosmetic spawn
-        /// event for a client that isn't the shooter and isn't the authority for
-        /// this projectile either. If the packet is dropped, that one client
-        /// simply never renders that one shot's visual — no state elsewhere
-        /// depends on it, nothing desyncs, and it isn't superseded/retried by
-        /// anything later (unlike the periodic snapshot), so treat this as an
-        /// occasional acceptable miss rather than paying for guaranteed delivery
-        /// on every single shot in every large lobby.
+        /// Delivery is unreliable on purpose: this is a one-shot cosmetic spawn
+        /// for a client that is neither the shooter nor the authority. If the
+        /// packet is dropped, that one client never renders that one shot. No
+        /// other state depends on it and nothing desyncs, but nothing retries or
+        /// supersedes it either (unlike the periodic snapshot), so a drop is an
+        /// accepted occasional miss rather than paying for guaranteed delivery on
+        /// every shot in a large lobby.
         /// </summary>
         [ClientRpc(Delivery = RpcDelivery.Unreliable)]
         public void SpawnConfirmedClientRpc(
@@ -815,9 +799,9 @@ namespace MidManStudio.Projectiles.Network
         }
 
         /// <summary>
-        /// FIX: Sent ONLY to the firing client.
-        /// Swaps the temp IDs they spawned locally with the real server-assigned IDs.
-        /// No new entries are spawned — they already have their projectiles running.
+        /// Sent only to the firing client (reliable delivery).
+        /// Swaps the temporary ids it spawned locally for the real server-assigned
+        /// ids. No new entries are spawned: its projectiles are already running.
         /// </summary>
         [ClientRpc]
         private void LinkProjectileIdsClientRpc(
@@ -855,18 +839,17 @@ namespace MidManStudio.Projectiles.Network
         }
 
         /// <summary>
-        /// FIX: Passes currentServerTick and tickInterval to ReconcileSnapshots so
-        /// the stale snapshot position can be extrapolated forward before comparing.
-        /// See LocalProjectileManager.ReconcileSnapshots2D/3D for the math.
+        /// Periodic authoritative state for the Rust sim projectiles. The current
+        /// server tick and the tick interval are passed to ReconcileSnapshots2D/3D
+        /// so the stale snapshot position can be extrapolated forward before it is
+        /// compared with the local position. See those methods for the math.
         ///
-        /// Delivery = Unreliable on purpose: textbook case for it. Each snapshot
-        /// supersedes the previous one a few ticks later regardless — that's
-        /// exactly what the staleTime extrapolation in ReconcileSnapshots2D/3D
-        /// already exists to smooth over. A dropped snapshot just means the next
-        /// one (already coming shortly) catches up; paying reliable-delivery
-        /// retransmission cost on a value that's about to be replaced anyway is
-        /// pure waste, and at high player/projectile counts this is the highest-
-        /// frequency RPC in the whole system.
+        /// Delivery is unreliable on purpose: each snapshot is superseded by the
+        /// next one a few ticks later, and the staleness extrapolation in
+        /// ReconcileSnapshots2D/3D already smooths over a gap. A dropped snapshot
+        /// is caught up by the next, so reliable retransmission of a value about
+        /// to be replaced would be waste. It is the highest-frequency RPC in the
+        /// system.
         /// </summary>
         [ClientRpc(Delivery = RpcDelivery.Unreliable)]
         public void SendSnapshotClientRpc(
@@ -914,10 +897,9 @@ namespace MidManStudio.Projectiles.Network
             return Mathf.Clamp(deltaTicks * tickInterval, 0f, 0.5f);
         }
 
-        // BuildServerSpawnPoints(ProjectileFireRequest) is gone — it used to trust
-        // req.ExtraDirections wholesale. Replaced by
-        // ProjectileDirectionResolver.Resolve(...) in FireServerRpc, which
-        // regenerates directions from the registered pattern (or the spread
-        // scalars) instead of anything the client claims about individual pellets.
+        // Pellet directions are never taken from the client. FireServerRpc calls
+        // ProjectileDirectionResolver.Resolve(...), which regenerates them from
+        // the registered pattern (or the spread scalars) instead of anything the
+        // client claims about individual pellets.
     }
 }

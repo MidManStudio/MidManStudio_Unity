@@ -1,6 +1,13 @@
-// Minimal interface your existing ProjectileVisual implements.
-// Add ": INetworkProjectileVisual" to your ProjectileVisual class declaration.
-// All the methods already exist on it — no new logic needed.
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "INetworkProjectileVisual.cs"
+// ============================================================================
+// Contract for a game-side projectile visual that follows a NetworkProjectileBase.
+// A visual class opts in by declaring ": INetworkProjectileVisual" and
+// implementing the members below. NetworkProjectileBase looks for it with
+// GetComponent on the pooled visual object. Nothing in this package implements
+// it, and PhysicsProjectileBase (the only subclass of NetworkProjectileBase here)
+// manages its own visual and never uses it.
 
 using UnityEngine;
 using Unity.Netcode;

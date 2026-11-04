@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ProjectileConfigManager.cs"
+// ============================================================================
 // Runtime bridge between the generated ProjectileConfigType enum and the
 // session-local ushort configIds assigned by ProjectileRegistry.
 //
@@ -6,14 +10,12 @@
 //   2. Assign the generated ProjectileConfigMappingSO to _mapping in the Inspector.
 //   3. Place on the same persistent GameObject as ProjectileRegistry.
 //   4. Registration happens in Awake(), ordered explicitly (-150) to run
-//      after ProjectileRegistry's own Awake() (-200) — see the
-//      [DefaultExecutionOrder] on both classes and ProjectileRegistry.cs's
-//      doc comment for why this used to race and how it's fixed now.
+//      after ProjectileRegistry's own Awake() (-200).
 //
 // USAGE:
 //   ushort id = ProjectileConfigManager.Instance.GetConfigId((int)ProjectileConfigType.FireBall);
-//   // or use the extension method:
-//   system.Fire(ProjectileConfigType.FireBall, spawnPoints, count, context);
+//   // or use the extension method (it takes the enum value as an int):
+//   system.Fire((int)ProjectileConfigType.FireBall, spawnPoints, count, context);
 
 using System.Collections.Generic;
 using UnityEngine;
@@ -24,18 +26,10 @@ using MidManStudio.Core.Logging;
 namespace MidManStudio.Projectiles.Config
 {
     /// <summary>
-    /// TIMING FIX ("the config that never gets set on the first fire — index
-    /// starts at 0, always the first fire") — see ProjectileRegistry.cs's own
-    /// updated doc comment for the full explanation of the race this closes.
-    /// Short version: RegisterAll() used to run in Start(), with no
-    /// execution-order guarantee relative to any other script that might
-    /// read a ConfigId (either via GetConfigId below, or — the actual root
-    /// cause per your testing — directly off a ProjectileConfigSO's own
-    /// .ConfigId field, which only ever gets assigned inside
-    /// ProjectileRegistry.Register()). Moved to Awake(), with an explicit
-    /// order placed right after ProjectileRegistry's (-200), so this always
-    /// runs early enough to matter but never before the registry it depends
-    /// on exists.
+    /// Maps generated ProjectileConfigType enum values to the runtime ushort
+    /// configIds that ProjectileRegistry assigns. RegisterAll() runs in Awake()
+    /// at execution order -150, right after ProjectileRegistry (-200), so the
+    /// ids exist before any other script's Start() reads them.
     /// </summary>
     [DefaultExecutionOrder(-150)]
     [AddComponentMenu("MidMan/Projectile System/Projectile Config Manager")]
@@ -69,9 +63,12 @@ namespace MidManStudio.Projectiles.Config
 
         /// <summary>
         /// Register all configs in the mapping SO into ProjectileRegistry.
-        /// The mapping array is ordered by enum value, so the assigned configId
-        /// matches the enum int value when registered sequentially from index 0.
-        /// Call at most once per session, before any Fire() calls.
+        /// The mapping array is ordered by enum value, so array index i is
+        /// enum value i. The registry assigns configIds in registration order and
+        /// skips null padding slots, so a configId is not guaranteed to equal the
+        /// enum value. Always translate through GetConfigId.
+        /// Registering the same asset again returns its existing id, so a repeat
+        /// call is harmless. Call it before any Fire() calls.
         /// </summary>
         public void RegisterAll(ProjectileConfigMappingSO mapping)
         {

@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "RaycastProjectileHandler.cs"
+// ============================================================================
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -192,15 +196,14 @@ namespace MidManStudio.Projectiles.Managers
         #region Server — Handle Pattern Fire
 
         /// <summary>
-        /// PATTERN SUPPORT: resolves patternId (or pelletCount/spreadDeg for the
-        /// no-pattern case) into N directions via the same
-        /// ProjectileDirectionResolver every other fire path uses, then has the
-        /// server cast all N rays itself — fully authoritative, no client hit
-        /// claims involved (see the type doc on RaycastPatternFireServerRpc for
-        /// why that's the right trust model here). One MID_ProjectileHitPayload
-        /// fires per confirmed hit, same as the single-ray path. Visuals for all
-        /// N pellets (hit or miss) go out in one batched RPC rather than N
-        /// separate calls.
+        /// Pattern fire: resolves patternId (or pelletCount and spreadDeg for the
+        /// no-pattern case) into N directions with the same
+        /// ProjectileDirectionResolver every other fire path uses, then casts all N
+        /// rays on the server. No client hit claim is involved (see the type doc on
+        /// RaycastPatternFireServerRpc for the trust model). One
+        /// ProjectileHitPayload is raised per confirmed hit, as on the single-ray
+        /// path, and the visuals for all N pellets (hit or miss) go out in one
+        /// batched RPC.
         /// </summary>
         public void ServerHandleFirePattern(
             ushort patternId, Vector3 origin, Vector3 baseDirection,
@@ -606,26 +609,17 @@ namespace MidManStudio.Projectiles.Managers
         }
 
         /// <summary>
-        /// Client-side, non-authoritative visual prediction for a PATTERN
-        /// raycast shot — the pattern-path counterpart to OfflineHandleFire
-        /// above (which only ever covered the single-ray path; see
-        /// RegisterRaycastFire's defensive call into it). ServerHandleFirePattern
-        /// broadcasts its visuals via BuildTargetList(senderClientId), which
-        /// deliberately excludes the firing client on the assumption that the
-        /// firing client already has a local prediction — true for the
-        /// single-ray path, but there was never an equivalent for patterns, so
-        /// a client firing a pattern shot was excluded from the RPC AND had
-        /// nothing local to fall back on: nothing rendered for their own shot.
+        /// Client-side, non-authoritative visual prediction for a pattern raycast
+        /// shot, the pattern counterpart to OfflineHandleFire. ServerHandleFirePattern
+        /// broadcasts its visuals through BuildTargetList(senderClientId), which
+        /// leaves the firing client out on the assumption that it already has a
+        /// local prediction. This method is that prediction.
         ///
-        /// Resolves the same directions ServerHandleFirePattern resolves
-        /// server-side, does a plain local raycast per pellet (no lag
-        /// compensation — this is cosmetic prediction, not a hit claim), and
-        /// reuses OfflineHandleFire per pellet for the actual visual + local
-        /// hit-feedback. The server's own authoritative resolution and
-        /// broadcast to every OTHER client is unchanged and still happens via
-        /// ServerHandleFirePattern / RaycastPatternFireServerRpc — this only
-        /// fills the gap BuildTargetList's sender-exclusion leaves for the
-        /// firing client.
+        /// It resolves the same directions ServerHandleFirePattern resolves,
+        /// casts one plain local ray per pellet (no lag compensation, since it is
+        /// cosmetic and not a hit claim) and reuses OfflineHandleFire per pellet
+        /// for the visual and the local hit feedback. The server's own resolution
+        /// and its broadcast to every other client are unaffected.
         /// </summary>
         public void ClientPredictPatternLocal(
             ushort patternId, Vector3 origin, Vector3 baseDirection,

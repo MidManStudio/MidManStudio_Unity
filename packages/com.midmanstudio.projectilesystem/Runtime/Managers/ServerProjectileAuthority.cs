@@ -18,19 +18,21 @@ using MidManStudio.Projectiles.Network;
 namespace MidManStudio.Projectiles.Managers
 {
     /// <summary>
-    /// BANDWIDTH FIX: X/Y now serialize as half-precision (2 bytes each instead
-    /// of 4) via Mathf.FloatToHalf/HalfToFloat. The struct's public fields are
-    /// still plain floats — SendSnapshots() and ReconcileSnapshots2D read/write
-    /// them exactly as before, nothing outside NetworkSerialize changed at all.
-    /// Precision cost: half-float gives ~3 decimal digits at typical game-world
-    /// scale (well under 65,504 units from origin) — i.e. sub-centimeter error,
-    /// far finer than ReconcileSnapshots2D's own kSkip=0.08 tolerance band. This
-    /// is not a visible precision loss for this use case; it's strictly smaller
-    /// than the slop the reconciliation math already accepts as "close enough."
-    /// ProjId and ServerTick are left as full-size on purpose — ProjId needs
-    /// exact equality for buffer matching (any collision risk is a correctness
-    /// bug, not worth the 2 bytes), and ServerTick needs its full range for long
-    /// sessions at high tick rates.
+    /// Position snapshot of one 2D projectile, sent to clients for reconciliation
+    /// (LocalProjectileManager.ReconcileSnapshots2D). X and Y serialize as
+    /// half-precision floats (2 bytes each instead of 4) through
+    /// Mathf.FloatToHalf/HalfToFloat. The public fields stay plain floats, so
+    /// only NetworkSerialize knows about the compression. ProjId and ServerTick
+    /// stay full size: ProjId needs exact equality for buffer matching, and
+    /// ServerTick needs its full range for long sessions at high tick rates.
+    ///
+    /// Precision: a half-precision value is off by at most half the spacing
+    /// between neighbouring half values, which is about 0.0005 per unit of
+    /// magnitude. That is 0.03 units for coordinates between 64 and 128, 0.06
+    /// between 128 and 256, and 0.125 between 256 and 512. The client skips a
+    /// correction when the error is under ReconcileSnapshots2D's kSkip (0.08), so
+    /// beyond roughly 256 units from the origin the quantisation error alone
+    /// can exceed that band and trigger corrections.
     /// </summary>
     public struct ProjectileSnapshot2D : INetworkSerializable
     {
@@ -603,11 +605,12 @@ namespace MidManStudio.Projectiles.Managers
         /// Sends position snapshots for active projectiles to clients for
         /// linear-prediction reconciliation.
         ///
-        /// FIX: Wave and Circular projectiles are excluded from the snapshot payload.
-        /// ClientPredictionManager.ReconcileOne() already ignores these types
-        /// (PredictionMode.DeterministicMath) — sending them was pure overhead that
-        /// contributed to the "Receive queue is full" UTP warning seen at high fire rates.
-        /// In Wave/Circular-heavy games this can eliminate the majority of snapshot data.
+        /// Wave and Circular projectiles are left out of the snapshot payload. The
+        /// client's own native sim reproduces them from the same parameters, and
+        /// ReconcileSnapshots2D/3D extrapolates linearly, which does not describe
+        /// those movement types, so sending them would only cost bandwidth (they
+        /// contributed to the UTP "Receive queue is full" warning at high fire
+        /// rates).
         ///
         /// DISTANCE CULLING (opt-in, see _enableDistanceCulling / ObserverProvider):
         /// off by default and behaves exactly as before — one combined array,
@@ -633,9 +636,8 @@ namespace MidManStudio.Projectiles.Managers
             {
                 if (_projs2D[i].Alive == 0) continue;
 
-                // Skip DeterministicMath types — clients compute these analytically.
-                // Snapshots for Wave/Circular are discarded by the client anyway
-                // and only waste receive-queue slots.
+                // Skip Wave and Circular: clients reproduce them from the same
+                // parameters, and the linear reconciliation does not fit them.
                 byte mt = _projs2D[i].MovementType;
                 if (mt == _movWave || mt == _movCircular) continue;
 
@@ -729,28 +731,23 @@ namespace MidManStudio.Projectiles.Managers
 
         // ── Chunked sender ──────────────────────────────────────────────────────
         //
-        // BUG FIX (the actual crash): NGO serializes a T[] RPC parameter by its
-        // real .Length — it has no idea "count2D" is supposed to mean "only the
-        // first N of these are real," that's a purely applicaton-side convention.
-        // _snapshots2D/_cullScratch2D are pre-allocated at full capacity
-        // (_maxProjectiles2D = 2048) and reused in place for exactly the reason
-        // you'd want that — avoid GC pressure — but that means handing either of
-        // them straight to an RPC call was ALWAYS serializing all 2048 slots
-        // (~24.5KB for 2D alone), not just the live ones. Under Reliable delivery
-        // that silently fragmented across packets and nobody noticed; Unreliable
-        // has no fragmentation, so it hits the "too large" ceiling immediately —
-        // this isn't really a "delivery type" bug, the delivery type just
-        // stopped tolerating a pre-existing oversized payload.
+        // NGO serializes a T[] RPC parameter by its real .Length. The snapshot and
+        // culling arrays (_snapshots2D, _cullScratch2D and the 3D ones) are
+        // pre-allocated at full capacity (_maxProjectiles2D = 2048) and reused in
+        // place to avoid GC pressure, so passing one straight to an RPC would
+        // serialize every slot (about 24.5 KB for 2D alone), not only the live
+        // ones. Reliable delivery fragments that silently, while unreliable
+        // delivery has no fragmentation and hits the size ceiling at once.
         //
-        // Fix has two parts, both handled here: (1) every chunk actually handed
-        // to the RPC is resized to exactly how many entries it holds — _chunk2D/
-        // _chunk3D only reallocate when the requested size changes, so a steady
-        // stream of same-sized chunks costs nothing extra; (2) each chunk is
-        // capped to a conservative byte budget so even a fully-trimmed, fully
-        // legitimate large snapshot (e.g. a real 150-projectile tick) still can't
-        // exceed NGO's unreliable ceiling — it just becomes 2-3 RPC calls instead
-        // of one. Losing one chunk to a dropped unreliable packet only costs that
-        // slice of that tick's projectiles their update, self-corrected next tick.
+        // Two things are done here. Every chunk handed to the RPC is resized to
+        // exactly the entries it holds (_chunk2D and _chunk3D reallocate only when
+        // the requested size changes, so a steady stream of same-sized chunks
+        // costs nothing extra). And each chunk is capped to a conservative byte
+        // budget, so even a large legitimate snapshot (for example 150
+        // projectiles in one tick) stays under NGO's unreliable ceiling and
+        // becomes 2 or 3 RPC calls instead of one. Losing one chunk to a dropped
+        // unreliable packet costs that slice of projectiles one update, corrected
+        // on the next tick.
 
         private const int kSafeUnreliablePayloadBytes = 900; // conservative; real ceiling is MTU-bound, ~1200
         private const int kFixedRpcOverheadBytes       = 48;  // two counts + two length-prefixes + rpc header headroom

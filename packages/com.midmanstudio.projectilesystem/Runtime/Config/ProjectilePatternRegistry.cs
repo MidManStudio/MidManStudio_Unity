@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ProjectilePatternRegistry.cs"
+// ============================================================================
 using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
@@ -9,19 +13,16 @@ namespace MidManStudio.Projectiles.Config
     /// <summary>
     /// Runtime registry mapping ushort patternId to ProjectilePatternSO.
     ///
-    /// IDs are a stable FNV-1a hash of the asset's name — NOT the array
-    /// position in _autoRegister. This matters: unlike ProjectileConfigSO/
-    /// ProjectileRegistry, which get their cross-build ID stability from
-    /// ProjectileConfigMappingSO (a checked-in, generator-baked asset where
-    /// array order IS the enum value, identical on every machine by
-    /// construction), _autoRegister here is just an Inspector-populated array
-    /// on a scene component. Nothing guarantees two builds/processes/editor
-    /// sessions populate it in the same order — reorder the list, insert a new
-    /// pattern in the middle instead of appending, or have host and client
-    /// running slightly different scene setups, and position-based IDs quietly
-    /// point at different assets on each side. A hash of the name doesn't care
-    /// about order or what else is registered — the same asset always gets the
-    /// same ID everywhere, as long as you don't rename it.
+    /// IDs are a stable FNV-1a hash of the asset's name, not the array position
+    /// in _autoRegister. Config ids get their cross-build stability from
+    /// ProjectileConfigMappingSO, a checked-in asset whose array order is the
+    /// enum value. _autoRegister here is only an Inspector-populated array on a
+    /// scene component, and nothing guarantees that two builds or processes fill
+    /// it in the same order. Reordering the list, inserting a pattern in the
+    /// middle, or running host and client with slightly different scene setups
+    /// would make position-based IDs point at different assets on each side. A
+    /// hash of the name ignores order and what else is registered, so the same
+    /// asset gets the same ID everywhere, as long as it is not renamed.
     ///
     /// ID 0 is reserved as the wire-level "no pattern" sentinel
     /// (ProjectileFireRequest.PatternId / SpawnConfirmation.PatternId) — the
@@ -139,12 +140,10 @@ namespace MidManStudio.Projectiles.Config
         // ─────────────────────────────────────────────────────────────────────
 
         /// <summary>
-        /// FNV-1a over the UTF8 bytes of the name, folded into [1, 65535].
-        /// Deliberately NOT string.GetHashCode() — Unity does not guarantee
-        /// that's stable across Mono/IL2CPP, platforms, or even separate runs;
-        /// this needs to produce the exact same id for the exact same name on
-        /// every machine, every time, which is the entire point of the switch
-        /// away from array-position ids.
+        /// FNV-1a over the UTF8 bytes of the name, folded into [1, 65534].
+        /// Deliberately not string.GetHashCode(): Unity does not guarantee that
+        /// it is stable across Mono and IL2CPP, platforms, or separate runs, and
+        /// this has to give the same id for the same name on every machine.
         /// </summary>
         private static ushort StableId(string name)
         {

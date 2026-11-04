@@ -211,22 +211,17 @@ namespace MidManStudio.Projectiles.Managers
         private readonly Queue<(uint baseTempId, int count)> _pendingTempBases
             = new Queue<(uint, int)>(16);
 
-        // BUG FIX (wiggle on the firing client's own shots): real proj ids that
-        // THIS client fired, populated the instant LinkNetworkProjectileBatch
-        // swaps a batch from temp -> real ids. ReconcileSnapshots2D/3D skips any
-        // id in here entirely. SendSnapshots() (ServerProjectileAuthority) sends
-        // one shared snapshot array to every connected client with no per-owner
-        // filtering — it has to, that's the only way one broadcast covers
-        // everyone's view of everyone else's projectiles. Without this exemption,
-        // a client's own already-correct, already-locally-simulated shots get
-        // continuously nudged toward a separately-computed server extrapolation
-        // that's never going to line up exactly (different spawn instant, ping
-        // jitter in staleTime, tick-phase drift) — every "close enough but not
-        // pixel-identical" snapshot triggers another partial Lerp correction,
-        // which is the actual wiggle. The client owns and fully trusts its own
-        // simulation for what it fired; the server's snapshot is authoritative
-        // only for projectiles this client did NOT fire and has no better local
-        // source of truth for.
+        // Real proj ids that THIS client fired, added the moment
+        // LinkNetworkProjectileBatch swaps a batch from temp to real ids.
+        // ReconcileSnapshots2D/3D skips every id in here. The server sends one
+        // shared snapshot array to every client with no per-owner filtering, so
+        // without this exemption a client's own shots, which it already simulates
+        // locally, would keep being nudged toward a separately computed server
+        // extrapolation that never lines up exactly (different spawn instant, ping
+        // jitter in staleTime, tick-phase drift). Each near miss would trigger
+        // another partial Lerp correction, visible as wiggle. The client trusts
+        // its own simulation for what it fired; the snapshot is authoritative only
+        // for projectiles it did not fire.
         private readonly HashSet<uint> _locallyOwnedProjIds = new(64);
 
         #endregion
@@ -251,10 +246,8 @@ namespace MidManStudio.Projectiles.Managers
         #region Movement type constants (mirror Rust values)
 
         private const byte MT_STRAIGHT = 0;
-        // MT_ARCHING (was 1) removed — see ProjectileMovementType.Straight's doc
-        // comment in ProjectileLib.cs. Straight now carries the "may have a
-        // constant Ay for an arc" responsibility below — see the two usages
-        // this used to be at, both updated accordingly.
+        // There is no MT_ARCHING (value 1). Straight carries the constant Ay for
+        // an arc (see ProjectileMovementType.Straight in ProjectileLib.cs).
         private const byte MT_GUIDED   = 2;
         private const byte MT_TELEPORT = 3;
         private const byte MT_WAVE     = 4;
@@ -617,15 +610,12 @@ namespace MidManStudio.Projectiles.Managers
         #region Public API — Offline Spawn
 
         /// <param name="guidedTarget">
-        /// RUSTSIM GUIDED FIX ("guided doesn't work — dead wire"): ProjectileConfigSO.
-        /// MovementType.Guided alone was never enough — ProjectileGuidanceTracker.
-        /// RegisterGuidedTarget2D existed, worked correctly, and self-drives its own
-        /// Update() loop once an entry exists, but nothing anywhere ever called it to
-        /// add one. Pass a target here and — only when configId's resolved cfg is
-        /// actually Guided — every proj_id in this batch gets registered right after
-        /// spawn, once, no different from how baseId/written are already computed
-        /// here. Null (default) preserves prior behavior exactly: no registration,
-        /// same as before this fix — not a regression for non-Guided fire.
+        /// Optional target for Guided configs. When configId's resolved config has
+        /// the Guided movement type and a target is passed, every proj id in the
+        /// batch is registered once with ProjectileGuidanceTracker right after the
+        /// spawn, and the tracker then steers it from its own Update loop. With no
+        /// target (the default), or a config that is not Guided, nothing is
+        /// registered.
         /// </param>
         public void Spawn2D(
             SpawnPoint[] spawnPoints, int count, ushort configId,
@@ -855,18 +845,14 @@ namespace MidManStudio.Projectiles.Managers
                 // A burst projectile that has not spawned yet still carries the temp id.
                 if (!found) _delayed.Relink(tempId, realId);
 
-                // BUG FIX: TrailObjectPool._projToSlot is keyed by ProjId and was
-                // populated under tempId by earlier SyncToSimulation calls (this
-                // projectile has been live and trailing since the instant local
-                // fire, well before the server confirmed). Without this relink, the
-                // very next SyncToSimulation tick looks up the now-swapped realId,
-                // misses, and acquires a brand-new trail slot from scratch — which
-                // is exactly the trail streak / "small sync" hitch on fan/16
-                // continuous fire: the old slot is orphaned (never released, since
-                // NotifyDead will only ever fire with realId), and it leaks one
-                // slot per pellet per shot until the pool runs dry. Re-keying here
-                // instead of re-acquiring means the same trail continues under its
-                // new id with zero visual discontinuity, and nothing leaks.
+                // TrailObjectPool._projToSlot is keyed by ProjId and was filled
+                // under tempId by earlier SyncToSimulation calls (the projectile has
+                // trailed since the instant of local fire, before the server
+                // confirmed). Re-keying here keeps the same trail under the new id.
+                // Without it the next sync misses the lookup, acquires a new slot
+                // (a visible trail break) and orphans the old one, because
+                // NotifyDead only fires with the real id, which leaks one slot per
+                // pellet per shot.
                 _trailPool?.RelinkProjectileId(tempId, realId);
 
                 // This id is now a real server id for a projectile THIS client
@@ -893,12 +879,12 @@ namespace MidManStudio.Projectiles.Managers
         // ── All clients: reconcile positions from server snapshots ─────────────
 
         /// <summary>
-        /// FIX: Extrapolates the stale snapshot position forward to current time
+        /// Extrapolates the stale snapshot position forward to current time
         /// before comparing against the client's local position.
         ///
         /// For a deterministic simulation (same Rust code, same initial conditions):
         /// extrapolated_pos ≈ local_pos → error ≈ 0 → skip fires → NO correction.
-        /// This eliminates zig-zag entirely during normal straight-line flight.
+        /// A normal straight-line flight therefore sees no correction.
         ///
         /// Corrections only fire for genuine discrepancies: wrong initial catch-up
         /// position, missed ticks, or floating-point divergence (rare, tiny).
@@ -1281,16 +1267,12 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Public API — Guided
         //
-        // BUG THIS CLOSES: MID_MasterProjectileSystem.SetHomingDirection2D/3D
-        // used to only ever forward into ServerProjectileAuthority. For a
-        // non-networked game, projectiles live in THIS buffer instead (same
-        // routing rule RegisterTarget2D/3D already follows: !IsNetworked ->
-        // here) — so every homing call was previously a silent no-op offline.
-        // MID_MasterProjectileSystem now calls these too.
-        //
-        // Also adds TryGetPosition2D/3D: ProjectileGuidanceTracker needs a
-        // projectile's current position each tick to compute a fresh
-        // direction-to-target before writing Ax/Ay via SetAcceleration2D/3D.
+        // MID_MasterProjectileSystem.SetHomingDirection2D/3D call these when the
+        // session is not networked, because projectiles then live in THIS buffer
+        // (the same routing rule RegisterTarget2D/3D follows: !IsNetworked means
+        // here). TryGetPosition2D/3D give ProjectileGuidanceTracker a projectile's
+        // current position each tick, so it can compute a fresh direction to its
+        // target before writing Ax/Ay through SetAcceleration2D/3D.
 
         public void SetAcceleration2D(uint projId, Vector2 accelDir)
         {

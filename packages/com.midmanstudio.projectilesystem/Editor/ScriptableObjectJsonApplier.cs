@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ScriptableObjectJsonApplier.cs"
+// ============================================================================
 // Applies a parsed JSON object (from MiniJsonParser) onto a SerializedObject's
 // properties by name. Works generically against whatever fields the target
 // actually has — no hardcoded per-field schema — so it doesn't need updating

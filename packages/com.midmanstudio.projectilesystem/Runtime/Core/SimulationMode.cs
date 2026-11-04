@@ -1,8 +1,11 @@
-// ProjectileConfigSO.Is3D already controls which Rust buffer (2D/3D) is used —
-// there is no reason to duplicate that choice in the simulation-mode override.
-// Byte value 1 (RustSim2D) is preserved so existing serialised configs are not corrupted.
-// Value 2 (RustSim3D) is intentionally left as a gap; any SO that had it will show "(2)"
-// in the inspector and can simply be re-assigned to RustSim.
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "SimulationMode.cs"
+// ============================================================================
+// ProjectileConfigSO.Is3D controls which Rust buffer (2D or 3D) is used, so the
+// simulation-mode override does not repeat that choice.
+// Value 2 is unassigned. A config asset that still stores 2 shows "(2)" in the
+// inspector and needs RustSim assigned again.
 
 namespace MidManStudio.Projectiles.Core
 {
@@ -21,8 +24,6 @@ namespace MidManStudio.Projectiles.Core
         /// Clients predict; server is authoritative.
         /// </summary>
         RustSim       = 1,
-
-        // 2 was RustSim3D — removed; Is3D on the config handles the distinction.
 
         /// <summary>Unity Rigidbody2D/3D. Server owns physics; clients via NetworkTransform.</summary>
         PhysicsObject = 3,

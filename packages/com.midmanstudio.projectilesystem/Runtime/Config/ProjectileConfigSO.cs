@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ProjectileConfigSO.cs"
+// ============================================================================
 using UnityEngine;
 using System;
 using System.Collections.Generic;
@@ -104,19 +108,13 @@ namespace MidManStudio.Projectiles.Config
 
         // ── Rendering / Sorting ──────────────────────────────────────────────
         //
-        // GAP THIS CLOSES: ProjectileRenderer2D draws every RustSim projectile
-        // via Graphics.DrawMeshInstanced/DrawMesh — immediate-mode calls with no
-        // SortingLayer/Order concept at all (that's a Renderer-component-only
-        // feature; DrawMesh doesn't go through one). So there was previously no
-        // way to control draw order between projectiles and the rest of a 2D
-        // scene's sprites.
-        //
-        // FIX: SortingPriority below is consumed by ProjectileRenderer2D as a
-        // Z-depth offset (see that file's own header comment for the full
-        // mechanism and, importantly, the camera setting it depends on).
-        // TrailObjectPool instead applies this directly as a real
-        // TrailRenderer.sortingLayerID/sortingOrder — trails need no workaround
-        // since TrailRenderer is a genuine Renderer component.
+        // ProjectileRenderer2D draws RustSim projectiles with
+        // Graphics.DrawMeshInstanced / DrawMesh. Those calls have no sorting
+        // layer or order, because that is a Renderer component feature.
+        // SortingPriority below stands in for it: ProjectileRenderer2D turns it
+        // into a Z-depth offset (see that file for the mechanism and the camera
+        // setting it depends on). TrailObjectPool applies the layer and order
+        // directly to a real TrailRenderer, so trails need no workaround.
         [Header("Rendering — Sorting")]
         [Tooltip("Sorting layer for this projectile's body (RustSim renderer, via " +
                  "a Z-depth offset) and its trail (real TrailRenderer.sortingLayerID).")]
@@ -269,8 +267,8 @@ namespace MidManStudio.Projectiles.Config
         [SerializeField] private float _wavePhaseOffset = 0f;
         [SerializeField] private bool  _waveVertical    = false;
 
-        // Public read-only accessors — used by DeterministicMotionMath for
-        // client-side closed-form wave position calculation.
+        // Public read-only accessors. PhysicsProjectileBase reads them and hands
+        // them to DeterministicMotionMath for the closed-form Wave velocity.
         public float WaveAmplitude   => _waveAmplitude;
         public float WaveFrequency   => _waveFrequency;
         public float WavePhaseOffset => _wavePhaseOffset;
@@ -281,9 +279,10 @@ namespace MidManStudio.Projectiles.Config
         [SerializeField] private float _circularAngularSpeed = 180f;
         [SerializeField] private float _circularStartAngle   = 0f;
 
-        // Public read-only accessors — used by DeterministicMotionMath.
-        // CircularAngularSpeed is in degrees/sec; callers convert to radians as needed.
-        // CircularStartAngle is in degrees; callers convert to radians as needed.
+        // Public read-only accessors. PhysicsProjectileBase reads them and hands
+        // them to DeterministicMotionMath for the closed-form Circular velocity.
+        // CircularAngularSpeed is in degrees/sec and CircularStartAngle is in
+        // degrees. The native sim and the C# callers both convert to radians.
         public float CircularRadius       => _circularRadius;
         public float CircularAngularSpeed => _circularAngularSpeed;
         public float CircularStartAngle   => _circularStartAngle;
@@ -426,13 +425,10 @@ namespace MidManStudio.Projectiles.Config
 
         /// <summary>
         /// Registers this config's Wave/Circular movement parameters with the
-        /// native sim. No-ops (with a logged warning) instead of throwing when
-        /// the native library isn't available on this platform/architecture —
-        /// previously an uncaught DllNotFoundException here (via ProjectileRegistry.
-        /// Register(), often called from a coroutine such as
-        /// TestSceneBootstrapper.Start()) could abort the caller mid-method,
-        /// skipping any code queued after it — including lobby event subscriptions
-        /// that never touch the native lib at all.
+        /// native sim, keyed by ConfigId. Does nothing for other movement types.
+        /// When the native library is unavailable it logs a warning and returns
+        /// instead of throwing, so the caller (ProjectileRegistry.Register)
+        /// carries on with the next config.
         /// </summary>
         public void RegisterMovementParams()
         {

@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ProjectileCustomPathPanel.cs"
+// ============================================================================
 // ProjectileCustomPathPanel — rich editing UI for ProjectileConfigSO's
 // CustomCurve movement path (_customPathShape/_customPathSplineType/
 // _customPathPoints/_customPathFormulaX/_customPathFormulaY), embedded into

@@ -2,18 +2,28 @@
 // NOTICE: Full documentation, design decisions, and fix history for this file
 // live in docs/com.midmanstudio.projectilesystem.md, section "MID_MasterProjectileSystem.cs"
 // ============================================================================
-//   FireNetworkedSim spawns immediately into LocalProjectileManager for the
-//   firing client (non-server). This gives zero-latency visual feedback using the
-//   same Rust sim + GPU instanced rendering path as the host — no pool objects.
+// Scene-level entry point that game code calls to fire projectiles, register
+// collision targets and shapes, steer guided shots and read live positions. It
+// holds no simulation state of its own. Each call is routed to the backend that
+// fits the current mode:
+//   - Offline (no running NetworkManager, or _forceOfflineMode): the local
+//     manager, LocalProjectileManager.
+//   - Server or host: ServerProjectileAuthority, which owns the authoritative
+//     simulation and all collision.
+//   - Pure client: FireNetworkedSim first spawns a predicted copy straight into
+//     LocalProjectileManager (SpawnFiringClientBatch2D/3D) so the shooter sees the
+//     shot at once, then sends the fire request with FireServerRpc through
+//     MID_ProjectileNetworkBridge. The host skips the predicted copy because it
+//     renders from the authority's own buffer.
 //
-//   RegisterTarget2D/3D and Deactivate variants no longer register targets in
-//   LocalProjectileManager when networked. This keeps LocalProjectileManager's
-//   target buffers empty in networked mode so collision detection is automatically
-//   skipped (FixedUpdate already guards on _targetCountXD > 0). The server's
-//   ServerProjectileAuthority handles all authoritative collision.
+// Target and shape registration goes to the authority when this instance is the
+// server, and to LocalProjectileManager only when the session is not networked.
+// In a networked session LocalProjectileManager's target buffers therefore stay
+// empty, and its FixedUpdate skips the hit pass when both the target count and
+// the shape count are 0, so only the server decides hits.
 //
-//   SetLocalPlayerMidId now also sets the ID on MID_ProjectileNetworkBridge so
-//   SpawnConfirmedClientRpc can distinguish firing client from other clients.
+// SetLocalPlayerMidId forwards the id to ClientPredictionManager and to the
+// bridge. Neither class reads the stored id back (see their notes).
 
 using System;
 using UnityEngine;
@@ -32,16 +42,13 @@ using SimulationMode = MidManStudio.Projectiles.Core.SimulationMode;
 namespace MidManStudio.Projectiles.Managers
 {
     /// <summary>
-    /// Unified payload for MID_MasterProjectileSystem.OnRustSimHit — see that
-    /// event's own doc comment for the full picture. Fields come from one of
-    /// two different underlying sources depending on mode (LocalOnly vs
-    /// Networked); TargetNetworkObjectId and RawTargetId are mutually
-    /// exclusive in practice, not a bug:
+    /// Payload of MID_MasterProjectileSystem.OnRustSimHit (see that event for the
+    /// full picture). The fields come from one of two sources depending on the
+    /// mode, so TargetNetworkObjectId and RawTargetId are never both filled:
     ///   LocalOnly (offline):  RawTargetId populated, TargetNetworkObjectId = 0
     ///   Networked:            TargetNetworkObjectId populated, RawTargetId = 0
-    /// (Networked mode's underlying HitConfirmation genuinely doesn't carry
-    /// the raw RustSim numeric target_id to clients, only a resolvable
-    /// NetworkObjectId — arguably the more directly useful of the two anyway.)
+    /// The networked HitConfirmation does not carry the raw RustSim numeric
+    /// target id to clients, only a resolvable NetworkObjectId.
     /// </summary>
     public struct RustSimHitPayload
     {
@@ -89,28 +96,21 @@ namespace MidManStudio.Projectiles.Managers
         private bool _initialised = false;
 
         /// <summary>
-        /// READINESS EVENT ("timing issue... maybe make an event fired once
-        /// mid master projectile system ready"): static, not instance-scoped —
-        /// deliberately, so anything can subscribe via
-        /// MID_MasterProjectileSystem.OnSystemReady += Handler BEFORE the
-        /// instance even exists yet, which is exactly the situation a
-        /// scene-present object racing this system's own Awake() is in.
+        /// Raised once, at the end of Initialise(). It is static rather than per
+        /// instance on purpose, so a scene object can subscribe before the
+        /// singleton exists and still hear it.
         ///
-        /// DYNAMICALLY SPAWNED OBJECTS, BOTH NET AND NON-NET: an event alone
-        /// only helps subscribers that attach BEFORE it fires — anything
-        /// spawned later (after this system is already initialised) would
-        /// never see it and hang forever waiting. That's why IsReady exists
-        /// as a static property alongside the event: a consumer should always
-        /// check `if (IsReady) { RegisterNow(); } else { OnSystemReady +=
-        /// Handler; }` — RustSimTargetRegistrar/RustSimCustomShapeAuthoring's
-        /// own RegisterNow() do exactly this. Checked-then-subscribed, not
-        /// subscribed-only, is what makes both a scene-present object racing
-        /// startup AND a dynamically Instantiate()'d one spawned five minutes
-        /// into a session work correctly through the same code path.
+        /// A subscriber that attaches after Initialise() has already run would
+        /// never see the event, which is why <see cref="IsReady"/> sits next to
+        /// it. A consumer checks first and subscribes only when not ready:
+        ///   if (IsReady) { RegisterNow(); } else { OnSystemReady += Handler; }
+        /// RustSimTargetRegistrar and RustSimCustomShapeAuthoring do exactly this
+        /// in their RegisterNow(). The one code path then covers both a scene
+        /// object that races this system's Awake() and an object instantiated
+        /// minutes into a session, networked or not.
         ///
-        /// Kept alongside — not replacing — the existing per-tick retry in
-        /// RustSimTargetRegistrar/RustSimCustomShapeAuthoring's Update/
-        /// FixedUpdate as a second, independent safety net.
+        /// Those two components also keep a per-tick retry in Update/FixedUpdate
+        /// as a second, independent safety net.
         /// </summary>
         public static event Action OnSystemReady;
 
@@ -147,56 +147,49 @@ namespace MidManStudio.Projectiles.Managers
         public RaycastProjectileHandler       GetRaycastHandler()    => _raycastHandler;
 
         /// <summary>
-        /// For physics/raycast pool visuals that still need manual prediction management.
-        /// The standard Rust sim path no longer requires this — it's automatic.
+        /// For physics and raycast pool visuals that manage their own prediction
+        /// (see ClientPredictionManager). The RustSim path does not need it.
         /// </summary>
         public ClientPredictionManager        GetPredictionManager() => _predictionManager;
 
         public int GetBridgeTick() => _networkBridge?.GetServerTick() ?? 0;
 
         /// <summary>
-        /// BUG FIX (physics projectiles not damaging anything): PhysicsProjectileBase
-        /// fires OnHitServerConfirmed correctly on every real collision — that part
-        /// always worked. But that event lives on each individual spawned instance,
-        /// not on a session-wide singleton the way RustSimAdapter.OnProjectileHit and
-        /// RaycastProjectileHandler.OnServerHitConfirmed do, so there was nothing to
-        /// subscribe to once at session start and nobody ever heard it. This
-        /// re-raises every spawned instance's hit through one session-wide event —
-        /// SpawnPhysicsProjectile wires each new/reused pooled instance into it
-        /// automatically. Subscribe here exactly like the other two hit sources.
+        /// Session-wide re-raise of every spawned physics projectile's
+        /// OnHitServerConfirmed. That event lives on each PhysicsProjectileBase
+        /// instance, so on its own there is nothing to subscribe to once at session
+        /// start, unlike RustSimAdapter.OnProjectileHit and
+        /// RaycastProjectileHandler.OnServerHitConfirmed, which are session-wide.
+        /// SpawnPhysicsProjectile wires each new or reused pooled instance into this
+        /// relay, so it is raised on the server only. Subscribe here exactly like
+        /// the other two hit sources.
         /// </summary>
         public event Action<ProjectileHitPayload> OnPhysicsHit;
 
         private void RelayPhysicsHit(ProjectileHitPayload payload) => OnPhysicsHit?.Invoke(payload);
 
         /// <summary>
-        /// UNIFIED RUSTSIM HIT EVENT ("how do I make use of when a projectile
-        /// collides, for RustSim?"): before this, OnPhysicsHit existed for
-        /// physics projectiles but nothing equivalent existed for RustSim ones —
-        /// the actual hit signals were scattered across three different places
-        /// (LocalProjectileManager.OnHit for offline, MID_ProjectileNetworkBridge.
-        /// OnHitConfirmedLocal for networked clients, ServerProjectileAuthority.
-        /// Adapter.OnProjectileHit for the server's own authoritative copy) with
-        /// no single place to subscribe. This relays the first two into one
-        /// event, the same "subscribe once at session start" shape OnPhysicsHit
-        /// already has.
+        /// One event for RustSim hits that are visible on this machine. The
+        /// underlying signals live in three places: LocalProjectileManager.OnHit
+        /// (offline), MID_ProjectileNetworkBridge.OnHitConfirmedLocal (networked
+        /// clients, and the host for its own hits) and, on the server,
+        /// ServerProjectileAuthority.Adapter.OnProjectileHit. This event relays the
+        /// first two, in the same subscribe-once-at-session-start shape as
+        /// <see cref="OnPhysicsHit"/>.
         ///
-        /// WHY NOT THE THIRD ONE TOO: Adapter.OnProjectileHit is where real
-        /// damage should be authoritatively applied server-side — it fires
-        /// BEFORE HitConfirmedClientRpc is even sent, is server-only, and (on
-        /// a host) would double-fire alongside this event for the same hit
-        /// (the host is both server and client — it gets Adapter.OnProjectileHit
-        /// AND OnHitConfirmedLocal for its own hits). Keeping them separate
-        /// means: use OnRustSimHit for "something visibly happened, react to
-        /// it" (VFX, sound, UI feedback — same role PlayImpact already plays,
-        /// which is invoked from the exact same OnHitConfirmedLocal source
-        /// this relays), and Adapter.OnProjectileHit specifically for
-        /// server-authoritative damage/game-state logic.
+        /// The third one is deliberately not relayed. Adapter.OnProjectileHit is
+        /// where damage should be applied authoritatively. It is raised only on the
+        /// server, it is the event the bridge itself listens to in order to send
+        /// HitConfirmedClientRpc, and on a host it would fire next to this event
+        /// for the same hit (the host is both server and client, so it gets
+        /// Adapter.OnProjectileHit and OnHitConfirmedLocal).
+        /// Use OnRustSimHit to react to something that visibly happened (VFX,
+        /// sound, UI feedback; PlayImpact is driven from the same
+        /// OnHitConfirmedLocal source) and Adapter.OnProjectileHit for
+        /// server-authoritative damage and game state.
         ///
-        /// TargetNetworkObjectId vs RawTargetId — only one is populated
-        /// depending on mode, see RustSimHitPayload's own field docs; this
-        /// isn't a bug, the two underlying sources genuinely carry different
-        /// target references.
+        /// Only one of TargetNetworkObjectId and RawTargetId is filled, depending
+        /// on the source; see <see cref="RustSimHitPayload"/>.
         /// </summary>
         public event Action<RustSimHitPayload> OnRustSimHit;
 
@@ -242,14 +235,13 @@ namespace MidManStudio.Projectiles.Managers
         {
             if (_initialised) return;
 
-            // NOTE: ProjectileLib.ValidateStructSizes() now throws
-            // InvalidOperationException both for the original "struct size
-            // mismatch" case AND for "native library failed to load on this
-            // platform/architecture" (previously that second case threw an
-            // uncaught DllNotFoundException here, which meant _initialised
-            // never got set to true and everything below — BatchSpawnHelper
-            // init, transport config, _networkBridge wiring — silently never
-            // ran, with no error surfaced at this call site at all).
+            // ValidateStructSizes throws InvalidOperationException both for a
+            // struct size mismatch and when the native library cannot be loaded
+            // on this platform or architecture. Catching it here lets the system
+            // disable itself with a logged error. An uncaught exception would
+            // leave _initialised false and skip everything below (batch helper,
+            // transport setup, bridge wiring) with nothing logged at this call
+            // site.
             try { ProjectileLib.ValidateStructSizes(); }
             catch (InvalidOperationException ex)
             {
@@ -311,8 +303,9 @@ namespace MidManStudio.Projectiles.Managers
         #region Public API — Identity
 
         /// <summary>
-        /// Sets the local player MID ID on both ClientPredictionManager (for physics
-        /// visuals) and MID_ProjectileNetworkBridge (to identify firing client in RPCs).
+        /// Stores the local player's id on ClientPredictionManager and on
+        /// MID_ProjectileNetworkBridge. Both only keep the value and neither reads
+        /// it back, so calling this does not change any routing today.
         /// </summary>
         public void SetLocalPlayerMidId(ulong midId)
         {
@@ -353,13 +346,10 @@ namespace MidManStudio.Projectiles.Managers
         /// diverge (a 2D-configured weapon fired in 3D mode or vice versa).
         /// </param>
         /// <param name="guidedTarget">
-        /// RUSTSIM GUIDED FIX ("guided doesn't work — dead wire"): see
-        /// LocalProjectileManager.Spawn2D's matching parameter doc for the full
-        /// story. Threaded through both branches below — LocalProjectileManager.
-        /// Spawn2D/3D directly for LocalOnly, and as a NetworkObjectId over the
-        /// wire (resolved back to a Transform server-side) for RustSim. Null
-        /// (default) is a complete no-op, identical to calling Fire() before this
-        /// fix existed.
+        /// Target for Guided movement (see LocalProjectileManager.Spawn2D's matching
+        /// parameter). LocalOnly passes it straight to Spawn2D/3D. For RustSim it
+        /// is sent as a NetworkObjectId in the fire request and resolved back to a
+        /// Transform on the server. Null (default) means no target.
         /// </param>
         /// <param name="fireSeed">
         /// The seed that was passed to ProjectileDirectionResolver.Resolve() when
@@ -443,21 +433,22 @@ namespace MidManStudio.Projectiles.Managers
                 ? spawnPoints[0].Speed
                 : cfg.ResolveSpeed();
 
-            // BUG FIX: this used to be spawnPoints[0].Direction, which for any
-            // pattern/spread with more than one pellet is already offset by that
-            // pellet's own angle within the pattern (pellet 0 sits at the start of
-            // the arc, not the center). Feeding that back in as the regeneration
-            // base made every recipient re-apply the full pattern on top of an
-            // already-rotated direction — the whole shot skews off at an angle.
-            // baseDirection is the actual raw aim direction, pre-pattern.
+            // The direction that travels is the raw aim direction, before any
+            // pattern or spread offset. spawnPoints[0].Direction is not that: for a
+            // pattern or spread of more than one pellet it already carries pellet
+            // 0's own angle (pellet 0 sits at the start of the arc, not the
+            // centre). Every recipient re-applies the pattern around the direction
+            // it receives, so sending an already offset direction would skew the
+            // whole shot. spawnPoints[0].Direction is only the fallback, correct for
+            // a single shot.
             Vector3 resolvedBaseDir = baseDirection.sqrMagnitude > 0.0001f
                 ? baseDirection.normalized
                 : (count > 0 ? spawnPoints[0].Direction : Vector3.forward);
 
-            // No more ExtraDirections/RngSeed packing here — patternId + spreadDeg
-            // are enough for every recipient to regenerate the identical pellet set
-            // via ProjectileDirectionResolver.Resolve(). spawnPoints itself is only
-            // used below, locally, for this client's own instant predicted visual.
+            // Only patternId, spreadDeg, fireSeed and the base direction travel.
+            // Every recipient regenerates the same pellet set with
+            // ProjectileDirectionResolver.Resolve(). spawnPoints is used below only
+            // for this client's own predicted visual.
             var request = new ProjectileFireRequest
             {
                 ConfigId               = configId,
@@ -475,19 +466,21 @@ namespace MidManStudio.Projectiles.Managers
                 WeaponLevel            = context.WeaponLevel,
                 DamageMultiplier       = context.DamageMultiplier,
                 ClientFireTick         = _networkBridge.GetServerTick(),
-                // RUSTSIM GUIDED FIX: resolved here, not left as a raw Transform —
-                // a Transform reference means nothing across the wire. 0 = no
-                // guided target, same as every fire request before this fix.
+                // A Transform means nothing across the wire, so it is sent as the
+                // NetworkObjectId of the nearest NetworkObject on it or above it.
+                // 0 means no guided target.
                 TargetNetworkObjectId  = guidedTarget != null
                     ? (guidedTarget.GetComponentInParent<NetworkObject>()?.NetworkObjectId ?? 0UL)
                     : 0UL
             };
 
-            // ARCHITECTURE: Firing client immediately spawns into their own Rust sim buffer.
-            // Renders via ProjectileRenderer2D/3D — same GPU instanced path as the host.
-            // No pool objects, no C# prediction math. The temp IDs are linked to real server
-            // IDs when SpawnConfirmedClientRpc arrives via LinkNetworkProjectileBatch.
-            // Host is excluded — it renders from ServerProjectileAuthority's buffer.
+            // A pure client spawns its own copy into LocalProjectileManager now.
+            // It renders through ProjectileRenderer2D/3D, the same GPU instanced
+            // path as the host, with no pool objects and no C# prediction math.
+            // The temporary ids are linked to the server's real ids when
+            // SpawnConfirmedClientRpc arrives, through
+            // LocalProjectileManager.LinkNetworkProjectileBatch. The host is
+            // excluded because it renders from ServerProjectileAuthority's buffer.
             if (!IsServer && _localManager != null)
             {
                 if (!cfg.Is3D)
@@ -503,76 +496,55 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Public API — Physics Pool
 
-        /// <param name="configId">
-        /// The ProjectileConfigSO this spawn should visually represent — gets
-        /// pushed into the spawned instance's PhysicsProjectileBase.SetVisualConfigId
-        /// immediately after spawn. Previously there was no way to pass this at
-        /// all; every instance used whatever was hardcoded in the prefab's
-        /// Inspector (defaulting to 0), which is why the real sprite never showed
-        /// up regardless of which config was actually fired. Pass 0 to
-        /// deliberately keep the prefab's own Inspector default (back-compat).
-        /// </param>
-        /// <param name="firingClientId">
-        /// REVISED FIX ("physics projectile fires twice on client — a split
-        /// second after the firing client's own shot, another batch shows up"):
-        /// the previous fix (SpawnWithOwnership + PhysicsProjectileBase.
-        /// OnNetworkSpawn calling ClientPredictionManager.
-        /// OnRealPhysicsProjectileSpawned when IsOwner) was solving the wrong
-        /// problem. The firing client was never supposed to see this real,
-        /// server-simulated object at all — it already has its own local
-        /// prediction ghost (NetworkedDimensionPlayer.FirePhysics's
-        /// SpawnLocalPhysicsVisual), which lives out its own MaxLifetime and
-        /// glides to the confirmed hit point on its own via
-        /// HitConfirmedClientRpc -> ClientPredictionManager.OnHitConfirmed —
-        /// that ClientRpc is a plain broadcast with no target list, so it
-        /// already reaches the firer. The ghost never needed the real object
-        /// to arrive; reconciling against it was actively the bug, since
-        /// under any latency/ordering variance both ended up visible at once.
-        ///
-        /// Fix: this object is server-owned as always, but gets NetworkHidden
-        /// from the firing client specifically, so it's never replicated to
-        /// them at all — only to every OTHER connected client, which is who
-        /// actually needs to see the real simulated projectile. The host is
-        /// exempt: FirePhysics's `if (!IsServer)` guard means the host never
-        /// spawns a prediction ghost for its own shot in the first place, so
-        /// it still needs to see this real object normally.
-        ///
-        /// Default (ulong.MaxValue) hides from nobody — for the fully
-        /// offline/non-networked local-fire path, or any caller with no
-        /// specific firing client to exclude.
-        /// </param>
         /// <summary>
-        /// GUIDED TARGETING ("works but only for the test targets in the test
-        /// game — why?"): this method itself never touches Guided targeting at
-        /// all — it doesn't even call InitialiseProjectile (see below). Guided
-        /// isn't test-scene-specific or hardcoded to anything; it works from
-        /// ANY caller, the same way for everyone, but requires two calls in a
-        /// specific order:
+        /// Server only. Takes a projectile from the network object pool, spawns it
+        /// (always server-owned), tells it which config it represents and relays
+        /// its hits to <see cref="OnPhysicsHit"/>. Returns null on a client, when
+        /// there is no pool, or when the pool hands nothing back.
+        ///
+        /// This method does not call InitialiseProjectile and takes no guided
+        /// target. The caller does both afterwards, in this order:
         ///
         ///   var netObj = system.SpawnPhysicsProjectile(...);
         ///   var proj = netObj.GetComponent&lt;PhysicsProjectileBase&gt;();
         ///   proj.SetOwnerContext(...);
-        ///   proj.InitialiseProjectile(...);      // MUST come before SetGuidedTarget
-        ///   proj.SetGuidedTarget(yourRealTarget); // MUST come after InitialiseProjectile
+        ///   proj.InitialiseProjectile(...);      // must come before SetGuidedTarget
+        ///   proj.SetGuidedTarget(yourRealTarget); // must come after InitialiseProjectile
         ///
         /// InitialiseProjectile resets the guided-target state on every fresh
-        /// launch (see its own doc comment) — call SetGuidedTarget before that
-        /// and it gets silently wiped a moment later. That's also why this
-        /// method doesn't accept a guidedTarget parameter itself: it happens
-        /// BEFORE InitialiseProjectile is even called (the caller calls that
-        /// afterward), so accepting one here would just be quietly wrong.
+        /// launch, so a target set before it is wiped a moment later. A guided
+        /// target parameter here would therefore be set at the wrong time.
+        /// Guided targeting is not tied to any particular caller or scene.
         ///
-        /// Target SELECTION (who to lock onto — nearest enemy, current
-        /// reticle target, whatever) is deliberately left entirely to the
-        /// caller; only target ACQUISITION mechanics (the SetGuidedTarget/
-        /// RegisterGuidedTarget2D/3D call itself) are this package's job.
-        /// NetworkedDimensionPlayer.SpawnPhysicsProjectileLocal and
-        /// MID_ProjectileNetworkBridge.FirePhysicsProjectileServerRpc are
-        /// working reference implementations of exactly this pattern — the
-        /// ONLY reason it currently "only works for test targets" is that
-        /// those two are the only call sites anyone has wired a real target
-        /// into so far, not because anything is hardcoded to them.
+        /// Choosing the target (nearest enemy, current reticle target and so on)
+        /// is left to the caller. MID_ProjectileNetworkBridge.
+        /// FirePhysicsProjectileServerRpc follows exactly this order and is the
+        /// reference call site inside this package.
         /// </summary>
+        /// <param name="configId">
+        /// The ProjectileConfigSO this spawn represents. It is pushed into the
+        /// instance with PhysicsProjectileBase.SetVisualConfigId right after the
+        /// spawn. Pass 0 to keep the prefab's own inspector default.
+        /// </param>
+        /// <param name="firingClientId">
+        /// The client that fired the shot. The instance is spawned server-owned
+        /// and then hidden from that client with NetworkHide, so it is replicated
+        /// only to the other clients. The firing client already has its own local
+        /// prediction ghost (SpawnLocalPhysicsVisual), which lives out its own
+        /// MaxLifetime and glides to the confirmed hit point through
+        /// HitConfirmedClientRpc and ClientPredictionManager.OnHitConfirmed. That
+        /// ClientRpc is a plain broadcast with no target list, so it reaches the
+        /// firer. Showing the real object to the firer as well would put two
+        /// copies of the same shot on their screen.
+        ///
+        /// A host firer is exempt from the hide: it is expected to have no ghost
+        /// of its own, so it needs the real object. The package cannot enforce
+        /// that expectation, since the weapon script that spawns ghosts lives in
+        /// the game project.
+        ///
+        /// The default, ulong.MaxValue, hides from nobody (offline use, or no
+        /// specific firing client to exclude).
+        /// </param>
         public NetworkObject SpawnPhysicsProjectile(
             PoolableNetworkObjectType type, Vector3 position, Quaternion rotation,
             ushort configId = 0, ulong firingClientId = ulong.MaxValue)
@@ -586,10 +558,9 @@ namespace MidManStudio.Projectiles.Managers
 
         
 
-            // Always server-owned now — see firingClientId doc above. Ownership
-            // is no longer how the firing client is told apart; NetworkHide below
-            // does that instead (and NetworkHide cannot target an object's own
-            // owner anyway, which is exactly why SpawnWithOwnership had to go).
+            // Always spawned server-owned (see the firingClientId doc above). The
+            // firing client is told apart by the NetworkHide call below, not by
+            // ownership.
             netObj.Spawn();
 
             if (physicsBase != null)
@@ -603,9 +574,9 @@ namespace MidManStudio.Projectiles.Managers
 
             if (physicsBase != null)
             {
-                // Safe against pooled reuse: this instance may have already been
-                // subscribed from a previous life in the pool. Unsubscribe first
-                // so we never end up with more than one subscription on it.
+                // Safe against pooled reuse: this instance may already be
+                // subscribed from an earlier life in the pool. Unsubscribe first so
+                // it never holds more than one subscription.
                 physicsBase.OnHitServerConfirmed -= RelayPhysicsHit;
                 physicsBase.OnHitServerConfirmed += RelayPhysicsHit;
             }
@@ -624,15 +595,17 @@ namespace MidManStudio.Projectiles.Managers
         #region Public API — Raycast
 
         /// <summary>
-        /// PATTERN SUPPORT for raycast fire (networked path only — offline/local
-        /// multi-pellet raycasts are simpler to just loop through the existing
-        /// single-shot RegisterRaycastFire from the caller, which is exactly what
-        /// NetworkedDimensionPlayer.FireRaycast does; no server round-trip exists
-        /// to optimize away in that case, so there's nothing this method would
-        /// add). Routes to RaycastProjectileHandler.ServerHandleFirePattern
-        /// directly when this instance IS the server/host, or to
-        /// RaycastPatternFireServerRpc when it's a remote client — same
-        /// IsServer branch RegisterRaycastFire already uses.
+        /// Networked pattern fire for raycast weapons (several pellets from one
+        /// fire event). On the server or host it calls
+        /// RaycastProjectileHandler.ServerHandleFirePattern directly. On a remote
+        /// client it sends RaycastPatternFireServerRpc and then runs a local
+        /// prediction, with the same IsServer branch RegisterRaycastFire uses.
+        ///
+        /// It is meant for networked sessions only. An offline multi-pellet raycast
+        /// is simpler as a loop of the caller's own single-shot RegisterRaycastFire
+        /// calls, since there is no server round trip to save. Called offline, this
+        /// method would take the client branch, and the RPC send would throw
+        /// (logged with the [RAYDIAG] prefix) before the local prediction runs.
         /// </summary>
         public void RegisterRaycastPatternFire(
             Vector3 origin, Vector3 baseDirection, bool is3D,
@@ -651,10 +624,10 @@ namespace MidManStudio.Projectiles.Managers
                 return;
             }
 
-            // Same defensive shape as RegisterRaycastFire: wrap the RPC send so a
-            // throw in it can't skip the local fallback below, and log if it does
-            // (that would mean the server never got this fire event at all, which
-            // is bigger than a missing visual).
+            // Same shape as RegisterRaycastFire: the RPC send is wrapped so a throw
+            // in it cannot skip the local prediction below. The exception is
+            // logged, since it would also mean the server never got this fire
+            // event.
             try
             {
                 _networkBridge?.RaycastPatternFireServerRpc(new ProjectileFireRequest
@@ -680,14 +653,11 @@ namespace MidManStudio.Projectiles.Managers
                     $"[RAYDIAG] RaycastPatternFireServerRpc THREW: {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
             }
 
-            // FIX: this was the missing counterpart to RegisterRaycastFire's
-            // defensive OfflineHandleFire call — ServerHandleFirePattern's
-            // ClientRpc deliberately excludes the firing client
-            // (BuildTargetList(senderClientId)) on the assumption a local
-            // prediction already exists for it, which was true for the
-            // single-ray path and never true here. Without this, a client
-            // firing a pattern shot was excluded from the RPC and had nothing
-            // local to fall back on — nothing rendered for their own shot.
+            // Local prediction for the firing client. ServerHandleFirePattern's
+            // ClientRpc leaves the firing client out of its target list
+            // (BuildTargetList(senderClientId)) on the assumption that a local
+            // prediction already exists. Without this call the shooter would see
+            // nothing of their own pattern shot.
             _raycastHandler?.ClientPredictPatternLocal(
                 patternId, origin, baseDirection, pelletCount, spreadDeg, is3D,
                 configId, (uint)context.OwnerMidId, 1f);
@@ -714,24 +684,18 @@ namespace MidManStudio.Projectiles.Managers
             }
             else
             {
-                // TEMP DIAG / DEFENSIVE FIX: this RPC send is wrapped in its own
-                // try/catch now. If ProjectileFireRequest's NetworkSerialize (or
-                // anything else in the send path) throws on this client, an
-                // uncaught exception here would abort this whole else-branch and
-                // skip OfflineHandleFire below it — which would explain a client
-                // never showing their own raycast visual while everything else
-                // (relayed shots from other players) keeps working fine, since
-                // those go through a completely separate receive path. Logging
-                // whatever exception (if any) shows up here, and moving
-                // OfflineHandleFire outside the try so the client's own visual
-                // shows regardless of whether the RPC send succeeds.
+                // The RPC send is wrapped in its own try/catch so an exception in it
+                // (for example from ProjectileFireRequest's NetworkSerialize)
+                // cannot abort this branch and skip OfflineHandleFire below, which
+                // draws the firing client's own ray. OfflineHandleFire runs outside
+                // the try, so the shooter's visual shows whether or not the send
+                // succeeded.
                 //
-                // IMPORTANT: if this DOES catch something, that's bigger than a
-                // missing visual — it means the server never received this fire
-                // event at all, so hit registration/damage for this client's
-                // shots is likely broken too, and the actual exception needs a
-                // real fix (not just this safety net). Remove this try/catch
-                // once that's confirmed either way.
+                // A caught exception here means more than a missing visual: the
+                // server never received the fire event, so hit registration and
+                // damage for this client's shots are broken as well. The catch
+                // only logs (with the [RAYDIAG] prefix). It does not retry, and it
+                // does not report the failure to the caller.
                 try
                 {
                     _networkBridge?.RaycastFireServerRpc(
@@ -769,10 +733,9 @@ namespace MidManStudio.Projectiles.Managers
         public void RegisterTarget2D(in CollisionTarget target, int unityLayer = 0)
         {
             if (IsServer)       _authority?.RegisterTarget2D(target, unityLayer);
-            // FIX: Do NOT register in localManager when networked.
-            // Keeping localManager target buffer empty in networked mode means
-            // FixedUpdate's collision check is skipped automatically (_targetCount2D == 0).
-            // The server handles all authoritative collision via ServerProjectileAuthority.
+            // Not registered in the local manager when networked. Its target buffer
+            // then stays empty and its FixedUpdate skips the hit pass. The server
+            // decides every hit through ServerProjectileAuthority.
             if (!IsNetworked)   _localManager?.RegisterTarget2D(target, unityLayer);
         }
 
@@ -878,17 +841,12 @@ namespace MidManStudio.Projectiles.Managers
 
         #region Public API — Guided
         //
-        // FIX: SetHomingDirection2D/3D used to write to _authority only, via
-        // "if (IsServer || !IsNetworked)" — a single combined condition. But
-        // every OTHER per-projectile call in this class (see RegisterTarget2D
-        // just above) treats IsServer and !IsNetworked as two SEPARATE targets
-        // to route to, because they're two different buffers: _authority holds
-        // server-authoritative/networked projectiles, _localManager holds
-        // non-networked ones. A non-networked game (!IsNetworked, IsServer
-        // always false with no NetworkManager) has all of its projectiles in
-        // _localManager — so this always wrote into the wrong, empty buffer,
-        // meaning SetHomingDirection2D/3D was a no-op offline. Split to match
-        // RegisterTarget2D/3D's own pattern below.
+        // SetHomingDirection2D/3D route like RegisterTarget2D/3D: to the authority
+        // when this instance is the server, and to the local manager when the
+        // session is not networked. They are two separate buffers (the authority
+        // holds networked projectiles, the local manager holds non-networked
+        // ones), and a non-networked game has IsServer false, so one combined
+        // condition would write into the wrong, empty buffer.
 
         public void SetHomingDirection2D(uint projId, Vector2 worldDir)
         {
@@ -903,10 +861,10 @@ namespace MidManStudio.Projectiles.Managers
         }
 
         /// <summary>
-        /// Live position lookup by ProjId. Added for ProjectileGuidanceTracker,
-        /// which needs a projectile's current position every frame to compute
-        /// a fresh direction-to-target before calling SetHomingDirection2D/3D.
-        /// Same IsServer/!IsNetworked routing as everything else here.
+        /// Live position lookup by ProjId, with the same IsServer / !IsNetworked
+        /// routing as the rest of this class. ProjectileGuidanceTracker calls it
+        /// every frame to compute a fresh direction to its target before calling
+        /// SetHomingDirection2D/3D.
         /// </summary>
         public bool TryGetProjectilePosition2D(uint projId, out Vector2 pos)
         {

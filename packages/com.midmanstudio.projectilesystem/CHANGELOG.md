@@ -1,8 +1,12 @@
 # com.midmanstudio.projectilesystem
 
+## 1.0.0
+
+First release. Design decisions, limits and fix history per file are in `docs/com.midmanstudio.projectilesystem.md`; the full API reference is in `APICATALOG.md`.
+
 - **Stable numbers in the config type generator** - the Projectile Config Generator no longer renumbers existing entries when an entry is added before them, an entry is removed, or the list is reordered. The numbers of removed entries stay reserved, and the mapping asset keeps null slots for them. The lock file now also stores the block ranges and the retired numbers. Lock files in the old format still work and no number changes on the first run. A lock file that cannot be read now stops the run instead of starting over, an error leaves the enum file, the mapping asset and the lock file as they were, and a comment with a line break no longer breaks the enum file. The number handling comes from `EnumBlockLogic` in `com.midmanstudio.utilities`. See `docs/com.midmanstudio.projectilesystem.md`, section `ProjectileConfigGenerator.cs`.
 - `ServerProjectileAuthority.SpawnStaggered()`: burst fired by a non-host client collapsed into one shot because latency was subtracted from the start delays; delays are kept whole and latency only shortens the lifetime
-- `ProjectilePatternSO` burst timing: `BurstInterval`, `BurstJitter` and `BurstOrder` give each projectile of a pattern a start delay, `GetStartDelay()` reads it
+- `ProjectilePatternSO` burst timing: `BurstInterval`, `_burstJitter` and `_burstOrder` give each projectile of a pattern a start delay, `GetStartDelay()` reads it
 - `SpawnPoint.StartDelay` and `DelayedSpawnQueue`: projectiles with a start delay are written to the sim buffer when their time comes, on the server, the firing client, other clients and offline
 - `FireSeed` in `ProjectileFireRequest` and `SpawnConfirmation`, `ProjectileDirectionResolver.NewFireSeed()` and an optional `fireSeed` on `ProjectileDirectionResolver.Resolve()` and `MID_MasterProjectileSystem.Fire()`: shotgun layout, speed variance and burst jitter now differ from shot to shot and still match on every peer
 - `ProjectilePatternSO.GetFiredProjectileCount()` and `MixSeed()`; `SampleDirections(count, seed)` overload
@@ -25,4 +29,19 @@
 - `ServerProjectileAuthority._renderer2D/_renderer3D` + `LateUpdate()` — host now renders from server buffer
 - `ClientPredictionManager.SpawnLocalPhysicsVisual()` / `KillPhysicsVisual()` — explicit physics pool visual lifecycle
 - `RaycastProjectileHandler._trustClientOnValidationMiss` — configurable fallback when server re-validation raycast misses desynced targets
-- `ProjectileVisual_.EnsureShapeMeshComponents()` — runtime creation of `MeshFilter/MeshRenderer` for shape configs (prefabs no longer need them pre-added)
+- `ProjectileVisual_2D.EnsureShapeMeshComponents()` — runtime creation of `MeshFilter/MeshRenderer` for shape configs (prefabs no longer need them pre-added)
+
+### Known issues
+
+The reasons and details for each are in the "Fixes and Problems" section of `docs/com.midmanstudio.projectilesystem.md`.
+
+- The fire RPCs trust some client values (owner id, damage multiplier, weapon level, fire tick, origin). Do not ship it as is for a game where clients cannot be trusted.
+- `RaycastProjectileHandler._trustClientOnValidationMiss` is on by default, so a client can claim a hit the server's own check missed.
+- Physics RPC speed is not clamped, and `configId` and the pool type are not validated on the server.
+- A fire count above 128 is spawned on the firing client but rejected by the server.
+- `_snapshotIntervalTicks` has no minimum; 0 divides by zero.
+- Snapshot positions are half precision, so reconciliation error grows beyond about 256 world units from the origin.
+- `DeterministicMotionMath.CalculateWave2DVelocityDirection` and its 3D variant use a different wave velocity term from the Rust `tick_wave` functions.
+- Guided projectiles are predicted as a straight line between snapshots on clients.
+- `ProjectileRenderer3D` caps each pass at `_maxQuads` projectiles and draws shape configs as quads.
+- `MID_MasterProjectileSystem.OnDestroy` and `ServerProjectileAuthority.OnDestroy` call `clear_movement_params()` without a guard, and the master does not call `base.OnDestroy()`.

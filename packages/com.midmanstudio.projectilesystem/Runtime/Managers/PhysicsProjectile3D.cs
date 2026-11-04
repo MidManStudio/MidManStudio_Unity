@@ -1,9 +1,16 @@
-// OnLaunch  consults ProjectileRegistry for gravity scale — mirrors PhysicsProjectile2D.
-//   Previously _useGravity was a hardcoded inspector field with no config hookup.
-//   If the config's GravityScale > 0, useGravity is forced true regardless of the inspector toggle.
-//   The inspector toggle still controls the fallback when no config is found.
-
-//   -  Ensure u set poolable object type to 3d
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "PhysicsProjectile3D.cs"
+// ============================================================================
+// 3D Rigidbody implementation of PhysicsProjectileBase.
+// OnLaunch reads the gravity setting from the projectile's config, as
+// PhysicsProjectile2D does. If the config's GravityScale > 0, useGravity is forced
+// on regardless of the inspector toggle. The config value only switches Unity's
+// gravity on or off and does not scale it. The inspector toggle is the fallback
+// when no config resolves.
+//
+// PREFAB REQUIREMENTS: Rigidbody, SphereCollider, NetworkObject, and a poolable
+// object type that is a 3D one.
 using UnityEngine;
 using MidManStudio.Core.Logging;
 using MidManStudio.Projectiles.Config;
@@ -46,20 +53,15 @@ namespace MidManStudio.Projectiles.Managers
         }
 
         /// <summary>
-        /// SCALING FIX — see PhysicsProjectileBase.ApplyConfigScale for the
-        /// full explanation of why this exists, why it resizes the collider
-        /// directly instead of scaling transform.localScale, and why it's
-        /// called with a raw (sizeX, sizeY) pair rather than a config
-        /// (PhysicsProjectileBase owns deciding the target size and whether
-        /// to animate into it via GrowColliderRoutine — this method just
-        /// applies whatever size it's given).
+        /// Applies the collider size that PhysicsProjectileBase.ApplyConfigScale
+        /// chose (see there for why the collider is resized instead of the
+        /// transform being scaled).
         ///
-        /// SphereCollider (this class's [RequireComponent], so it's always
-        /// present) has no directional axis, same situation as
-        /// PhysicsProjectile2D's CircleCollider2D fallback — radius tracks
-        /// sizeY (cross-section), not sizeX (travel-direction length). Same
-        /// judgement call noted there: tune against your actual
-        /// sprites/meshes if the hit-area feel is off.
+        /// SphereCollider (required by this class, so always present) has no
+        /// direction, as with PhysicsProjectile2D's CircleCollider2D: the radius
+        /// follows sizeY (the cross section), not sizeX (the travel-direction
+        /// length). The same judgement call applies; tune it against your sprites
+        /// or meshes if the hit area feels off.
         /// </summary>
         protected override void ApplyColliderSize(float sizeX, float sizeY)
         {
@@ -73,8 +75,9 @@ namespace MidManStudio.Projectiles.Managers
         {
             if (_rb == null) return transform.forward;
 
-            // FIX: consult the registered config for gravity scale — same pattern as PhysicsProjectile2D.
-            // If config.GravityScale > 0, enable gravity regardless of inspector toggle.
+            // Gravity comes from the registered config, as in PhysicsProjectile2D.
+            // If config.GravityScale > 0, gravity is enabled regardless of the
+            // inspector toggle.
             bool useGravity = _useGravity;
             if (ProjectileRegistry.HasInstance)
             {
@@ -86,14 +89,12 @@ namespace MidManStudio.Projectiles.Managers
                     else if (cfg.GravityScale == 0f && !_useGravity)
                         useGravity = false;
 
-                    // MOVEMENT TYPE FIX ("it should offset the physics body"):
-                    // same reasoning as PhysicsProjectile2D's OnLaunch —
-                    // Wave/Circular/Teleport all drive the body directly every
-                    // FixedUpdate, none of which account for gravity (matching
-                    // RustSim's own tick_wave_3d/tick_circular_3d/
-                    // tick_teleport_3d). Guided is deliberately excluded — it
-                    // turns whatever velocity real physics is already
-                    // producing rather than overriding it, so gravity stays on.
+                    // Same reasoning as PhysicsProjectile2D.OnLaunch: Wave, Circular
+                    // and Teleport drive the body directly every FixedUpdate and
+                    // none of them accounts for gravity (as with the Rust sim's
+                    // tick_wave_3d, tick_circular_3d and tick_teleport_3d). Guided
+                    // is excluded on purpose: it turns whatever velocity physics is
+                    // already producing, so gravity stays on.
                     if (cfg.MovementType == ProjectileMovementType.Wave ||
                         cfg.MovementType == ProjectileMovementType.Circular ||
                         cfg.MovementType == ProjectileMovementType.Teleport)
@@ -105,8 +106,9 @@ namespace MidManStudio.Projectiles.Managers
             _rb.drag        = _drag;
             _rb.angularDrag = _angularDrag;
             _rb.isKinematic = false;
-            // Fires along transform.forward — SpawnPhysicsProjectileLocal sets rotation via
-            // Quaternion.LookRotation(direction) so transform.forward == fire direction.
+            // Fires along transform.forward. The spawner sets the rotation with
+            // Quaternion.LookRotation(direction), so transform.forward is the fire
+            // direction.
             _rb.velocity    = transform.forward * bulletVelocity;
 
             MID_Logger.LogDebug(_logLevel,

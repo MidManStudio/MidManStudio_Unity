@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ProjectileConfigEntry.cs"
+// ============================================================================
 // A single named entry in a ProjectileConfigProviderSO.
 // Maps an enum member name to a ProjectileConfigSO asset.
 // Used by the generator to produce stable ProjectileConfigType enum values

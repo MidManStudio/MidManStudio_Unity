@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "NetworkProjectileBase.cs"
+// ============================================================================
 using UnityEngine;
 using Unity.Netcode;
 using MidManStudio.Core.Pools;
@@ -166,24 +170,11 @@ namespace MidManStudio.Projectiles.Network
         {
             if (!IsSpawned) return;
 
-            // BUG FIX (projectiles spawn but never move on clients — visible as
-            // "client sees it get pulled from the pool but it just sits there
-            // until despawn"): this used to be
-            //
-            //     if (IsServer) { base.Update(); ... }
-            //
-            // which meant NetworkTransform's own Update() — the method that both
-            // (a) detects local transform changes to broadcast on the authority
-            // side AND (b) advances the interpolator that APPLIES incoming
-            // position/rotation state on every non-authoritative peer — only ever
-            // ran on the server. On a dedicated server that's "fine" for sending,
-            // but every client (including the host's remote clients) never
-            // called base.Update() at all, so the interpolated state NetworkTransform
-            // received was parsed and stored but never applied to transform.position.
-            // The projectile visually froze at its spawn pose and only visibly
-            // changed again when OnNetworkDespawn tore it down — exactly the
-            // reported symptom. NetworkTransform.Update() must run on every peer;
-            // only the TTL watchdog below is actually server-only.
+            // NetworkTransform.Update() must run on every peer. It detects local
+            // transform changes to broadcast on the authority side, and it advances
+            // the interpolator that applies incoming position and rotation state on
+            // every non-authoritative peer. Only the lifetime watchdog below is
+            // server-only.
             base.Update();
 
             if (IsServer
@@ -269,6 +260,7 @@ namespace MidManStudio.Projectiles.Network
             NetworkObject.Despawn();
         }
 
+        // Not called from anywhere in the package.
         private void ReturnToNGOPool()
         {
             if (MID_NetworkObjectPool.HasInstance)

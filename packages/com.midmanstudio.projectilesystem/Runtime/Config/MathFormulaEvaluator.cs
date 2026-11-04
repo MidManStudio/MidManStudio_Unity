@@ -1,9 +1,14 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "MathFormulaEvaluator.cs"
+// ============================================================================
 // Self-contained recursive-descent expression parser and evaluator.
 // Converts a math formula string to a float value with no external dependencies.
 //
 // Used by:
-//   ProjectileShapeSO.BuildFormula()   — parametric vertex generation
+//   ProjectileShapeSO.BuildFormula()    — parametric vertex generation
 //   ProjectilePatternSO.SampleFormula() — shot-angle generation
+//   ProjectileConfigSO.EvaluateCustomPath() — custom movement path (Formula mode)
 //
 // SUPPORTED SYNTAX
 //   Numbers:    1  1.5  .5  3.14
@@ -186,7 +191,10 @@ namespace MidManStudio.Projectiles.Config
                 return v;
             }
 
-            // power → unary ('^' unary)*  right-associative
+            // power → unary ('^' unary)?  — a single '^' only. A second '^' in a
+            // row is left unconsumed and the evaluation fails with an error, so
+            // use parentheses to nest powers. A unary minus binds tighter than
+            // '^', so -2^2 is (-2)^2.
             private float Power()
             {
                 float v = Unary();

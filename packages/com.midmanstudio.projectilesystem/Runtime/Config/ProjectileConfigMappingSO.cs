@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ProjectileConfigMappingSO.cs"
+// ============================================================================
 // Runtime-facing SO that maps ProjectileConfigType int values to
 // ProjectileConfigSO assets. _configs[i] corresponds to enum value i.
 //

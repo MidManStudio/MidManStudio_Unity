@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ProjectileShapeEditor.cs"
+// ============================================================================
 
 //    DrawFormulaFields() — shown when Shape = Formula.
 //     Shows _formulaX / _formulaY text fields with live per-field validation

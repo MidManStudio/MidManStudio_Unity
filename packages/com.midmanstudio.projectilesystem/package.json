@@ -5,9 +5,9 @@
     "description": "High-performance server-authoritative projectile system. Rust simulation core, spatial-grid collision, client prediction, snapshot reconciliation, 2D and 3D projectile buffers.",
     "unity": "2022.3",
     "unityRelease": "0f1",
-    "documentationUrl": "",
-    "changelogUrl": "",
-    "licensesUrl": "",
+    "documentationUrl": "https://github.com/MidManStudio/MidManStudio_Unity/blob/projectilesystem/v1.0.0/packages/com.midmanstudio.projectilesystem/README.md",
+    "changelogUrl": "https://github.com/MidManStudio/MidManStudio_Unity/blob/projectilesystem/v1.0.0/packages/com.midmanstudio.projectilesystem/CHANGELOG.md",
+    "licensesUrl": "https://github.com/MidManStudio/MidManStudio_Unity/blob/projectilesystem/v1.0.0/packages/com.midmanstudio.projectilesystem/LICENSE.md",
     "dependencies": {
         "com.midmanstudio.utilities": "1.0.0",
         "com.midmanstudio.audio": "1.0.0",

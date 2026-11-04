@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ProjectileConfigJsonPanel.cs"
+// ============================================================================
 // Reusable "Apply JSON" panel, extracted out of
 // ProjectileConfigScriptableObjectEditor so any custom editor for a
 // ProjectileConfigSO SUBCLASS can embed the exact same panel without

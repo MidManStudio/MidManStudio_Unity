@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "RustSimCustomShapeAuthoringEditor.cs"
+// ============================================================================
 // Scene-view point-placement editor for RustSimCustomShapeAuthoring — the
 // "custom editor to place points to shape our own collider... in the editor
 // scene view, not the inspector" the shape colliders were asked for.

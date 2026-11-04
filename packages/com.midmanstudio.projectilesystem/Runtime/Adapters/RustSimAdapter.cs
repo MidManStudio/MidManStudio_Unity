@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "RustSimAdapter.cs"
+// ============================================================================
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -107,9 +111,9 @@ namespace MidManStudio.Projectiles.Adapters
         // ── Compact dead notification (lifetime expiry path) ──────────────────
 
         /// <summary>
-        /// Called by ServerProjectileAuthority during CompactDeadSlots for each
+        /// Called by ServerProjectileAuthority (CompactDead2D and CompactDead3D) for each
         /// projectile whose Alive flag was cleared by Rust (lifetime expired) or
-        /// by Collision2D after HandlePiercing unregistered it.
+        /// by the collision pass after HandlePiercing unregistered it.
         /// Guards against double-fire: HandlePiercing already called Unregister
         /// and fired OnProjectileDied for hit-killed projectiles.
         /// </summary>
@@ -188,14 +192,13 @@ namespace MidManStudio.Projectiles.Adapters
         /// <summary>
         /// Determines whether the projectile should die and handles cleanup.
         ///
-        ///  For PiercingType.None (most common case), we immediately call
-        /// Unregister() so that ServerProjectileAuthority.Collision2D's post-hit
-        /// check (!Adapter.IsRegistered) returns true and sets Alive=0 in the
-        /// Rust buffer. Without this, Alive was never cleared and projectiles
-        /// lived forever regardless of piercing setting or lifetime.
+        /// For PiercingType.None the projectile is unregistered at once.
+        /// ServerProjectileAuthority.Collision2D and Collision3D check
+        /// !Adapter.IsRegistered after each hit and then set Alive = 0 in the Rust
+        /// buffer, so unregistering is what kills the projectile.
         ///
-        /// For piercing types we decrement collisionsRemaining and only unregister
-        /// (and kill) when the pierce count reaches zero.
+        /// For the piercing types collisionsRemaining is decremented and the
+        /// projectile is unregistered (and so killed) only when it reaches zero.
         /// </summary>
         private void HandlePiercing(
             uint                 projId,

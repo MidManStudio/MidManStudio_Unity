@@ -1,32 +1,32 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "WireCompression.cs"
+// ============================================================================
 using UnityEngine;
 
 namespace MidManStudio.Projectiles.Network
 {
     /// <summary>
     /// Wire-format compression helpers for the projectile netcode structs.
-    /// Nothing here changes any gameplay logic — these are pure encode/decode
-    /// pairs used only inside NetworkSerialize methods. Every C# call site
-    /// outside NetworkSerialize keeps working with plain Vector3/float, same
-    /// as before; only the bytes actually sent over the wire shrink.
+    /// These are pure encode/decode pairs used inside NetworkSerialize methods.
+    /// Code outside NetworkSerialize works with plain Vector3 and float values,
+    /// and only the bytes sent over the wire shrink. The values that come out of
+    /// a decode are the quantized ones, so they can differ slightly from what the
+    /// sender held.
     /// </summary>
     public static class WireCompression
     {
         // ── Direction: octahedral unit-vector encoding, 12 bytes -> 4 ──────────
         //
-        // Standard technique for compressing a normalized direction (Meyer et al.
-        // "On Floating-Point Normal Vectors" / the octahedral-normal-vector family
-        // used throughout graphics for exactly this problem — see e.g. Cigolle et
-        // al.'s survey of unit vector encodings). A unit vector only has 2 degrees
-        // of freedom, so storing all 3 raw components is wasteful. This projects
-        // the vector onto an octahedron and unfolds it to a 2D square in [-1, 1],
-        // then quantizes each axis to a signed 16-bit int (32767 = full range).
-        // At 16 bits/axis the reconstruction error is a small fraction of a
-        // degree — nowhere close to visible for a projectile's flight direction.
-        // Going to 8 bits/axis (2 bytes total instead of 4) is also a documented,
-        // working option if bandwidth ever needs to shrink further, at the cost
-        // of a coarser but still generally acceptable ~1° class of error — not
-        // used here, kept at 16-bit for headroom since 4 bytes vs 12 is already
-        // a 3x win with negligible precision cost.
+        // Octahedral unit-vector encoding, a standard technique (see Cigolle et
+        // al., "A Survey of Efficient Representations for Independent Unit
+        // Vectors"). A unit vector has only 2 degrees of freedom, so storing all 3
+        // components wastes space. This projects the vector onto an octahedron,
+        // unfolds it to a 2D square in [-1, 1], then quantizes each axis to a
+        // signed 16-bit int (32767 = full range). At 16 bits per axis the
+        // reconstruction error is a small fraction of a degree. A zero-length
+        // input encodes as forward (+Z). 8 bits per axis would halve it again at
+        // the cost of roughly 1 degree of error, and is not used.
 
         public static void EncodeDirection(Vector3 dir, out short ex, out short ey)
         {
@@ -63,11 +63,16 @@ namespace MidManStudio.Projectiles.Network
 
         // ── Position: half-precision per axis, 12 bytes -> 6 ───────────────────
         //
-        // Same technique already applied to ProjectileSnapshot2D/3D — see that
-        // change for the precision reasoning (well under the reconciliation
-        // system's own kSkip=0.08 tolerance, not a visible tradeoff for this use
-        // case). Pulled out here so the fire-request/confirmation structs use the
-        // exact same packing instead of a second copy of the same three lines.
+        // IEEE half precision per axis (Mathf.FloatToHalf), used by the fire-request
+        // and confirmation structs. The snapshot structs in ServerProjectileAuthority
+        // apply the same conversion directly instead of calling this class, so they
+        // share its precision. Precision depends on the
+        // magnitude: the spacing between values is 2^(e-10) for values in
+        // [2^e, 2^(e+1)), so the largest rounding error is about 0.001 below 4,
+        // 0.0625 between 128 and 256, 0.125 between 256 and 512 and 0.25 between
+        // 512 and 1024 world units. Reconciliation skips errors below 0.08, so keep
+        // coordinates under about 256 units from the origin. Values above 65504
+        // become infinity.
 
         public static void EncodePosition(Vector3 pos, out ushort hx, out ushort hy, out ushort hz)
         {
@@ -83,10 +88,9 @@ namespace MidManStudio.Projectiles.Network
 
         // ── Angle: byte-quantized degrees, 4 bytes -> 1 ─────────────────────────
         //
-        // SpreadDeg is a spread-arc angle, always in [0, 360). A byte gives
-        // ~1.4°/step resolution — not something a fan-spread visual will ever
-        // show as "stepped." Not used for anything that affects hit detection
-        // math beyond the visual cone the pellets fan across.
+        // SpreadDeg is a spread-arc angle in [0, 360). A byte gives 360/255, about
+        // 1.41 degrees per step, and values wrap into 0 to 360 before encoding. The
+        // spread only sets the cone the pellets fan across.
 
         public static byte EncodeDegrees0to360(float deg)
         {

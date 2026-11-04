@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "IProjectileObserverProvider.cs"
+// ============================================================================
 using UnityEngine;
 
 namespace MidManStudio.Projectiles.Network
@@ -20,10 +24,9 @@ namespace MidManStudio.Projectiles.Network
     ///
     /// Leave it unregistered (or leave ServerProjectileAuthority's "Enable
     /// Distance Culling" off) and this does nothing at all — every client
-    /// gets every snapshot, exactly like before this existed. Opt-in, safe
-    /// default, works identically for 2D and 3D games since it's just a
-    /// Vector3 (a 2D game's observer position naturally has Z == 0, and
-    /// distance math falls out the same either way).
+    /// gets every snapshot. It is opt-in, and it works the same for 2D and 3D
+    /// games since it is just a Vector3 (a 2D game's observer position has
+    /// Z == 0, and the distance math is the same either way).
     /// </summary>
     public interface IProjectileObserverProvider
     {

@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ProjectileShapeSO.cs"
+// ============================================================================
 
 using System.Collections.Generic;
 using UnityEngine;
@@ -25,7 +29,7 @@ namespace MidManStudio.Projectiles
             LetterT,
             LetterL,
             Custom,
-            Formula,   // NEW — must remain at end to avoid breaking serialised int values
+            Formula,   // Keep last: assets store the enum as an int, so inserting before it would change them
         }
 
         [Tooltip("Choose a built-in shape, Custom to define vertices, or Formula for parametric.")]
@@ -58,7 +62,8 @@ namespace MidManStudio.Projectiles
                  "3 minimum. Higher values produce smoother curves with more vertices.")]
         [SerializeField, Range(3, 128)] private int _formulaSampleCount = 16;
 
-        // Public read accessors — used by ProjectileShapeEditor for live validation.
+        // Public read accessors for game code. ProjectileShapeEditor reads the
+        // private fields through SerializedProperty and does not use these.
         public string FormulaX           => _formulaX;
         public string FormulaY           => _formulaY;
         public int    FormulaSampleCount => _formulaSampleCount;
@@ -317,7 +322,7 @@ namespace MidManStudio.Projectiles
                 new int[] { 3,2,1, 3,1,0, 2,6,5, 2,5,4 }, hw, "ProjLetterL");
         }
 
-        // ── Formula ── NEW ─────────────────────────────────────────────────────
+        // ── Formula ────────────────────────────────────────────────────────────
         // Samples _formulaX(t) and _formulaY(t) for t ∈ [0,1) to produce
         // _formulaSampleCount perimeter vertices, then adds a center vertex
         // and builds a center-fan triangulation (n triangles).

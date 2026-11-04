@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ProjectileSystemPoolProviderBootstrapper.cs"
+// ============================================================================
 // Creates default pool provider assets for the projectile system on first import.
 // Runs automatically via [InitializeOnLoad].
 

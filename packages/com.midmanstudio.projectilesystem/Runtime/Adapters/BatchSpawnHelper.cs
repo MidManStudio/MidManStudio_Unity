@@ -1,18 +1,18 @@
-//  Ax/Ay for Wave and Circular movement now set to perpendicular of the
-// fire direction instead of (0, GravityAy). The Rust simulation expects:
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "BatchSpawnHelper.cs"
+// ============================================================================
+// Spawn-time acceleration fields, as the Rust simulation reads them:
 //   MOVE_WAVE     → (Ax,Ay) = perpendicular axis to oscillate along
-//   MOVE_CIRCULAR → (Ax,Ay) = first perpendicular axis for orbit plane
-//   All others    → (Ax,Ay) = (0, GravityAy) as before
+//   MOVE_CIRCULAR → (Ax,Ay) = first perpendicular axis for the orbit plane
+//   All others    → (Ax,Ay) = (0, GravityAy)
 //
-//   Latency compensation no longer advances the projectile's X/Y/Z position.
-//   Previously: p.X += p.Vx * latencyCompensation  (etc.) moved the bullet
-//   to its "time-compensated" location BEFORE inserting it into the Rust buffer.
-//   The host renders directly from that buffer, so it saw the bullet already
-//   vel × latencyComp units ahead of the barrel — visually wrong.
-//    only reduce Lifetime by latencyCompensation. The DeterministicMath
-//   client-prediction path + ServerNetworkTime naturally account for the clock
-//   offset without needing the position to be pre-advanced. Collision accuracy
-//   loss is negligible for typical LAN/online latencies (< 100 ms).
+// Latency compensation only shortens Lifetime. It never moves the projectile,
+// so the projectile appears at its fire origin on every peer. The host renders
+// straight from the same Rust buffer, so advancing the position here would show
+// the bullet already ahead of the barrel. The deterministic client math and the
+// server network time absorb the clock offset without a pre-advanced position,
+// and the collision accuracy lost is small for latencies under about 100 ms.
 
 using System;
 using System.Runtime.InteropServices;
@@ -40,12 +40,10 @@ namespace MidManStudio.Projectiles.Adapters
 
     public static class BatchSpawnHelper
     {
-        // Mirror of Rust movement type constants — must stay in sync with simulation.rs
+        // Mirror of Rust movement type constants — must stay in sync with simulation.rs.
+        // Value 1 is unassigned. Only MOVE_WAVE and MOVE_CIRCULAR are read below,
+        // for the perpendicular-axis setup at spawn.
         private const byte MOVE_STRAIGHT = 0;
-        // MOVE_ARCHING (was 1) removed — see rust_lib's simulation.rs file header
-        // "REMOVED" note. It was dead here too: never actually referenced in this
-        // file, only MOVE_WAVE/MOVE_CIRCULAR are used below for perpendicular-axis
-        // spawn-time setup.
         private const byte MOVE_GUIDED   = 2;
         private const byte MOVE_TELEPORT = 3;
         private const byte MOVE_WAVE     = 4;
@@ -145,11 +143,9 @@ namespace MidManStudio.Projectiles.Adapters
                     ref var p = ref _temp2D[i];
                     if (p.Alive == 0) continue;
 
-                    // FIX: Position is NOT advanced — bullet spawns at the original fire origin
-                    // on all rendering clients (including the host). The old behaviour
-                    // (p.X += p.Vx * latencyCompensation; p.Y += p.Vy * latencyCompensation)
-                    // caused the host to see bullets pop in vel × latencyComp units ahead.
-                    // Lifetime is still reduced so the projectile expires at the correct time.
+                    // Position is not advanced: the projectile spawns at its fire origin on
+                    // every rendering client, including the host. Lifetime is reduced so
+                    // the projectile expires at the correct time.
                     p.Lifetime -= latencyCompensation;
                     if (p.Lifetime <= 0f) p.Alive = 0;
                 }
@@ -193,7 +189,7 @@ namespace MidManStudio.Projectiles.Adapters
                     ref var p = ref _temp3D[i];
                     if (p.Alive == 0) continue;
 
-                    // FIX: Same as 2D — position NOT advanced, only lifetime reduced.
+                    // Same as 2D: position is not advanced, only lifetime is reduced.
                     p.Lifetime -= latencyCompensation;
                     if (p.Lifetime <= 0f) p.Alive = 0;
                 }

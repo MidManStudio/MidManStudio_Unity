@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ProjectileConfigGeneratorSettingsSO.cs"
+// ============================================================================
 // Project-wide settings for the ProjectileConfigType enum generator.
 // Create via: MidManStudio > Projectile System > Config Generator Settings
 

@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ProjectilePatternEditor.cs"
+// ============================================================================
 //    DrawShapeSpecificFields now handles PatternShape.Formula:
 //     shows _patternFormulaH / _patternFormulaV text fields with live
 //     per-field validation (green ✓ or red error) and example dropdowns

@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ProjectileVisual_3D.cs"
+// ============================================================================
 using UnityEngine;
 using MidManStudio.Projectiles.Config;
 
@@ -30,12 +34,10 @@ namespace MidManStudio.Projectiles.Visuals
 
         #region State
 
-        // FIX (native leak on domain reload): this was "created once, never
-        // destroyed". Mesh is a native engine object — see the matching comment
-        // in ProjectileVisual_2D._fallbackTexture for the full explanation of why
-        // this causes Unity's "Leak Detected : Persistent allocates N individual
-        // allocations" warning on the next domain reload, and why the fix below
-        // (destroy before reload, via AssemblyReloadEvents) is the correct one.
+        // Mesh and Material are native engine objects held in statics. They are
+        // destroyed before a domain reload (AssemblyReloadEvents), which avoids
+        // Unity's "Leak Detected : Persistent allocates N individual allocations"
+        // warning on the next reload. See ProjectileVisual_2D._fallbackTexture.
         private static Mesh     _defaultCapsuleMesh;
         // Same pattern, same reasoning — see GetDefaultFallbackMaterial below.
         private static Material _defaultFallbackMaterial;
@@ -102,13 +104,9 @@ namespace MidManStudio.Projectiles.Visuals
             ApplyMaterial(cfg);
             ApplyScale(cfg);
 
-            // GROWTH FIX ("gets spawned full scale rather than scaling up as
-            // intended") — no-ops immediately if cfg is null or
-            // UseScaleGrowth is false, leaving ApplyScale's one-shot value
-            // just above untouched. See ProjectileVisualBase's own section
-            // comment for the full explanation, and ApplyScaleAtSize below
-            // for how this reproduces ApplyScale's length/width mapping at
-            // each interpolated size during growth.
+            // Starts scale growth when cfg.UseScaleGrowth is set. Otherwise it
+            // returns at once and ApplyScale's one-shot value stands. See
+            // ProjectileVisualBase and ApplyScaleAtSize below.
             RefreshScaleGrowth(cfg);
 
             ApplyTrail(cfg);
@@ -188,17 +186,11 @@ namespace MidManStudio.Projectiles.Visuals
             }
             else
             {
-                // BUG FIX ("3D visual is not being set" when a config has no
-                // sprite/atlas, or configId hasn't resolved to a registered
-                // config yet): this branch used to be
-                // `else if (_fallbackMaterial != null) sharedMaterial = _fallbackMaterial;`
-                // with NO final else — if the prefab had no _fallbackMaterial
-                // assigned, the renderer just kept whatever material it already
-                // had (often none, or an error-shader magenta), so an unset
-                // config visually read as "nothing happened", whereas 2D's
-                // GetFallbackSprite() always renders *something* even when
-                // wrong. This mirrors that: fall back to a lazily-generated
-                // shared default material so 3D always shows something too.
+                // No sprite, or the configId has not resolved to a registered
+                // config: use the prefab's _fallbackMaterial, or a lazily
+                // generated shared default, so the 3D visual always shows
+                // something (as 2D's GetFallbackSprite does) instead of keeping
+                // whatever material the renderer already had.
                 _meshRenderer.sharedMaterial = _fallbackMaterial != null
                     ? _fallbackMaterial
                     : GetDefaultFallbackMaterial();
@@ -218,15 +210,11 @@ namespace MidManStudio.Projectiles.Visuals
         }
 
         /// <summary>
-        /// GROWTH FIX companion — reproduces ApplyScale's own length/width/
-        /// aspect-ratio formula above, but driven by the growth coroutine's
-        /// interpolated (sizeX, sizeY) instead of always reading cfg's full
-        /// FullSizeX/FullSizeY directly. Because both sizeX and sizeY are
-        /// scaled down by the SAME growth fraction at any given moment
-        /// (ProjectileVisualBase.GrowScaleRoutine), their ratio sizeY/sizeX
-        /// always equals cfg.FullSizeY/cfg.FullSizeX exactly — so this
-        /// produces IDENTICAL output to ApplyScale(cfg) once sizeX/sizeY
-        /// reach the config's full values, and scales smoothly in between.
+        /// Scale growth counterpart of ApplyScale: the same length/width/aspect
+        /// formula, driven by the growth coroutine's interpolated (sizeX, sizeY).
+        /// Both are scaled by the same growth fraction at any moment, so
+        /// sizeY / sizeX always equals cfg.FullSizeY / cfg.FullSizeX, and the
+        /// result equals ApplyScale(cfg) once the full size is reached.
         /// </summary>
         protected override void ApplyScaleAtSize(float sizeX, float sizeY)
         {

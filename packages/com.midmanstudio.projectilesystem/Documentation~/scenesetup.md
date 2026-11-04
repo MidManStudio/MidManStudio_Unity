@@ -48,14 +48,25 @@ Do this once, reused by every mode below.
    - Add `MID_MasterProjectileSystem`
    - Add `ProjectileRegistry` (or confirm one already exists as a scene-placed
      singleton — only one should exist per scene)
-4. Start a host, then fire server-side:
+4. Start a host, then spawn the projectile server-side from the weapon script. Physics
+   shots are not sent through `Fire()` (it only logs a warning for this mode); the weapon
+   script spawns the NGO object and initialises it:
 
    ```csharp
-   MID_MasterProjectileSystem.FireProjectile(
-       yourConfigType, origin, direction,
-       ownerMidId, firedByNetworkObjectId,
-       systemMode: ProjectileSystemMode.PhysicsBased);
+   var system = MID_MasterProjectileSystem.Instance;
+
+   NetworkObject netObj = system.SpawnPhysicsProjectile(
+       PoolableNetworkObjectType.BaseProjectileBlueprint_2D,
+       origin, rotation, configId, firingClientId);
+
+   var proj = netObj.GetComponent<PhysicsProjectileBase>();
+   proj.SetOwnerContext(ownerMidId, firedByNetworkObjectId, false, weaponLevel, 1f);
+   proj.InitialiseProjectile(ownerMidId, firedByNetworkObjectId, speed);
    ```
+
+   Pass the firing client's id as `firingClientId` so the server's body is hidden from
+   that client (it has its own predicted visual, see Scene 4). Leave it at its default to
+   hide from nobody.
 
 5. Expected result: a real Rigidbody-simulated projectile, server-authoritative
    position sync via `NetworkTransform`, visible to every client except (by design) the
@@ -64,13 +75,28 @@ Do this once, reused by every mode below.
 ## Scene 3: Raycast-Based Projectile
 
 1. Create empty GameObject alongside the one from Scene 2 (or the same one)
-   - Add `RaycastProjectileHandler`
-   - Assign a hit layer mask
-2. Fire the same way, just with `ProjectileSystemMode.RaycastBased` — or leave it
-   `Auto` and let `DetermineOptimalSystem` pick based on the config's fire rate.
-3. For pattern-based (shotgun/burst) raycast fire, use `FireMultipleProjectiles` with a
-   pattern-resolved direction array, or call `RegisterRaycastPatternFire` directly if
-   you're not going through the master system's convenience API.
+   - Add `RaycastProjectileHandler` (a `NetworkBehaviour`, so the GameObject needs a
+     `NetworkObject`)
+   - Assign a hit layer mask (`_serverRaycastLayers`)
+   - Assign it to the `MID_MasterProjectileSystem` inspector
+2. Set `IsRaycastWeapon = true` in the `WeaponFireContext`. The config must also be
+   raycast-eligible: `IsRaycastEligible()` is false for 3D configs, piercing configs and
+   configs that need physics.
+3. The weapon script does the Physics raycast itself, then reports the result:
+
+   ```csharp
+   system.RegisterRaycastFire(new RaycastFireResult
+   {
+       Origin = origin, Direction = direction,
+       HitPoint = hitPoint, DidHit = didHit,
+       HitTargetNetworkId = hitNetworkObjectId,
+       IsHeadshot = false, Is3D = false
+   }, configId, context);
+   ```
+
+4. For pattern-based (shotgun/burst) raycast fire, call `RegisterRaycastPatternFire(origin,
+   baseDirection, is3D, configId, patternId, pelletCount, spreadDeg, context)`; the pellet
+   layout is rebuilt from those values with `ProjectileDirectionResolver`.
 
 ## Scene 4: Client Prediction (why a shot looks different for the firer)
 
@@ -87,7 +113,7 @@ This is the one piece that trips people up if they skip straight to reading the 
 - If you're testing with two clients and one host, fire from a non-host client and
   confirm: the firer sees their own ghost only, everyone else sees the real projectile
   only. If you see both, or neither, on the firer's screen, that's the thing to debug
-  first — check `NetworkedDimensionPlayer.FirePhysics`/`FireRaycast` in the sample for
+  first — check `WeaponController.FirePhysics`/`FireRaycast` in the package's `Tests/Runtime` folder for
   the reference implementation of this pattern before writing your own weapon code
   against it.
 
@@ -99,8 +125,11 @@ patterns, large-scale battles).
 
 1. Confirm `com.unity.burst`, `com.unity.collections`, and `com.unity.mathematics` are
    present (package dependencies, should already be resolved).
-2. Fire with `ProjectileSystemMode.RustSim` explicitly, or a very high fire-rate config
-   under `Auto`.
+2. Fire with `MID_MasterProjectileSystem.Instance.Fire(configId, spawnPoints, count, context)`.
+   A networked shot takes the Rust-sim path unless the config forces another mode with
+   `_preferredSimMode`, needs a physics object, or is a raycast weapon (see "Simulation
+   Modes" in the README). Register targets with `RustSimTargetRegistrar` so the sim has
+   something to hit.
 3. Use Unity's Multiplayer Tools profiler to compare bytes-per-shot against the physics
    mode for the same weapon — this is the actual point of this mode, and the difference
    is much easier to appreciate looking at real profiler numbers than reading about it.

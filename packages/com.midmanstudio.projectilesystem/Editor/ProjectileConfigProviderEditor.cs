@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ProjectileConfigProviderEditor.cs"
+// ============================================================================
 // Custom Inspector for ProjectileConfigProviderSO — adds an "Import Entries
 // from JSON" panel below the default inspector. This is the SAME mechanic
 // PoolTypeProviderEditorBase gives ObjectPoolTypeProviderSO /

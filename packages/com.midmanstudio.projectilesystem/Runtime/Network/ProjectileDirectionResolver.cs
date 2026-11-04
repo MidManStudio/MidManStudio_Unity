@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ProjectileDirectionResolver.cs"
+// ============================================================================
 using UnityEngine;
 using MidManStudio.Projectiles.Config;
 using MidManStudio.Projectiles.Adapters;
@@ -18,10 +22,8 @@ namespace MidManStudio.Projectiles.Network
     /// travels with the fire request; it makes random shapes and speed variance
     /// differ from shot to shot while every peer still gets the same result.
     ///
-    /// Ports the exact math that used to live only in
-    /// NetworkedDimensionPlayer.BuildSpawnPointsFromPattern / BuildSpawnPointsSpread
-    /// (client-only, pre-refactor) — unchanged, just centralised so the server and
-    /// other clients can run it too instead of trusting whatever the firing client sent.
+    /// Keeping the math here means the server and the other clients rebuild the
+    /// layout themselves instead of trusting whatever the firing client sent.
     /// </summary>
     public static class ProjectileDirectionResolver
     {
@@ -34,10 +36,11 @@ namespace MidManStudio.Projectiles.Network
         /// single-shot failsafe).
         /// </param>
         /// <param name="is3D">
-        /// From ProjectileConfigSO.Is3D, resolved via ProjectileId — the server's
-        /// existing, already-authoritative source for 2D/3D routing (it already
-        /// commits to this for the Rust write-head selection), reused here for the
-        /// angle-rotation convention too.
+        /// From ProjectileConfigSO.Is3D of the fired config. The server already
+        /// uses it to pick the Rust buffer, and it picks the angle rotation
+        /// convention here too: 2D rotates about Z by the horizontal angle only,
+        /// 3D applies the horizontal angle about the local up axis and the
+        /// vertical angle (positive up) about the local right axis.
         /// </param>
         /// <param name="fireSeed">
         /// Per-shot seed from <see cref="NewFireSeed"/>. 0 uses the pattern asset's
@@ -57,9 +60,10 @@ namespace MidManStudio.Projectiles.Network
                 if (pattern != null)
                     return ResolvePattern(pattern, origin, baseDirection, baseSpeed, is3D, fireSeed);
 
-                // Unknown/unregistered pattern id (stale build, registry order
-                // mismatch, etc.) — fail safe to a single shot along BaseDirection
-                // rather than trusting anything else about the request.
+                // Unknown or unregistered pattern id (for example a build that
+                // does not have the asset). Fall through to the no-pattern path
+                // below: the plain spread when pelletCount is above 1, otherwise a
+                // single shot along baseDirection.
             }
 
             return pelletCount > 1

@@ -1,6 +1,9 @@
-﻿// Minimal interface your existing ProjectileVisual implements.
-// Add ": INetworkProjectileVisual" to your ProjectileVisual class declaration.
-// All the methods already exist on it — no new logic needed.
+﻿// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "MID_AllProjectileNames.cs"
+// ============================================================================
+// Projectile name passed as the first argument of INetworkProjectileVisual.Initialize.
+// The package ships one placeholder value, Default.
 
 namespace MidManStudio.Projectiles.Network
 {

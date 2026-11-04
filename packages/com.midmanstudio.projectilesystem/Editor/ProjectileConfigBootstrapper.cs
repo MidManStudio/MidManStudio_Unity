@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ProjectileConfigBootstrapper.cs"
+// ============================================================================
 // Creates the built-in default ProjectileConfigSO + ProjectileConfigProviderSO
 // + ProjectileConfigGeneratorSettingsSO assets on first import.
 //

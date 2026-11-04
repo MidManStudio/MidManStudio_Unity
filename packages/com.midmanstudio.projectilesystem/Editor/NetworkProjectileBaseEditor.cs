@@ -1,43 +1,32 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "NetworkProjectileBaseEditor.cs"
+// ============================================================================
 // NetworkProjectileBaseEditor
 //
-// BUG THIS CLOSES ("physics projectiles being NetworkTransform, none of the
-// fields in classes that inherit it show up in the editor"): confirmed
-// against actual NGO 1.7.1 source
-// (com.unity.netcode.gameobjects/Editor/NetworkTransformEditor.cs) —
-// NetworkTransformEditor.OnInspectorGUI() draws a hand-curated set of
-// SerializedProperty fields one at a time (m_InLocalSpaceProperty,
-// m_InterpolateProperty, etc.) and never calls DrawDefaultInspector(). It's
-// declared [CustomEditor(typeof(NetworkTransform), true)] — editorForChildClasses
-// true — so it becomes the ONE inspector for every class in the
-// NetworkTransform hierarchy, including NetworkProjectileBase and everything
-// that inherits it. Every field this package's own classes add
+// Inspector for every class derived from NetworkProjectileBase.
+//
+// NetworkProjectileBase derives from NGO's NetworkTransform. NGO 1.7.1's
+// NetworkTransformEditor (com.unity.netcode.gameobjects/Editor/
+// NetworkTransformEditor.cs) is declared [CustomEditor(typeof(NetworkTransform),
+// true)] and draws a hand-picked set of fields one at a time. It never calls
+// DrawDefaultInspector(), so it would hide every field a subclass adds
 // (n_VisualConfigId, _configReferenceForEditorOnly, _logLevel, _baseDamage,
-// _damageLayerMask, _allowCallerVelocityOverride, TimeToLive, all of it) was
-// completely invisible — not hidden by a foldout, just never drawn at all.
-// This is also almost certainly why logging looked broken: _logLevel lives
-// behind this same wall, so there was no way to see or change it away from
-// whatever got serialized onto a given prefab instance.
+// _damageLayerMask, _allowCallerVelocityOverride, TimeToLive and the rest).
 //
-// FIX: register a MORE-DERIVED [CustomEditor] target. Unity's editor
-// resolution picks the most-specific registered editor for an object's
-// actual type — NetworkProjectileBase is more derived than NetworkTransform,
-// so this editor wins for every projectile class and NetworkTransformEditor
-// is never even consulted for them. Deliberately NOT targeting
-// NetworkTransform itself: doing that would make this editor compete
-// directly with Unity's own NetworkTransformEditor for literally any
-// NetworkTransform anywhere in the project (ambiguous/order-dependent
-// resolution when two editors target the exact same type) — targeting this
-// package's own NetworkProjectileBase instead means every OTHER
-// NetworkTransform in the project keeps using Unity's real editor,
-// untouched, exactly as before.
+// This editor targets NetworkProjectileBase, which is more derived than
+// NetworkTransform, so Unity picks it for every projectile class and
+// NetworkTransformEditor is not used for them. It does not target
+// NetworkTransform itself: two editors on the exact same type resolve in an
+// order-dependent way, and every other NetworkTransform in the project should
+// keep NGO's own editor.
 //
-// DELIBERATELY NOT inheriting NetworkTransformEditor to "get its fields for
-// free": that class isn't guaranteed public/unsealed/stable across NGO
-// versions, and hand-replicating its curated field list here would silently
-// drift out of sync on any NGO upgrade. DrawDefaultInspector() instead —
-// less pretty than NetworkTransformEditor's own grouping/helpboxes, but
-// draws every serialized field on the whole chain (NetworkTransform's own
-// fields included) and won't break if NGO's internal editor changes shape.
+// It does not inherit NetworkTransformEditor to reuse its field list: that
+// class is not guaranteed to stay public, unsealed or stable across NGO
+// versions, and copying its list by hand would drift on an NGO upgrade.
+// DrawDefaultInspector() draws every serialized field on the whole chain
+// (NetworkTransform's own included). The layout is plainer than NGO's own
+// grouping and help boxes, and it does not depend on NGO's editor internals.
 
 using UnityEditor;
 using UnityEngine;

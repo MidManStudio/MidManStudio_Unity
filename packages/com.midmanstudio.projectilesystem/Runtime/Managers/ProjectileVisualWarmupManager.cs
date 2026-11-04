@@ -1,68 +1,51 @@
-// Pre-warms every registered ProjectileConfigSO's pooled visual rendering
-// state (sprite atlas resolution + shape-mesh MaterialPropertyBlock) at
-// scene load, instead of paying that cost on the player's first few real
-// shots.
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ProjectileVisualWarmupManager.cs"
+// ============================================================================
+// Pre-warms the rendering state of the pooled projectile visuals for every
+// registered ProjectileConfigSO at scene load, so the cost is not paid on the
+// player's first few real shots.
 //
-// BACKGROUND — this is the same underlying issue ProjectileRegistry.Register()
-// already has a partial fix for (see the "FIX" comment block on that method):
-// Unity's Sprite Atlas system resolves a packed Sprite's `.texture` LAZILY,
-// and that resolution isn't guaranteed complete by the time any particular
-// script's Awake/Start runs. Register() mitigates this by touching every
-// config's `sprite.texture` once at registration, which is enough for the
-// plain SpriteRenderer path — it re-resolves every frame through Unity's own
-// rendering pipeline, so a late-arriving correct texture just... arrives.
+// Why it is needed: Unity's Sprite Atlas system resolves a packed Sprite's
+// .texture lazily, and that resolution is not guaranteed to be complete by the
+// time any given Awake or Start runs. ProjectileRegistry.Register() touches
+// every config's sprite.texture once, which is enough for the plain
+// SpriteRenderer path, because Unity re-resolves it every frame. It is not
+// enough for the shape-mesh path (ProjectileVisual_2D.ApplyShapeMeshOptimised
+// and ProjectileVisual_3D's instanced material). Those take a snapshot of
+// sprite.texture and a computed UV rect once per OnInitialise call, into a
+// MaterialPropertyBlock or Material. If the snapshot lands before the atlas
+// has resolved, the wrong texture or UV stays baked in until the next
+// OnInitialise call on that same pooled instance.
 //
-// It is NOT enough for the shape-mesh path (ProjectileVisual_2D.
-// ApplyShapeMeshOptimised / ProjectileVisual_3D's instanced material) —
-// those snapshot sprite.texture + a computed UV rect ONCE per OnInitialise
-// call into a MaterialPropertyBlock/Material, so if that snapshot happens to
-// land before Unity's atlas resolution has caught up, the wrong
-// texture/UV stays baked in until the NEXT OnInitialise call for THAT
-// SPECIFIC pooled instance — i.e. the next time a projectile that happens to
-// draw that same pooled slot fires.
+// The snapshot is per pooled instance, not per config or per physics
+// NetworkObject. LocalObjectPool.GetObject can return any idle instance of a
+// PoolableObjectType, and both PhysicsProjectileBase.SpawnPoolVisual and
+// NetworkProjectileBase's own visual spawn draw from that shared pool on every
+// shot. With a prewarm count of N there are N independent instances, so
+// warming one of them leaves the other N-1 cold. Each pass therefore sweeps
+// the pool's full idle count for each type (LocalObjectPool.GetQueuedCount).
 //
-// IMPORTANT — this is per POOLED INSTANCE, not per physics NetworkObject or
-// per config: LocalObjectPool.GetObject can hand back ANY idle instance for
-// a given PoolableObjectType, and PhysicsProjectileBase.SpawnPoolVisual (and
-// NetworkProjectileBase's own raycast/RustSim visual spawn) draws from that
-// same shared pool on every single shot. With a prewarmCount of N, there are
-// N independent instances in rotation — cycling only ONE of them through
-// every config (an earlier version of this manager did exactly that) only
-// warms that one; the other N-1 stay cold and still show the bug on
-// whichever shot happens to draw them first. This version sweeps the pool's
-// FULL current idle count for each type (LocalObjectPool.GetQueuedCount),
-// so every instance gets touched, not just one.
+// How: for each pool type, borrow and return as many times as there are idle
+// instances (LocalObjectPool uses a plain FIFO queue, so that many Get/Return
+// cycles visits every instance once). Each borrowed instance is initialised
+// with InitializeClientVisual against every registered config that matches the
+// pool type's dimensionality, which forces the real MaterialPropertyBlock or
+// Material snapshot to happen now, against each config in turn. Both render
+// paths use the same LocalObjectPool pools (the raycast and RustSim path
+// through NetworkProjectileBase._visualPoolType, physics projectiles' cosmetic
+// visual through PhysicsProjectileBase._visual2DPoolType/_visual3DPoolType),
+// so warming the pool types covers both. It never touches a networked physics
+// body, only the local GameObject pool its cosmetic child is taken from.
 //
-// HOW: for each pool type, borrow-and-return exactly as many times as there
-// are currently idle instances (LocalObjectPool uses a plain FIFO Queue, so
-// that many Get/Return cycles visits every instance exactly once). Each
-// borrowed instance is cycled through InitializeClientVisual() against
-// EVERY registered config that matches that pool type's dimensionality
-// before being returned — forcing the real MaterialPropertyBlock/Material
-// snapshot to happen now, at load, against each config in turn, against
-// every instance, instead of on the player's first several real shots.
-//
-// Both render paths pull from the exact same LocalObjectPool
-// PoolableObjectType pools:
-//   • the raycast/RustSim path, via NetworkProjectileBase._visualPoolType
-//   • physics projectiles' cosmetic visual, via PhysicsProjectileBase.
-//     SpawnPoolVisual — _visual2DPoolType/_visual3DPoolType
-// so warming the pool types themselves covers both without any
-// networking-specific handling — this never touches the actual networked
-// physics body, only the plain local GameObject pool its cosmetic child
-// visual is pulled from.
-//
-// SETUP: drop this on any persistent GameObject in the same scene as
-// ProjectileRegistry / LocalObjectPool — order relative to them doesn't
-// matter, this waits for both automatically. No inspector wiring required
-// for the common case: it reads every config straight from
-// ProjectileRegistry.AllConfigs and warms the two default pool types
-// (Projectile_Visual2D / Projectile_Visual3D). If any prefab variant in your
-// project overrides its visual pool type away from those defaults
-// (PhysicsProjectileBase._visual2DPoolType/_visual3DPoolType, or
-// NetworkProjectileBase._visualPoolType), add those extra types to
-// _extraPoolTypesToWarm — configs don't carry a PoolableObjectType
-// themselves, so those can't be discovered automatically.
+// Setup: put it on any persistent GameObject in the scene that has
+// ProjectileRegistry and LocalObjectPool. Order relative to them does not
+// matter, it waits for both. No inspector wiring is needed in the common case:
+// it reads every config from ProjectileRegistry.AllConfigs and warms the two
+// default pool types (Projectile_Visual2D and Projectile_Visual3D). If a prefab
+// variant overrides its visual pool type, add that type to
+// _extraPoolTypesToWarm, because configs carry no PoolableObjectType and the
+// extra types cannot be discovered.
 
 using System.Collections;
 using System.Collections.Generic;
@@ -218,13 +201,8 @@ namespace MidManStudio.Projectiles.Managers
 
             foreach (var poolType in poolTypes)
             {
-                // FIX: cycling just one borrowed instance through every config
-                // only warms THAT one instance — every other instance already
-                // sitting idle in the pool (prewarmCount can be > 1, and every
-                // projectile that fires can draw ANY of them from
-                // LocalObjectPool) stays cold and still shows the bug on its
-                // own first real use. Sweep the pool's full current idle
-                // count instead, so every instance gets touched once per pass.
+                // Sweep the pool's full current idle count so every idle instance is
+                // touched once per pass, not just one borrowed instance.
                 int queuedCount = LocalObjectPool.Instance.GetQueuedCount(poolType);
                 if (queuedCount == 0)
                 {

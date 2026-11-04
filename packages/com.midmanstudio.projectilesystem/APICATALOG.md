@@ -1,6 +1,6 @@
 # com.midmanstudio.projectilesystem — API Catalog
 
-`com.midmanstudio.projectilesystem` v1.1.0  
+`com.midmanstudio.projectilesystem` v1.0.0  
 Assembly: `MidManStudio.ProjectileSystem`  
 Namespace root: `MidManStudio.Projectiles`  
 Requires: `com.midmanstudio.utilities 1.0.0`, `com.midmanstudio.netcode 1.0.0`, `com.unity.netcode.gameobjects 1.7.1+`
@@ -53,11 +53,11 @@ Core per-projectile configuration asset. Drives the Rust simulation, renderer, a
 
 | Field / Property | Type | Description |
 |---|---|---|
-| `MovementType` | `ProjectileMovementType` | Straight / Arching / Guided / Teleport / Wave / Circular |
+| `MovementType` | `ProjectileMovementType` | Straight / Guided / Teleport / Wave / Circular / CustomCurve (physics projectiles only) |
 | `MinSpeed` / `MaxSpeed` | `float` | Speed range. `ResolveSpeed()` picks a random value between them. |
 | `ResolveSpeed()` | `float` | Returns `MinSpeed` when equal, otherwise `Random.Range`. |
 | `Lifetime` | `float` | Seconds before the projectile expires. |
-| `GravityScale` | `float` | Gravity for `Arching` type; passed as `Ay` to Rust. |
+| `GravityScale` | `float` | Gravity acceleration, passed as `Ay` to Rust at spawn. A gravity arc is `Straight` with a nonzero `GravityScale`; there is no separate arching type. Ignored for Wave and Circular, which use `Ax/Ay` as their perpendicular axis. |
 | `MaxRange` | `float` | World units. Used for damage curve normalisation. |
 
 **Wave params** (only active when `MovementType = Wave`)
@@ -299,8 +299,8 @@ for (int i = 0; i < dirs.Length; i++)
 | `Spline` | Catmull-Rom, Bezier, or Linear through control points |
 | `Ring360` | Evenly spaced full ring |
 | `Fan` | Arc spread within `FanHalfArcDeg` |
-| `VShape` | Two arms at `VShapeAngleDeg`; optional centre bullet |
-| `Shotgun` | Random cone within `ShotgunConeDeg` |
+| `VShape` | Two arms at the `_vShapeAngleDeg` field (1 to 90, default 30); optional centre bullet (`_vShapeIncludeCenter`) |
+| `Shotgun` | Random cone within the `_shotgunConeDeg` field (1 to 90, default 15) |
 | `Star` | N-pointed star / polygon |
 | `Spiral` | Ring + incremental angle step per bullet |
 | `Formula` | `H = expr(i,n)`, `V = expr(i,n)` via `MathFormulaEvaluator` |
@@ -328,7 +328,7 @@ for (int i = 0; i < dirs.Length; i++)
 **Namespace:** `MidManStudio.Projectiles`  
 **Create via:** `Right-click → MidManStudio > Projectile System > Projectile Shape`
 
-Defines the mesh shape used by `ProjectileRenderer2D` and `ProjectileVisual_`. Assign to `ProjectileConfigSO.CustomShape`.
+Defines the mesh shape used by `ProjectileRenderer2D` and `ProjectileVisual_2D`. Assign to `ProjectileConfigSO.CustomShape`.
 
 | Member | Returns | Description |
 |---|---|---|
@@ -448,7 +448,7 @@ Minimal data extracted from `ProjectileConfigSO` for `BatchSpawnHelper`. No Unit
 | `PiercingType` | `byte` | |
 | `MaxCollisions` | `byte` | |
 | `Lifetime` | `float` | |
-| `GravityAy` | `float` | Gravity acceleration (maps to `Ay` for Arching; ignored for Wave/Circular) |
+| `GravityAy` | `float` | Gravity acceleration (maps to `Ay`; ignored for Wave/Circular, which use `Ax/Ay` as the perpendicular axis) |
 | `ScaleStart` | `float` | Starting scale (full size or fraction if growth enabled) |
 | `ScaleTarget` | `float` | Target scale |
 | `ScaleSpeed` | `float` | Scale lerp speed; 0 = no growth |
@@ -465,7 +465,7 @@ Minimal data extracted from `ProjectileConfigSO` for `BatchSpawnHelper`. No Unit
 
 ### `ProjectileMovementType` (enum, byte)
 
-`Straight=0` · `Arching=1` · `Guided=2` · `Teleport=3` · `Wave=4` · `Circular=5`
+`Straight=0` · `Guided=2` · `Teleport=3` · `Wave=4` · `Circular=5` · `CustomCurve=6` (physics projectiles only; value 1 is unassigned and a stored 1 runs the straight tick)
 
 ### `ProjectilePiercingType` (enum, byte)
 
@@ -706,7 +706,7 @@ Hit processor owned by `ServerProjectileAuthority`. Maintains per-projectile `Se
 | `IsRegistered(uint projId)` | Checked by authority after each collision. |
 | `ProcessHit(in HitResult hit, bool isHeadshot)` | 2D hit → compute damage → fire `OnProjectileHit` → `HandlePiercing`. |
 | `ProcessHit3D(in HitResult3D hit, bool isHeadshot)` | *(3D ref)* |
-| `NotifyDead(uint projId)` | Called by `CompactDead` for lifetime-expired projectiles. Guards against double-fire. |
+| `NotifyDead(uint projId)` | Called by `ServerProjectileAuthority` when it compacts dead projectiles out of its buffer (lifetime expiry and any other `Alive == 0` entry). Guards against double-fire. |
 | `SetHomingDirection2D(ref NativeProjectile, Vector2)` | Writes `Ax/Ay` for `Guided` movement. |
 | `event Action<ProjectileHitPayload> OnProjectileHit` | Subscribe here for damage application. |
 | `event Action<uint> OnProjectileDied` | Fires when any projectile dies (hit or lifetime). |
@@ -841,10 +841,17 @@ All NGO RPCs for the projectile system. Attached to `MID_MasterProjectileSystem`
 | `ConfigId` | `ushort` | |
 | `Origin` / `Direction` | `Vector3` | Primary bullet origin and direction. |
 | `Speed` | `float` | Resolved speed. |
-| `ProjectileCount` | `byte` | Bullet count (max 255). |
+| `ProjectileCount` | `byte` | Bullet count. The server rejects counts above 128 (`MaxProjectileCountSanity`). |
+| `PatternId` | `ushort` | 0 = no pattern (simple spread or single direction). |
+| `SpreadDeg` | `float` | Only meaningful when `PatternId == 0` and `ProjectileCount > 1`. |
+| `PatternIs3D` | `bool` | The firing client's resolved 2D or 3D convention, so the server uses the same rotation basis. |
 | `OwnerMidId` / `FiredByNetworkObjectId` | `ulong` | Attribution. |
+| `IsBotOwner` / `WeaponLevel` / `DamageMultiplier` | `bool / byte / float` | Attribution and damage inputs. |
 | `ClientFireTick` | `int` | Used to compute latency compensation. |
-| `ExtraDirectionCount` / `ExtraDirections` | `byte / Vector3[]` | Additional directions for multi-projectile patterns (max 63 extra). |
+| `TargetNetworkObjectId` | `ulong` | 0 = no guided target. Resolved server-side to a Transform for `Guided` configs. |
+| `FireSeed` | `ushort` | Per-shot seed (`ProjectileDirectionResolver.NewFireSeed()`); 0 = the pattern asset's fixed seed. |
+
+There are no direction arrays on the wire. Direction, per-pellet speed and start delay are rebuilt on every recipient by `ProjectileDirectionResolver.Resolve()` from the pattern asset and `FireSeed`.
 
 **`SpawnConfirmation : INetworkSerializable`**
 
@@ -852,10 +859,13 @@ All NGO RPCs for the projectile system. Attached to `MID_MasterProjectileSystem`
 |---|---|---|
 | `BaseProjId` | `uint` | Base of the server-assigned ID range. |
 | `ProjectileCount` | `byte` | |
-| `ConfigId` / `Speed` | `ushort / float` | |
+| `ConfigId` | `ushort` | |
+| `ServerSpawnTick` | `int` | |
 | `Origin` / `Direction` | `Vector3` | |
-| `ServerNetworkTime` | `float` | `NetworkManager.ServerTime.TimeAsFloat` at spawn; used by other clients to compute elapsed flight time for position catch-up. |
-| `GetDirection(int i)` | `Vector3` | Returns `Direction` for i=0, `ExtraDirections[i-1]` for i>0. |
+| `Speed` | `float` | |
+| `OwnerMidId` | `ulong` | |
+| `PatternId` / `SpreadDeg` / `PatternIs3D` / `FireSeed` | `ushort / float / bool / ushort` | Mirror the same fields of `ProjectileFireRequest`, so every client rebuilds the same layout. |
+| `ServerNetworkTime` | `float` | `NetworkManager.ServerTime.TimeAsFloat` at spawn; used by other clients to compute elapsed flight time for position catch-up. 0 = not set. |
 
 **`HitConfirmation : INetworkSerializable`**
 
@@ -985,15 +995,15 @@ virtual void HideProjectile();
 
 ---
 
-### `ProjectileVisual_ : ProjectileVisualBase` *(2D primary pool visual)*
+### `ProjectileVisual_2D : ProjectileVisualBase` *(2D primary pool visual)*
 
 **Namespace:** `MidManStudio.Projectiles.Visuals`  
-*(Note the underscore — this is the actual class name.)*
+*(Note the underscore in the class name.)*
 
 2D pool visual for `PoolableObjectType.Projectile_Visual2D`. Handles sprite rendering, trail, and optional custom shape mesh.
 
 **Prefab setup:**
-- Add `ProjectileVisual_` component
+- Add `ProjectileVisual_2D` component
 - Add `SpriteRenderer` → assign to `projectileSpriteRend`
 - Add `TrailRenderer` → assign to `projectileTrailRend`
 - `MeshFilter` / `MeshRenderer` are added at runtime automatically when a config with `CustomShape` is first used — **do not pre-add them to the prefab**

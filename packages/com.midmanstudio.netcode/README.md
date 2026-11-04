@@ -18,9 +18,16 @@ No game-specific dependencies. Builds on `com.midmanstudio.utilities`.
 
 ## Installation
 
-**Via git URL:**
+**Via git URL** (Window > Package Manager > Add package from git URL). Tags in this repository are
+`<package>/v<version>`:
 ```
-https://github.com/MidManStudio/MidManStudio_Unity.git?path=/packages/com.midmanstudio.netcode#v1.0.0
+https://github.com/MidManStudio/MidManStudio_Unity.git?path=/packages/com.midmanstudio.netcode#netcode/v1.0.0
+```
+
+Unity resolves the dependencies in `package.json` from a registry, not from git. When you install from git,
+add `com.midmanstudio.utilities` first:
+```
+https://github.com/MidManStudio/MidManStudio_Unity.git?path=/packages/com.midmanstudio.utilities#utilities/v1.0.0
 ```
 
 **Via local path (development — manifest.json):**
@@ -34,8 +41,8 @@ https://github.com/MidManStudio/MidManStudio_Unity.git?path=/packages/com.midman
 
 | System | Namespace | Description |
 |---|---|---|
-| `NetworkSingleton<T>` | `MidManStudio.Netcode` | NGO-aware singleton; network features post-spawn |
-| `HybridNetworkSingleton<T>` | `MidManStudio.Netcode` | Instance in Awake; works offline; persists across scenes |
+| `NetworkSingleton<T>` | `MidManStudio.Netcode.Singleton` | NGO-aware singleton; network features post-spawn |
+| `HybridNetworkSingleton<T>` | `MidManStudio.Netcode.Singleton` | Instance in Awake; works offline; persists across scenes |
 | `MID_NetworkObjectPool` | `MidManStudio.Netcode.Pools` | Generic NGO object pool; auto-initializes on spawn |
 | `IPoolableNetworkObject` | `MidManStudio.Netcode.Pools` | Reset/retrieve hooks for pooled prefabs |
 | `NetworkPoolTypeProviderSO` | `MidManStudio.Netcode.Generator` | SO that contributes entries to the pool type enum |
@@ -47,6 +54,13 @@ https://github.com/MidManStudio/MidManStudio_Unity.git?path=/packages/com.midman
 | `PlayerOfflineIdentity` | `MidManStudio.Netcode.LocalMultiplayer` | Persistent offline player identity |
 | `MID_NetworkSceneLoader` | `MidManStudio.Netcode.SceneManagement` | NGO-managed additive scene loader; per-client readiness |
 | `NetworkTimer` | `MidManStudio.Netcode` | Fixed-interval server tick timer with lerp fraction |
+| `MID_BitMask32` / `MID_BitMask64` | `MidManStudio.Netcode.Collections` | Single-bit flag sets that sync as one `NetworkVariable` |
+| `MID_BitPacker64` + `MID_BitFieldLayout` | `MidManStudio.Netcode.Collections` | Several small enum/int/bool fields packed into one synced `ulong` |
+| `MID_NetworkDictionary<TKey, TValue>` | `MidManStudio.Netcode.Collections` | Event-based synced dictionary |
+| `MID_NetworkEvent<T>` | `MidManStudio.Netcode.Collections` | Fire-and-forget "raise it, everyone hears it" signal over an RPC |
+| `MID_NetworkString<T>` | `MidManStudio.Netcode.Collections` | Fixed-capacity synced string; capacity set by the `FixedString` type |
+| `MID_LagCompensator` + `MID_LagCompensatedTarget` | `MidManStudio.Netcode.LagCompensation` | Server-side rewind of hitboxes to a client's fire tick |
+| `OwnerAuthoritativeNetworkTransform` | `MidManStudio.Netcode.Components` | `NetworkTransform` driven by the owning client |
 
 ---
 
@@ -138,12 +152,12 @@ public class MyWeapon : NetworkBehaviour, IPoolableNetworkObject
 }
 
 // 5. Spawn (server-side)
-var netObj = MID_NetworkObjectPool.Singleton
+var netObj = MID_NetworkObjectPool.Instance
     .GetNetworkObject(PoolableNetworkObjectType.MyWeapon, pos, rot);
 netObj.Spawn();
 
 // 6. Return (server-side — call BEFORE Despawn)
-MID_NetworkObjectPool.Singleton
+MID_NetworkObjectPool.Instance
     .ReturnNetworkObject(netObj, PoolableNetworkObjectType.MyWeapon);
 ```
 
@@ -271,19 +285,37 @@ _lobbyManager.OnGameStartReceived += snapshot =>
 
 **Team logic:**
 ```csharp
+// Needs: using System.Linq; using System.Collections.Generic;
 public class MyTeamProvider : ILocalLobbyTeamProvider
 {
-    private Dictionary<ulong, int> _teams = new();
+    private readonly Dictionary<ulong, int> _teams = new();
 
-    public int OnPlayerJoined(ulong clientId, bool isHost) =>
-        isHost ? 0 : _teams.Count % 2; // simple round-robin
+    public int OnPlayerJoined(ulong clientId, bool isHost)
+    {
+        int team = isHost ? 0 : _teams.Count % 2; // simple round-robin
+        _teams[clientId] = team;
+        return team;
+    }
 
     public void OnPlayerLeft(ulong clientId) => _teams.Remove(clientId);
     public bool TryChangeTeam(ulong clientId, int target) { _teams[clientId] = target; return true; }
     public int GetTeamId(ulong clientId) => _teams.TryGetValue(clientId, out int t) ? t : -1;
     public void OnPrepareGameStart(List<LocalLobbyPlayer> all) { }
-    public string SerializeState() => JsonUtility.ToJson(new { teams = _teams });
-    public void DeserializeState(string data) { /* parse and apply */ }
+
+    // The state travels to clients as a string. "id:team,id:team" is enough here.
+    public string SerializeState() =>
+        string.Join(",", _teams.Select(kv => $"{kv.Key}:{kv.Value}"));
+
+    public void DeserializeState(string data)
+    {
+        _teams.Clear();
+        if (string.IsNullOrEmpty(data)) return;
+        foreach (var part in data.Split(','))
+        {
+            var kv = part.Split(':');
+            _teams[ulong.Parse(kv[0])] = int.Parse(kv[1]);
+        }
+    }
 }
 
 _lobbyManager.SetTeamProvider(new MyTeamProvider());
@@ -361,7 +393,8 @@ NGO-managed additive scene loader. Only the host/server triggers loads — all c
 MID_SceneTransitionController.Instance.SetNetworkLoader(
     MID_NetworkSceneLoader.Instance);
 
-// Load (host only)
+// Load (host only). The loader always does an NGO additive load;
+// the loadType and delayMs arguments are ignored.
 MID_NetworkSceneLoader.Instance.LoadScene(
     (int)SceneId.GameplayMap, SceneLoadType.NetworkAdditive);
 
@@ -390,6 +423,72 @@ void Update()
 // Client interpolation between ticks
 float alpha = timer.LerpFraction; // 0..1
 ```
+
+---
+
+### Networked Collections
+
+`MidManStudio.Netcode.Collections`. The bit masks, the bit packer and the string are values you put inside
+a `NetworkVariable<T>`. `MID_NetworkDictionary` is a network variable itself. `MID_NetworkEvent` is plain
+C# plus one RPC and does not sync state.
+
+```csharp
+// Several small fields in one synced ulong. Build the layout once.
+private static readonly MID_BitFieldLayout Layout = new MID_BitFieldLayout();
+private static readonly MID_BitField StateField  = Layout.ReserveEnum<WeaponState>();
+private static readonly MID_BitField ChargeField = Layout.Reserve(7);   // 0-127
+private readonly NetworkVariable<MID_BitPacker64> _packed = new();
+
+var packed = _packed.Value;
+packed.SetEnum(StateField, WeaponState.Reloading);
+packed.SetField(ChargeField, 42);
+_packed.Value = packed;                       // one write, one delta
+
+// Fixed-capacity string. The FixedString type sets the size (61 usable bytes here).
+private readonly NetworkVariable<MID_NetworkString<FixedString64Bytes>> _name = new(
+    new MID_NetworkString<FixedString64Bytes>("Player"));
+_name.Value = "New Name";
+
+// Synced dictionary with change events. TKey must be unmanaged + IEquatable, TValue unmanaged.
+private readonly MID_NetworkDictionary<ulong, int> _scores = new();
+_scores[clientId] = 10;
+_scores.OnDictionaryChanged += evt => Debug.Log($"{evt.Type} {evt.Key} {evt.Value}");
+
+// Fire-and-forget signal: one thin RPC per usage site, a C# event around it.
+public readonly MID_NetworkEvent<Vector3> OnExplosion = new();
+public void TriggerExplosion(Vector3 p) => OnExplosion.Raise(p, ExplosionClientRpc);
+[ClientRpc] private void ExplosionClientRpc(Vector3 p) => OnExplosion.Receive(p);
+```
+
+`MID_NetworkEvent<T>` keeps no state, so a client that joins later does not see past events.
+
+---
+
+### Lag Compensation
+
+Server-side. Add `MID_LagCompensator` to one persistent object in the networked scene and
+`MID_LagCompensatedTarget` to every hitbox root that should be rewindable. Pass the shooter's fire tick
+(a Netcode server tick) to `BeginRewind`; the scope restores every target when it is disposed.
+
+```csharp
+using (MID_LagCompensator.BeginRewind(clientFireTick))
+{
+    Physics.Raycast(...);   // targets are at their pose for clientFireTick here
+}
+```
+
+`BeginRewind` does nothing (returns an empty scope) when no compensator exists or the tick is 0 or less.
+A target registers with the compensator when it spawns, so the compensator has to be in the scene first.
+Scopes cannot be nested.
+
+---
+
+### Owner-Authoritative Transform
+
+The stock `NetworkTransform` is server-authoritative. Swap it for `OwnerAuthoritativeNetworkTransform`
+(`MidManStudio.Netcode.Components`) on prefabs whose owning client moves them. It has the same Inspector
+fields, so configured axes, thresholds and interpolation carry over. `NetworkRigidbody` follows the
+authority of its `NetworkTransform`.
 
 ---
 
@@ -424,7 +523,20 @@ _monitor.OnNetworkStatusChanged += status =>
 
 ---
 
+## Documentation
+
+| File | Content |
+|---|---|
+| `APICATALOG.md` | API reference for every public type |
+| `docs/com.midmanstudio.netcode.md` | Design decisions, limits and fix history per file |
+| `Documentation~/index.md` | Getting started |
+| `Documentation~/SceneSetup.md` | Hand-built test scenes for the pool, the lobby and lag compensation |
+| `CHANGELOG.md` | Release notes |
+
+---
+
 ## License
 
-MIT — see `LICENSE.md`.  
+MIT — see `LICENSE.md`. `MID_NetworkDictionary` is adapted from MIT-licensed code, see
+`THIRD-PARTY-NOTICES.md`.  
 Copyright © 2026 Abdulhamid Manman Suleiman / MidMan Studio

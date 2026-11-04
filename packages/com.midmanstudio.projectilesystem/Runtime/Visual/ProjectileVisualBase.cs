@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ProjectileVisualBase.cs"
+// ============================================================================
 // Abstract base MonoBehaviour for ALL pooled projectile visuals (2D and 3D).
 //
 // WHY ABSTRACT CLASS OVER INTERFACE:
@@ -109,10 +113,9 @@ namespace MidManStudio.Projectiles.Visuals
             if (this == null) return;
             IsActive = false;
 
-            // GROWTH FIX companion: stop mid-flight growth explicitly rather
-            // than relying solely on Unity auto-stopping coroutines when the
-            // GameObject deactivates later in this call chain — that timing
-            // is implicit/pool-internal, this is guaranteed.
+            // Stop mid-flight growth explicitly instead of relying on Unity
+            // stopping the coroutine when the GameObject deactivates later in
+            // this call chain.
             if (_scaleGrowthCoroutine != null)
             {
                 StopCoroutine(_scaleGrowthCoroutine);
@@ -159,37 +162,25 @@ namespace MidManStudio.Projectiles.Visuals
         }
 
         // ── Scale growth ───────────────────────────────────────────────────────
-        // GROWTH FIX ("physics projectiles get spawned full scale rather than
-        // scaling up as intended"): ProjectileConfigSO.UseScaleGrowth /
-        // SpawnScaleFraction / GrowthSpeed already existed and were being
-        // applied for RustSim-driven projectiles (consumed natively — see
-        // GetRustSpawnParams and rust_lib/projectile_core/src/simulation.rs's
-        // tick_scale, whose exact formula this reproduces:
-        // current += (target - current) * speed * dt), but a pooled
-        // ProjectileVisualBase instance (used by physics projectiles' cosmetic
-        // visual, and as the raycast/RustSim path's own pooled visual) always
-        // jumped straight to full size in a single OnInitialise call — there
-        // was no per-frame growth loop here at all.
+        // Scale growth. ProjectileConfigSO.UseScaleGrowth, SpawnScaleFraction and
+        // GrowthSpeed are consumed natively for RustSim projectiles (tick_scale in
+        // rust_lib/projectile_core/src/simulation.rs: current += (target - current)
+        // * speed * dt, which this reproduces). A pooled visual would otherwise
+        // jump to full size in one OnInitialise call, so this coroutine animates it.
         //
-        // Sub-classes call RefreshScaleGrowth(cfg) from their own OnInitialise,
-        // AFTER their own one-shot "jump to full size" scale application
-        // (ProjectileVisual_2D's ApplySpriteOptimised/ApplyShapeMeshOptimised,
-        // ProjectileVisual_3D's ApplyScale) — if cfg.UseScaleGrowth is false
-        // this immediately returns and that one-shot value stands unchanged,
-        // zero per-frame cost. If it's true, this coroutine takes over and
-        // animates from there. Coroutines execute synchronously up to their
-        // first yield, so the very first ApplyScaleAtSize call below runs in
-        // the same frame as the one-shot call it's overriding — no visible
-        // one-frame "flash" at full size.
+        // Subclasses call RefreshScaleGrowth(cfg) from their OnInitialise, after
+        // their own one-shot full-size scale (ProjectileVisual_2D's
+        // ApplySpriteOptimised/ApplyShapeMeshOptimised, ProjectileVisual_3D's
+        // ApplyScale). With cfg.UseScaleGrowth off it returns at once and that
+        // value stands, at no per-frame cost. With it on, the coroutine takes over;
+        // it runs synchronously up to its first yield, so the first
+        // ApplyScaleAtSize call lands in the same frame as the one-shot call and
+        // there is no one-frame flash at full size.
         //
-        // Purely cosmetic/local — every peer (server and every client) runs
-        // this independently off the same shared config data, the same way
-        // the rest of this class's rendering already works without any
-        // network traffic. For physics projectiles specifically, the ACTUAL
-        // collider (hit-detection, server-authoritative) is grown separately
-        // by PhysicsProjectileBase using the identical formula — see that
-        // class's GrowColliderRoutine.
-
+        // Purely cosmetic and local: every peer runs it from the same config data.
+        // For physics projectiles the server-authoritative collider is grown
+        // separately by PhysicsProjectileBase with the same formula
+        // (GrowColliderRoutine).
         private Coroutine _scaleGrowthCoroutine;
 
         /// <summary>

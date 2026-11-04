@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ProjectileVisual_2D.cs"
+// ============================================================================
 using UnityEngine;
 using MidManStudio.Projectiles.Config;
 using MidManStudio.Core.EditorUtils;
@@ -170,32 +174,10 @@ namespace MidManStudio.Projectiles.Visuals
 
         protected override void OnInitialise(ProjectileConfigSO cfg)
         {
-            // DEFENSIVE FIX ("first fire shows the wrong visual, self-corrects
-            // on the second fire — reproduces whether or not CustomShape is
-            // assigned"): I traced the branch logic below exhaustively and it
-            // should always be deterministic from cfg alone, with no
-            // dependency on prior state — but you've now confirmed the bug
-            // reproduces regardless of CustomShape, which rules out the branch
-            // decision itself as the cause. I could not pin down the exact
-            // remaining mechanism through static reading (my leading
-            // suspicion: ProjectileVisual_2D.prefab's shape-mesh child saves
-            // with MeshRenderer.enabled=1 in the sandbox prefab, contradicting
-            // this file's own comment that it's "never on this GameObject
-            // directly" — Awake() should already disable it, but something
-            // about first-activation timing on a pooled instance may be
-            // slipping past that; I don't have a way to single-step Unity
-            // here to confirm).
-            //
-            // This is a defensive, not root-cause, fix: force BOTH renderers
-            // to a known-off state before any decision is made, so whichever
-            // one the branch below turns on is the only one active,
-            // regardless of what state either was already in coming in. If
-            // this DOESN'T resolve it, the bug isn't in this method's
-            // rendering logic at all — next place to look is whether
-            // OnInitialise is even being reached on the object's true first
-            // activation (add a one-off MID_Logger.LogDebug at the very top
-            // logging ConfigId + cfg?.name + Time.frameCount, compare across
-            // a first vs second fire of the same pooled instance).
+            // Force both renderers off before any decision is made, so whichever
+            // one the branch below turns on is the only one active, whatever
+            // state either was in on entry (a pooled instance can come back with
+            // the shape renderer on).
             if (_shapeMeshRenderer   != null) _shapeMeshRenderer.enabled   = false;
             if (projectileSpriteRend != null) projectileSpriteRend.enabled = false;
 
@@ -213,7 +195,8 @@ namespace MidManStudio.Projectiles.Visuals
             Mesh shapeMesh      = hasCustomShape ? cfg.CustomShape.GetMesh() : null;
             bool needsShapeMesh = hasCustomShape && shapeMesh != null && shapeMesh.vertexCount > 0;
 
-            // FIX: Ensure components exist at runtime (client pool prefabs don't pre-add them)
+            // Make sure the shape-mesh components exist (client pool prefabs do
+            // not pre-add them).
             if (needsShapeMesh) EnsureShapeMeshComponents();
 
             bool canUseShape = needsShapeMesh
@@ -232,21 +215,16 @@ namespace MidManStudio.Projectiles.Visuals
                 if (_shapeMeshRenderer != null) _shapeMeshRenderer.enabled = false;
                 _usingShapeMesh = false;
 
-                // FIX: previously passed cfg?.ProjectileSprite unconditionally —
-                // a config with UseSprite = false (ProjectileRenderer2D/3D and
-                // ProjectileRegistry.GetUVRect both already treat this as "use
-                // the plain fallback, ignore whatever's in ProjectileSprite")
-                // would still show its sprite field here if one happened to be
-                // assigned. Matches the Rust-sim renderers' own gate.
+                // A config with UseSprite = false uses the plain fallback and
+                // ignores ProjectileSprite, the same gate ProjectileRenderer2D/3D
+                // and ProjectileRegistry.GetUVRect apply.
                 bool useSprite = cfg != null && cfg.UseSprite;
                 ApplySpriteOptimised(cfg, useSprite ? cfg.ProjectileSprite : null);
             }
 
-            // GROWTH FIX ("gets spawned full scale rather than scaling up as
-            // intended") — no-ops immediately if cfg is null or
-            // UseScaleGrowth is false, leaving the one-shot scale set just
-            // above untouched. See ProjectileVisualBase's own section
-            // comment for the full explanation.
+            // Starts scale growth when cfg.UseScaleGrowth is set. Otherwise it
+            // returns at once and the one-shot scale set above stands. See
+            // ProjectileVisualBase.
             RefreshScaleGrowth(cfg);
 
             ApplyTrailOptimised(cfg);
@@ -334,40 +312,20 @@ namespace MidManStudio.Projectiles.Visuals
 
         /// <summary>
         /// Applies the CustomShape mesh to the child's MeshFilter/MeshRenderer.
-        /// Scale matches ProjectileRenderer2D: (FullSizeX, FullSizeY, 1) — set on
-        /// THIS transform (not the child), same as before the child-object split.
-        /// _shapeMeshChild keeps identity local scale, so it inherits this size
-        /// through normal Unity parent/child transform propagation — no behavior
-        /// change from isolating the mesh onto its own object.
+        /// The scale (FullSizeX, FullSizeY, 1), as in ProjectileRenderer2D, is set
+        /// on THIS transform, not the child. _shapeMeshChild keeps identity local
+        /// scale and inherits the size through the normal parent/child transform.
         ///
-        /// BUG FIX: this used to set _MainTex only, and only inside an
-        /// `if (texture != null)` guard — meaning two separate bugs at once:
-        ///
-        ///  1. _UVRect was never set at all. InstancedProjectile(_URP).shader —
-        ///     the shader this component's own header comment says to assign as
-        ///     _fallbackShapeMaterial "for correct atlas UV support" — declares
-        ///     BOTH _MainTex and _UVRect as material properties, and per that
-        ///     shader file's own comment, the shipped material's baked-in
-        ///     default _UVRect is (0.24, 0, 4.08, 1.2) — a corrupted, very much
-        ///     not-full-texture sub-rect, left over from when it was authored
-        ///     for the shared-atlas batch renderer (ProjectileRenderer2D, which
-        ///     DOES set _UVRect every frame via ProjectileRegistry.GetUVRect).
-        ///     Nothing here ever overrode it, so every shape-mesh projectile
-        ///     sampled that same broken corner of whatever texture got bound —
-        ///     which reads as "the material/sprite is never (correctly) set".
-        ///     Fix: always compute and set _UVRect too, via the exact same
-        ///     ProjectileRegistry.GetUVRect used by the Rust-sim renderers —
-        ///     one source of truth for "which part of this texture to sample"
-        ///     instead of reimplementing it here.
-        ///
-        ///  2. The property block was only touched when a texture existed —
-        ///     skip the call entirely (no sprite this config, or config not
-        ///     found) and this pooled instance's renderer keeps showing
-        ///     whatever _MainTex/_UVRect its PREVIOUS pool cycle left bound.
-        ///     Fix: always set the property block, falling back to
-        ///     Texture2D.whiteTexture + the full (0,0,1,1) rect — exactly what
-        ///     ProjectileRenderer2D/3D fall back to for a no-sprite config —
-        ///     so every call leaves this instance in a fully-defined state.
+        /// The property block always sets both _MainTex and _UVRect, and always
+        /// runs, so every call leaves the instance in a fully defined state:
+        ///  - InstancedProjectile(_URP).shader declares both properties, and the
+        ///    shipped material's baked default _UVRect (0.24, 0, 4.08, 1.2) is not
+        ///    a full texture rect. _UVRect comes from ProjectileRegistry.GetUVRect,
+        ///    the same source the Rust-sim renderers use.
+        ///  - With no sprite (or no config) it falls back to
+        ///    Texture2D.whiteTexture and the full (0, 0, 1, 1) rect, as
+        ///    ProjectileRenderer2D/3D do, so a pooled instance never keeps the
+        ///    texture its previous use left bound.
         /// </summary>
         private void ApplyShapeMeshOptimised(ProjectileConfigSO cfg, Mesh mesh)
         {
@@ -399,19 +357,10 @@ namespace MidManStudio.Projectiles.Visuals
         #region Sprite
 
         /// <summary>
-        /// SCALING FIX ("physics-based projectiles do not support scaling"):
-        /// ApplyShapeMeshOptimised (below) has always set transform.localScale
-        /// from cfg.FullSizeX/FullSizeY — this plain-SpriteRenderer path never
-        /// did, so any config using a plain sprite (UseSprite = true, no
-        /// CustomShape — the common case, and the ONLY path physics
-        /// projectiles ever hit unless a CustomShape is assigned) rendered at
-        /// whatever scale the pooled prefab/parent already happened to have,
-        /// completely ignoring FullSizeX/Y. Mirrors the shape-mesh path's own
-        /// scale line exactly. Falls back to Vector3.one when cfg is null
-        /// (config not resolved yet) — same fallback OnReturnToPool already
-        /// uses, and LocalObjectPool.ReturnObject's own ResetObject() also
-        /// resets localScale to Vector3.one on every return regardless, so
-        /// there's no stale-scale risk between pool cycles either way.
+        /// Sets transform.localScale from cfg.FullSizeX/FullSizeY (Vector3.one when
+        /// cfg is null) before applying the sprite, the same scale line the
+        /// shape-mesh path uses. LocalObjectPool.ReturnObject also resets
+        /// localScale on every return.
         /// </summary>
         private void ApplySpriteOptimised(ProjectileConfigSO cfg, Sprite sprite)
         {

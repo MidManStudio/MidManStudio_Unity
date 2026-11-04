@@ -1,16 +1,19 @@
-// OnLaunch mirrors original Projectile.cs velocity setup:
-//   velocity = transform.right * BulletVelocity  (2D convention)
-//   gravityScale from config if available
-//   CapsuleCollider2D added as alternative to CircleCollider2D
-//   Config SO consulted for gravity scale at launch time
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "PhysicsProjectile2D.cs"
+// ============================================================================
+// 2D Rigidbody implementation of PhysicsProjectileBase.
+// OnLaunch sets velocity = transform.right * BulletVelocity (the 2D convention:
+// a shot flies along transform.right) and reads the gravity scale from the
+// projectile's config when one resolves.
 //
 // PREFAB REQUIREMENTS:
 //   - This script
 //   - Rigidbody2D
-//   - CapsuleCollider2D  (matches original Projectile.cs — or CircleCollider2D)
+//   - CapsuleCollider2D or CircleCollider2D
 //   - NetworkObject
 //   - NetworkTransform (via NetworkProjectileBase)
-//   -  Ensure u set poolable object type to 2d
+//   - The poolable object type must be a 2D one
 using UnityEngine;
 using MidManStudio.Core.Logging;
 using MidManStudio.Projectiles.Config;
@@ -27,10 +30,8 @@ namespace MidManStudio.Projectiles.Managers
 
         private Rigidbody2D _rb;
 
-        // SCALING FIX (see PhysicsProjectileBase.ApplyConfigScale doc comment).
-        // Resolved once, lazily — whichever of the two the prefab actually has
-        // (see this file's own header comment: "CapsuleCollider2D added as
-        // alternative to CircleCollider2D").
+        // Used by ApplyColliderSize (see PhysicsProjectileBase.ApplyConfigScale).
+        // Resolved once, lazily: whichever of the two the prefab actually has.
         private CapsuleCollider2D _capsuleCollider;
         private CircleCollider2D  _circleCollider;
         private bool              _colliderResolved;
@@ -48,30 +49,22 @@ namespace MidManStudio.Projectiles.Managers
         }
 
         /// <summary>
-        /// SCALING FIX — see PhysicsProjectileBase.ApplyConfigScale for the
-        /// full explanation of why this exists, why it resizes the collider
-        /// directly instead of scaling transform.localScale, and why it's
-        /// called with a raw (sizeX, sizeY) pair rather than a config
-        /// (PhysicsProjectileBase owns deciding the target size and whether
-        /// to animate into it via GrowColliderRoutine — this method just
-        /// applies whatever size it's given).
+        /// Applies the collider size that PhysicsProjectileBase.ApplyConfigScale
+        /// chose (see there for why the collider is resized instead of the
+        /// transform being scaled). It receives a raw (sizeX, sizeY) pair; the base
+        /// class decides the target size and whether to grow into it.
         ///
-        /// CapsuleCollider2D.size is (long-axis, cross-axis) relative to its
-        /// OWN .direction — this deliberately does not touch .direction
-        /// (whatever the prefab author set stays as-is), it just maps
-        /// sizeX (the travel-direction length — 2D convention here is
-        /// "fire along transform.right", see OnLaunch below) onto whichever
-        /// local axis is currently the capsule's long axis, so this is
-        /// correct regardless of prefab orientation.
+        /// CapsuleCollider2D.size is (long axis, cross axis) relative to its own
+        /// .direction. This method leaves .direction as the prefab author set it
+        /// and maps sizeX (the travel-direction length; shots fly along
+        /// transform.right, see OnLaunch) onto whichever local axis is the
+        /// capsule's long axis, so it is correct for any prefab orientation.
         ///
-        /// CircleCollider2D has no directional axis at all, so there's no
-        /// way to represent an elongated (sizeX != sizeY) shape exactly —
-        /// radius tracks sizeY (the cross-section/"width"), not sizeX, so
-        /// the hit area doesn't balloon out along the travel axis for
-        /// long/thin projectile sprites. This is a judgement call, not a
-        /// verified-correct mapping (couldn't render/compare in-editor
-        /// here) — tune it against your actual sprites if the feel is off,
-        /// or swap the prefab to CapsuleCollider2D for an exact fit.
+        /// CircleCollider2D has no direction, so it cannot represent an elongated
+        /// (sizeX != sizeY) shape. Its radius follows sizeY (the cross section),
+        /// so the hit area does not grow along the travel axis for a long, thin
+        /// sprite. That mapping is a judgement call; use a CapsuleCollider2D for
+        /// an exact fit.
         /// </summary>
         protected override void ApplyColliderSize(float sizeX, float sizeY)
         {
@@ -104,7 +97,8 @@ namespace MidManStudio.Projectiles.Managers
         {
             if (_rb == null) return transform.right;
 
-            // Consult config for gravity scale — mirrors original Projectile.cs
+            // The config's gravity scale replaces the inspector value when a
+            // config resolves.
             float gravity = _gravityScale;
             if (ProjectileRegistry.HasInstance)
             {
@@ -113,17 +107,14 @@ namespace MidManStudio.Projectiles.Managers
                 {
                     gravity = cfg.GravityScale;
 
-                    // MOVEMENT TYPE FIX ("it should offset the physics body"):
-                    // Wave/Circular/Teleport all drive the body directly every
-                    // FixedUpdate (velocity for Wave/Circular, direct
-                    // reposition for Teleport — see PhysicsProjectileBase's
-                    // FixedUpdate/ApplyWaveCircular/ApplyTeleport), none of
-                    // which account for gravity, matching RustSim's own
-                    // tick_wave/tick_circular/tick_teleport, which don't
-                    // combine with gravity either. Guided is deliberately
-                    // excluded — it turns whatever velocity real physics is
-                    // already producing rather than overriding it, so gravity
-                    // stays on and a homing shot still arcs while it steers.
+                    // Wave, Circular and Teleport drive the body directly every
+                    // FixedUpdate (velocity for Wave and Circular, a direct
+                    // reposition for Teleport, see PhysicsProjectileBase), and
+                    // none of them accounts for gravity. The Rust sim's tick_wave,
+                    // tick_circular and tick_teleport do not combine with gravity
+                    // either. Guided is excluded on purpose: it turns whatever
+                    // velocity physics is already producing, so gravity stays on
+                    // and a homing shot still arcs while it steers.
                     if (cfg.MovementType == ProjectileMovementType.Wave ||
                         cfg.MovementType == ProjectileMovementType.Circular ||
                         cfg.MovementType == ProjectileMovementType.Teleport)
@@ -135,8 +126,7 @@ namespace MidManStudio.Projectiles.Managers
             _rb.drag         = _drag;
             _rb.isKinematic  = false;
 
-            // 2D convention: fire along transform.right — EXACTLY as original Projectile.cs
-            // m_ProjectileRigidBody2D.velocity = transform.right * internalBulletVelocity
+            // 2D convention: fire along transform.right.
             _rb.velocity = (Vector2)(transform.right * bulletVelocity);
 
             MID_Logger.LogDebug(_logLevel,
@@ -170,7 +160,8 @@ namespace MidManStudio.Projectiles.Managers
             if (_rb != null) _rb.position = (Vector2)position;
         }
 
-        // Accept either CapsuleCollider2D (original) or CircleCollider2D
+        // Both a solid collision and a trigger overlap count as a hit. The prefab
+        // may use a CapsuleCollider2D or a CircleCollider2D.
         private void OnCollisionEnter2D(Collision2D col)
         {
             Vector3 pt = col.contacts.Length > 0

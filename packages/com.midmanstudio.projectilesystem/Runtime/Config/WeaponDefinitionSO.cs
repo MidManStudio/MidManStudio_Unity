@@ -9,28 +9,27 @@ using MidManStudio.Core.Pools;
 namespace MidManStudio.Projectiles.Config
 {
     /// <summary>
-    /// Per-weapon data, extracted out of NetworkedDimensionPlayer's inspector
-    /// fields (fire rate, shot pattern, pellets/spread, physics/raycast tuning,
-    /// pool types, audio, muzzle FX) so a "weapon" is now an asset instead of
-    /// hardcoded fields on the player.
+    /// Per-weapon data as an asset: fire rate, shot pattern, pellets and spread,
+    /// physics and raycast tuning, pool types, audio and muzzle FX.
     ///
-    /// Extends MID_LibraryItemSO on purpose — matches the existing library
-    /// pattern documented on MID_LibraryItemSO itself ("CUSTOM DATA — create
-    /// your own subclass"). That means:
-    ///   - ItemId (inherited) is free string-key identity for the pickup/
-    ///     inventory system below.
-    ///   - You get MID_LibraryRegistry lookups for free if/when you want them
-    ///     (drop these assets into a MID_LibrarySO with LibraryId "Weapons"):
+    /// Extends MID_LibraryItemSO (utilities), the base for custom library data.
+    /// That means:
+    ///   - ItemId (inherited) is a free string key for the pickup and inventory
+    ///     system.
+    ///   - The assets can be dropped into a MID_LibrarySO with LibraryId
+    ///     "Weapons" and looked up through
     ///       MID_LibraryRegistry.Instance.GetItem<WeaponDefinitionSO>("Weapons", id)
-    ///   - Nothing in WeaponController requires the registry though — pickups
-    ///     reference a WeaponDefinitionSO directly, so this all works with zero
-    ///     extra setup beyond creating the assets and dragging them in.
+    ///   - Nothing requires the registry: pickups reference a WeaponDefinitionSO
+    ///     directly, so it works with no setup beyond creating the assets.
     ///
-    /// WeaponId is a separate, compact ushort (not the string ItemId) purely so
-    /// WeaponController can sync "which weapon is currently equipped" over a
-    /// NetworkVariable&lt;ushort&gt; cheaply — every client already has this
-    /// same asset in its build (it's project data, not spawned data), so a
-    /// small id is all that needs to cross the wire.
+    /// WeaponId is a separate compact ushort (not the string ItemId) so
+    /// WeaponController can sync "which weapon is equipped" cheaply over a
+    /// NetworkVariable&lt;ushort&gt;. Every client has the same asset in its
+    /// build (project data, not spawned data), so a small id is all that has to
+    /// cross the wire.
+    ///
+    /// Only the test and sample scripts (WeaponController, NetworkTurretTarget in
+    /// Tests/Runtime) read this asset. Nothing under Runtime/ or Editor/ does.
     /// </summary>
     [CreateAssetMenu(
         fileName = "WeaponDefinition",

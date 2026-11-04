@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ProjectileRegistry.cs"
+// ============================================================================
 using System.Collections.Generic;
 using UnityEngine;
 using MidManStudio.Core.Singleton;
@@ -10,31 +14,15 @@ namespace MidManStudio.Projectiles.Config
     /// Assigned IDs are stable for the session — do not rely on them across sessions.
     /// Singleton — attach to a persistent GameObject (same one as ServerProjectileAuthority).
     ///
-    /// TIMING FIX ("the config that never gets set on the first fire — index
-    /// starts at 0, always the first fire"): ROOT CAUSE FOUND (by you) —
-    /// ProjectileConfigSO.ConfigId is a plain field, only ever assigned inside
-    /// Register() below. Nothing in this class previously guaranteed WHEN
-    /// that assignment happens relative to any other script's Awake()/Start().
-    /// Unity's execution order between unrelated MonoBehaviours is otherwise
-    /// arbitrary — if a weapon script reads a ProjectileConfigSO's .ConfigId
-    /// directly (rather than going through ProjectileConfigManager.GetConfigId,
-    /// which at least warns and returns ushort.MaxValue instead of a silent
-    /// wrong value) before THIS registration has run, it reads 0 — whichever
-    /// config happens to occupy index 0 in _configs, completely unrelated to
-    /// the config it actually wanted. That matches "always the first fire":
-    /// if the very first shot of a session can happen in the same frame as
-    /// scene load, it can race ahead of registration; every later shot reads
-    /// the SO fresh and gets the now-correctly-assigned real id.
-    ///
-    /// [DefaultExecutionOrder(-200)] forces THIS class's Awake() (where
-    /// _autoRegister actually gets processed, below) to run before every
-    /// other script's Awake() — and since Unity always finishes every
-    /// Awake() across the whole scene before calling ANY Start(), that also
-    /// covers every script reading ConfigId from its own Start(). See
-    /// ProjectileConfigManager.cs for the companion fix — RegisterAll() used
-    /// to run in Start() (racing this exact same way) and has been moved to
-    /// Awake() with its own order (-150) placed after this one, since it
-    /// depends on ProjectileRegistry already existing.
+    /// ProjectileConfigSO.ConfigId is a plain field that is only assigned inside
+    /// Register() below. A script that reads it before this registration has
+    /// run gets 0, which is whichever config sits at index 0.
+    /// [DefaultExecutionOrder(-200)] makes this class's Awake() (where
+    /// _autoRegister is processed) run before every other script's Awake().
+    /// Unity finishes every Awake() before it calls any Start(), so that also
+    /// covers scripts that read ConfigId from their own Start().
+    /// ProjectileConfigManager runs at -150, right after this class, because it
+    /// needs the registry to exist.
     /// </summary>
     [DefaultExecutionOrder(-200)]
     public sealed class ProjectileRegistry : Singleton<ProjectileRegistry>
@@ -63,13 +51,11 @@ namespace MidManStudio.Projectiles.Config
         {
             base.Awake();
 
-            // Validate Rust struct sizes first — crash loudly if there is a mismatch
-            // rather than silently corrupting memory later.
-            // NOTE: ProjectileLib.ValidateStructSizes() now also throws
-            // InvalidOperationException (instead of letting DllNotFoundException
-            // escape uncaught) when the native lib itself fails to load, so this
-            // catch correctly handles both "size mismatch" and "lib missing" cases
-            // without any change needed here.
+            // Validate the Rust struct sizes first. A mismatch would otherwise
+            // corrupt memory later.
+            // ProjectileLib.ValidateStructSizes() throws InvalidOperationException
+            // both for a size mismatch and for a native library that fails to
+            // load, so this one catch covers both cases.
             try
             {
                 ProjectileLib.ValidateStructSizes();
@@ -136,14 +122,12 @@ namespace MidManStudio.Projectiles.Config
             if (config.Is3D)
                 _ids3D.Add(id);
 
-            // Register Rust-side movement params for Wave/Circular types.
-            // ProjectileConfigSO.RegisterMovementParams() already no-ops safely
-            // when the native lib is unavailable, but this try/catch is kept as
-            // defense-in-depth so a future change there (or any other
-            // unanticipated exception) can never abort whichever loop or
-            // coroutine called Register() — a config that fails to register its
-            // native movement params should not prevent every config after it
-            // in the same batch from registering.
+            // Register the Rust-side movement params for Wave/Circular types.
+            // ProjectileConfigSO.RegisterMovementParams() already does nothing
+            // when the native library is unavailable. The try/catch is a second
+            // guard: an exception here must not abort the loop or coroutine that
+            // called Register(), because that would stop every config after this
+            // one in the same batch from registering.
             try
             {
                 config.RegisterMovementParams();
@@ -156,45 +140,22 @@ namespace MidManStudio.Projectiles.Config
                     "for this config.");
             }
 
-            // FIX ("physics-based projectile visuals only show correctly after
-            // firing several times", reported for both 2D and 3D — this repo's
-            // Runtime/Shaders and PackageSandbox/.../PROJECTILE_SPRITE_ATLAS just
-            // moved from the legacy .spriteatlas format to .spriteatlasv2):
-            //
-            // Unity's Sprite Atlas system resolves a packed Sprite's `.texture`
-            // LAZILY — the first access(es) can still be mid-redirect from the
-            // sprite's original individual texture to the shared packed atlas
-            // texture, and `.texture`/`.rect` only report the atlas's FINAL,
-            // correct values once that resolution has actually completed. This
-            // is a background/on-enter-Play-Mode process, not something that's
-            // guaranteed finished by the time any particular script's Awake/
-            // Start runs.
-            //
-            // ProjectileVisual_2D/3D's ApplyMaterial/ApplyShapeMeshOptimised
-            // already re-read `sprite.texture` fresh on every single fire (see
-            // those files), so they DO self-correct — but only once some fire
-            // happens to land AFTER Unity's atlas resolution has caught up. If
-            // the very first access ever made to a given sprite is that
-            // projectile's first live shot, "self-correct" means "the first
-            // several shots of actual gameplay show the wrong/stale texture."
-            //
-            // Fix: touch every registered sprite's .texture right here, at
-            // registration — which normally happens during scene load, well
-            // before the player ever fires — so Unity's one-time atlas
-            // resolution cost lands on load, not on gameplay. This does NOT
-            // help the underlying async timing at all; it just moves WHEN that
-            // timing cost gets paid to a moment nobody is watching.
-            //
-            // For 2D configs that don't need a CustomShape mesh at all, pair
-            // this with ProjectileVisual_2D's new _forceSpriteRendererOnly
-            // inspector override — SpriteRenderer resolves atlas textures
-            // through Unity's own built-in, continuously-re-resolved rendering
-            // path every frame (not a one-time snapshot the way this manual
-            // mesh/shader/UVRect path works), so it isn't subject to this
-            // timing window at all and needs no warm-up to be reliable.
+            // Sprite atlas warm-up. Unity resolves a packed Sprite's `.texture`
+            // lazily: the first accesses can still point at the sprite's original
+            // texture, and `.texture` and `.rect` only report the final atlas
+            // values once that resolution has finished. ProjectileVisual_2D/3D
+            // read `sprite.texture` again on every fire, so they correct
+            // themselves, but only after the atlas has caught up. Touching
+            // `.texture` here, at registration (normally during scene load), moves
+            // that one-time cost out of gameplay. It does not make the resolution
+            // itself any faster.
+            // A 2D config that needs no CustomShape mesh can also set
+            // ProjectileVisual_2D's _forceSpriteRendererOnly. SpriteRenderer
+            // resolves atlas textures through Unity's own rendering path every
+            // frame, so it has no such timing window and needs no warm-up.
             if (config.UseSprite && config.ProjectileSprite != null)
             {
-                _ = config.ProjectileSprite.texture; // access is the trigger — see above
+                _ = config.ProjectileSprite.texture; // the access itself is the trigger
             }
 
             return id;
@@ -243,8 +204,8 @@ namespace MidManStudio.Projectiles.Config
         }
 
         /// <summary>
-        /// Get a config ID by the SO's name.
-        /// Returns ushort.MaxValue if not registered.
+        /// Looks up a config ID by the SO's asset name.
+        /// Returns false (and configId 0) if no config with that name is registered.
         /// </summary>
         public bool TryGetId(string configName, out ushort configId)
         {
@@ -281,9 +242,12 @@ namespace MidManStudio.Projectiles.Config
         // ─────────────────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Get the atlas UV rect for a config's sprite.
-        /// Returns (0,0,1,1) if no atlas is set (full-texture fallback).
-        /// ProjectileRenderer2D calls this each LateUpdate.
+        /// Get the UV rect (x, y, width, height in 0-1 texture space) for a
+        /// config's sprite.
+        /// Returns (0,0,1,1) if the config has no sprite or the sprite has no
+        /// texture (full-texture fallback).
+        /// Called by ProjectileRenderer3D, ProjectileVisual_2D and ProjectileVisual_3D.
+        /// ProjectileRenderer2D computes its own rect.
         /// </summary>
         public Vector4 GetUVRect(ushort configId)
         {

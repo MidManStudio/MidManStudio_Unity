@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ProjectileConfigProviderSO.cs"
+// ============================================================================
 // One of these lives in every package/game-assembly that registers ProjectileConfigSO
 // assets as named enum members in the generated ProjectileConfigType enum.
 //

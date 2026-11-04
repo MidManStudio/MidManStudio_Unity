@@ -84,10 +84,9 @@ namespace MidManStudio.Projectiles.Managers
         private bool    _launched;
         private Coroutine _configRevalidateCoroutine;
 
-        // ── Wave/Circular/Guided/Teleport movement ("it should offset the
-        // physics body since the visual is meant to follow the physics
-        // body") — see SetupMovementType's doc comment below for the full
-        // explanation.
+        // ── Wave/Circular/Guided/Teleport movement. The Rigidbody itself is
+        // steered so the visual, which follows the body, follows the path.
+        // See SetupMovementType's doc comment below.
         private ProjectileMovementType _movementType = ProjectileMovementType.Straight;
         private Vector3                _movementLaunchVelocity;
         private Vector3                _movementPerpAxis;
@@ -123,11 +122,10 @@ namespace MidManStudio.Projectiles.Managers
         private Coroutine            _retryCoroutine;
         private Coroutine            _colliderGrowthCoroutine;
 
-        // Piercing (mirrors RustSimAdapter.HandlePiercing so a physics-based
-        // projectile and a raycast/rust-sim one behave identically for the
-        // same ProjectileConfigSO). Non-piercing configs (the common case)
-        // are unaffected — _collisionsRemaining starts at 1 and any single
-        // hit ends the projectile exactly as before this was added.
+        // Piercing mirrors RustSimAdapter.HandlePiercing so a physics projectile
+        // and a raycast or Rust sim one behave the same for one
+        // ProjectileConfigSO. Non-piercing configs (the common case) start with
+        // _collisionsRemaining at 1, so any single hit ends the projectile.
         private byte _collisionsRemaining = 1;
         private readonly HashSet<uint> _hitTargetIds = new HashSet<uint>();
 
@@ -148,17 +146,11 @@ namespace MidManStudio.Projectiles.Managers
             // than before it (see MID_MasterProjectileSystem.SpawnPhysicsProjectile).
             n_VisualConfigId.OnValueChanged += HandleVisualConfigChanged;
 
-            // SUPERSEDED: this used to reconcile away the firing client's own
-            // predicted visual once the real, server-confirmed projectile
-            // arrived (IsOwner check + ClientPredictionManager.
-            // OnRealPhysicsProjectileSpawned). That was solving the wrong
-            // problem — the firing client was never supposed to receive this
-            // object at all. MID_MasterProjectileSystem.SpawnPhysicsProjectile
-            // now NetworkHides it from the firing client entirely (their local
-            // prediction ghost lives out its own MaxLifetime and glides to the
-            // confirmed hit point via HitConfirmedClientRpc on its own), so
-            // IsOwner is no longer meaningful here and this class no longer
-            // needs to do anything owner-specific on spawn.
+            // Nothing here is specific to the owner client.
+            // MID_MasterProjectileSystem.SpawnPhysicsProjectile hides this object
+            // from the firing client with NetworkHide, so that client never
+            // receives it. Its own predicted visual lives out its lifetime and
+            // glides to the confirmed hit point via HitConfirmedClientRpc.
 
             OnPhysicsSetup();
             RefreshConfigDependentState(ResolveVisualConfig());
@@ -185,11 +177,10 @@ namespace MidManStudio.Projectiles.Managers
                 _configRevalidateCoroutine = null;
             }
 
-            // GROWTH FIX companion — stop mid-flight collider growth
-            // explicitly (same reasoning as ProjectileVisualBase.
-            // ReturnToPoolImmediate's equivalent stop) rather than relying
-            // solely on the eventual SetActive(false) inside
-            // MID_NetworkObjectPool.ReturnNetworkObject to implicitly kill it.
+            // Stop mid-flight collider growth explicitly, as
+            // ProjectileVisualBase.ReturnToPoolImmediate does for its own growth,
+            // instead of relying on the later SetActive(false) inside
+            // MID_NetworkObjectPool.ReturnNetworkObject to end the coroutine.
             if (_colliderGrowthCoroutine != null)
             {
                 StopCoroutine(_colliderGrowthCoroutine);
@@ -202,20 +193,17 @@ namespace MidManStudio.Projectiles.Managers
         }
 
         /// <summary>
-        /// MAXRANGE FIX ("check the whole config... this is more serious than
-        /// we thought"): MaxRange was only ever consumed by ComputeConfigDamage
-        /// for damage-falloff normalisation — nothing actually stopped a
-        /// physics projectile once it traveled past that distance, unlike a
-        /// raycast (inherently bounded by its own max distance) or a RustSim
-        /// projectile (native-side max-range cutoff). A physics projectile
-        /// with low/no drag and gravity disabled could travel indefinitely
-        /// past its configured range, still fully "alive" until TimeToLive
-        /// (see ApplyConfigLifetime) eventually catches it.
+        /// Server-only range limit. MaxRange also feeds the damage falloff in
+        /// ComputeConfigDamage, but a physics projectile has no other range
+        /// cutoff (a raycast is bounded by its own distance and a Rust sim
+        /// projectile by the native max-range check), so this ends the shot once
+        /// the straight-line distance from the spawn position reaches MaxRange.
+        /// Without it a low-drag, gravity-free projectile would fly until
+        /// TimeToLive (see ApplyConfigLifetime).
         ///
-        /// Further-overrides NetworkProjectileBase.Update() (not sealed) —
-        /// base.Update() still runs first, so the existing TTL watchdog and
-        /// NetworkTransform interpolation are both unaffected; this just adds
-        /// an additional server-only distance check on top.
+        /// base.Update() still runs first, so the TimeToLive watchdog and the
+        /// NetworkTransform interpolation are unaffected; this adds a server-only
+        /// distance check on top.
         /// </summary>
         protected override void Update()
         {
@@ -236,21 +224,16 @@ namespace MidManStudio.Projectiles.Managers
         }
 
         /// <summary>
-        /// WAVE/CIRCULAR FIX ("physics projectiles' movement types don't work
-        /// — it should offset the physics body since the visual is meant to
-        /// follow the physics body"): every FixedUpdate, sets the Rigidbody's
-        /// velocity directly to DeterministicMotionMath's closed-form output
-        /// for the elapsed time since launch — see SetupMovementType's doc
-        /// comment for the full explanation of why that's the correct/safe
-        /// thing to reuse here. A real Rigidbody, still integrating a real
-        /// velocity every physics step, so collision detection is completely
-        /// unaffected — only the velocity itself now follows the curve
-        /// instead of staying constant.
+        /// Per-physics-tick movement for the current movement type. Wave and
+        /// Circular set the Rigidbody velocity to DeterministicMotionMath's
+        /// closed-form output for the time since launch; Guided, Teleport and
+        /// CustomCurve have their own steps. The body stays a real Rigidbody that
+        /// the physics engine integrates, so collision detection is unchanged and
+        /// only the velocity follows the path. See SetupMovementType.
         ///
-        /// Only ever runs on the server (the only place this Rigidbody is
-        /// physically authoritative — see the IsServer-gated logic
-        /// throughout this class), and only once launched and not yet hit —
-        /// same gating Update()'s MaxRange check above uses.
+        /// Runs on the server only (the one place this Rigidbody is physically
+        /// authoritative), and only once launched and not yet hit, the same gating
+        /// as the MaxRange check in Update(). A subclass may override it.
         /// </summary>
         protected virtual void FixedUpdate()
         {
@@ -271,15 +254,12 @@ namespace MidManStudio.Projectiles.Managers
                 case ProjectileMovementType.CustomCurve:
                     ApplyCustomCurve();
                     break;
-                // Straight: nothing to do here — real Rigidbody physics
-                // (velocity, gravity) already handles it, arc included. There's
-                // no separate Arching case: Rust's tick_arching was removed as a
-                // byte-for-byte duplicate of tick_straight (an "arc" is just
-                // Straight with gravity — see ProjectileMovementType.Straight's
-                // doc comment in ProjectileLib.cs), and the physics side never
-                // had distinct code for it to begin with — gravityScale already
-                // produced an arc for Straight the same way. See OnLaunch's
-                // gravity-scale comment for the details.
+                // Straight: nothing to do here. Rigidbody physics (velocity and
+                // gravity) already handles it, arc included. There is no separate
+                // Arching case: an arc is Straight with gravity (see
+                // ProjectileMovementType.Straight's doc comment in
+                // ProjectileLib.cs), which the subclass OnLaunch gets from the
+                // gravity scale.
             }
         }
 
@@ -321,63 +301,46 @@ namespace MidManStudio.Projectiles.Managers
         }
 
         /// <summary>
-        /// CUSTOM CURVE MOVEMENT (physics projectiles only — see the enum member's
-        /// own doc comment for why RustSim never touches this): the path itself is
-        /// points/formula now, authored the same way ProjectilePatternSO authors
-        /// spawn patterns — NOT an AnimationCurve. Only pacing along that path
-        /// (cfg.CustomCurveSpeedMultiplier) stayed a curve.
+        /// Custom path movement (physics projectiles only; see the enum member's
+        /// own doc comment for why the Rust sim never touches it). The path is a
+        /// set of points or a formula, authored the same way ProjectilePatternSO
+        /// authors spawn patterns, and not an AnimationCurve. Only the pacing
+        /// along the path (cfg.CustomCurveSpeedMultiplier) is a curve.
         ///
-        /// GUARANTEED SPAWN-START AND EXACT-ENDPOINT-AT-LIFETIME-END: position is
-        /// recomputed analytically from elapsed time every tick — target = spawn +
-        /// forward*offset.x + perpAxis*offset.y, where offset comes straight from
-        /// cfg.EvaluateCustomPath(t) — not accumulated by integrating a velocity
-        /// over many ticks. Integration would let float error creep in over a long
-        /// flight and risk not quite landing on the authored endpoint; recomputing
-        /// from t fresh each tick can't drift, because it never depends on where
-        /// the projectile happened to end up on the previous tick.
+        /// Exact start and exact end: the target position is recomputed from the
+        /// elapsed time every tick (spawn + forward * offset.x + perpAxis *
+        /// offset.y, with the offset from cfg.EvaluateCustomPath(t)) instead of
+        /// being accumulated by integrating a velocity. Integration lets float
+        /// error build up over a long flight and can miss the authored endpoint.
+        /// Recomputing from t never depends on where the projectile ended up on
+        /// the previous tick, so it cannot drift.
         ///
-        /// STILL PHYSICS-INTEGRATED, NOT TELEPORTED: rather than setting the
-        /// Rigidbody's position directly (which would skip continuous collision
-        /// detection between the old and new position, same concern
-        /// TeleportBody's own doc situation — that one's fine since Teleport is
-        /// SUPPOSED to jump discretely; this movement type isn't), the velocity
-        /// needed to reach that analytical target THIS tick is derived
-        /// (target - currentPos) / dt and hands off to ApplyMovementVelocity, same
-        /// as every other movement type here. This is naturally self-correcting —
-        /// any small deviation (from a collision nudge, physics substep rounding,
-        /// whatever) gets corrected on the very next tick, since the target is
-        /// always freshly computed from elapsed time, never from the previous
-        /// tick's result.
+        /// Physics-integrated, not teleported: setting the Rigidbody position
+        /// directly would skip collision detection between the old and new
+        /// position (TeleportBody does that on purpose for the Teleport type, this
+        /// type must not). Instead the velocity needed to reach the target this
+        /// tick, (target - currentPos) / dt, goes to ApplyMovementVelocity like
+        /// every other movement type here. It corrects itself: a deviation from a
+        /// collision nudge or physics rounding is fixed on the next tick, because
+        /// the target always comes from elapsed time.
         ///
-        /// SPEED CURVE AS A WARP, NOT A LITERAL MULTIPLIER: cfg.
-        /// CustomCurveSpeedMultiplier no longer scales velocity magnitude
-        /// directly (the old AnimationCurve-only version did, and that's
-        /// PRECISELY what could miss the endpoint — scaling instantaneous
-        /// velocity by an arbitrary curve doesn't preserve total distance
-        /// covered). Instead EvaluateSpeedWarp remaps "linear fraction of
-        /// duration elapsed" to "fraction of the path that should be covered by
-        /// now", built once at launch as a normalized cumulative-sum lookup
-        /// table (BuildPathWarpTable) — normalized specifically so tWarped(1)
-        /// always equals 1, preserving the exact-endpoint guarantee regardless
-        /// of the curve's shape. Faster sections of the curve cover path
-        /// distance faster; the total trip still always finishes exactly on
-        /// time, at exactly the last point.
+        /// The speed curve is a warp, not a velocity multiplier. Scaling the
+        /// instantaneous velocity by an arbitrary curve does not preserve the
+        /// total distance covered and can miss the endpoint. EvaluateSpeedWarp
+        /// instead maps "fraction of the duration elapsed" to "fraction of the path
+        /// covered by now" using a normalized cumulative-sum table built once at
+        /// launch (BuildPathWarpTable). It is normalized so tWarped(1) is always 1,
+        /// so the trip always ends on time at the last point whatever the curve
+        /// looks like. Faster parts of the curve cover path distance faster.
         ///
-        /// 3D FROM A 2D-AUTHORED PATH: offset.x rides the actual launch
-        /// direction (_movementLaunchVelocity, already computed at launch) and
-        /// offset.y rides _movementPerpAxis (DeterministicMotionMath.
-        /// ComputePerpAxis2D/3D — the SAME perpendicular axis Wave already
-        /// uses) — so a path authored as flat (forward, sideways) numbers
-        /// orients correctly to whatever direction and dimensionality
-        /// (Is2D/Is3D) this specific shot actually launched in, with zero
-        /// path-authoring changes needed between a 2D and a 3D config.
+        /// A path authored as flat (forward, sideways) numbers works in 2D and 3D:
+        /// offset.x follows the launch direction (_movementLaunchVelocity) and
+        /// offset.y follows _movementPerpAxis (DeterministicMotionMath.
+        /// ComputePerpAxis2D/3D, the same perpendicular axis Wave uses).
         ///
-        /// protected virtual, not private, so a subclass can override just this one
-        /// movement type's behaviour without having to reimplement all of FixedUpdate
-        /// — end users are already free to override FixedUpdate itself for fully
-        /// custom logic (it's protected virtual too); this is the finer-grained hook
-        /// for "I just want different path math, everything else about this class is
-        /// fine."
+        /// protected virtual so a subclass can replace just this movement type's
+        /// path math without reimplementing all of FixedUpdate. FixedUpdate itself
+        /// is protected virtual too, for fully custom movement.
         /// </summary>
         protected virtual void ApplyCustomCurve()
         {
@@ -434,37 +397,26 @@ namespace MidManStudio.Projectiles.Managers
               || float.IsNaN(v.z) || float.IsInfinity(v.z));
 
         /// <summary>
-        /// GUIDED FIX ("didn't setup guided and way to set target for it"):
-        /// SetGuidedTarget/ClearGuidedTarget below are the missing "way to
-        /// set a target" — MID_MasterProjectileSystem.SetHomingDirection2D/3D
-        /// already existed as a low-level primitive for RustSim projectiles
-        /// (writes a direction once), but nothing tracked a target over time,
-        /// and nothing equivalent existed for physics projectiles at all.
+        /// Homing step for the Guided movement type. Every FixedUpdate it
+        /// recomputes the direction to the current target (a Transform target is
+        /// followed live, a fixed point stays fixed) and turns the Rigidbody's
+        /// current velocity toward it. Only the direction changes; speed is kept.
+        /// This matches tick_guided and tick_guided_3d in
+        /// rust_lib/projectile_core/src/simulation.rs: a fixed PI rad/s (180
+        /// degrees per second) turn rate, clamped so one tick never overshoots the
+        /// target direction. The native sim hardcodes that rate too (it is not a
+        /// config field), and GUIDED_TURN_RATE_RAD_PER_SEC matches it so a physics
+        /// and a Rust sim guided shot turn alike.
         ///
-        /// Every FixedUpdate this recomputes the direction to whatever target
-        /// is currently set (so a Transform target is followed live, a
-        /// static Vector3 stays fixed), then turns the Rigidbody's CURRENT
-        /// velocity toward it — direction only, speed is preserved exactly,
-        /// matching tick_guided/tick_guided_3d in
-        /// rust_lib/projectile_core/src/simulation.rs: a fixed PI rad/sec
-        /// (180°/sec) turn rate, clamped so a single tick never overshoots
-        /// past the target direction. That turn rate is a genuine hardcoded
-        /// engine constant in the native sim too (not a missing config
-        /// field) — GUIDED_TURN_RATE_RAD_PER_SEC matches it exactly rather
-        /// than inventing a new, RustSim-inconsistent value.
+        /// It uses Vector3.Slerp between the current and target direction, scaled
+        /// to advance exactly turnRate * dt radians per tick. That is exact for a
+        /// fixed angular step, and one implementation serves 2D and 3D (a 2D
+        /// velocity has Z = 0, and a Slerp between two Z = 0 unit vectors stays in
+        /// the plane), where the native sim uses a separate atan2 form for 2D.
         ///
-        /// Uses Vector3.Slerp along the geodesic between the current and
-        /// target direction, scaled so it advances exactly turnRate*dt
-        /// radians per tick — mathematically exact for "rotate by a fixed
-        /// angular amount toward a target", and unifies 2D/3D into one
-        /// implementation (a 2D projectile's velocity always has Z=0, and
-        /// Slerp between two Z=0 unit vectors stays in-plane) rather than
-        /// needing the atan2-based 2D-specific approach the native sim uses.
-        ///
-        /// No target set: falls through to whatever velocity real physics
-        /// already produced (gravity, drag, collision response) — Guided
-        /// with no target is just a normal physics projectile until
-        /// SetGuidedTarget is called.
+        /// With no target set it does nothing: the velocity stays whatever real
+        /// physics produced (gravity, drag, collision response), so a Guided shot
+        /// is a normal physics projectile until SetGuidedTarget is called.
         /// </summary>
         private void ApplyGuided()
         {
@@ -528,35 +480,26 @@ namespace MidManStudio.Projectiles.Managers
         }
 
         /// <summary>
-        /// TELEPORT FIX ("teleport which shifts to a specific forward... per
-        /// tick"): exact port of tick_teleport/tick_teleport_3d — every
-        /// TELEPORT_INTERVAL_SECONDS (0.12s, hardcoded in the native sim,
-        /// matched here exactly), the projectile jumps forward by
-        /// speed*interval in one instant rather than moving continuously.
-        /// Between jumps it doesn't move at all — matches the native sim,
-        /// which only touches position inside its own equivalent
-        /// "if timer >= INTERVAL" branch, with no per-tick integration in
-        /// between at all.
+        /// Port of tick_teleport and tick_teleport_3d: every
+        /// TELEPORT_INTERVAL_SECONDS (0.12 s, the native sim's hardcoded interval)
+        /// the projectile jumps forward by speed * interval in one instant instead
+        /// of moving continuously. Between jumps it does not move at all, as in the
+        /// native sim, which only changes position inside its own "timer >=
+        /// INTERVAL" branch.
         ///
-        /// Velocity is zeroed every tick this is active (real gravity/drag
-        /// is also disabled for Teleport in OnLaunch, same reasoning as
-        /// Wave/Circular) so nothing pushes the body around between hops —
-        /// only TeleportBody actually moves it, using the ORIGINAL launch
-        /// direction/speed captured in _movementLaunchVelocity, since
-        /// current velocity is deliberately kept at zero the rest of the
-        /// time.
+        /// Velocity is zeroed every tick this is active (the subclass OnLaunch also
+        /// turns gravity off for Teleport, as for Wave and Circular), so nothing
+        /// pushes the body between hops. Only TeleportBody moves it, using the
+        /// original launch direction and speed saved in _movementLaunchVelocity,
+        /// since the live velocity is kept at zero.
         ///
-        /// Uses Rigidbody(2D).MovePosition for the jump rather than setting
-        /// transform.position directly, so the physics engine stays aware of
-        /// where the body actually is.
+        /// The jump goes through TeleportBody, which moves the Rigidbody itself
+        /// rather than only the transform, so the physics engine knows where the
+        /// body is.
         ///
-        /// EXPECTED LIMITATION (inherited from the native behaviour, not
-        /// introduced here): teleporting skips the space between two
-        /// positions entirely, with no sweep/raycast along the way — thin
-        /// colliders can be tunnelled through at high enough speed/interval.
-        /// tick_teleport has the exact same characteristic natively (direct
-        /// position addition, no collision sweep at all), so this isn't a
-        /// new gap specific to the physics path.
+        /// Limit: a teleport skips the space between the two positions with no
+        /// sweep, so thin colliders can be passed through at a high enough speed.
+        /// tick_teleport has the same property natively.
         /// </summary>
         private void ApplyTeleport()
         {
@@ -576,33 +519,26 @@ namespace MidManStudio.Projectiles.Managers
         }
 
         /// <summary>
-        /// Captures the state FixedUpdate's movement-type drivers need, once,
-        /// right after launch. Called from OnProjectileInitialised.
+        /// Captures, once right after launch, the state the movement-type steps in
+        /// FixedUpdate need. Called from OnProjectileInitialised.
         ///
-        /// _movementLaunchVelocity is the exact velocity OnLaunch just
-        /// assigned (direction * bulletVelocity) — captured here from
-        /// launchDir + BulletVelocity rather than reading it back off the
-        /// Rigidbody, so this works identically for 2D/3D without the base
-        /// class needing Rigidbody access at all. Used by Wave (direction
-        /// basis) and Teleport (jump direction/speed) — Circular and Guided
-        /// don't need it captured (Circular only needs the perp axis;
-        /// Guided reads CURRENT velocity live via GetCurrentVelocity each
-        /// tick instead).
+        /// _movementLaunchVelocity is direction * BulletVelocity, built from
+        /// launchDir and BulletVelocity instead of read back from the Rigidbody,
+        /// so it works the same in 2D and 3D without the base class touching the
+        /// Rigidbody. Wave uses it as its direction basis, Teleport for the jump
+        /// direction and speed, and CustomCurve for its forward axis. Circular
+        /// only needs the perpendicular axis, and Guided reads the live velocity
+        /// through GetCurrentVelocity each tick.
         ///
-        /// _movementPerpAxis uses DeterministicMotionMath.ComputePerpAxis2D/3D
-        /// — verified (by that file's own header contract) to produce the
-        /// same axis BatchSpawnHelper.GetAccel2D/3D computes for a
-        /// RustSim-driven projectile with the same config, so a physics and a
-        /// RustSim projectile firing the same Wave/Circular config curve the
-        /// same way. Only Wave/Circular read this, so it's only computed for
-        /// those two.
+        /// _movementPerpAxis comes from DeterministicMotionMath.ComputePerpAxis2D/3D,
+        /// which produces the same axis as BatchSpawnHelper.GetAccel2D/3D for a
+        /// Rust sim projectile with the same config, so a physics and a Rust sim
+        /// projectile with the same Wave or Circular config curve the same way
+        /// (the wave amplitude differs, see DeterministicMotionMath). Only Wave,
+        /// Circular and CustomCurve read it, so only those compute it.
         ///
-        /// Straight/Guided configs return immediately after resolving
-        /// _movementType — neither needs any of this state (Guided gets its
-        /// state entirely from SetGuidedTarget instead). CustomCurve does NOT
-        /// return immediately — ApplyCustomCurve needs the same launch-velocity/
-        /// perp-axis/start-time state Wave does, just fed through a
-        /// user-authored curve instead of a fixed sine.
+        /// Straight and Guided return right after the movement type is resolved:
+        /// neither needs the rest (Guided gets its state from SetGuidedTarget).
         /// </summary>
         private void SetupMovementType(Vector3 launchDir)
         {
@@ -646,16 +582,13 @@ namespace MidManStudio.Projectiles.Managers
         }
 
         /// <summary>
-        /// Samples cfg.CustomCurveSpeedMultiplier at PATH_WARP_TABLE_SIZE evenly-
-        /// spaced t values, builds a cumulative sum, and normalizes it so the
-        /// last entry is exactly 1.0 — a monotonic lookup table mapping
-        /// "linear fraction of duration elapsed" to "fraction of the path's
-        /// arc-length that should have been covered by now". See
-        /// ApplyCustomCurve()'s doc comment for why this table (not a literal
-        /// per-tick velocity multiplier) is what makes "speed stays an
-        /// AnimationCurve" and "always reaches the last point exactly at
-        /// lifetime end" both true at once. Built once per launch — cheap
-        /// (17 curve evaluations), not worth redoing every tick.
+        /// Samples cfg.CustomCurveSpeedMultiplier at PATH_WARP_TABLE_SIZE evenly
+        /// spaced t values, builds a cumulative sum and normalizes it so the last
+        /// entry is exactly 1.0. The result is a monotonic lookup table mapping
+        /// "fraction of the duration elapsed" to "fraction of the path covered by
+        /// now". See ApplyCustomCurve's doc comment for why a table is used
+        /// instead of a per-tick velocity multiplier. Built once per launch, which
+        /// is cheap (17 curve evaluations).
         /// </summary>
         private void BuildPathWarpTable(ProjectileConfigSO cfg)
         {
@@ -670,10 +603,9 @@ namespace MidManStudio.Projectiles.Managers
             for (int i = 1; i < PATH_WARP_TABLE_SIZE; i++)
             {
                 float t = (float)i / (PATH_WARP_TABLE_SIZE - 1);
-                // Floored, not clamped to exactly 0 — a literal zero-width
-                // segment would make the table non-monotonic (a flat
-                // zero-length span the lerp below can't meaningfully index
-                // into), so a small positive floor keeps every table step
+                // Floored at a small positive value instead of 0: a zero-width
+                // segment would leave a flat span in the table that the lerp
+                // below cannot index into, so the floor keeps every step
                 // interpolatable even where the authored curve dips to 0.
                 float speed = Mathf.Max(0.0001f, cfg.CustomCurveSpeedMultiplier.Evaluate(t));
                 cumulative += speed;
@@ -715,12 +647,11 @@ namespace MidManStudio.Projectiles.Managers
         protected abstract bool Is2D { get; }
 
         /// <summary>
-        /// Refreshes every piece of per-instance state that depends on the
-        /// resolved ProjectileConfigSO. Called from the three places
-        /// VisualConfigId is known/changes (OnNetworkSpawn, SetVisualConfigId,
-        /// HandleVisualConfigChanged) — centralised here so each new
-        /// config-driven fix only needs one call site added to those three
-        /// methods instead of one per fix.
+        /// Refreshes the per-instance state that depends on the resolved
+        /// ProjectileConfigSO: collider size, lifetime and hit layers. Called from
+        /// every place VisualConfigId is first known or changes (OnNetworkSpawn,
+        /// SetVisualConfigId, HandleVisualConfigChanged and
+        /// RevalidateConfigAfterSpawn), so each of them needs one call.
         /// </summary>
         private void RefreshConfigDependentState(ProjectileConfigSO cfg)
         {
@@ -730,26 +661,17 @@ namespace MidManStudio.Projectiles.Managers
         }
 
         /// <summary>
-        /// LIFETIME FIX ("lifetime doesn't get applied to physics
-        /// projectiles"): TimeToLive (NetworkProjectileBase, inherited) was
-        /// always just whatever fixed value the prefab's Inspector happened to
-        /// have (8f unless overridden per-prefab) — completely decoupled from
-        /// ProjectileConfigSO.Lifetime. Confirmed by grep: TimeToLive is
-        /// referenced nowhere else in this package, for ANY projectile type —
-        /// NetworkProjectileBase itself doesn't know ProjectileConfigSO exists
-        /// at all (deliberately generic), so nothing was ever bridging the two.
+        /// Sets the inherited TimeToLive from ProjectileConfigSO.Lifetime.
+        /// NetworkProjectileBase does not know ProjectileConfigSO (it is
+        /// deliberately generic), so without this the lifetime would be whatever
+        /// fixed value the prefab inspector holds (8 s by default). The watchdog in
+        /// NetworkProjectileBase.Update() (server time >= _endOfLifeTime) then
+        /// enforces it as usual.
         ///
-        /// The actual TTL enforcement (NetworkProjectileBase.Update()'s
-        /// NetworkManager.ServerTime.TimeAsFloat >= _endOfLifeTime check) was
-        /// already correct and already runs for physics projectiles — it was
-        /// just measuring against the wrong duration.
-        ///
-        /// This must run BEFORE InitialiseProjectile() is called, since that
-        /// method reads TimeToLive exactly once to compute _endOfLifeTime.
-        /// SetVisualConfigId() is already documented/established as being
-        /// called before Spawn() by the normal SpawnPhysicsProjectile flow,
-        /// and InitialiseProjectile() (the actual "launch") only ever happens
-        /// after that — so this ordering already holds without further changes.
+        /// It has to run before InitialiseProjectile(), which reads TimeToLive
+        /// exactly once to compute _endOfLifeTime. The normal
+        /// SpawnPhysicsProjectile flow calls SetVisualConfigId() first and launches
+        /// afterwards, so that order holds.
         /// </summary>
         private void ApplyConfigLifetime(ProjectileConfigSO cfg)
         {
@@ -757,15 +679,11 @@ namespace MidManStudio.Projectiles.Managers
         }
 
         /// <summary>
-        /// HITLAYERS FIX, explosion-damage half: ApplyExplosionDamage2D/3D
-        /// already correctly pass _damageLayerMask into
-        /// OverlapCircleNonAlloc/OverlapSphereNonAlloc — that part was never
-        /// broken. It just wasn't synced from cfg.HitLayers anywhere, so an
-        /// AoE config's HitLayers setting was silently ignored in favour of
-        /// whatever _damageLayerMask happened to default to on the prefab
-        /// (-1 / everything). See PassesConfigLayerMask for the equivalent
-        /// fix on the direct-hit path, which needed an explicit new check
-        /// rather than just a sync since it had no layer filtering at all.
+        /// Copies cfg.HitLayers into _damageLayerMask, which
+        /// ApplyExplosionDamage2D/3D pass to OverlapCircleNonAlloc and
+        /// OverlapSphereNonAlloc. Without it an explosion config's HitLayers would
+        /// be ignored in favour of the prefab's own mask (-1, everything). The
+        /// direct-hit path uses PassesConfigLayerMask instead.
         /// </summary>
         private void ApplyConfigHitLayers(ProjectileConfigSO cfg)
         {
@@ -773,36 +691,20 @@ namespace MidManStudio.Projectiles.Managers
         }
 
         /// <summary>
-        /// SPEED FIX ("physics projectiles don't abide by the speed of the
-        /// config at all"): confirmed by grep across this entire package —
-        /// cfg.ResolveSpeed() (== MinSpeed/MaxSpeed) is called exactly ONCE,
-        /// in MID_MasterProjectileSystem.FireNetworkedSim for the
-        /// raycast/RustSim path. SpawnPhysicsProjectile never calls
-        /// InitialiseProjectile at all — launching a physics projectile is a
-        /// separate step the calling weapon script does itself, passing its
-        /// own bulletVelocity. There was no bridge from cfg's speed fields
-        /// into that value anywhere in this package.
+        /// Speed rule for physics projectiles. cfg.ResolveSpeed() (the config's
+        /// MinSpeed and MaxSpeed) is the config's speed, and by default it wins
+        /// over whatever bulletVelocity the caller passes whenever a config
+        /// resolves. SpawnPhysicsProjectile does not call InitialiseProjectile;
+        /// the calling weapon script launches the projectile itself and passes its
+        /// own bulletVelocity, and a weapon script that always passes a non-zero
+        /// speed would make a "use the config when the caller passes 0" rule never
+        /// apply.
         ///
-        /// ORIGINAL FIX brought this in line with FireNetworkedSim's own
-        /// convention: `bulletVelocity <= 0 ? cfg.ResolveSpeed() : bulletVelocity`
-        /// — treating "<= 0" as "caller didn't specify". CONFIRMED (by testing)
-        /// this doesn't fix it: the calling weapon script
-        /// (NetworkedDimensionPlayer.FirePhysics — lives in the game project,
-        /// not this shared package, so I still can't see it directly) is
-        /// evidently always passing SOME non-zero bulletVelocity of its own —
-        /// just not one sourced from the config — so the <= 0f branch never
-        /// triggers at all, and cfg.ResolveSpeed() never actually gets
-        /// consulted.
-        ///
-        /// FIX: cfg.ResolveSpeed() now takes priority by default whenever a
-        /// config resolves, full stop — matching what testing confirmed is
-        /// actually needed. _allowCallerVelocityOverride (Inspector, defaults
-        /// false) exists for the legitimate opposite case — a charged/power
-        /// shot or velocity-randomization weapon that DELIBERATELY wants to
-        /// override config speed per-shot — flip it per-prefab if you have a
-        /// weapon type that needs that. With it false (default), whatever the
-        /// caller passes is ONLY used as a fallback when no config resolves
-        /// (VisualConfigId not yet registered) — same as before.
+        /// _allowCallerVelocityOverride (inspector, default false) is for a
+        /// weapon that deliberately varies speed per shot (charged or randomised
+        /// shots). With it on the caller's value wins and cfg.ResolveSpeed() is
+        /// only the fallback when the caller passes 0 or less. With it off, the
+        /// caller's value is only used when no config resolves.
         /// </summary>
         [Header("Speed")]
         [Tooltip("Default OFF: cfg.ResolveSpeed() always wins over whatever bulletVelocity " +
@@ -822,20 +724,19 @@ namespace MidManStudio.Projectiles.Managers
 
             if (_allowCallerVelocityOverride)
             {
-                // Old behaviour: caller's value wins whenever it's a real (> 0) speed;
-                // config is only the fallback when the caller didn't specify one.
+                // The caller's value wins whenever it is a real (> 0) speed. The
+                // config is only the fallback when the caller did not specify one.
                 if (bulletVelocity <= 0f && cfg != null)
                     bulletVelocity = cfg.ResolveSpeed();
             }
             else if (cfg != null)
             {
-                // New default: config always wins when one resolves, regardless of
-                // what the caller passed — this is the branch that actually fixes
-                // the confirmed bug.
+                // Default: the config wins when one resolves, whatever the caller
+                // passed.
                 bulletVelocity = cfg.ResolveSpeed();
             }
-            // else: no config resolved yet (VisualConfigId not registered) — fall
-            // through with whatever the caller passed, same safety net as before.
+            // Otherwise no config resolved (VisualConfigId is not registered), so
+            // the caller's value is used.
 
             base.InitialiseProjectile(
                 ownerMidId, firedByNetworkObjectId, bulletVelocity,
@@ -843,61 +744,40 @@ namespace MidManStudio.Projectiles.Managers
         }
 
         /// <summary>
-        /// SCALING FIX ("physics-based projectiles do not support scaling"):
-        /// this NetworkObject's collider was always whatever fixed size the
-        /// prefab happened to be authored with, completely independent of
-        /// ProjectileConfigSO.FullSizeX/FullSizeY — every physics projectile
-        /// hit-tested at the same size regardless of which config fired it,
-        /// even though the cosmetic visual (ProjectileVisual_2D/3D — a
-        /// *different*, separately LocalObjectPool-managed GameObject, see
-        /// SpawnPoolVisual below) already reads FullSizeX/Y for its own
-        /// rendering. Override ApplyColliderSize per-subclass to resize
-        /// whichever collider type that subclass actually uses; this method
-        /// is the shared, concrete orchestrator that decides WHAT size to
-        /// apply and WHEN — subclasses never need to read cfg directly.
+        /// Sizes the collider from ProjectileConfigSO.FullSizeX and FullSizeY, so a
+        /// physics projectile hit-tests at the size of the config that fired it.
+        /// The cosmetic visual (ProjectileVisual_2D/3D, a separate GameObject from
+        /// the LocalObjectPool, see SpawnPoolVisual) reads the same fields for its
+        /// own rendering. The subclass overrides ApplyColliderSize for whichever
+        /// collider type it uses; this method decides what size to apply and when,
+        /// so subclasses never read the config themselves.
         ///
-        /// Called:
-        ///   • right after OnPhysicsSetup() in OnNetworkSpawn (best-effort
-        ///     immediate size, using whatever VisualConfigId already
-        ///     resolves to at that point)
-        ///   • from SetVisualConfigId() / HandleVisualConfigChanged() —
-        ///     self-corrects once the real, server-authoritative config id
-        ///     lands, exactly the same pattern already used to refresh the
-        ///     pool visual (see those methods' own doc comments for why the
-        ///     config isn't always known yet at spawn time)
+        /// Called right after OnPhysicsSetup() in OnNetworkSpawn (a best-effort
+        /// size from whatever VisualConfigId resolves to at that point), and from
+        /// SetVisualConfigId, HandleVisualConfigChanged and
+        /// RevalidateConfigAfterSpawn, which correct it once the server's config id
+        /// has arrived (the config is not always known yet at spawn time).
         ///
-        /// cfg may be null (registry not ready yet, or configId not
-        /// registered) — no-ops in that case, leaving whatever size was
-        /// already applied (or the prefab default, pre-first-call).
+        /// cfg may be null (registry not ready, or the id is not registered). The
+        /// method then does nothing and leaves the size already applied, or the
+        /// prefab default before the first call.
         ///
-        /// Deliberately NOT implemented by scaling transform.localScale on
-        /// this object's own root: the pooled cosmetic visual is parented
-        /// under this transform and already applies its OWN
-        /// FullSizeX/FullSizeY-based scale independently (unconditionally for
-        /// ProjectileVisual_3D; for sprite-path ProjectileVisual_2D as of the
-        /// fix landing alongside this one) — scaling the root too would
-        /// compound both and double the visible size. Resizing the collider
-        /// component directly keeps hit-detection correctly sized without
-        /// touching the visual's own scale at all.
+        /// It resizes the collider instead of scaling transform.localScale on this
+        /// root: the pooled visual is parented under this transform and applies its
+        /// own FullSizeX and FullSizeY scale, so scaling the root as well would
+        /// double the visible size.
         ///
-        /// No extra NetworkVariable/RPC needed for the STATIC (non-growth)
-        /// case: every peer (server and every client) resolves the same
-        /// VisualConfigId to the same shared ProjectileConfigSO project
-        /// asset and computes the same size locally — the config data itself
-        /// is what's already synced.
+        /// The static case needs no extra NetworkVariable or RPC. Every peer
+        /// resolves the same VisualConfigId to the same shared ProjectileConfigSO
+        /// asset and computes the same size.
         ///
-        /// GROWTH ("gets spawned full scale rather than scaling up as
-        /// intended"): if cfg.UseScaleGrowth is set, the collider doesn't
-        /// jump straight to FullSizeX/Y — it animates from
-        /// FullSize*SpawnScaleFraction up to full size over GrowthSpeed,
-        /// using the exact same formula RustSim's native tick_scale already
-        /// uses (rust_lib/projectile_core/src/simulation.rs):
-        /// current += (target - current) * speed * dt. Only ever driven on
-        /// the SERVER — this object's Rigidbody/collider only has gameplay
-        /// consequence there (see NetworkProjectileBase's IsServer gate
-        /// around all the actual physics/launch logic); a non-server peer
-        /// just snaps straight to full size, which is harmless since nothing
-        /// there ever reads this collider for hit detection.
+        /// With cfg.UseScaleGrowth the collider does not jump to FullSizeX and
+        /// FullSizeY. It grows from FullSize * SpawnScaleFraction to full size with
+        /// the formula of the native tick_scale (rust_lib/projectile_core/src/
+        /// simulation.rs): current += (target - current) * speed * dt. Growth runs
+        /// on the server only, where the collider has gameplay effect. A
+        /// non-server peer snaps to full size, which is harmless because nothing
+        /// there reads the collider for hit detection.
         /// </summary>
         private void ApplyConfigScale(ProjectileConfigSO cfg)
         {
@@ -990,11 +870,8 @@ namespace MidManStudio.Projectiles.Managers
 
         /// <summary>
         /// Resolves the ProjectileConfigSO currently referenced by
-        /// VisualConfigId, or null if not registered / registry not ready.
-        /// Small shared helper — this same two-line lookup was already
-        /// repeated in SpawnPoolVisual/ComputeConfigDamage/etc; new
-        /// ApplyConfigScale call sites reuse it too rather than adding a
-        /// fourth copy.
+        /// VisualConfigId, or null if it is not registered or the registry is not
+        /// ready.
         /// </summary>
         private ProjectileConfigSO ResolveVisualConfig()
             => ProjectileRegistry.HasInstance ? ProjectileRegistry.Instance.Get(VisualConfigId) : null;
@@ -1057,31 +934,16 @@ namespace MidManStudio.Projectiles.Managers
         protected override void OnCollisionNotifiedClient() { }
 
         /// <summary>
-        /// IMPACT VFX FIX ("check the whole config... this is more serious
-        /// than we thought"): confirmed by grep — cfg.ImpactEffectType was
-        /// never referenced anywhere in this file. This method used to be
-        /// just `=> ReturnPoolVisual();` — physics projectiles spawned NO
-        /// impact effect at all, regardless of what ImpactEffectType was set
-        /// to on the config. ProjectileImpactHandler.PlayImpact already
-        /// exists and is the exact mechanism MID_ProjectileNetworkBridge
-        /// already calls for the raycast/RustSim path's impact VFX (per that
-        /// class's own header comment: "MID_ProjectileNetworkBridge calls
-        /// PlayImpact() on HitConfirmedClientRpc") — this wires physics
-        /// projectiles into the same call.
+        /// Plays the config's impact effect on every client and returns the pool
+        /// visual. It calls ProjectileImpactHandler.PlayImpact, the same call
+        /// MID_ProjectileNetworkBridge.HitConfirmedClientRpc makes for the raycast
+        /// and Rust sim path, so physics projectiles honour cfg.ImpactEffectType.
         ///
-        /// SCOPE NOTE: PlayImpact takes an optional isHeadshot flag for a
-        /// headshot-specific VFX variant, which I'm deliberately NOT
-        /// threading through here — doing so would mean changing
-        /// NetworkProjectileBase.OnSpawnImpactEffectClient's signature
-        /// (adding a parameter), which is a protected virtual method any
-        /// external game-specific subclass could already be overriding.
-        /// Changing its signature would silently break any such override
-        /// (parameter lists must match exactly for C# override resolution —
-        /// a default value doesn't help there) rather than just extend it,
-        /// and I have no visibility into whether anything outside this
-        /// package does that. Say if you want that threaded through too and
-        /// I'll do it properly with the signature change called out
-        /// explicitly rather than sneaking it in.
+        /// PlayImpact also takes an isHeadshot flag for a headshot-specific
+        /// variant. It is not passed here, because that would change the signature
+        /// of NetworkProjectileBase.OnSpawnImpactEffectClient, a protected virtual
+        /// method that a game subclass may already override, and an override must
+        /// match the signature exactly.
         /// </summary>
         protected override void OnSpawnImpactEffectClient(Vector3 position)
         {
@@ -1112,24 +974,18 @@ namespace MidManStudio.Projectiles.Managers
         }
 
         /// <summary>
-        /// BUG FIX: _visualConfigId was previously only ever set from the
-        /// Inspector default on the prefab (0) — nothing in the fire pipeline
-        /// ever told a spawned instance which config it was actually
-        /// representing, so every instance of a given physics prefab used
-        /// whatever ProjectileConfigSO happened to be registered under id 0
-        /// (or none, falling back to a placeholder sprite) regardless of what
-        /// was actually fired. Call this from SpawnPhysicsProjectile — or
-        /// directly — before/at spawn so the visual matches the real config.
-        /// Safe to call after the visual has already been spawned too; it
-        /// re-initialises it against the new config immediately.
+        /// Tells this instance which ProjectileConfigSO (by ProjectileRegistry id)
+        /// it represents, so its visual, lifetime, hit layers and collider size
+        /// match the config that was fired. Without a call the instance uses
+        /// whatever the prefab inspector holds (id 0). MID_MasterProjectileSystem.
+        /// SpawnPhysicsProjectile calls it. It is safe to call after the visual has
+        /// spawned: the visual is re-initialised against the new config at once.
         ///
-        /// NETWORK FIX: this now writes a NetworkVariable instead of a plain
-        /// field, and only the server may write it — the value automatically
-        /// replicates to every client (immediately if called before Spawn(),
-        /// or as a delta shortly after if called post-spawn; either way
-        /// HandleVisualConfigChanged re-applies the visual when it arrives).
-        /// Calling this on a non-server instance is a safe no-op for the
-        /// network write, but still refreshes the LOCAL visual if one exists.
+        /// The id is the server-written NetworkVariable n_VisualConfigId, so it
+        /// replicates to every client (immediately when set before Spawn(), or as a
+        /// delta shortly after when set later; HandleVisualConfigChanged re-applies
+        /// the visual either way). On a non-server instance the network write is
+        /// skipped, but the local visual is still refreshed when one exists.
         /// </summary>
         public void SetVisualConfigId(ushort configId)
         {
@@ -1143,13 +999,10 @@ namespace MidManStudio.Projectiles.Managers
                     VisualConfigId, transform.position, dir, speed);
             }
 
-            // SCALING FIX / LIFETIME FIX — see ApplyConfigScale/ApplyConfigLifetime
-            // doc comments. Uses VisualConfigId (not the raw configId param) so
-            // this reads back whatever the NetworkVariable actually holds — on
-            // the server that's the value just written above; on a non-server
-            // instance (safe no-op for the network write, per this method's own
-            // existing doc comment) it's still whatever the last-synced value
-            // is, which is the correct thing to apply.
+            // See ApplyConfigScale and ApplyConfigLifetime. This reads
+            // VisualConfigId, not the configId parameter, so it applies whatever the
+            // NetworkVariable actually holds: the value just written on the
+            // server, or the last synced value on a non-server instance.
             RefreshConfigDependentState(ResolveVisualConfig());
         }
 
@@ -1196,26 +1049,20 @@ namespace MidManStudio.Projectiles.Managers
         }
 
         /// <summary>
-        /// HITLAYERS FIX ("check the whole config, this is more serious than
-        /// we thought"): confirmed by grep — cfg.HitLayers was referenced
-        /// nowhere in this file at all. Direct physics hits (this method) hit
-        /// ANYTHING with a collider, completely ignoring HitLayers — the
-        /// tooltip on that field explicitly says "Exclude the 'Player' layer
-        /// to prevent friendly-fire or self-damage from pattern projectiles",
-        /// none of which was actually happening for physics projectiles.
+        /// Direct-hit layer filter from cfg.HitLayers. Its tooltip says to exclude
+        /// the 'Player' layer to prevent friendly fire or self damage from
+        /// pattern projectiles, and this is what applies that to a direct physics
+        /// hit. With no config every layer passes.
         ///
-        /// Mirrors LocalProjectileManager.PassesLayerMask's exact established
-        /// pattern (mask == -1 means "everything", matching HitLayers'
-        /// documented default) rather than inventing a new check — same
-        /// mask == -1 short-circuit, same bitwise membership test.
+        /// It follows LocalProjectileManager.PassesLayerMask: a mask of -1 means
+        /// "everything" (the documented HitLayers default), otherwise a bitwise
+        /// membership test on the hit object's layer.
         ///
-        /// NOTE: this only filters DAMAGE/hit-registration, matching the
-        /// tooltip's stated intent. The projectile still physically collides
-        /// (bounces, stops, etc.) with excluded-layer colliders exactly as
-        /// before — if you also want it to pass through them with no physical
-        /// response at all, that's a separate, deeper fix (Physics2D/
-        /// Physics.IgnoreCollision per-instance, or Trigger colliders +
-        /// manual movement) — say if you want that too.
+        /// It filters damage and hit registration only. The projectile still
+        /// collides physically (bounces, stops) with colliders on excluded layers.
+        /// Passing through them with no physical response would need
+        /// Physics.IgnoreCollision per instance, or trigger colliders with manual
+        /// movement.
         /// </summary>
         private bool PassesConfigLayerMask(int hitLayer)
         {
@@ -1249,11 +1096,9 @@ namespace MidManStudio.Projectiles.Managers
 
             if (targetNetObj == null)
             {
-                // Hit something with no NetworkObject — environment/terrain.
-                // Piercing lets a shot punch through damageable targets, not
-                // walls; always stop here regardless of remaining budget.
-                // (Matches prior behaviour: ApplyDirectHit(null, ...) used to
-                // no-op and DestroyProjectile() ran unconditionally anyway.)
+                // Hit something with no NetworkObject (environment or terrain).
+                // Piercing lets a shot pass through damageable targets, not
+                // walls, so it always stops here whatever budget remains.
                 return true;
             }
 
@@ -1324,28 +1169,19 @@ namespace MidManStudio.Projectiles.Managers
         }
 
         /// <summary>
-        /// Evaluates damage from the ProjectileConfigSO using travel distance +
-        /// damage curve. Falls back to _baseDamage when no config is
-        /// registered for VisualConfigId.
+        /// Evaluates damage from the ProjectileConfigSO: the damage curve at the
+        /// normalized travel distance, times HeadshotMultiplier when
+        /// CheckHeadshotPhysics returns true, times CritMultiplier when the crit
+        /// roll succeeds, times the owner's damage multiplier. Falls back to
+        /// _baseDamage times the multiplier when no config is registered for
+        /// VisualConfigId. The crit and headshot results come back through the
+        /// out parameters so FireHitEvent can put them in the payload.
         ///
-        /// CRIT FIX ("check the whole config, this is more serious than we
-        /// thought"): isCrit was already being computed right here, but the
-        /// caller (FireHitEvent) hardcoded IsCrit = false in the payload
-        /// instead of ever reading it — the computed value was silently
-        /// thrown away every time. Now returned via out param and threaded
-        /// through by both callers below.
-        ///
-        /// HEADSHOT SCAFFOLDING: cfg.HeadshotMultiplier was never referenced
-        /// anywhere in this file at all. LocalProjectileManager.
-        /// CheckHeadshotLocal (the equivalent hook for the offline/local
-        /// path) defaults to `=> false` and is meant to be overridden by a
-        /// game-specific subclass with real hitbox/head-zone knowledge this
-        /// shared package doesn't have — CheckHeadshotPhysics below mirrors
-        /// that exact pattern for the physics path. Wire it up in a
-        /// game-specific PhysicsProjectileBase subclass (or edit it directly
-        /// here if you'd rather keep it in-package) once you've got a way to
-        /// tell head hitboxes apart from body ones — I didn't want to guess
-        /// at that logic.
+        /// Headshots: LocalProjectileManager.CheckHeadshotLocal (the hook for the
+        /// offline and local path) defaults to false and is meant to be overridden
+        /// by a game subclass that knows its hitboxes, which this shared package
+        /// does not. CheckHeadshotPhysics follows the same pattern for the physics
+        /// path.
         /// </summary>
         private float ComputeConfigDamage(
             Vector3 hitPoint, GameObject hitGO, out bool isCrit, out bool isHeadshot)
@@ -1377,12 +1213,10 @@ namespace MidManStudio.Projectiles.Managers
         }
 
         /// <summary>
-        /// Headshot scaffolding — see ComputeConfigDamage's doc comment.
-        /// Defaults to false (no headshots), matching
-        /// LocalProjectileManager.CheckHeadshotLocal's own default. Override
-        /// in a game-specific subclass once head-hitbox detection is
-        /// available (e.g. checking hitGO's tag/layer/a HitboxType
-        /// component).
+        /// Headshot hook, see ComputeConfigDamage. Returns false (no headshots) by
+        /// default, like LocalProjectileManager.CheckHeadshotLocal. A game subclass
+        /// overrides it once it can tell head hitboxes apart (for example from
+        /// hitGO's tag, layer or a hitbox-type component).
         /// </summary>
         protected virtual bool CheckHeadshotPhysics(GameObject hitGO, Vector3 hitPoint) => false;
 
@@ -1475,52 +1309,27 @@ namespace MidManStudio.Projectiles.Managers
         }
 
         /// <summary>
-        /// SAFETY NET for "physics projectile visual/collider only becomes
-        /// correct on the SECOND fire of a given pooled instance, every time
-        /// — reproduces regardless of whether the config uses a CustomShape,
-        /// and regardless of whether ForceSpriteRendererOnly is set (in which
-        /// case the FIRST fire shows a real, valid, but WRONG config's sprite
-        /// — not a fallback)". That last detail is the key one: it means
-        /// VisualConfigId itself is resolving to the wrong (but registered)
-        /// config on the very first read, not that the rendering branch logic
-        /// is choosing wrong.
+        /// Safety net for a config that is not settled when the projectile spawns.
+        /// It records the config id and the resolved config at spawn, waits two
+        /// frames and compares. When either differs it logs a warning that names
+        /// both, re-applies the config-dependent state and re-initializes the
+        /// visual. It runs whether or not HandleVisualConfigChanged already fired
+        /// for the same change.
         ///
-        /// I traced the two most likely explanations against actual source
-        /// and ruled BOTH out with certainty:
-        ///   • SetVisualConfigId() writes n_VisualConfigId.Value synchronously
-        ///     before Spawn() — verified against NetworkVariable.Value's
-        ///     setter in NGO 1.7.1: the write updates the backing field
-        ///     immediately, no deferred/staged commit, so a same-machine
-        ///     (server or host) read right after should already be correct.
-        ///   • On a genuinely remote client, verified against NGO 1.7.1's
-        ///     NetworkObject.AddSceneObject: SynchronizeNetworkBehaviours
-        ///     (which deserializes and applies incoming NetworkVariable data,
-        ///     including n_VisualConfigId) runs BEFORE SpawnNetworkObjectLocally
-        ///     (which is what eventually fires OnNetworkSpawn) — so the
-        ///     correct value should already be applied before OnNetworkSpawn
-        ///     ever runs there too.
+        /// It was added for a reported symptom on pooled instances: the visual and
+        /// collider were right only on the second fire, and the first fire showed
+        /// a valid but wrong config's sprite. The mechanism is not identified.
+        /// n_VisualConfigId.Value is written synchronously before Spawn(), and on a
+        /// remote client NetworkVariable data is applied before OnNetworkSpawn runs
+        /// (both checked against NGO 1.7.1), so neither explains it. This method
+        /// masks the symptom and is not a confirmed root-cause fix.
         ///
-        /// Neither NGO-level explanation holds up against the source, which
-        /// means the actual mechanism is still unidentified — either
-        /// somewhere else in this codebase, or in how the calling weapon
-        /// script sequences things. Rather than leave the symptom
-        /// unaddressed while that stays open, this re-checks VisualConfigId
-        /// a couple of frames after spawn and force-re-applies everything
-        /// config-dependent if it differs from what was read at spawn time —
-        /// independent of whether HandleVisualConfigChanged already fired for
-        /// that same transition (in case that subscription is somehow missing
-        /// it). This should mask the symptom regardless of the exact
-        /// mechanism, but it IS a safety net, not a confirmed root-cause fix.
-        ///
-        /// If projectiles still show the wrong visual on first fire after
-        /// this: the gap isn't "config settles a couple frames late" at all.
-        /// The MID_Logger.LogWarning below will tell you immediately whether
-        /// this safety net even triggered — if it never logs, the value was
-        /// already correct 2 frames in and the bug is happening somewhere
-        /// else entirely (next step: log VisualConfigId + Time.frameCount +
-        /// IsServer/IsClient right at the top of OnNetworkSpawn AND inside
-        /// SpawnPoolVisual, compare across a first vs. second fire of the
-        /// same pooled instance).
+        /// If the wrong visual still shows on the first fire and the warning never
+        /// logs, the config was already settled two frames in and the cause is
+        /// elsewhere. The next step is to log VisualConfigId, Time.frameCount,
+        /// IsServer and IsClient at the top of OnNetworkSpawn and inside
+        /// SpawnPoolVisual, and compare a first and a second fire of the same
+        /// pooled instance.
         /// </summary>
         private IEnumerator RevalidateConfigAfterSpawn()
         {
@@ -1580,11 +1389,9 @@ namespace MidManStudio.Projectiles.Managers
 
         private void HandleVisualConfigChanged(ushort oldId, ushort newId)
         {
-            // SCALING FIX / LIFETIME FIX — see ApplyConfigScale/
-            // ApplyConfigLifetime doc comments. Runs even if _poolVisual isn't
-            // ready yet (unlike the visual refresh below, which needs it)
-            // since neither the collider nor TimeToLive depend on the pool
-            // visual at all.
+            // See ApplyConfigScale and ApplyConfigLifetime. This runs even when
+            // _poolVisual is not ready yet, unlike the visual refresh below,
+            // because neither the collider nor TimeToLive depends on the visual.
             RefreshConfigDependentState(ResolveVisualConfig());
 
             if (_poolVisual == null) return;

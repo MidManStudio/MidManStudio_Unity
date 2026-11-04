@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "ProjectilePatternSO.cs"
+// ============================================================================
 using System;
 using UnityEngine;
 #if UNITY_EDITOR
@@ -223,6 +227,9 @@ namespace MidManStudio.Projectiles.Config
             return result;
         }
 
+        // Note: _starPoints cancels out of the angle formula below
+        // (i / n * points * (360 / points) == i / n * 360), so this gives the same
+        // layout as Ring360 and the Star Points setting does not change it.
         private Vector2[] SampleStar(int n)
         {
             var result = new Vector2[n];
@@ -245,7 +252,7 @@ namespace MidManStudio.Projectiles.Config
             return result;
         }
 
-        // ── Formula ── NEW ────────────────────────────────────────────────────
+        // ── Formula ───────────────────────────────────────────────────────────
 
         /// <summary>
         /// Evaluates <see cref="_patternFormulaH"/> and <see cref="_patternFormulaV"/>
@@ -352,7 +359,7 @@ namespace MidManStudio.Projectiles.Config
 
         /// <summary>
         /// Seed for one shot. A fire seed of 0 returns the asset's own seed, so
-        /// callers that send no seed keep the old fixed layout.
+        /// callers that send no seed get the same fixed layout every shot.
         /// </summary>
         public uint MixSeed(ushort fireSeed)
         {

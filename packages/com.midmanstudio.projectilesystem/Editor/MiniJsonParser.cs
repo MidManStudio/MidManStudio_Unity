@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.projectilesystem.md, section "MiniJsonParser.cs"
+// ============================================================================
 // Minimal, dependency-free JSON parser producing a generic object graph
 // (Dictionary<string, object> / List<object> / string / double / bool / null).
 // Exists because JsonUtility can only deserialize into a pre-declared C# class
