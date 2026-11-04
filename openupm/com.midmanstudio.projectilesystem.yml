@@ -1,0 +1,17 @@
+name: com.midmanstudio.projectilesystem
+displayName: MidMan Projectile System
+description: Server-authoritative projectile system for Netcode for GameObjects 1.7.1. Rust simulation core, spatial-grid collision, client prediction, snapshot reconciliation, raycast and physics projectiles, config and pattern assets, 2D and 3D.
+repoUrl: 'https://github.com/MidManStudio/MidManStudio_Unity'
+parentRepoUrl: null
+licenseSpdxId: MIT
+licenseName: MIT License
+topics:
+  - network
+  - physics
+  - 2d
+gitTagPrefix: 'projectilesystem/'
+gitTagIgnore: ''
+minVersion: ''
+image: ''
+readme: 'master:packages/com.midmanstudio.projectilesystem/README.md'
+hunter: Mid-D-Man
