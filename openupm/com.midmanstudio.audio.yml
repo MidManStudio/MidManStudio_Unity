@@ -1,0 +1,15 @@
+name: com.midmanstudio.audio
+displayName: MidMan Studio Audio
+description: Audio for Unity 2022.3+. Music manager with crossfade and pitch glide, SFX playback by library id or generated enum, audio categories, a pooled-voice clip player, pooled spatial audio, and a peak limiter (Rust DSP on desktop and mobile, C# fallback on WebGL).
+repoUrl: 'https://github.com/MidManStudio/MidManStudio_Unity'
+parentRepoUrl: null
+licenseSpdxId: MIT
+licenseName: MIT License
+topics:
+  - audio
+gitTagPrefix: 'audio/'
+gitTagIgnore: ''
+minVersion: ''
+image: ''
+readme: 'master:packages/com.midmanstudio.audio/README.md'
+hunter: Mid-D-Man

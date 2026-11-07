@@ -1,0 +1,17 @@
+name: com.midmanstudio.utilities
+displayName: MidMan Studio Utilities
+description: Core runtime utilities for Unity 2022.3+. Tick dispatcher, zero-alloc tick delay, logger, object and particle pools, singletons, event bus, timers, library system, scene management, UI state system, auto reference, FX playback and editor tools.
+repoUrl: 'https://github.com/MidManStudio/MidManStudio_Unity'
+parentRepoUrl: null
+licenseSpdxId: MIT
+licenseName: MIT License
+topics:
+  - utilities
+  - editor-enhancement
+  - code-generation
+gitTagPrefix: 'utilities/'
+gitTagIgnore: ''
+minVersion: ''
+image: ''
+readme: 'master:packages/com.midmanstudio.utilities/README.md'
+hunter: Mid-D-Man

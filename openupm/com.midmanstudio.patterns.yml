@@ -1,0 +1,15 @@
+name: com.midmanstudio.patterns
+displayName: MidMan Studio Patterns
+description: Engine-independent design pattern building blocks for Unity 2022.3+. Command with undo and redo, state machine, event queue, dependency injection, broker chain, dirty flag, double buffer, flyweight, spatial partition, game loop, bytecode virtual machine and more.
+repoUrl: 'https://github.com/MidManStudio/MidManStudio_Unity'
+parentRepoUrl: null
+licenseSpdxId: MIT
+licenseName: MIT License
+topics:
+  - utilities
+gitTagPrefix: 'patterns/'
+gitTagIgnore: ''
+minVersion: ''
+image: ''
+readme: 'master:packages/com.midmanstudio.patterns/README.md'
+hunter: Mid-D-Man
