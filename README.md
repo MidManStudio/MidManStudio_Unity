@@ -11,7 +11,7 @@ No game-specific dependencies. Foundation for all MidManStudio packages.
 | com.unity.mathematics | 1.3.1+ |
 ## Installation
 **Via git URL** (Unity Package Manager → Add package from git URL):
-https://github.com/MidManStudio/MidManStudio_Unity.git?path=/packages/com.midmanstudio.utilities#v1.0.0
+https://github.com/MidManStudio/MidManStudio_Unity.git?path=/packages/com.midmanstudio.utilities#utilities/v1.0.0
 **Via local file path** (development — manifest.json):
 "com.midmanstudio.utilities": "file:../../packages/com.midmanstudio.utilities"
 Dependencies are resolved automatically by UPM.

@@ -1,8 +1,7 @@
-// Enhanced execution order manager: real-time search, UXML/USS theming,
-// gradient header, order pip visualiser, ⊙ locate, ? info popups, Group NS.
-// Requires Unity 2022.3+ (UI Toolkit stable, Painter2D, DynamicHeight ListView).
-// Open via: MidManStudio > Utilities > Script Execution Order
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/editor-windows.md, section "MID_ScriptExecutionOrderWindow.cs"
+// ============================================================================
 #if UNITY_EDITOR
 using System;
 using System.Collections.Generic;
@@ -14,6 +13,20 @@ using UnityEngine.UIElements;
 
 namespace MidManStudio.Core.EditorTools
 {
+    /// <summary>
+    /// Window (MidManStudio > Utilities > Script Execution Order) for viewing and editing script execution order.
+    /// It lists every non-abstract MonoBehaviour script in the project, packages included. A script whose order is not
+    /// 0 is "managed" and is shown in the main list. The others are "unmanaged" and are in the Script Browser, where
+    /// the + button adds one. Search matches the type name, namespace or assembly, a namespace dropdown narrows the
+    /// list, and Group by Namespace shows the managed list under namespace headings. Each managed row has an order
+    /// field, up and down buttons (swap with the neighbour in the visible list), a locate button and a remove
+    /// button (order back to 0). The managed list can also be reordered by dragging, except when grouped. An order
+    /// bar above the list shows where every managed script sits. The step field is used by Add (new script goes
+    /// after the highest order) and by Auto Number (renumbers the managed list around 0).
+    /// Edits are kept in the window until Apply writes them with <c>MonoImporter.SetExecutionOrder</c>. Discard
+    /// and a focus-triggered rescan go back to the saved orders. Needs Unity 2022.3 or later (UI Toolkit,
+    /// Painter2D, dynamic-height ListView).
+    /// </summary>
     public class MID_ScriptExecutionOrderWindow : EditorWindow
     {
         // ── Data types ─────────────────────────────────────────────────────────

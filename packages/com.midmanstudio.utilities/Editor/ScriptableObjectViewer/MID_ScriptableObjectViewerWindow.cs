@@ -1,24 +1,7 @@
-// Scriptable Object Viewer — scans every ScriptableObject asset in the
-// project, groups them by concrete class name (e.g. every ProjectileConfigSO
-// lands in its own category regardless of which folder it lives in), and
-// lets you browse category-to-category via a dropdown, search/filter across
-// names, and preview+edit the selected asset inline via a live embedded
-// inspector — without leaving this window or hunting through Project folders.
-//
-// Open via: MidManStudio > Utilities > Scriptable Object Viewer
-//
-// CATEGORIZATION: keyed by asset.GetType() (the concrete runtime type), not
-// by folder or by base type — a ProjectileConfigSO and a ProjectilePatternSO
-// sitting in the same folder land in two different categories, exactly as
-// asked for ("arranges and categorizes based on their class name").
-//
-// LIVE INSPECTOR: the detail panel uses UnityEditor.Editor.CreateEditor +
-// an IMGUIContainer, so it renders whatever CustomEditor (if any) the
-// selected type actually has registered — including MID_BaseSOEditor for
-// anything deriving from MID_BaseSO — rather than a generic read-only
-// dump. Edits made there are real, immediate SerializedObject edits on the
-// asset, same as the normal Inspector.
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/editor-helpers.md, section "MID_ScriptableObjectViewerWindow.cs"
+// ============================================================================
 #if UNITY_EDITOR
 using System;
 using System.Collections.Generic;
@@ -33,6 +16,17 @@ using MidManStudio.Core.EditorTools;
 
 namespace MidManStudio.Core.EditorUtils.ScriptableObjectViewer
 {
+    /// <summary>
+    /// Window (MidManStudio > Utilities > Scriptable Object Viewer) that lists every ScriptableObject asset in the
+    /// project, packages included, grouped by concrete class name. A category dropdown, a name search and an optional
+    /// folder filter narrow the list, 50 rows are shown per page, and the selected asset is shown in an embedded
+    /// inspector. The embedded inspector is created with <c>Editor.CreateEditor</c>, so it uses whatever custom
+    /// editor the type has, and edits in it are real edits to the asset.
+    ///
+    /// Categories use <c>asset.GetType().Name</c>, so two types with the same name in different namespaces share one
+    /// category. Selecting a row also pings the asset and makes it the Editor selection. The list is built when the
+    /// window opens and when Refresh is pressed. It does not follow assets created, deleted or renamed afterwards.
+    /// </summary>
     public class MID_ScriptableObjectViewerWindow : EditorWindow
     {
         private const string ALL_CATEGORIES = "All Categories";
@@ -108,17 +102,8 @@ namespace MidManStudio.Core.EditorUtils.ScriptableObjectViewer
 
             BindElements();
 
-            // UI BUG FIX ("category dropdown only appears after typing in the
-            // search bar"): populating a DropdownField's choices/value
-            // synchronously inside CreateGUI() can race the window's own
-            // first layout pass — the control exists in the tree but its
-            // internal label hasn't been through a layout/repaint cycle yet,
-            // so it renders empty until SOMETHING else (e.g. typing, which
-            // touches layout via the search field's callback) forces a
-            // repaint. Deferring Rescan() to run after that first pass — the
-            // standard, documented fix for "my UI Toolkit window's initial
-            // state doesn't render right" — avoids the race entirely rather
-            // than working around its symptom.
+            // Rescan runs after the first layout pass. Filling the dropdown here, inside CreateGUI,
+            // can leave it blank until something else forces a repaint.
             rootVisualElement.schedule.Execute(Rescan).ExecuteLater(0);
         }
 
@@ -209,18 +194,8 @@ namespace MidManStudio.Core.EditorUtils.ScriptableObjectViewer
                 var nameLabel = el.Q<Label>("name");
                 var typeLabel = el.Q<Label>("type");
 
-                // CUSTOM ICON FIX ("doesn't show custom icons"): a MID_BaseSO's
-                // custom icon is NOT a real Unity asset icon — MID_BaseSOEditor's
-                // own header comment explains why (EditorGUIUtility.SetIconForObject
-                // never actually supported arbitrary ScriptableObject instances).
-                // The real mechanism is MID_BaseSOProjectIconDrawer, which paints
-                // ResolveIcon() directly over each Project-window row via
-                // EditorApplication.projectWindowItemOnGUI — a hook that only
-                // fires for the actual Project window, not this ListView. So
-                // AssetPreview.GetMiniThumbnail alone can never surface a
-                // MID_BaseSO custom icon; check ResolveIcon() first, same as
-                // that drawer does, and only fall back to the generic thumbnail
-                // for anything that isn't a MID_BaseSO (or has no custom icon set).
+                // A MID_BaseSO icon is painted by MID_BaseSOProjectIconDrawer in the Project window only, so the
+                // thumbnail alone cannot show it. Use ResolveIcon() first and fall back to the thumbnail.
                 Texture2D resolvedIcon = (entry.Asset as MID_BaseSO)?.ResolveIcon();
                 icon.image = resolvedIcon != null ? resolvedIcon
                              : AssetPreview.GetMiniThumbnail(entry.Asset)
@@ -286,10 +261,8 @@ namespace MidManStudio.Core.EditorUtils.ScriptableObjectViewer
 
             _categoryDropdown.choices = _categoryChoices;
             _categoryDropdown.SetValueWithoutNotify(_selectedCategory);
-            // Second safety net for the same rendering quirk the deferred
-            // Rescan() in CreateGUI() already addresses — cheap, and this
-            // runs on every subsequent Rescan() (e.g. the refresh button)
-            // too, not just the first one.
+            // Also repaint the dropdown, for the same first-render quirk as the deferred Rescan in CreateGUI.
+            // This runs on every later Rescan too.
             _categoryDropdown.MarkDirtyRepaint();
         }
 
@@ -330,16 +303,8 @@ namespace MidManStudio.Core.EditorUtils.ScriptableObjectViewer
 
             _filteredEntries.AddRange(src);
 
-            // PAGINATION FIX ("categories dropdown only appears after typing —
-            // due to All Categories being a long list"): the ListView used to
-            // bind directly to _filteredEntries, which for "All Categories" on
-            // a project with hundreds of ScriptableObjects meant laying out
-            // hundreds of rows on the very first frame — exactly the kind of
-            // heavy initial-layout work that raced the window's first paint
-            // (see CreateGUI()'s deferred-Rescan fix for the other half of
-            // this). Only ever binding PAGE_SIZE rows at a time keeps that
-            // initial layout cheap regardless of how large the underlying
-            // asset list is.
+            // Only PAGE_SIZE rows are bound at a time, so the first layout stays cheap however many assets
+            // there are.
             if (resetPage) _currentPage = 0;
             int pageCount = Mathf.Max(1, Mathf.CeilToInt(_filteredEntries.Count / (float)PAGE_SIZE));
             _currentPage = Mathf.Clamp(_currentPage, 0, pageCount - 1);

@@ -1,17 +1,23 @@
-// ScriptableObject that contributes entries to the EffectCategory enum.
-// One of these lives in every package (and game project) that needs custom categories.
-//
-// SETUP:
-//   Right-click in Project > MidManStudio > Utilities > Effect Category Provider
-//   Set packageId, priority >= 100 for user game code.
-//   Run MidManStudio > Utilities > Effect Type Generator.
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/fx.md, section "EffectCategoryProviderSO.cs"
+// ============================================================================
 using System.Collections.Generic;
 using UnityEngine;
 using MidManStudio.Core.EditorUtils;
 
 namespace MidManStudio.Core.FX.Generator
 {
+    /// <summary>
+    /// Contributes names to the generated <c>EffectCategory</c> enum. Each package or game project that
+    /// needs its own effect categories has one asset of this type. The Effect Type Generator reads all of
+    /// them and gives each provider a block of numbers, ordered by <see cref="priority"/>.
+    /// </summary>
+    /// <remarks>
+    /// Setup: in the Project window choose Create > MidManStudio > Utilities > Effect Category Provider.
+    /// Give it a unique <see cref="packageId"/>, use a priority of 100 or more for game code, then run
+    /// MidManStudio > Utilities > Effect Type Generator.
+    /// </remarks>
     [CreateAssetMenu(
         fileName = "EffectCategoryProvider",
         menuName = "MidManStudio/Utilities/Effect Category Provider",
@@ -33,6 +39,7 @@ namespace MidManStudio.Core.FX.Generator
         [MID_NamedList]
         public List<FXEntryDefinition> entries = new List<FXEntryDefinition>();
 
+        /// <summary>Number of entries in the list, 0 when the list is null.</summary>
         public int EntryCount => entries?.Count ?? 0;
     }
 }

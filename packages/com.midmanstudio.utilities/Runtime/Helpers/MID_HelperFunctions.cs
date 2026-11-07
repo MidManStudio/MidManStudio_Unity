@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/helpers.md, section "MID_HelperFunctions.cs"
+// ============================================================================
 
 using System;
 using System.Collections;
@@ -13,44 +17,50 @@ using MidManStudio.Core.Logging;
 namespace MidManStudio.Core.HelperFunctions
 {
     /// <summary>
-    /// Generic static utility methods for use across all MidManStudio packages.
-    ///
-    /// WHAT'S HERE:
-    ///   - GameObject child management
-    ///   - UI / CanvasGroup helpers
-    ///   - String formatting (sentence, camel, pascal, kebab, snake)
-    ///   - Color parsing
-    ///   - Reflection-based debug printing
-    ///   - Generic functional helpers (Map, Filter, Reduce, GroupBy)
-    ///   - JSON / XML serialisation via Unity's built-in JsonUtility + System.Xml
+    /// Static helpers shared by the MidManStudio packages: log shims, child destruction, CanvasGroup toggling,
+    /// hex colour parsing, string case conversion, reflection-based debug printing, and JSON / XML wrappers.
+    /// The list helpers (Map, Filter, Reduce, GroupBy) are in <see cref="MID_HelperFunctionsWithType{T}"/>.
     /// </summary>
     public  static partial class MID_HelperFunctions
     {
         // ── Logging shims ─────────────────────────────────────────────────────
-        // Kept for API compatibility with existing callers.
-        // Route straight to MID_Logger so log level control works uniformly.
+        // Kept for API compatibility with existing callers. Each shim forwards to MID_Logger with a FIXED
+        // caller level (Debug, Info, Error, Error, Verbose), so every call clears its own level gate and is
+        // always written. A MID_LogLevel cannot silence them. Guard the call yourself, or call MID_Logger
+        // directly with your own level field.
 
+        /// <summary>Writes a [DEBUG] line through <see cref="MID_Logger"/>. Always written, see the note above.</summary>
         public static void LogDebug(string message, string className = "", string methodName = "") =>
             MID_Logger.LogDebug(MID_LogLevel.Debug, message, className, methodName);
 
+        /// <summary>Writes a console warning through <see cref="MID_Logger"/>. Always written, see the note above.</summary>
         public static void LogWarning(string message, string className = "", string methodName = "") =>
             MID_Logger.LogWarning(MID_LogLevel.Info, message, className, methodName);
 
+        /// <summary>Writes a console error through <see cref="MID_Logger"/>, with the exception if one is given.</summary>
         public static void LogError(string message, string className = "", string methodName = "",
             Exception e = null) =>
             MID_Logger.LogError(MID_LogLevel.Error, message, className, methodName, e);
 
+        /// <summary>Writes an exception through <see cref="MID_Logger"/>.</summary>
         public static void LogException(Exception e, string message = "Exception",
             string className = "", string methodName = "") =>
             MID_Logger.LogException(MID_LogLevel.Error, e, message, className, methodName);
 
+        /// <summary>
+        /// Writes a verbose line through <see cref="MID_Logger"/>. The call is removed at compile time unless the
+        /// <c>ENABLE_VERBOSE_LOGS</c> symbol is defined in the assembly that makes the call.
+        /// </summary>
         [System.Diagnostics.Conditional("ENABLE_VERBOSE_LOGS")]
         public static void LogVerbose(string message, string className = "", string methodName = "") =>
             MID_Logger.LogVerbose(MID_LogLevel.Verbose, message, className, methodName);
 
         // ── GameObject helpers ────────────────────────────────────────────────
 
-        /// <summary>Destroy all children of a transform.</summary>
+        /// <summary>
+        /// Destroys all children of a transform with <c>Object.Destroy</c>. The children are removed at the end of
+        /// the frame, so <c>childCount</c> still counts them until then.
+        /// </summary>
         public static void DestroyObjChildren(Transform holder)
         {
             for (int i = holder.childCount - 1; i >= 0; i--)
@@ -66,7 +76,7 @@ namespace MidManStudio.Core.HelperFunctions
 
         // ── UI helpers ────────────────────────────────────────────────────────
 
-        /// <summary>Enable or fully disable a CanvasGroup in one call.</summary>
+        /// <summary>Shows a CanvasGroup (alpha 1, interactable, blocks raycasts) or hides it (alpha 0, not interactable, no raycasts).</summary>
         public static void SetCanvasGroup(CanvasGroup cg, bool enable)
         {
             cg.alpha          = enable ? 1f : 0f;
@@ -74,12 +84,17 @@ namespace MidManStudio.Core.HelperFunctions
             cg.blocksRaycasts = enable;
         }
 
-        /// <summary>Parse a hex colour string. Returns white on failure.</summary>
+        /// <summary>Parses a colour string with Unity's <c>ColorUtility.TryParseHtmlString</c> (for example "#FF8800" or "red"). Returns white when it cannot be parsed.</summary>
         public static Color GetColorFromString(string hexColor) =>
             ColorUtility.TryParseHtmlString(hexColor, out var c) ? c : Color.white;
 
         // ── String formatting ─────────────────────────────────────────────────
 
+        /// <summary>
+        /// Lower-cases the whole string, then capitalises the first letter and the first letter after each
+        /// '.', '!' or '?'. Everything else becomes lower case, so proper nouns and acronyms are lost, and a decimal
+        /// point counts as a sentence end ("a 3.5 kg bag" becomes "A 3.5 Kg bag").
+        /// </summary>
         public static string ToSentenceCase(string input)
         {
             if (string.IsNullOrEmpty(input)) return input;
@@ -94,6 +109,10 @@ namespace MidManStudio.Core.HelperFunctions
             return new string(chars);
         }
 
+        /// <summary>
+        /// Lower-cases the first letter of each space-separated word and keeps the spaces ("Hello World" becomes
+        /// "hello world"). The spaces are not removed, so the result is not true camelCase.
+        /// </summary>
         public static string ToCamelCase(string input)
         {
             if (string.IsNullOrEmpty(input)) return input;
@@ -101,6 +120,10 @@ namespace MidManStudio.Core.HelperFunctions
                 w.Length > 0 ? char.ToLowerInvariant(w[0]) + w.Substring(1) : w));
         }
 
+        /// <summary>
+        /// Title-cases each space-separated word and joins them with no separator ("hello world" becomes
+        /// "HelloWorld"). It uses the current culture, so the result can differ on devices set to some languages.
+        /// </summary>
         public static string ToPascalCase(string input)
         {
             if (string.IsNullOrEmpty(input)) return input;
@@ -108,6 +131,11 @@ namespace MidManStudio.Core.HelperFunctions
             return string.Join("", input.Split(' ').Select(w => ti.ToTitleCase(w.ToLower())));
         }
 
+        /// <summary>
+        /// Lower-cases the string and puts '-' between words. A space starts a new word, and so does every
+        /// upper-case letter that is not first in its word ("HelloWorld" becomes "hello-world", and "XMLParser"
+        /// becomes "x-m-l-parser").
+        /// </summary>
         public static string ToKebabCase(string input)
         {
             if (string.IsNullOrEmpty(input)) return input;
@@ -118,6 +146,7 @@ namespace MidManStudio.Core.HelperFunctions
                         : x.ToString()))));
         }
 
+        /// <summary>The same as <see cref="ToKebabCase"/> but with '_' between words.</summary>
         public static string ToSnakeCase(string input)
         {
             if (string.IsNullOrEmpty(input)) return input;
@@ -130,7 +159,7 @@ namespace MidManStudio.Core.HelperFunctions
 
         // ── String validation ─────────────────────────────────────────────────
 
-        /// <summary>Returns false for null, empty, or strings that equal "null" (any case).</summary>
+        /// <summary>Returns false for null, empty, whitespace-only, or the exact text "null" in any case.</summary>
         public static bool IsStringValid(string val) =>
             !string.IsNullOrWhiteSpace(val) &&
             !val.Equals("null", StringComparison.OrdinalIgnoreCase);
@@ -138,8 +167,12 @@ namespace MidManStudio.Core.HelperFunctions
         // ── Reflection debug helpers ──────────────────────────────────────────
 
         /// <summary>
-        /// Returns a formatted string of all fields and properties on a struct or class.
-        /// Useful for logging complex data objects during development.
+        /// Returns a formatted string of all public instance fields and readable public properties of a struct or
+        /// class, following nested objects and collections. Meant for logging plain data objects (primitives,
+        /// strings, enums, nested plain classes and lists of them).
+        /// There is no depth or cycle guard. Do not pass objects that reach Unity types such as Vector3, Color,
+        /// Quaternion, Transform or GameObject, or a DateTime: their properties return values of their own type
+        /// (for example <c>Vector3.normalized</c>), so the walk can recurse without end.
         /// </summary>
         public static string GetStructOrClassMemberValues<T>(T instance) where T : notnull
         {
@@ -205,8 +238,9 @@ namespace MidManStudio.Core.HelperFunctions
         // ── Serialisation ─────────────────────────────────────────────────────
 
         /// <summary>
-        /// Serialise to JSON using Unity's built-in JsonUtility.
-        /// For types that need full reflection support, handle serialisation yourself.
+        /// Serialise to JSON using Unity's built-in JsonUtility, so its limits apply. Returns "{}" and logs an
+        /// error when serialisation throws. For types that need full reflection support, handle serialisation
+        /// yourself.
         /// </summary>
         public static string ToJson<T>(T obj, bool prettyPrint = true) where T : notnull
         {
@@ -220,7 +254,8 @@ namespace MidManStudio.Core.HelperFunctions
         }
 
         /// <summary>
-        /// Deserialise from JSON using Unity's built-in JsonUtility.
+        /// Deserialise from JSON using Unity's built-in JsonUtility. Returns <c>default</c> and logs an error when
+        /// parsing throws.
         /// </summary>
         public static T FromJson<T>(string json)
         {
@@ -233,7 +268,10 @@ namespace MidManStudio.Core.HelperFunctions
             }
         }
 
-        /// <summary>Serialise to XML using System.Xml.Serialization.</summary>
+        /// <summary>
+        /// Serialise to XML using System.Xml.Serialization. On failure it logs an error and returns the text
+        /// "&lt;error&gt;Failed to serialize&lt;/error&gt;", so check for that before using the result.
+        /// </summary>
         public static string ToXml<T>(T obj) where T : notnull
         {
             try
@@ -252,8 +290,9 @@ namespace MidManStudio.Core.HelperFunctions
         }
 
         /// <summary>
-        /// Check whether a JSON string is syntactically valid.
-        /// Uses a lightweight manual pass — no external dependency.
+        /// Cheap shape check: true when the trimmed text starts with '{' and ends with '}', or starts with '['
+        /// and ends with ']'. It does not parse the JSON, so "{abc}" passes. Use it only as a quick filter before
+        /// a real parse.
         /// </summary>
         public static bool IsValidJson(string json)
         {
@@ -266,9 +305,13 @@ namespace MidManStudio.Core.HelperFunctions
 
     // ── Generic functional helpers ────────────────────────────────────────────
 
-    /// <summary>Map / Filter / Reduce / GroupBy helpers for List&lt;T&gt;.</summary>
+    /// <summary>
+    /// Map / Filter / Reduce / GroupBy helpers for List&lt;T&gt;. The item type is on the class, so call it as
+    /// <c>MID_HelperFunctionsWithType&lt;int&gt;.Map(list, x =&gt; x * 2)</c>.
+    /// </summary>
     public static partial class MID_HelperFunctionsWithType<T>
     {
+        /// <summary>Returns a new list holding <paramref name="fn"/> applied to every item.</summary>
         public static List<U> Map<U>(List<T> items, Func<T, U> fn)
         {
             var result = new List<U>(items.Count);
@@ -276,9 +319,11 @@ namespace MidManStudio.Core.HelperFunctions
             return result;
         }
 
+        /// <summary>Returns a new list of the items for which <paramref name="pred"/> is true.</summary>
         public static List<T> Filter(List<T> items, Predicate<T> pred) =>
             items.FindAll(pred);
 
+        /// <summary>Folds the list into one value, starting from <paramref name="seed"/>.</summary>
         public static U Reduce<U>(List<T> items, U seed, Func<U, T, U> fn)
         {
             var acc = seed;
@@ -286,6 +331,7 @@ namespace MidManStudio.Core.HelperFunctions
             return acc;
         }
 
+        /// <summary>Groups the items by key. Items keep their order inside each group. A null key throws, because it is a Dictionary key.</summary>
         public static Dictionary<K, List<T>> GroupBy<K>(List<T> items, Func<T, K> keySelector)
         {
             var result = new Dictionary<K, List<T>>();
@@ -299,9 +345,13 @@ namespace MidManStudio.Core.HelperFunctions
             return result;
         }
 
+        /// <summary>True when at least one item matches. False for an empty list.</summary>
         public static bool AnyMatch(List<T> items, Predicate<T> pred) => items.Exists(pred);
+
+        /// <summary>True when every item matches. True for an empty list.</summary>
         public static bool AllMatch(List<T> items, Predicate<T> pred) => items.TrueForAll(pred);
 
+        /// <summary>Writes the list to the console with <c>Debug.Log</c> (not through MID_Logger, so no level gate applies).</summary>
         public static void PrintValues(List<T> items)
         {
             var sb = new StringBuilder($"List<{typeof(T).Name}> ({items.Count}):\n");

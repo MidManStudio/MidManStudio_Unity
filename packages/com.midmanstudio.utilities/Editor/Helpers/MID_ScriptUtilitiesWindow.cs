@@ -1,9 +1,7 @@
-// Two-tab editor utility:
-//   Tab 0 — Script Reader:   browse, search, and read any project C# script.
-//   Tab 1 — Window Priority: reflect all EditorWindow MenuItem priorities.
-// Requires Unity 2022.3+.
-// Open via: MidManStudio > Utilities > Script Utilities
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/editor-windows.md, section "MID_ScriptUtilitiesWindow.cs"
+// ============================================================================
 #if UNITY_EDITOR
 using System;
 using System.Collections.Generic;
@@ -17,6 +15,20 @@ using UnityEngine.UIElements;
 
 namespace MidManStudio.Core.EditorTools
 {
+    /// <summary>
+    /// Window (MidManStudio > Utilities > Script Utilities) with two tabs. Needs Unity 2022.3 or later.
+    ///
+    /// Script Reader: lists every .cs file in the project (folders as headings), filters by file name or path
+    /// (optionally by file content), and shows the selected file with line numbers in a read-only list. Doc Only
+    /// mode shows just the <c>///</c> documentation lines. The path bar can open the file, ping it, or copy its
+    /// full path. The file is read from the path on disk, so a script that is not at that path on disk (a package
+    /// in Library/PackageCache) shows an empty source.
+    ///
+    /// Window Priority: lists the <c>[MenuItem]</c> priority of every EditorWindow subclass in the loaded
+    /// assemblies (one row per method, validate methods skipped), filtered by namespace, type name or menu path
+    /// (default filter "MidManStudio"), sorted by priority or by menu path. The src button opens that window's source
+    /// in the Script Reader.
+    /// </summary>
     public class MID_ScriptUtilitiesWindow : EditorWindow
     {
         // ── Data types ─────────────────────────────────────────────────────────

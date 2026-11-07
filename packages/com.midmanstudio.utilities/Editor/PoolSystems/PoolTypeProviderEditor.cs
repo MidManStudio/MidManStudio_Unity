@@ -1,14 +1,17 @@
-// Shared custom Inspector for ObjectPoolTypeProviderSO / ParticlePoolTypeProviderSO.
-// Draws the normal Inspector untouched, then adds an "Import Entries from
-// JSON" panel underneath — migrating a big old enum (20-30 entries at once)
-// no longer means clicking "+" and typing each field by hand in the list
-// drawer. See PoolEntryJsonImporter.cs for the accepted JSON shapes.
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/pool-systems.md, section "PoolTypeProviderEditor.cs"
+// ============================================================================
 using UnityEditor;
 using UnityEngine;
 
 namespace MidManStudio.Core.Pools.Generator
 {
+    /// <summary>
+    /// Shared inspector for <see cref="ObjectPoolTypeProviderSO"/> and <see cref="ParticlePoolTypeProviderSO"/>. Draws the
+    /// normal inspector, then an Import Entries from JSON panel, so a large old enum (20 or 30 entries) can be moved in at
+    /// once. The accepted JSON shapes are described on <see cref="PoolEntryJsonImporter"/>.
+    /// </summary>
     public abstract class PoolTypeProviderEditorBase : UnityEditor.Editor
     {
         private string _jsonInput;
@@ -94,9 +97,11 @@ namespace MidManStudio.Core.Pools.Generator
         }
     }
 
+    /// <summary>Inspector for <see cref="ObjectPoolTypeProviderSO"/>.</summary>
     [CustomEditor(typeof(ObjectPoolTypeProviderSO))]
     public sealed class ObjectPoolTypeProviderEditor : PoolTypeProviderEditorBase { }
 
+    /// <summary>Inspector for <see cref="ParticlePoolTypeProviderSO"/>.</summary>
     [CustomEditor(typeof(ParticlePoolTypeProviderSO))]
     public sealed class ParticlePoolTypeProviderEditor : PoolTypeProviderEditorBase { }
 }

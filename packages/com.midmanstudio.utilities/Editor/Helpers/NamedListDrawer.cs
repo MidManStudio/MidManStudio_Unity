@@ -1,18 +1,28 @@
-﻿#if UNITY_EDITOR
+﻿// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/editor-helpers.md, section "NamedListDrawer.cs"
+// ============================================================================
+#if UNITY_EDITOR
 using UnityEditor;
 using UnityEngine;
 
 namespace MidManStudio.Core.EditorUtils
 {
     /// <summary>
-    /// Custom property drawer for MID_NamedListAttribute with color support
+    /// Drawer for <see cref="MID_NamedListAttribute"/>. Draws each list element with a name as its label and, when
+    /// useCustomColors is on, a tinted background with a left and top accent border. The name comes from
+    /// <see cref="IArrayElementTitle"/>, then the element field named by the attribute, then the field's display
+    /// name. The tint comes from <see cref="IArrayElementColor"/>, then the colour field named by the attribute.
+    /// It reads the element with <c>SerializedProperty.boxedValue</c>, which copies the element on every repaint,
+    /// and a failure there is caught and ignored.
     /// </summary>
     [CustomPropertyDrawer(typeof(MID_NamedListAttribute))]
     public class NamedListDrawer : PropertyDrawer
     {
         protected virtual MID_NamedListAttribute Attribute => (MID_NamedListAttribute)attribute;
 
-        // Counter for missing names to ensure unique identifiers
+        // Counter for blank names on fields that are not list elements. It goes up on every repaint,
+        // so such a label keeps changing. List elements use their index instead.
         private static int missingNameCounter = 0;
 
         // Color tint intensity for backgrounds
@@ -195,7 +205,7 @@ namespace MidManStudio.Core.EditorUtils
             // Trim whitespace
             name = name.Trim();
 
-            // Check if name is just whitespace after trim
+            // Cannot run: the IsNullOrWhiteSpace check above already catches every name that is empty after Trim.
             if (string.IsNullOrEmpty(name))
             {
                 int arrayIndex = GetArrayIndex(property);

@@ -1,6 +1,7 @@
-// Generates SceneId.cs and SceneRegistry.cs from all SceneTypeProviderSO assets.
-// Open via: MidManStudio > Utilities > Scene Type Generator
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/scenemanagement.md, section "SceneTypeGenerator.cs"
+// ============================================================================
 #if UNITY_EDITOR
 using System;
 using System.Collections.Generic;
@@ -13,6 +14,12 @@ using MidManStudio.Core.SceneManagement.Generator;
 
 namespace MidManStudio.Core.EditorTools.SceneManagement
 {
+    /// <summary>
+    /// Reads every <see cref="SceneTypeProviderSO"/> asset and writes <c>SceneId.cs</c> and
+    /// <c>SceneRegistry.cs</c>. Run it from MidManStudio > Utilities > Scene Type Generator. Providers are
+    /// ordered by priority, then package id. Each scene keeps the build index its entry names, so the
+    /// numbers are set by hand, not assigned.
+    /// </summary>
     public static class SceneTypeGeneratorCore
     {
         private const string SceneIdPath =
@@ -21,6 +28,7 @@ namespace MidManStudio.Core.EditorTools.SceneManagement
             "packages/com.midmanstudio.utilities/Runtime/SceneManagement/Generated/SceneRegistry.cs";
         private const string Namespace = "MidManStudio.Core.SceneManagement";
 
+        /// <summary>Validates all providers and, when there are no errors, writes both files and refreshes the asset database. With errors nothing is written.</summary>
         public static (bool success, List<string> errors, List<string> warnings) Generate()
         {
             var errors   = new List<string>();
@@ -196,6 +204,7 @@ namespace MidManStudio.Core.EditorTools.SceneManagement
 
     // ── Editor Window ─────────────────────────────────────────────────────────
 
+    /// <summary>Window with a provider list and a Generate Now button that runs <see cref="SceneTypeGeneratorCore.Generate"/>.</summary>
     public class SceneTypeGeneratorWindow : EditorWindow
     {
         private List<string> _errors   = new();

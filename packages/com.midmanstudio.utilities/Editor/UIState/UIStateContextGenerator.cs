@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/uistate.md, section "UIStateContextGenerator.cs"
+// ============================================================================
 #if UNITY_EDITOR
 using System;
 using System.Collections.Generic;
@@ -10,11 +14,13 @@ using MidManStudio.Core.UIState;
 
 namespace MidManStudio.Core.EditorUtils.UIState
 {
+    /// <summary>Writes one [Flags] enum file per <see cref="MID_UIStateContext"/> asset into <c>Runtime/UIState/Generated</c>.</summary>
     public static class UIStateContextGeneratorCore
     {
         private const string OutputDir = "packages/com.midmanstudio.utilities/Runtime/UIState/Generated/";
         private const string Namespace = "MidManStudio.Core.UIState";
 
+        /// <summary>Validates all contexts and, when there is no error, writes every enum file. Returns success, errors and warnings. Writes nothing when any error is found.</summary>
         public static (bool success, List<string> errors, List<string> warnings) Generate()
         {
             var errors   = new List<string>();
@@ -153,6 +159,7 @@ namespace MidManStudio.Core.EditorUtils.UIState
 
     // ── Editor Window ─────────────────────────────────────────────────────────
 
+    /// <summary>Window (MidManStudio > Utilities > UI State Context Generator) that lists the contexts found and runs the generator.</summary>
     public class UIStateContextGeneratorWindow : EditorWindow
     {
         private List<string> _errors   = new();

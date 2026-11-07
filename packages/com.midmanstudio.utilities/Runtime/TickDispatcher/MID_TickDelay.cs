@@ -1,31 +1,7 @@
-// ═══════════════════════════════════════════════════════════════════════════════
-// MidMan Studio — Core Systems
-//
-// Zero-allocation delayed action system built on MID_TickDispatcher.
-//
-// ZERO-ALLOC CONTRACT — READ BEFORE USE:
-//   MID_TickDelay.After() itself performs zero heap allocations after warm-up.
-//   However, converting a method group to Action allocates in Unity 2019.2+.
-//
-//   WRONG — allocates every call:
-//     MID_TickDelay.After(1f, MyStaticMethod);   // method group → allocates
-//     MID_TickDelay.After(1f, () => DoWork());   // non-static lambda → closure
-//
-//   CORRECT — pre-allocate the delegate once and reuse:
-//     private static readonly Action _onTick = HandleTick;
-//     MID_TickDelay.After(1f, _onTick);          // zero alloc ✓
-//
-// MINIMUM RATE:
-//   MID_TickDelay enforces a minimum rate of Tick_0_1.
-//   Faster rates (Tick_0_05, Tick_0_02, Tick_0_01) are clamped.
-//   These rates fire faster than a typical frame — the dispatcher cost
-//   exceeds any benefit. Use Coroutine or Task for sub-frame timing instead.
-//
-// POOL SIZING:
-//   Default capacity = 64 slots. Raise before the first call if your game
-//   schedules more than 64 simultaneous delays:
-//     MID_TickDelay.PoolCapacity = 128;
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/tickdispatcher.md, section "MID_TickDelay.cs"
+// ============================================================================
 using System;
 using UnityEngine;
 using MidManStudio.Core.Logging;
@@ -38,6 +14,11 @@ namespace MidManStudio.Core.TickDispatcher
     /// Cancellable handle for a pending TickDelay.
     /// Generation counter prevents stale handles from cancelling recycled slots.
     /// </summary>
+    /// <remarks>
+    /// Treat a handle that was never assigned as unusable: <c>default(TickDelayHandle)</c> has
+    /// slot index 0, so <see cref="IsValid"/> is true for it and <see cref="Cancel"/> targets
+    /// whatever delay holds slot 0 at generation 0. Store <c>MID_TickDelay</c> results only.
+    /// </remarks>
     public struct TickDelayHandle
     {
         internal int    SlotIndex;
@@ -46,18 +27,35 @@ namespace MidManStudio.Core.TickDispatcher
         internal static readonly TickDelayHandle Invalid =
             new TickDelayHandle { SlotIndex = -1, Generation = 0 };
 
+        /// <summary>
+        /// False only for the sentinel returned when a call was rejected (null action, pool full).
+        /// It stays true after the delay has fired or been cancelled.
+        /// </summary>
         public bool IsValid => SlotIndex >= 0;
 
+        /// <summary>Cancels the delay. Same as <see cref="MID_TickDelay.Cancel"/>; safe on a stale handle.</summary>
         public void Cancel() => MID_TickDelay.Cancel(this);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Static entry point for tick-based delayed and repeating actions.
-    /// Zero heap allocations inside After() on the hot path.
-    /// Callers are responsible for pre-allocating their Action delegates.
+    /// Static entry point for tick-based delayed and repeating actions, built on
+    /// <see cref="MID_TickDispatcher"/>. Plain <c>Action</c> delegates instead of coroutines, so it
+    /// can be used where an <c>IEnumerator</c> is not allowed (for example Netcode RPC bodies).
     /// </summary>
+    /// <remarks>
+    /// <para>Allocation: <see cref="After"/> performs no heap allocation after warm-up, but the caller
+    /// must pass a delegate that already exists. A method group or a capturing lambda converts to a
+    /// new <c>Action</c> on every call. Cache it once:
+    /// <c>private static readonly Action _onDone = HandleDone;</c></para>
+    /// <para>Rate: the fastest allowed rate is <see cref="TickRate.Tick_0_1"/>. Faster rates are
+    /// clamped to it with a log message. Use a coroutine for sub-frame timing.</para>
+    /// <para>Capacity: 64 pending delays by default. Raise <see cref="PoolCapacity"/> before the
+    /// first call if more can be pending at once. A call made when the pool is full is dropped.</para>
+    /// <para>Timing is quantised to the tick interval. See the TickDispatcher documentation page
+    /// for the measured behaviour. Main thread only.</para>
+    /// </remarks>
     public static class MID_TickDelay
     {
         #region Configuration

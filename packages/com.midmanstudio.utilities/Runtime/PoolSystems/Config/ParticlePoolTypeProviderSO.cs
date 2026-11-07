@@ -1,23 +1,7 @@
-﻿
-// One of these lives in every package (and in the user's game project) that wants
-// to contribute entries to the shared PoolableObjectType / PoolableParticleType enums.
-//
-// SETUP:
-//   Right-click in Project window >
-//       MidManStudio > Pool Type Provider  — object pool entries
-//       MidManStudio > Particle Pool Type Provider — particle pool entries
-//
-// ENTRY OFFSET RULES:
-//   explicitOffset = -1  →  generator assigns automatically (blockStart + auto index)
-//   explicitOffset >= 0  →  pinned to that offset within the provider's block.
-//                           Use this to stop an entry's value shifting when you
-//                           add entries above it.
-//
-// ORDERING WITHIN A BLOCK:
-//   The list order only matters for auto-offset entries.
-//   Pin critical entries (ones referenced in serialized inspector fields) so they
-//   never move even if you insert new entries above them.
-
+﻿// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/pool-systems.md, section "ParticlePoolTypeProviderSO.cs"
+// ============================================================================
 using System.Collections.Generic;
 using UnityEngine;
 using MidManStudio.Core.EditorUtils;
@@ -29,6 +13,11 @@ namespace MidManStudio.Core.Pools.Generator
     //  can find them independently)
     // ─────────────────────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Lists the particle pool types that one package or game project adds to <c>PoolableParticleType</c>. Same shape and
+    /// rules as <see cref="ObjectPoolTypeProviderSO"/>. Create it with Create > MidManStudio > Utilities > Pool Type Provider
+    /// (Particle), then run the Pool Type Generator.
+    /// </summary>
     [CreateAssetMenu(fileName = "ParticlePoolTypeProvider",
         menuName = "MidManStudio/Utilities/Pool Type Provider (Particle)", order = 170)]
     public class ParticlePoolTypeProviderSO : ScriptableObject, IPoolEntryProviderSO
@@ -44,6 +33,7 @@ namespace MidManStudio.Core.Pools.Generator
         [MID_NamedList]
         public List<PoolEntryDefinition> entries = new List<PoolEntryDefinition>();
 
+        /// <summary>Number of entries in the list.</summary>
         public int EntryCount => entries?.Count ?? 0;
 
         // IPoolEntryProviderSO — see ObjectPoolTypeProviderSO for why this exists.

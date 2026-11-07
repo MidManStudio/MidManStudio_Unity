@@ -1,100 +1,7 @@
-// ═══════════════════════════════════════════════════════════════════════════════
-// MidMan Studio — Core Systems
-//
-// A zero-allocation, subscriber-based tick dispatcher that replaces per-
-// MonoBehaviour Update() calls with shared interval-based callbacks.
-//
-// ── WHY USE THIS ────────────────────────────────────────────────────────────
-//   Unity maintains an internal native list of every MonoBehaviour with an
-//   Update() method. Each callback crosses the native-to-managed boundary once
-//   per frame, regardless of whether the script has anything to do. At scale
-//   (hundreds of enemies, timers, AI systems) this boundary crossing cost
-//   dominates frame time even when callbacks are empty.
-//
-//   MID_TickDispatcher collapses all subscribers into a single Update() call
-//   and dispatches callbacks only at the interval they need, not every frame.
-//   A pathfinding system that only needs to recalculate 5×/sec should subscribe
-//   to Tick_0_2, not run dead code 60×/sec.
-//
-// ── HOW IT WORKS ────────────────────────────────────────────────────────────
-//   1. Each TickRate maps to a fixed time interval (Tick_0_2 fires every 0.2s).
-//   2. Systems call MID_TickDispatcher.Subscribe(TickRate.Tick_0_2, OnTick).
-//   3. One Update() accumulates deltaTime per interval bucket.
-//   4. When a bucket's timer exceeds its interval, all subscribers are invoked.
-//   5. Buckets with zero subscribers are skipped entirely — zero cost at idle.
-//   6. Systems call Unsubscribe() in OnDisable/OnDestroy — never skip this.
-//
-// ── ZERO-ALLOCATION DESIGN ──────────────────────────────────────────────────
-//   • Subscribers are stored in a HashSet<TickCallback> for O(1) add/remove.
-//   • Invocation copies to a pre-allocated TickCallback[] (no GC per-frame).
-//   • HashSet.CopyTo() avoids the enumerator allocation during dispatch.
-//   • Empty buckets are skipped entirely — zero cost when inactive.
-//   • Death spiral protection clamps accumulation before the dispatch loop,
-//     so a lag spike can never generate a cascade of catch-up ticks.
-//
-// ── IS THIS AS OPTIMISED AS IT CAN BE? ──────────────────────────────────────
-//   Yes — within managed C#. The remaining cost is unavoidable managed delegate
-//   invocation. The two theoretical next steps are:
-//
-//   Burst Compiler: NOT applicable here. Burst requires fully unmanaged code
-//   (NativeCollections, function pointers). Delegates are managed objects —
-//   Burst cannot compile or invoke them. Adopting Burst would require scrapping
-//   the delegate model entirely and rebuilding around NativeArray<FunctionPointer>
-//   which is a fundamentally different (and far more complex) architecture.
-//   Not worth it unless you are running 10 000+ subscribers per bucket.
-//
-//   DOTS/ECS: If your project is already ECS-based, a ComponentSystemGroup with
-//   a custom update rate is the correct pattern. This dispatcher is optimal for
-//   classic GameObject/MonoBehaviour projects.
-//
-// ── BENCHMARKED RESULTS (MidMan Studio, 200 subscribers, Tick_0_1 vs ~72 fps)
-//   ┌────────────────────────┬────────────┬───────────────┬──────────────┐
-//   │ Phase                  │ Update/sec │ Dispatcher/sec│ CPU Saved    │
-//   ├────────────────────────┼────────────┼───────────────┼──────────────┤
-//   │ A — Empty callbacks    │ 0.72 ms    │ 0.008 ms      │ 98.9 %       │
-//   │ B — Heavy work (200×)  │ 102.74 ms  │ 25.38 ms      │ 75.3 %       │
-//   │ C — CountdownTimers    │ 2.70 ms    │ 0.30 ms       │ 88.7 %       │
-//   │ D — InterpTimers       │ 2.82 ms    │ 0.48 ms       │ 80.5 %       │
-//   │ E — Micro-bench raw    │ 2.24 ms    │ 2.29 ms       │ 0.969× ratio │
-//   └────────────────────────┴────────────┴───────────────┴──────────────┘
-//   Dispatcher overhead (CopyTo vs direct loop) ≈ 0.97–1.14× — effectively
-//   identical per-fire cost. All savings come purely from reduced fire rate.
-//
-// ── MINIMUM TICK RATE — READ THIS BEFORE USING FAST RATES ───────────────────
-//   The dispatcher only saves CPU when it fires LESS often than your frame rate.
-//   The moment tick rate >= fps, you are paying dispatch overhead on top of the
-//   work cost with zero frequency saving. Results at 200 subscribers, ~72 fps:
-//
-//   Tick_0_1  (10/sec)  — 75–99% saving.  RECOMMENDED minimum for most systems.
-//   Tick_0_05 (20/sec)  — ~50–60% saving. Acceptable for fast-reaction systems.
-//   Tick_0_02 (50/sec)  — 1–28% saving.   Marginal. Only if 50hz is genuinely
-//                          needed AND your target fps is well above 50.
-//   Tick_0_01 (100/sec) — NEGATIVE saving at 72 fps (-77% to -191%).
-//                          The dispatcher costs MORE than raw Update at this rate.
-//                          Only valid if guaranteed runtime fps > 100.
-//                          Death spiral warnings at normal fps are expected and
-//                          correct — they are telling you this rate is misused.
-//
-//   HARD RULE: Never use Tick_0_02 or Tick_0_01 for gameplay logic.
-//   Reserve them for input polling or physics helpers that explicitly require
-//   sub-frame precision AND only when fps is guaranteed to exceed the tick rate.
-//
-// ── USAGE ───────────────────────────────────────────────────────────────────
-//   void OnEnable()  => MID_TickDispatcher.Subscribe(TickRate.Tick_0_2, OnTick);
-//   void OnDisable() => MID_TickDispatcher.Unsubscribe(TickRate.Tick_0_2, OnTick);
-//   void OnTick(float deltaTime) { /* called 5×/sec instead of 60×/sec */ }
-//
-// ── ADDING NEW TICK RATES ───────────────────────────────────────────────────
-//   1. Add an entry to the TickRate enum at the bottom of this file.
-//      Follow the naming convention: Tick_<interval_in_seconds> using
-//      underscores for decimal points (e.g. Tick_0_25 for every 0.25s).
-//   2. Add a matching entry to _tickIntervals in the same class.
-//   3. That is all — buckets are built from _tickIntervals automatically.
-//
-// ── DEPENDENCY ──────────────────────────────────────────────────────────────
-//   MID_Logger (MidManStudio.Core.Logging)
-// ═══════════════════════════════════════════════════════════════════════════════
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/tickdispatcher.md, section "MID_TickDispatcher.cs"
+// ============================================================================
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -104,9 +11,25 @@ using MidManStudio.Core.Logging;
 namespace MidManStudio.Core.TickDispatcher
 {
     /// <summary>
-    /// Singleton tick dispatcher. Attach to a persistent GameObject in your
-    /// pre-load or bootstrap scene. Auto-creates itself if not found.
+    /// Shared interval dispatcher that replaces per-MonoBehaviour <c>Update()</c> calls.
+    /// Singleton MonoBehaviour: place it on a persistent GameObject in a bootstrap scene, or
+    /// let it create itself (a DontDestroyOnLoad GameObject named "[MID_TickDispatcher]") on
+    /// the first <see cref="Subscribe"/> call.
     /// </summary>
+    /// <remarks>
+    /// Subscribers are grouped into one bucket per <see cref="TickRate"/>. One <c>Update()</c>
+    /// advances every bucket that has subscribers and invokes its callbacks when the bucket's
+    /// interval has elapsed. Buckets without subscribers are skipped. The callback receives the
+    /// bucket's fixed interval, not <c>Time.deltaTime</c>. Always pair <see cref="Subscribe"/>
+    /// with <see cref="Unsubscribe"/> in <c>OnDisable</c> or <c>OnDestroy</c>. Main thread only.
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// void OnEnable()  => MID_TickDispatcher.Subscribe(TickRate.Tick_0_2, OnTick);
+    /// void OnDisable() => MID_TickDispatcher.Unsubscribe(TickRate.Tick_0_2, OnTick);
+    /// void OnTick(float interval) { /* about 5 times per second */ }
+    /// </code>
+    /// </example>
     public class MID_TickDispatcher : MonoBehaviour
     {
         // ── Serialized configuration ─────────────────────────────────────────────
@@ -147,8 +70,8 @@ namespace MidManStudio.Core.TickDispatcher
         private static readonly Dictionary<TickRate, float> _tickIntervals =
             new Dictionary<TickRate, float>
             {
-            { TickRate.Tick_0_01, 0.01f },   // 100/sec — DANGER ZONE. See header.
-            { TickRate.Tick_0_02, 0.02f },   //  50/sec — marginal. See header.
+            { TickRate.Tick_0_01, 0.01f },   // 100/sec — faster than a normal frame. See TickRate.
+            { TickRate.Tick_0_02, 0.02f },   //  50/sec — marginal. See TickRate.
             { TickRate.Tick_0_05, 0.05f },   //  20/sec — fast systems minimum.
             { TickRate.Tick_0_1,  0.1f  },   //  10/sec — recommended minimum.
             { TickRate.Tick_0_2,  0.2f  },   //   5/sec — standard AI / cooldowns.
@@ -614,60 +537,37 @@ namespace MidManStudio.Core.TickDispatcher
 #endif
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════════
     /// <summary>
-    /// Available dispatch rates for MID_TickDispatcher.
-    ///
-    /// ── SELECTION GUIDE (backed by stress test at 200 subscribers, ~72 fps) ─────
-    ///
-    ///   Tick_0_01  (100/sec) ⚠ DANGER — fires faster than a normal frame.
-    ///                          Negative CPU saving at fps &lt; 100. Death spiral
-    ///                          warnings are expected and correct. Only use for
-    ///                          sub-frame physics helpers when fps > 100 is
-    ///                          guaranteed. NEVER use for gameplay logic.
-    ///
-    ///   Tick_0_02  ( 50/sec) ⚠ MARGINAL — only 1–28% saving at ~72 fps.
-    ///                          Use only when 50hz precision is strictly required
-    ///                          AND target fps is well above 50.
-    ///
-    ///   Tick_0_05  ( 20/sec)   FAST MINIMUM — ~50% saving. Acceptable for
-    ///                          high-frequency weapon systems, projectile checks,
-    ///                          or fast network sync where Tick_0_1 is too slow.
-    ///
-    ///   Tick_0_1   ( 10/sec) ✓ RECOMMENDED MINIMUM for most gameplay systems.
-    ///                          75–99% CPU saving confirmed. Weapon cooldowns,
-    ///                          fast AI reactions, network state sync.
-    ///
-    ///   Tick_0_2   (  5/sec) ✓ STANDARD — enemy AI pathfinding, ability
-    ///                          cooldowns, targeting, aggro checks.
-    ///
-    ///   Tick_0_5   (  2/sec) ✓ SLOW — area checks, perception, slow AI,
-    ///                          environmental trigger polling.
-    ///
-    ///   Tick_1     (  1/sec) ✓ VERY SLOW — health regen, score display,
-    ///                          UI number refreshes, passive stat ticks.
-    ///
-    ///   Tick_2     (0.5/sec) ✓ AMBIENT — distant object updates, LOD
-    ///                          state checks, background audio triggers.
-    ///
-    ///   Tick_5     (0.2/sec) ✓ RARE — spawner logic, wave pacing,
-    ///                          music/ambient event triggers.
-    ///
-    /// ── ADDING A NEW RATE ────────────────────────────────────────────────────────
-    ///   1. Add a value here: Tick_X_X (underscores replace decimal points).
-    ///   2. Add { TickRate.Tick_X_X, Xf } to MID_TickDispatcher._tickIntervals.
-    ///   3. Done. The bucket is created automatically.
+    /// Dispatch rates for <see cref="MID_TickDispatcher"/>. The name is the interval in seconds,
+    /// with an underscore for the decimal point.
     /// </summary>
+    /// <remarks>
+    /// The useful range starts at <see cref="Tick_0_1"/> (10 per second). Faster rates fire at or
+    /// above a typical frame rate, so they save little or cost more than a plain <c>Update()</c>,
+    /// and <see cref="MID_TickDelay"/> refuses them. To add a rate, add a value here and a matching
+    /// entry to <c>MID_TickDispatcher._tickIntervals</c>. Keep the values ordered from the fastest
+    /// rate to the slowest: <see cref="MID_TickDelay"/> compares rates with <c>&gt;=</c> and uses
+    /// the numeric value as an array index.
+    /// </remarks>
     public enum TickRate
     {
-        Tick_0_01,  // 100/sec ⚠ DANGER ZONE — see guide above
-        Tick_0_02,  //  50/sec ⚠ MARGINAL   — see guide above
-        Tick_0_05,  //  20/sec   Fast minimum — weapon systems, projectiles
-        Tick_0_1,   //  10/sec ✓ Recommended minimum — fast AI, cooldowns
-        Tick_0_2,   //   5/sec ✓ Standard — enemy AI, ability systems
-        Tick_0_5,   //   2/sec ✓ Slow — area checks, perception
-        Tick_1,     //   1/sec ✓ Very slow — health regen, UI
-        Tick_2,     // 0.5/sec ✓ Ambient — distant objects
-        Tick_5,     // 0.2/sec ✓ Rare — spawners, wave logic
+        /// <summary>100 per second. Not for gameplay logic. Only sensible when the frame rate is above 100.</summary>
+        Tick_0_01,
+        /// <summary>50 per second. Marginal saving at normal frame rates.</summary>
+        Tick_0_02,
+        /// <summary>20 per second. Fast systems such as weapon or projectile checks.</summary>
+        Tick_0_05,
+        /// <summary>10 per second. Recommended minimum: fast AI, cooldowns, state sync.</summary>
+        Tick_0_1,
+        /// <summary>5 per second. Standard: AI pathfinding, ability cooldowns, targeting.</summary>
+        Tick_0_2,
+        /// <summary>2 per second. Area checks, perception, environment polling.</summary>
+        Tick_0_5,
+        /// <summary>1 per second. Health regeneration, UI number refreshes.</summary>
+        Tick_1,
+        /// <summary>Once every 2 seconds. Distant objects, LOD checks.</summary>
+        Tick_2,
+        /// <summary>Once every 5 seconds. Spawner and wave logic.</summary>
+        Tick_5,
     }
 }

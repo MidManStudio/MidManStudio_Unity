@@ -2,7 +2,7 @@
 
 ## 1.0.0
 
-- First release as its own package (not yet tagged). The audio code moved here from `com.midmanstudio.utilities`.
+- First release as its own package. The audio code moved here from `com.midmanstudio.utilities`.
   The namespace `MidManStudio.Core.Audio` is unchanged.
 - **Moved:** `MID_AudioManager`, `MID_AudioLibrarySO`, `MID_NativeAudioBridge`, `MID_AudioLimiter`,
   `MID_SpawnableAudio`, the audio inspectors, the audio benchmark runner and the `mid_audio` native libraries.

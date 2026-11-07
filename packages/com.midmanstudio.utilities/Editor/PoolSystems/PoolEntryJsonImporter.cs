@@ -1,31 +1,20 @@
-// Editor-only JSON → PoolEntryDefinition importer, used by the "Import from
-// JSON" section on ObjectPoolTypeProviderSO / ParticlePoolTypeProviderSO's
-// custom Inspector (see PoolTypeProviderEditor.cs). Pure parsing logic, no
-// UI — kept separate so it's easy to read/extend on its own.
-//
-// ACCEPTED FORMATS (pick one per paste — the whole array must be one shape):
-//
-//   Simple — just names, offsets auto-assigned by the generator:
-//     ["BulletShell", "MuzzleFlash", "GrenadeBlueprint"]
-//
-//   Full — every field optional except one of entryName/name:
-//     [
-//       { "entryName": "BulletShell", "explicitOffset": 2, "comment": "9mm casing" },
-//       { "name": "MuzzleFlash" }
-//     ]
-//
-//   Field aliases accepted in the full form, so pasted JSON doesn't have to
-//   hand-match PoolEntryDefinition's exact C# field names:
-//     name          → entryName
-//     offset, value → explicitOffset
-//     description   → comment
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/pool-systems.md, section "PoolEntryJsonImporter.cs"
+// ============================================================================
 using System;
 using System.Collections.Generic;
 using UnityEngine;
 
 namespace MidManStudio.Core.Pools.Generator
 {
+    /// <summary>
+    /// Turns pasted JSON into <see cref="PoolEntryDefinition"/> objects for the import panel of the provider inspector. Pure
+    /// parsing, no UI. The whole array must have one shape. Simple: a list of names, offsets chosen by the generator,
+    /// <c>["BulletShell", "MuzzleFlash"]</c>. Full: a list of objects where every field is optional except one of
+    /// <c>entryName</c> or <c>name</c>, <c>[{ "entryName": "BulletShell", "explicitOffset": 2, "comment": "9mm casing" }]</c>.
+    /// Aliases in the full form: <c>name</c> for entryName, <c>offset</c> or <c>value</c> for explicitOffset, <c>description</c> for comment.
+    /// </summary>
     public static class PoolEntryJsonImporter
     {
         [Serializable]

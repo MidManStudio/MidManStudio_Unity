@@ -1,43 +1,7 @@
-// UGUI-based sticky note overlay. Builds its own self-contained Canvas at
-// runtime AND in the editor ([ExecuteAlways]) so it appears correctly in the
-// Game View both in and out of Play Mode.
-//
-// WHY THIS IS UGUI, NOT IMGUI (OnGUI):
-//   OnGUI() simply does not run in the Game View outside Play Mode — even
-//   with [ExecuteAlways]. That attribute enables Update()/OnEnable() in edit
-//   mode, but never the IMGUI render pass. RectTransform-driven UI has no
-//   such limitation: it renders through the normal Canvas pipeline, which
-//   the Game View draws regardless of Play state.
-//
-//   OnGUI also mixes Screen.width/height (physical pixels) with
-//   Event.current.mousePosition (scaled by EditorGUIUtility.pixelsPerPoint
-//   on HiDPI/Retina displays) — a classic cause of "position drifts and
-//   doesn't land where it should." RectTransform anchoring has no such
-//   mismatch.
-//
-// DRAG / CLICK LIMITATION (expected, not a bug):
-//   Dragging, minimizing, and closing go through the standard UGUI
-//   EventSystem (IBeginDragHandler/IDragHandler), which only processes
-//   input during Play Mode — exactly like every Button in your project.
-//   Position and appearance preview correctly in edit mode; interaction
-//   requires Play Mode.
-//
-// EDIT-MODE BUILD TIMING:
-//   OnEnable() (which [ExecuteAlways] also fires in edit mode) defers the
-//   actual Rebuild() by one editor tick via EditorApplication.delayCall.
-//   Building synchronously inside OnEnable — which itself can be firing as
-//   part of Unity's own message-sending pass (domain reload, scene load,
-//   prefab stage entry) — triggers "SendMessage cannot be called during
-//   Awake, CheckConsistency, or OnValidate" the moment AddComponent runs on
-//   the new Canvas/EventSystem. Deferring runs the build outside that pass.
-//   Play mode doesn't have this restriction and needs zero-frame init, so
-//   it stays synchronous there.
-//
-// EVENTSYSTEM OWNERSHIP:
-//   The auto-created EventSystem is reference-counted across every
-//   MID_StickyNote instance that ends up using it, and only destroyed once
-//   none remain. A pre-existing user-placed EventSystem is never touched.
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/stickynote.md, section "MID_StickyNote.cs"
+// ============================================================================
 using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
@@ -49,12 +13,57 @@ using UnityEditor;
 
 namespace MidManStudio.Core.Notes
 {
+    /// <summary>
+    /// A scene note drawn as an overlay in the Game View. The component builds its own
+    /// Screen Space Overlay canvas as a child of its GameObject: a header with a title,
+    /// minimize and close buttons, a scrolling body, and a pin button that brings the note
+    /// back after it was closed. The canvas uses <c>HideFlags.DontSave</c>, so it is not
+    /// written into the scene file.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The note is built in Play Mode, and in Edit Mode when <c>Build in Edit Mode</c> is on
+    /// (the default) and the GameObject is in a loaded scene. Position, theme, size and text
+    /// update live in Edit Mode.
+    /// </para>
+    /// <para>
+    /// Dragging the header, minimize and close are ordinary UGUI event handlers, so they need
+    /// the EventSystem to process input and are intended for Play Mode only. The Show, Hide
+    /// and Minimize methods do not check the play state.
+    /// </para>
+    /// <para>
+    /// If no EventSystem exists the note creates one (with a <c>StandaloneInputModule</c>) and
+    /// removes it again once the notes that hold it are gone. An EventSystem you placed
+    /// yourself is never touched. If the project uses only the Input System package, place
+    /// your own EventSystem with the matching input module before the note builds.
+    /// </para>
+    /// <para>
+    /// Visibility and minimize state are runtime state. <c>OnEnable</c> resets them to
+    /// <c>Visible on Start</c> and not minimized. The component is not stripped from player
+    /// builds, so disable or remove it before shipping.
+    /// </para>
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// var note = GetComponent&lt;MID_StickyNote&gt;();
+    /// note.SetTitle("Controls");
+    /// note.SetNotes(new List&lt;string&gt; { "WASD to move", "F to fire" });
+    /// note.Minimize();
+    /// </code>
+    /// </example>
     [AddComponentMenu("MidManStudio/Utilities/Sticky Note")]
     [ExecuteAlways]
     [DisallowMultipleComponent]
     public class MID_StickyNote : MonoBehaviour
     {
+        /// <summary>Colour set for the note: Yellow, Blue, Green, Pink or Dark. The enum value indexes the four private palette arrays, so a new theme needs an entry in each.</summary>
         public enum NoteTheme  { Yellow, Blue, Green, Pink, Dark }
+
+        /// <summary>
+        /// Where the panel is placed. The four corners put the panel pivot on that corner and offset it
+        /// by the margin. <c>Center</c> ignores the margin. <c>Free</c> applies nothing: anchors, pivot and
+        /// position stay as they are, and it is set automatically when the header is dragged.
+        /// </summary>
         public enum NoteAnchor { TopLeft, TopRight, BottomLeft, BottomRight, Center, Free }
 
         // ── Inspector — Content ──────────────────────────────────────────────
@@ -177,8 +186,10 @@ namespace MidManStudio.Core.Notes
 #if UNITY_EDITOR
             if (!Application.isPlaying)
             {
-                // See file header — deferred to dodge the SendMessage-during-a-
-                // message-pass reentrancy warning.
+                // Edit Mode builds one editor tick later. OnEnable can run inside
+                // Unity's own message pass (domain reload, scene load, prefab stage),
+                // where AddComponent logs "SendMessage cannot be called during Awake,
+                // CheckConsistency, or OnValidate". Play Mode builds synchronously.
                 EditorApplication.delayCall += DeferredRebuildIfNeeded;
                 return;
             }
@@ -235,16 +246,20 @@ namespace MidManStudio.Core.Notes
             BuildBody();
             BuildPinButton();
 
-            ApplyAnchor();          // fix panel anchors to a point BEFORE sizing
+            ApplyAnchor();          // anchors must be a single point before sizing, or sizeDelta is added to the parent's size
             ApplyTheme();
-            ApplyLayoutSettings();  // sizeDelta now actually has effect
+            ApplyLayoutSettings();
             RefreshBodyText();
             ApplyVisibilityState();
 
             _built = true;
         }
 
-        /// <summary>Manually force a full rebuild — exposed for the inspector's "Rebuild" button.</summary>
+        /// <summary>
+        /// Destroys and rebuilds the whole canvas hierarchy. Used by the inspector's Rebuild button.
+        /// It does not check whether the note should be built, so with <c>Build in Edit Mode</c> off
+        /// the next <c>Update</c> in Edit Mode removes the result again.
+        /// </summary>
         public void RebuildNow() => Rebuild();
 
         private void DestroyBuiltHierarchy()
@@ -279,13 +294,13 @@ namespace MidManStudio.Core.Notes
             EnsureEventSystem();
         }
 
-        // If your project uses the new Input System exclusively, place your own
-        // EventSystem + InputSystemUIInputModule in the scene ahead of time — we
-        // detect and reuse any existing EventSystem instead of creating one, and
-        // never touch a user-placed one. When we DO create one, it's reference-
-        // counted across every MID_StickyNote instance that used it, and only
-        // destroyed once none remain — this is what stopped duplicate
-        // EventSystems from accumulating.
+        // An existing EventSystem is reused and never touched. If the project uses
+        // only the Input System package, place your own EventSystem with an
+        // InputSystemUIInputModule in the scene first: the one created here uses
+        // StandaloneInputModule. A created EventSystem is reference counted. A note
+        // holds a reference when it creates the EventSystem, or when it finds the
+        // owned one while EventSystem.current is null. The EventSystem is destroyed
+        // when the last holder releases it.
         private static EventSystem s_ownedEventSystem;
         private static int         s_ownedEventSystemRefCount;
         private bool _ownsEventSystemRef;
@@ -473,6 +488,8 @@ namespace MidManStudio.Core.Notes
             lbl.color     = Color.white;
             lbl.raycastTarget = false;
 
+            // Placed once, at build time. Later anchor or margin changes move the
+            // panel (OnValidate) but not the pin button until the next rebuild.
             var pinAnchor = _anchor == NoteAnchor.Free ? NoteAnchor.TopLeft : _anchor;
             ApplyAnchorTo(_pinButton, pinAnchor, _margin);
         }
@@ -525,6 +542,9 @@ namespace MidManStudio.Core.Notes
         {
             if (_panel == null) return;
 
+            // Panel height = header + (preferred text height + 2 x padding), with the
+            // body part clamped to 40..Max Body Height. The padding only adds height:
+            // the text starts at the top of the viewport, so the extra space sits below it.
             float bodyContentHeight = _bodyText != null
                 ? _bodyText.preferredHeight + (_cornerPadding * 2f)
                 : 40f;
@@ -615,29 +635,45 @@ namespace MidManStudio.Core.Notes
 
         // ── Public API ────────────────────────────────────────────────────────
 
+        /// <summary>True while the note panel is shown. False while it is closed and only the pin button is visible.</summary>
         public bool IsVisible   => _visible;
+
+        /// <summary>True while the body is collapsed and only the header is shown.</summary>
         public bool IsMinimized => _minimized;
 
+        /// <summary>Shows the panel and hides the pin button.</summary>
         public void Show()   { _visible = true;  ApplyVisibilityState(); }
+
+        /// <summary>Hides the panel and shows the pin button. The hierarchy is kept, not destroyed.</summary>
         public void Hide()   { _visible = false; ApplyVisibilityState(); }
+
+        /// <summary>Calls <see cref="Hide"/> when visible, otherwise <see cref="Show"/>.</summary>
         public void Toggle() { if (_visible) Hide(); else Show(); }
 
+        /// <summary>Collapses the body (true) or expands it (false). The panel keeps its full height, only the header stays visible.</summary>
         public void SetMinimized(bool minimized) { _minimized = minimized; ApplyVisibilityState(); }
+
+        /// <summary>Same as <c>SetMinimized(true)</c>.</summary>
         public void Minimize() => SetMinimized(true);
+
+        /// <summary>Same as <c>SetMinimized(false)</c>.</summary>
         public void Restore()  => SetMinimized(false);
 
+        /// <summary>Sets the header text immediately and stores it as the new title.</summary>
         public void SetTitle(string title)
         {
             _title = title;
             if (_titleText != null) _titleText.text = title;
         }
 
+        /// <summary>Replaces the note list with a copy of <paramref name="notes"/> (null gives an empty list). The text refreshes on the next <c>Update</c>.</summary>
         public void SetNotes(List<string> notes)
         {
             _notes = new List<string>(notes ?? new List<string>());
             _contentDirty = true;
         }
 
+        /// <summary>Appends one entry to the note list. The text refreshes on the next <c>Update</c>.</summary>
         public void AddNote(string note)
         {
             _notes ??= new List<string>();
@@ -645,18 +681,21 @@ namespace MidManStudio.Core.Notes
             _contentDirty = true;
         }
 
+        /// <summary>Removes all entries from the note list. An assigned text file is kept.</summary>
         public void ClearNotes()
         {
             _notes?.Clear();
             _contentDirty = true;
         }
 
+        /// <summary>Sets the optional text file whose content is appended after the note list. Null removes it.</summary>
         public void SetTextFile(TextAsset file)
         {
             _textFile = file;
             _contentDirty = true;
         }
 
+        /// <summary>Overrides the theme's body text colour. It stays in effect until <see cref="UseThemeTextColor"/> is called.</summary>
         public void SetTextColor(Color c)
         {
             _useCustomTextColor = true;
@@ -664,38 +703,59 @@ namespace MidManStudio.Core.Notes
             if (_bodyText != null) _bodyText.color = c;
         }
 
+        /// <summary>Drops the custom text colour and uses the theme's body text colour again.</summary>
         public void UseThemeTextColor()
         {
             _useCustomTextColor = false;
             ApplyTheme();
         }
 
+        /// <summary>
+        /// Re-applies the configured anchor and margin to the panel. Does nothing while the anchor
+        /// is <see cref="NoteAnchor.Free"/>, which includes after the note has been dragged.
+        /// </summary>
         public void ResetToAnchor() => ApplyAnchor();
 
 #if UNITY_EDITOR
+        /// <summary>Editor only. Header colour of a theme, used by the inspector preview.</summary>
         public static Color GetHeaderColor(NoteTheme t) => s_CHead[(int)t];
+
+        /// <summary>Editor only. Body colour of a theme, used by the inspector preview.</summary>
         public static Color GetBodyColor(NoteTheme t)   => s_CBody[(int)t];
+
+        /// <summary>Editor only. Default body text colour of a theme, used by the inspector preview.</summary>
         public static Color GetTextColor(NoteTheme t)   => s_CText[(int)t];
 #endif
     }
 
     // ── Drag handler ──────────────────────────────────────────────────────────
-    // Lives on the header. Moves Target's anchoredPosition by the pointer delta,
-    // compensated for Canvas scale factor so dragging feels 1:1 regardless of
-    // CanvasScaler settings. Only active while EventSystem processes input
-    // (Play Mode) — same as every other draggable UI element in Unity.
 
+    /// <summary>
+    /// Added to the note's header at build time. Moves <see cref="Target"/> by the pointer delta,
+    /// divided by the canvas scale factor so the drag follows the pointer 1:1. It receives events
+    /// only while the EventSystem processes input, which is Play Mode. It does not clamp the
+    /// position to the screen. Not meant to be added by hand (hidden from the Add Component menu).
+    /// </summary>
     [AddComponentMenu("")]
     public class MID_StickyNoteDragHandler : MonoBehaviour,
         IBeginDragHandler, IDragHandler, IEndDragHandler
     {
+        /// <summary>The panel that is moved.</summary>
         public RectTransform Target;
+
+        /// <summary>The canvas whose scale factor is used to convert the pointer delta. A missing canvas or a scale factor of 0 or less counts as 1.</summary>
         public Canvas        Canvas;
+
+        /// <summary>Invoked after every drag step. The note uses it to switch its anchor to <see cref="MID_StickyNote.NoteAnchor.Free"/>.</summary>
         public System.Action OnDragged;
+
+        /// <summary>Optional gate. When set and it returns false, dragging is ignored. The note passes its Draggable setting.</summary>
         public System.Func<bool> IsEnabled;
 
+        /// <summary>Required by <see cref="IBeginDragHandler"/>. Does nothing.</summary>
         public void OnBeginDrag(PointerEventData eventData) { }
 
+        /// <summary>Moves <see cref="Target"/> by the pointer delta and invokes <see cref="OnDragged"/>.</summary>
         public void OnDrag(PointerEventData eventData)
         {
             if (Target == null) return;
@@ -706,6 +766,7 @@ namespace MidManStudio.Core.Notes
             OnDragged?.Invoke();
         }
 
+        /// <summary>Required by <see cref="IEndDragHandler"/>. Does nothing.</summary>
         public void OnEndDrag(PointerEventData eventData) { }
     }
 }

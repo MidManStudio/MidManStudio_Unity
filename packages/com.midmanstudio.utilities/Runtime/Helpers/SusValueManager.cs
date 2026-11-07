@@ -1,4 +1,7 @@
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/helpers.md, section "SusValueManager.cs"
+// ============================================================================
 using System.Collections.Generic;
 using UnityEngine;
 using MidManStudio.Core.Logging;
@@ -7,16 +10,16 @@ using MidManStudio.Core.Singleton;
 namespace MidManStudio.Core.ObservableValues
 {
     /// <summary>
-    /// Tracks all ManagedSusValue instances so subscriptions can be bulk-cleared
-    /// when a GameObject is destroyed or a scene unloads.
+    /// Registry of <see cref="ManagedSusValue{T}"/> instances, so their subscriptions can be cleared in bulk when
+    /// a GameObject is destroyed or a scene unloads. It is a <see cref="Singleton{T}"/>: created on first use in
+    /// Play Mode, and not available in Edit Mode.
     ///
-    /// USAGE — automatic:
-    ///   new ManagedSusValue<float>(0f, "MyFloat", gameObject)
-    ///   → registered automatically, cleared when gameObject is destroyed.
+    /// Automatic: <c>new ManagedSusValue&lt;float&gt;(0f, "MyFloat", gameObject)</c> registers itself, and its
+    /// subscriptions are cleared when that GameObject is destroyed.
+    /// Manual: <c>SusValueManager.Instance.ClearAllForOwner(myGameObject)</c> or <c>ClearAll()</c>.
     ///
-    /// USAGE — manual bulk clear:
-    ///   SusValueManager.Instance.ClearAllForOwner(myGameObject);
-    ///   SusValueManager.Instance.ClearAll();
+    /// Clearing an owner removes the subscriptions only. The values stay registered, so their IDs stay taken.
+    /// A value whose ID is already registered is skipped with a warning and is not tracked.
     /// </summary>
     public class SusValueManager : Singleton<SusValueManager>
     {
@@ -31,7 +34,9 @@ namespace MidManStudio.Core.ObservableValues
         // ── Public API ────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Register a managed value. Called automatically by ManagedSusValue constructor.
+        /// Register a managed value. Called automatically by the ManagedSusValue constructor. A value whose ID is
+        /// already registered is skipped with a warning. When an owner is given, a hidden watcher component is added
+        /// to that GameObject to clear the owner's values when it is destroyed.
         /// </summary>
         public void RegisterValue(IManagedSusValue value, GameObject owner = null)
         {
@@ -67,8 +72,8 @@ namespace MidManStudio.Core.ObservableValues
         }
 
         /// <summary>
-        /// Unregister a value by ID and clear its subscriptions.
-        /// Called automatically by ManagedSusValue finalizer.
+        /// Unregister a value by ID and clear its subscriptions. Also called by the ManagedSusValue finalizer.
+        /// It does nothing for an unknown ID.
         /// </summary>
         public void UnregisterValue(string valueId)
         {
@@ -82,7 +87,7 @@ namespace MidManStudio.Core.ObservableValues
                 nameof(SusValueManager));
         }
 
-        /// <summary>Clear subscriptions on all values owned by this GameObject.</summary>
+        /// <summary>Clear subscriptions on all values owned by this GameObject. The values stay registered.</summary>
         public void ClearAllForOwner(GameObject owner)
         {
             if (owner == null) return;
@@ -104,7 +109,7 @@ namespace MidManStudio.Core.ObservableValues
                 nameof(SusValueManager));
         }
 
-        /// <summary>Clear subscriptions on every registered value.</summary>
+        /// <summary>Clear subscriptions on every registered value, then forget all values and owners.</summary>
         public void ClearAll()
         {
             foreach (var value in _values.Values)

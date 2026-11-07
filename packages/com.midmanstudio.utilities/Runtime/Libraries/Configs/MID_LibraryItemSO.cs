@@ -1,30 +1,24 @@
-
-// Abstract base for library items. Subclass to add your own data fields.
-//
-// QUICK START — just need a named item with no extra data?
-//   Use MID_BasicLibraryItemSO (CreateAssetMenu included).
-//
-// CUSTOM DATA — create your own subclass:
-//   [CreateAssetMenu(menuName = "MyGame/Libraries/WeaponItem")]
-//   public class WeaponItemSO : MID_LibraryItemSO
-//   {
-//       public float damage;
-//       public Sprite icon;
-//   }
-//
-// RETRIEVAL:
-//   var weapon = MID_LibraryRegistry.Instance.GetItem<WeaponItemSO>("Weapons", "Sword");
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/libraries.md, section "MID_LibraryItemSO.cs"
+// ============================================================================
 using UnityEngine;
 using MidManStudio.Core.EditorUtils;
 
 namespace MidManStudio.Core.Libraries
 {
     /// <summary>
-    /// Abstract base class for all library items.
-    /// Subclass to add game-specific data fields.
-    /// For simple string-only items, use <see cref="MID_BasicLibraryItemSO"/>.
+    /// Abstract base class for all library items. Derive from it to add game-specific data fields.
+    /// For an item with only a name and a description use <see cref="MID_BasicLibraryItemSO"/>.
     /// </summary>
+    /// <example>
+    /// <code>
+    /// [CreateAssetMenu(menuName = "MyGame/Libraries/WeaponItem")]
+    /// public class WeaponItemSO : MID_LibraryItemSO { public float damage; public Sprite icon; }
+    ///
+    /// var weapon = MID_LibraryRegistry.Instance.GetItem&lt;WeaponItemSO&gt;("Weapons", "Sword");
+    /// </code>
+    /// </example>
     public abstract class MID_LibraryItemSO : ScriptableObject, IArrayElementTitle
     {
         [Tooltip("Unique string key used to retrieve this item from the registry.\n" +
@@ -37,7 +31,7 @@ namespace MidManStudio.Core.Libraries
         public string ItemId =>
             !string.IsNullOrWhiteSpace(_itemId) ? _itemId : name;
 
-        // IArrayElementTitle — shows ItemId in the inspector list
+        /// <summary>List element label in the inspector (<see cref="ItemId"/>).</summary>
         public string Name => ItemId;
     }
 }

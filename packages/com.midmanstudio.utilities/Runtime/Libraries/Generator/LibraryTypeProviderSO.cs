@@ -1,17 +1,17 @@
-
-// Contributes library and item entries to the generated LibraryId and LibraryItemId enums.
-// Same provider pattern as pool types — one asset per package, one generator run.
-//
-// PRIORITY RANGES:
-//   0   = com.midmanstudio.utilities (reserved)
-//   100 = user game code
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/libraries.md, section "LibraryTypeProviderSO.cs"
+// ============================================================================
 using System.Collections.Generic;
 using UnityEngine;
 using MidManStudio.Core.EditorUtils;
 
 namespace MidManStudio.Core.Libraries.Generator
 {
+    /// <summary>
+    /// One library in a <see cref="LibraryTypeProviderSO"/>: a name that becomes a <c>LibraryId</c> member and
+    /// a list of item names that become <c>LibraryItemId</c> members named <c>LibraryName_ItemName</c>.
+    /// </summary>
     [System.Serializable]
     public class LibraryEntryDefinition : IArrayElementTitle
     {
@@ -26,10 +26,16 @@ namespace MidManStudio.Core.Libraries.Generator
         [Tooltip("Optional inline comment written next to the LibraryId enum member.")]
         public string comment;
 
+        /// <summary>List element label: the library name, or "Unnamed Library" when blank.</summary>
         public string Name => string.IsNullOrWhiteSpace(libraryName) ? "Unnamed Library" : libraryName;
     }
 
     
+    /// <summary>
+    /// Contributes library and item names to the generated <c>LibraryId</c> and <c>LibraryItemId</c> enums.
+    /// Same provider idea as the pool types: one asset per package or game project, one generator run.
+    /// Priority: 0 is reserved for the utilities package, 100 and above is for game code.
+    /// </summary>
 [CreateAssetMenu(fileName="LibraryTypeProvider",
     menuName="MidManStudio/Utilities/Library Type Provider", order=210)]
     public class LibraryTypeProviderSO : ScriptableObject
@@ -47,7 +53,9 @@ namespace MidManStudio.Core.Libraries.Generator
         [MID_NamedList]
         public List<LibraryEntryDefinition> libraries = new();
 
+        /// <summary>Number of libraries, 0 when the list is null.</summary>
         public int LibraryCount => libraries?.Count ?? 0;
+        /// <summary>Total number of item names over all libraries in this provider.</summary>
         public int TotalItemCount()
         {
             int n = 0;

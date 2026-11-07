@@ -1,9 +1,7 @@
-// Shared custom VisualElements and utilities for MidManStudio editor windows.
-// — GradientBannerElement : draws a four-corner gradient header (no SVG package needed)
-// — OrderBarElement       : draws the execution-order pip visualiser
-// — InfoPopupHandler      : manages the floating info-popup panel defined in UXML
-// — MidEditorUIHelpers    : UXML / USS asset loading
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/editor-helpers.md, section "MidEditorUIElements.cs"
+// ============================================================================
 #if UNITY_EDITOR
 using System;
 using System.Collections.Generic;
@@ -15,9 +13,12 @@ using UnityEngine.UIElements;
 namespace MidManStudio.Core.EditorTools
 {
     // ── Gradient Banner ────────────────────────────────────────────────────────
-    // Create from C# and insert into the tree — avoids the fully-qualified
-    // custom-element syntax in .uxml files while still being reusable.
 
+    /// <summary>
+    /// A four-corner gradient drawn as one mesh (no SVG package needed). Create it from C# and insert it into the
+    /// tree, which avoids the fully-qualified custom-element syntax in .uxml files. The four colour fields can be
+    /// changed after construction. It ignores the mouse.
+    /// </summary>
     public sealed class GradientBannerElement : VisualElement
     {
         // Default palette — override after construction if needed
@@ -52,9 +53,13 @@ namespace MidManStudio.Core.EditorTools
     }
 
     // ── Order Bar ─────────────────────────────────────────────────────────────
-    // Insert into the VisualElement named "order-bar" from C# after UXML clone.
-    // Call UpdateData() whenever the managed-script list changes.
 
+    /// <summary>
+    /// A strip with one dot per script, placed by its execution order between the lowest and highest value (a zero
+    /// line is drawn). Dots are yellow when changed and unsaved, blue before zero, orange after zero and grey at
+    /// zero. Hovering shows the name and order of the nearest dot as a tooltip. Insert it from C# into the element
+    /// named "order-bar" after cloning the UXML, and call <see cref="UpdateData"/> whenever the list changes.
+    /// </summary>
     public sealed class OrderBarElement : VisualElement
     {
         private readonly struct Pip
@@ -83,7 +88,10 @@ namespace MidManStudio.Core.EditorTools
             RegisterCallback<MouseMoveEvent>(OnHover);
         }
 
-        /// <summary>Feed updated script data. Call after any order change or list refresh.</summary>
+        /// <summary>
+        /// Feed updated script data. Call after any order change or list refresh. The <c>isMms</c> flag of each
+        /// item is accepted but not used.
+        /// </summary>
         public void UpdateData(IEnumerable<(string name, int order, bool dirty, bool isMms)> items)
         {
             _pips.Clear();
@@ -166,9 +174,14 @@ namespace MidManStudio.Core.EditorTools
     }
 
     // ── Info Popup Handler ─────────────────────────────────────────────────────
-    // Manages the floating info panel (name="info-popup") defined in UXML.
-    // Call Toggle() from each ? button's clicked callback.
 
+    /// <summary>
+    /// Manages the floating info panel defined in UXML: an element named "info-popup" holding labels named
+    /// "info-popup-title" and "info-popup-body". Call <see cref="Toggle"/> from each help button's clicked callback.
+    /// A click anywhere outside the panel hides it. If the UXML has no "info-popup" element, every call does
+    /// nothing and <see cref="IsAvailable"/> is false. The two labels are not checked, so a panel without them
+    /// throws when shown.
+    /// </summary>
     public sealed class InfoPopupHandler
     {
         private readonly VisualElement _popup;
@@ -176,6 +189,7 @@ namespace MidManStudio.Core.EditorTools
         private readonly Label         _bodyLbl;
         private VisualElement          _currentAnchor;
 
+        /// <param name="root">The root of the window that holds the info-popup element.</param>
         public InfoPopupHandler(VisualElement root)
         {
             _popup    = root.Q<VisualElement>("info-popup");
@@ -192,8 +206,10 @@ namespace MidManStudio.Core.EditorTools
             }, TrickleDown.TrickleDown);
         }
 
+        /// <summary>True when the UXML contains the info-popup element.</summary>
         public bool IsAvailable => _popup != null;
 
+        /// <summary>Shows the popup under the button, or hides it when it is already showing for that same button.</summary>
         public void Toggle(Button anchor, string title, string body)
         {
             if (_popup == null) return;
@@ -203,6 +219,7 @@ namespace MidManStudio.Core.EditorTools
             Show(anchor, title, body);
         }
 
+        /// <summary>Shows the popup under the anchor, after the next layout pass, kept inside the window width.</summary>
         public void Show(VisualElement anchor, string title, string body)
         {
             if (_popup == null) return;
@@ -227,6 +244,7 @@ namespace MidManStudio.Core.EditorTools
             });
         }
 
+        /// <summary>Hides the popup.</summary>
         public void Hide()
         {
             if (_popup != null) _popup.style.display = DisplayStyle.None;
@@ -236,9 +254,13 @@ namespace MidManStudio.Core.EditorTools
 
     // ── Helpers ────────────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Loads UXML and USS files by file name. The search covers the whole project, packages included, and returns
+    /// the first asset whose file name matches exactly. Nothing is cached.
+    /// </summary>
     public static class MidEditorUIHelpers
     {
-        /// <summary>Find a .uxml VisualTreeAsset by file name (no extension).</summary>
+        /// <summary>Find a .uxml VisualTreeAsset by file name (no extension). Logs a warning and returns null when none is found.</summary>
         public static VisualTreeAsset FindUxml(string baseName)
         {
             foreach (var guid in AssetDatabase.FindAssets($"{baseName} t:VisualTreeAsset"))
@@ -251,7 +273,7 @@ namespace MidManStudio.Core.EditorTools
             return null;
         }
 
-        /// <summary>Find a .uss StyleSheet by file name (no extension).</summary>
+        /// <summary>Find a .uss StyleSheet by file name (no extension). Logs a warning and returns null when none is found.</summary>
         public static StyleSheet FindUss(string baseName)
         {
             foreach (var guid in AssetDatabase.FindAssets($"{baseName} t:StyleSheet"))

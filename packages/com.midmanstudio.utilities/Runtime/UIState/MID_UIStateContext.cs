@@ -1,9 +1,7 @@
-
-// SETUP:
-//   1. Create via right-click > MidManStudio > Utilities > UI State Context
-//   2. Set contextName (PascalCase, no spaces — e.g. "Menu" → generates MenuUIState.cs)
-//   3. Add states, then run: MidManStudio > Utilities > UI State Context Generator
-//   4. Assign this SO asset to MID_UIStateManager, MID_UIStateVisibility, MID_UIStateButton
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/uistate.md, section "MID_UIStateContext.cs"
+// ============================================================================
 
 using System;
 using System.Collections.Generic;
@@ -13,6 +11,7 @@ using MidManStudio.Core.EditorUtils;
 
 namespace MidManStudio.Core.UIState
 {
+    /// <summary>One state of a context: the enum member name and an optional comment written next to it.</summary>
     [Serializable]
     public class UIStateEntry : IArrayElementTitle
     {
@@ -20,9 +19,19 @@ namespace MidManStudio.Core.UIState
         public string enumName;
         [Tooltip("Optional inline comment written next to the generated enum member.")]
         public string comment;
+        /// <summary>Label in inspector lists: the enum name, or "Unnamed State" when blank.</summary>
         public string Name => string.IsNullOrWhiteSpace(enumName) ? "Unnamed State" : enumName;
     }
 
+    /// <summary>
+    /// ScriptableObject that is both the definition and the run time state machine of one UI context. It lists the
+    /// state names that the UI State Context Generator turns into a [Flags] enum (<c>{contextName}UIState</c>), and it
+    /// keeps the current state (an int that holds enum flags), a back history and the <see cref="OnStateChanged"/> event.
+    /// Create it with Create > MidManStudio > Utilities > UI State Context, set <c>contextName</c> (PascalCase, no
+    /// spaces), add states, run MidManStudio > Utilities > UI State Context Generator, then assign the asset to
+    /// <see cref="MID_UIStateManager"/>, <see cref="MID_UIStateVisibility"/> and <see cref="MID_UIStateButton"/>.
+    /// The run time state is reset when the asset is enabled.
+    /// </summary>
     [CreateAssetMenu(fileName = "UIStateContext",
         menuName = "MidManStudio/Utilities/UI State Context", order = 190)]
     public class MID_UIStateContext : ScriptableObject
@@ -52,6 +61,7 @@ namespace MidManStudio.Core.UIState
         /// <summary>Friendly display string (same as contextName).</summary>
         public string contextDisplayName => contextName;
 
+        /// <summary>Number of entries in the state list.</summary>
         public int StateCount => states?.Count ?? 0;
 
         // ── Events ────────────────────────────────────────────────────────────
@@ -67,8 +77,11 @@ namespace MidManStudio.Core.UIState
 
         // ── Properties ────────────────────────────────────────────────────────
 
+        /// <summary>The current state as a raw enum value. 0 means None.</summary>
         public int  CurrentState => _currentState;
+        /// <summary>True when the history holds a state to go back to.</summary>
         public bool CanGoBack    => _history.Count > 0;
+        /// <summary>Number of states in the back history.</summary>
         public int  HistoryDepth => _history.Count;
 
         // ── Unity SO Lifecycle ────────────────────────────────────────────────
@@ -137,7 +150,9 @@ namespace MidManStudio.Core.UIState
                 nameof(MID_UIStateContext));
         }
 
+        /// <summary>True when the current state equals <paramref name="state"/> exactly.</summary>
         public bool IsInState(int state) => _currentState == state;
+        /// <summary>True when the current state contains any bit of <paramref name="flag"/>.</summary>
         public bool HasFlag(int flag)    => (_currentState & flag) != 0;
     }
 }

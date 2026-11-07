@@ -1,7 +1,7 @@
-// Reads all LibraryTypeProviderSO assets and writes LibraryId.cs and LibraryItemId.cs.
-// Replaces magic string keys with typed enum members.
-// Open via: MidManStudio > Utilities > Library Type Generator
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/libraries.md, section "LibraryTypeGenerator.cs"
+// ============================================================================
 #if UNITY_EDITOR
 using System;
 using System.Collections.Generic;
@@ -14,6 +14,11 @@ using MidManStudio.Core.Libraries.Generator;
 
 namespace MidManStudio.Core.EditorUtils.Libraries
 {
+    /// <summary>
+    /// Reads every <see cref="LibraryTypeProviderSO"/> asset and writes <c>LibraryId.cs</c> and
+    /// <c>LibraryItemId.cs</c>, which replace magic string keys with typed enum members. Run it from
+    /// MidManStudio > Utilities > Library Type Generator.
+    /// </summary>
     public static class LibraryTypeGeneratorCore
     {
         // ── Settings ─────────────────────────────────────────────────────────
@@ -28,6 +33,11 @@ private const string LibraryItemPath =
 
         // ── Entry Point ───────────────────────────────────────────────────────
 
+        /// <summary>
+        /// Validates all providers and, when there are no errors, writes both enum files and refreshes the
+        /// asset database. With errors nothing is written. Providers are ordered by priority, then package id,
+        /// and numbers are assigned from 0 in that order.
+        /// </summary>
         public static (bool success, List<string> errors, List<string> warnings)
             Generate()
         {
@@ -232,6 +242,7 @@ private const string LibraryItemPath =
 
     // ── Editor Window ─────────────────────────────────────────────────────────
 
+    /// <summary>Window with a provider list and a Generate Now button that runs <see cref="LibraryTypeGeneratorCore.Generate"/>.</summary>
     public class LibraryTypeGeneratorWindow : EditorWindow
     {
         private Vector2 _scroll;

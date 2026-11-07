@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/pool-systems.md, section "LocalObjectPool.cs"
+// ============================================================================
 using System.Collections.Generic;
 using UnityEngine;
 using MidManStudio.Core.Logging;
@@ -6,6 +10,14 @@ using MidManStudio.Core.EditorUtils;
 
 namespace MidManStudio.Core.Pools
 {
+    /// <summary>
+    /// Pool for prefab instances, keyed by the generated <see cref="PoolableObjectType"/> enum. Add one entry per prefab in
+    /// the inspector, call <see cref="CallInitializePool"/> once, then use <see cref="GetObject(PoolableObjectType, Vector3, Quaternion)"/>
+    /// and <see cref="ReturnObject"/>. Every instance gets a <see cref="LocalPoolReturn"/> that returns it by itself after
+    /// its auto-return time. A type that is not registered is registered on first use from the config list, with the
+    /// auto-registration prewarm and size, when auto-registration is on. The monitor fields in the inspector are
+    /// updated every frame.
+    /// </summary>
     public class LocalObjectPool : Singleton<LocalObjectPool>
     {
         #region Serialized Fields
@@ -42,23 +54,17 @@ namespace MidManStudio.Core.Pools
         private readonly Dictionary<PoolableObjectType, int> _activeCount = new();
         private readonly Dictionary<GameObject, PoolableObjectType> _prefabToType = new();
 
-        // FIX: tracks every GameObject currently sitting in one of the
-        // _pooledObjects queues. Used by ReturnObject to reject a duplicate
-        // enqueue of an object that's already queued (e.g. an auto-return timer
-        // firing on an object a caller is still explicitly holding and later also
-        // returns manually — see LocalPoolReturn / PhysicsProjectileBase). Without
-        // this, the same GameObject reference can be dequeued and handed to two
-        // callers at once; whichever loses the race ends up with a visual that
-        // gets reparented/destroyed out from under it, and a stale/destroyed
-        // reference can be left sitting in the queue for a later GetObject() to
-        // choke on. Cleared whenever an entry leaves a queue (GetObject dequeue,
-        // ClearPool).
+        // Every GameObject that currently sits in one of the _pooledObjects queues. ReturnObject uses it to
+        // reject a second return of an object that is already queued, for example an auto-return timer that
+        // fires on an object a caller still holds and returns later by hand. An entry is removed when an object
+        // leaves a queue (GetObject dequeue, ClearPool).
         private readonly HashSet<GameObject> _queuedObjects = new();
 
         #endregion
 
         #region Properties
 
+        /// <summary>True after <see cref="CallInitializePool"/> has registered the configured types.</summary>
         public bool HasBeenInitialized() => _initialized;
 
         #endregion
@@ -74,6 +80,10 @@ namespace MidManStudio.Core.Pools
 
         #region Public API
 
+        /// <summary>
+        /// Checks the config list and registers every entry with its prewarm count, then starts <see cref="LocalParticlePool"/> if it
+        /// is not initialised. Does nothing when already initialised. When the list has a duplicate type or prefab it logs an error and stays uninitialised.
+        /// </summary>
         public void CallInitializePool()
         {
             if (_initialized) return;
@@ -98,6 +108,10 @@ namespace MidManStudio.Core.Pools
 
         // ── Get ───────────────────────────────────────────────────────────────
 
+        /// <summary>
+        /// Takes an instance from the queue, or creates one when the queue is empty, and activates it at the position. Returns null when
+        /// the type cannot be registered. The instance has no parent after this call.
+        /// </summary>
         public GameObject GetObject(PoolableObjectType type, Vector3 position, Quaternion rotation)
         {
             if (!EnsureRegistered(type)) return null;
@@ -105,16 +119,10 @@ namespace MidManStudio.Core.Pools
             var pool = _pooledObjects[type];
             GameObject obj = null;
 
-            // FIX (MissingReferenceException on GetObject): a queued entry can go
-            // stale if something outside the pool's own Get/Return pair destroys
-            // it directly — most commonly a NetworkObject parent destroyed by
-            // Netcode while a pooled child visual was still (incorrectly) sitting
-            // in the queue from an earlier premature/duplicate return. Unity's
-            // overridden `== null` correctly reports true for a destroyed native
-            // object even though the C# reference itself is non-null, so this
-            // skip is cheap and reliable. Previously a bare Dequeue() handed the
-            // destroyed reference straight to the caller, and the very next
-            // `.transform` access on it threw MissingReferenceException.
+            // A queued entry can go stale when something outside the pool destroys it, for example a NetworkObject
+            // parent destroyed by Netcode while a pooled child visual still sits in the queue. Unity's overridden
+            // `== null` reports true for a destroyed object although the C# reference is not null, so such
+            // entries are skipped here.
             while (pool.Count > 0)
             {
                 var candidate = pool.Dequeue();
@@ -149,16 +157,20 @@ namespace MidManStudio.Core.Pools
             return obj;
         }
 
+        /// <summary>2D overload. The z position is 0.</summary>
         public GameObject GetObject(PoolableObjectType type, Vector2 position, Quaternion rotation)
             => GetObject(type, new Vector3(position.x, position.y, 0f), rotation);
 
         // ── Return ────────────────────────────────────────────────────────────
 
+        /// <summary>
+        /// Puts an instance back in the queue after resetting it. Ignores null, destroyed and already queued objects (with a warning). Destroys
+        /// the object instead when the queue is full or the type is unknown and cannot be registered.
+        /// </summary>
         public void ReturnObject(GameObject obj, PoolableObjectType type)
         {
-            // FIX: a destroyed/null object has nothing to return — silently
-            // enqueuing it (or worse, re-Destroying it) just masks whatever
-            // double-return or dangling-reference bug produced the call.
+            // A destroyed or null object has nothing to return. It is reported, not queued, so the double
+            // return or dangling reference that caused the call stays visible.
             if (obj == null)
             {
                 MID_Logger.LogWarning(_logLevel,
@@ -167,10 +179,8 @@ namespace MidManStudio.Core.Pools
                 return;
             }
 
-            // FIX: reject a duplicate return of an object that's already queued.
-            // See the _queuedObjects field comment for why this matters — without
-            // it, the same GameObject can be dequeued twice and handed to two
-            // owners simultaneously.
+            // Reject a second return of an object that is already queued, so one GameObject is never handed to
+            // two owners. See the _queuedObjects field.
             if (_queuedObjects.Contains(obj))
             {
                 MID_Logger.LogWarning(_logLevel,
@@ -239,6 +249,7 @@ namespace MidManStudio.Core.Pools
 
         // ── Registration ──────────────────────────────────────────────────────
 
+        /// <summary>Registers a type at run time. Does nothing (with a warning or an error) when the type or the prefab is already registered.</summary>
         public void AddType(PoolableObjectType type, GameObject prefab,
                             int prewarm = 5, int maxSize = 15)
         {
@@ -273,6 +284,7 @@ namespace MidManStudio.Core.Pools
                 nameof(LocalObjectPool));
         }
 
+        /// <summary>True when the type has been registered.</summary>
         public bool IsRegistered(PoolableObjectType type) => _registeredTypes.Contains(type);
 
         /// <summary>
@@ -286,6 +298,7 @@ namespace MidManStudio.Core.Pools
         public int GetQueuedCount(PoolableObjectType type)
             => _pooledObjects.TryGetValue(type, out var pool) ? pool.Count : 0;
 
+        /// <summary>Returns every active object that has a <see cref="LocalPoolReturn"/>. Searches the whole scene, so do not call it every frame.</summary>
         public void ReturnAllActive()
         {
             int count = 0;
@@ -300,6 +313,7 @@ namespace MidManStudio.Core.Pools
                 nameof(LocalObjectPool));
         }
 
+        /// <summary>Destroys all queued instances and forgets every registration. Instances that are currently checked out are not touched.</summary>
         public void ClearPool()
         {
             int total = 0;

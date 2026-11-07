@@ -2,7 +2,7 @@
 
 ## 0.1.0
 
-- First release (not yet tagged).
+- First release.
 - **Command**: `ICommand`, `IUndoableCommand`, `IMergeableCommand`, `INamedCommand`, `ActionCommand`, `UndoableActionCommand`, `CompositeCommand`, `CommandHistory` (undo/redo, capacity, merging, groups) and `CommandQueue`. See `docs/com.midmanstudio.patterns/command.md`.
 - **State**: `IState<T>`, `IPausableState<T>`, `State<T>` and `StateMachine<T>` (change, push, pop, stop, deferred transitions, condition transitions). See `docs/com.midmanstudio.patterns/state.md`.
 - **Event Queue**: `EventQueue<T>` and `EventQueueOverflow`. See `docs/com.midmanstudio.patterns/event-queue.md`.

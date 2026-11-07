@@ -1,14 +1,7 @@
-
-// Combines back navigation AND state-based visibility in one component.
-// Requires MID_UIElement (CanvasGroup) on the same GameObject.
-//
-// SETUP:
-//   1. Add to a Button GameObject that also has MID_UIElement
-//   2. Assign the MID_UIStateContext SO
-//   3. Use the "Visible In States" checkboxes to choose when the button shows
-//      (leave mask = 0 to always show regardless of state)
-//   4. "Disable When No History" will additionally grey out the button
-//      when there is nothing to go back to
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/uistate.md, section "MID_UIStateBackButton.cs"
+// ============================================================================
 
 using UnityEngine;
 using UnityEngine.UI;
@@ -16,6 +9,12 @@ using MidManStudio.Core.Logging;
 
 namespace MidManStudio.Core.UIState
 {
+    /// <summary>
+    /// Back navigation and state based visibility in one component. Goes back one step in a
+    /// <see cref="MID_UIStateContext"/> on click. Needs a Button and a <see cref="MID_UIElement"/> on the same
+    /// GameObject. The button is visible in the states of the mask (mask 0 means always visible). With Disable When No
+    /// History on, it is also not interactable while there is nothing to go back to.
+    /// </summary>
     [RequireComponent(typeof(Button))]
     [RequireComponent(typeof(MID_UIElement))]
     public class MID_UIStateBackButton : MonoBehaviour
@@ -40,7 +39,9 @@ namespace MidManStudio.Core.UIState
 
         // ── Properties ────────────────────────────────────────────────────────
 
+        /// <summary>The context this button navigates back in.</summary>
         public MID_UIStateContext Context      => _context;
+        /// <summary>The flags in which the button is visible. 0 means always visible.</summary>
         public int                ShowWhenMask => _showWhenMask;
 
         // ── Lifecycle ─────────────────────────────────────────────────────────

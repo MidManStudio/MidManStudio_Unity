@@ -1,21 +1,26 @@
-// Pure C# fuzzy name matcher — no external dependency.
-// Composite of normalized Levenshtein similarity, camelCase/underscore token overlap
-// (Jaccard), and a substring-containment bonus. Used to disambiguate a field when
-// more than one candidate component/GameObject of the right type is found.
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/autoreference.md, section "MID_NameMatcher.cs"
+// ============================================================================
 using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
 
 namespace MidManStudio.Core.AutoReference
 {
+    /// <summary>
+    /// Pure C# fuzzy name matcher with no dependency. Used to choose between several candidates for one field.
+    /// The score is <c>0.45 * Levenshtein similarity + 0.35 * token Jaccard + 0.25 if one normalised name
+    /// contains the other</c>, clamped to 0..1. Equal normalised names score 1. Normalising lowercases and keeps
+    /// letters and digits only. Tokens split on camelCase, underscore, space and dash.
+    /// </summary>
     public static class MID_NameMatcher
     {
         private const float LevenshteinWeight = 0.45f;
         private const float TokenWeight       = 0.35f;
         private const float SubstringBonus    = 0.25f;
 
-        /// <summary>Returns a 0–1 similarity score between a field name and a candidate's owning-object name.</summary>
+        /// <summary>Returns a 0 to 1 similarity score between a field name and the name of a candidate's owning object. 0 when either name is empty.</summary>
         public static float Score(string fieldName, string candidateName)
         {
             if (string.IsNullOrEmpty(fieldName) || string.IsNullOrEmpty(candidateName)) return 0f;

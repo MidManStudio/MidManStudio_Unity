@@ -1,9 +1,7 @@
-// Bulk auto-reference tool. Scans open scenes for GameObjects carrying any
-// [MID_AutoRefable] script, lets you bulk-add MID_AutoRef components to the
-// ones missing it (manually or automatically on scan), and bulk-resolve with
-// a warnings log (unresolved / ambiguous).
-// Open via: MidManStudio > Utilities > Auto Reference
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/autoreference.md, section "MID_AutoReferenceWindow.cs"
+// ============================================================================
 #if UNITY_EDITOR
 using System.Collections.Generic;
 using System.Linq;
@@ -17,6 +15,12 @@ using MidManStudio.Core.EditorTools;
 
 namespace MidManStudio.Core.EditorUtils.AutoReference
 {
+    /// <summary>
+    /// Bulk auto-reference tool (MidManStudio > Utilities > Auto Reference). Scans the open scenes for GameObjects
+    /// with a <c>[MID_AutoRefable]</c> script, adds <see cref="MID_AutoRef"/> to the ones that lack it (by button, or
+    /// automatically on scan if enabled) and resolves them in bulk with a log of assigned, ambiguous and
+    /// unresolved fields. It uses its own options, not the options of each object's component.
+    /// </summary>
     public class MID_AutoReferenceWindow : EditorWindow
     {
         private enum LogSeverity { Ok, Ambiguous, Warn }

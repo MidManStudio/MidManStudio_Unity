@@ -1,13 +1,17 @@
-// One asset per package / game project. Contributes scene entries to the
-// generated SceneId enum and SceneRegistry.
-// Create via: MidManStudio > Utilities > Scene Type Provider
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/scenemanagement.md, section "SceneTypeProviderSO.cs"
+// ============================================================================
 using System.Collections.Generic;
 using UnityEngine;
 using MidManStudio.Core.EditorUtils;
 
 namespace MidManStudio.Core.SceneManagement.Generator
 {
+    /// <summary>
+    /// One scene in a <see cref="SceneTypeProviderSO"/>: the enum member name, the scene name, its build
+    /// index (which becomes the enum value), its network dependency and an optional comment.
+    /// </summary>
     [System.Serializable]
     public class SceneEntryDefinition : IArrayElementTitle
     {
@@ -26,10 +30,16 @@ namespace MidManStudio.Core.SceneManagement.Generator
         [Tooltip("Optional comment written next to the enum member.")]
         public string comment;
 
+        /// <summary>List element label: the enum name, or <c>Scene_&lt;buildIndex&gt;</c> when blank.</summary>
         public string Name => string.IsNullOrWhiteSpace(enumName) ? $"Scene_{buildIndex}" : enumName;
     }
 
     
+    /// <summary>
+    /// Contributes scenes to the generated <c>SceneId</c> enum and <c>SceneRegistry</c>. One asset per package
+    /// or game project. Create via Create > MidManStudio > Utilities > Scene Type Provider, then run
+    /// MidManStudio > Utilities > Scene Type Generator.
+    /// </summary>
 [CreateAssetMenu(fileName="SceneTypeProvider",
     menuName="MidManStudio/Utilities/Scene Type Provider", order=180)]
     public class SceneTypeProviderSO : ScriptableObject
@@ -47,6 +57,7 @@ namespace MidManStudio.Core.SceneManagement.Generator
         [MID_NamedList]
         public List<SceneEntryDefinition> scenes = new();
 
+        /// <summary>Number of scenes, 0 when the list is null.</summary>
         public int SceneCount => scenes?.Count ?? 0;
     }
 }

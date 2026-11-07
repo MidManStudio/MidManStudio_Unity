@@ -1,9 +1,24 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/samples.md, section "Test_VisualAndAudio.cs"
+// ============================================================================
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using MidManStudio.Core.Pools;using MidManStudio.Core.Audio; using MidManStudio.Core.FX;
 using UnityEngine.UIElements;
 
+/// <summary>
+/// Test input for the VisualEffects sample. F plays a small muzzle flash through <c>GlobalFXManager</c> and a pooled
+/// <c>SpawnableAudio</c> one-shot of <c>regularAudio</c>. E plays a small explosion and native audio clip 1 through
+/// <c>MID_NativeAudioBridge</c>. Both happen at the mouse position (screen to world, z set to 0), at most once per
+/// <c>fireRate</c> seconds. It uses the old <c>Input</c> class and the main camera.
+///
+/// This script uses <c>MID_SpawnableAudio</c> and <c>MID_NativeAudioBridge</c>, which are in the
+/// <c>com.midmanstudio.audio</c> package. Without that package the sample does not compile. The FX calls pass -1 as the
+/// last argument, which is the audio volume, not the particle count default; the audio package clamps a volume to 0 to
+/// 1, so the effect's own relay sound (if an audio relay is in the scene) is silent.
+/// </summary>
 public class Test_VisualAndAudio : MonoBehaviour
 {
     [Header("Spawn Settings")]

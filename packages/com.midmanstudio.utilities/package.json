@@ -5,9 +5,9 @@
     "description": "Core runtime utilities for Unity 2022.3+. Tick dispatcher, zero-alloc tick delay, logger, object/particle pools, trail renderer pool, singletons, observable values, event bus, timers, library system, scene management, UI state system, and editor tools. No game-specific dependencies.",
     "unity": "2022.3",
     "unityRelease": "0f1",
-    "documentationUrl": "",
-    "changelogUrl": "",
-    "licensesUrl": "",
+    "documentationUrl": "https://github.com/MidManStudio/MidManStudio_Unity/blob/utilities/v1.0.0/packages/com.midmanstudio.utilities/README.md",
+    "changelogUrl": "https://github.com/MidManStudio/MidManStudio_Unity/blob/utilities/v1.0.0/packages/com.midmanstudio.utilities/CHANGELOG.md",
+    "licensesUrl": "https://github.com/MidManStudio/MidManStudio_Unity/blob/utilities/v1.0.0/packages/com.midmanstudio.utilities/LICENSE.md",
     "dependencies": {
         "com.unity.burst": "1.8.9",
         "com.unity.collections": "2.2.1",

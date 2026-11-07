@@ -1,7 +1,7 @@
-// Custom editor for MID_BaseSO. Draws a preview of the resolved icon at the
-// top of the inspector. The actual Project window thumbnail is handled
-// separately by MID_BaseSOProjectIconDrawer — see that file for why.
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/editor-helpers.md, section "MID_BaseSOEditor.cs"
+// ============================================================================
 #if UNITY_EDITOR
 using UnityEditor;
 using UnityEngine;
@@ -9,6 +9,12 @@ using MidManStudio.Core;
 
 namespace MidManStudio.Core.EditorUtils
 {
+    /// <summary>
+    /// Inspector for <see cref="MID_BaseSO"/> and every class derived from it (a derived class with its own custom
+    /// editor uses that one instead). Shows a 36 px preview of the icon in use and where it comes from, the Custom
+    /// Icon field, and then all other fields. Changing the icon field clears the Project window drawer's cache for
+    /// that asset. The icon in the Project window itself is drawn by <see cref="MID_BaseSOProjectIconDrawer"/>.
+    /// </summary>
     [CustomEditor(typeof(MID_BaseSO), editorForChildClasses: true)]
     public class MID_BaseSOEditor : UnityEditor.Editor
     {

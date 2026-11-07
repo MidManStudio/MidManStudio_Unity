@@ -1,11 +1,7 @@
-// Scans a source GameObject hierarchy for SpriteRenderer components and bakes
-// them into Unity Tilemap cells, grouped by Sorting Layer + Sorting Order.
-// Preserves exact world position via per-cell transform matrix offset.
-// Supports dry-run preview, cell-collision detection, and full Undo.
-//
-// Open via: MidManStudio > Utilities > Sprite to Tilemap Converter
-// Requires: Unity 2022.3+, 2D Tilemap package (included by default)
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/editor-windows.md, section "MID_SpriteToTilemapConverter.cs"
+// ============================================================================
 #if UNITY_EDITOR
 using System.Collections.Generic;
 using System.IO;
@@ -18,6 +14,19 @@ using UnityEngine.UIElements;
 
 namespace MidManStudio.Core.EditorTools
 {
+    /// <summary>
+    /// Window (MidManStudio > Utilities > Sprite to Tilemap Converter) that turns the SpriteRenderers under a source
+    /// object into Tilemap cells. Scan groups the sprites by sorting layer and sorting order, and each group is given
+    /// a target Tilemap. Convert makes one Tile asset per sprite (named after the sprite, in the output folder), sets
+    /// each cell's tile, colour and a transform matrix, and keeps the sprite's position inside its cell through that
+    /// matrix. Dry Run does the same work without writing anything and reports what it would do. Two sprites of one group
+    /// that land in the same cell are reported as a cell collision, and the later one wins. Convert can also destroy
+    /// the source object (with Undo). Needs Unity 2022.3 or later and the 2D Tilemap package.
+    ///
+    /// What is carried over: sprite, colour, world position (as a cell plus offset), and the local rotation and local
+    /// scale. What is not: flip X and Y, material, mask interaction, draw mode, other components on the object, and
+    /// the order between sprites inside one group.
+    /// </summary>
     public class MID_SpriteToTilemapConverter : EditorWindow
     {
         // ── Data types ─────────────────────────────────────────────────────────

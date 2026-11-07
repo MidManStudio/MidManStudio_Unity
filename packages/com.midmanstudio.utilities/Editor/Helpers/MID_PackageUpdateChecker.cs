@@ -1,11 +1,7 @@
-// Editor-only window that checks GitHub releases for a newer version of
-// com.midmanstudio.utilities and notifies the user.
-//
-// OPEN VIA: MidManStudio > Utilities > Check for Updates
-//
-// SETUP: Set GITHUB_USER, GITHUB_REPO, and PACKAGE_JSON_PATH below.
-// The window also auto-checks once per day using EditorPrefs.
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/editor-helpers.md, section "MID_PackageUpdateChecker.cs"
+// ============================================================================
 #if UNITY_EDITOR
 using System;
 using System.Threading.Tasks;
@@ -15,12 +11,29 @@ using UnityEngine.Networking;
 
 namespace MidManStudio.Core.EditorTools
 {
+    /// <summary>
+    /// Editor window (MidManStudio > Utilities > Check for Updates) that asks GitHub for the latest release of the
+    /// repository and compares its tag with the installed package version.
+    ///
+    /// Network: one GET to <c>https://api.github.com/repos/MidManStudio/MidManStudio_Unity/releases/latest</c> with the
+    /// headers <c>User-Agent: MidManStudio-UpdateChecker/&lt;installed version&gt;</c> and <c>Accept:
+    /// application/vnd.github.v3+json</c>. Nothing else is sent. It runs when the window opens, when Check Now is
+    /// pressed, and silently from <see cref="MID_UpdateCheckerAutoRun"/> when the last successful check is more than
+    /// 24 hours old. There is no setting to turn the automatic check off.
+    ///
+    /// Stored in EditorPrefs (per user on this machine, shared by all projects): <c>MidManStudio.UpdateChecker.LastCheck</c>
+    /// (UTC time of the last successful check), <c>MidManStudio.UpdateChecker.LastResult</c> (<c>remoteVersion|releaseUrl</c>)
+    /// and <c>MidManStudio.UpdateChecker.SkipTag</c> (the version the user chose to skip).
+    /// </summary>
     public class MID_PackageUpdateChecker : EditorWindow
     {
         // ── Configuration — edit these ────────────────────────────────────────
 
         private const string GITHUB_USER      = "MidManStudio";
         private const string GITHUB_REPO      = "MidManStudio_Unity";
+        // Relative to the Unity project folder, so the installed version is only found when the package sits in a
+        // "packages" folder at the project root. For a package installed from git or a registry the file is
+        // somewhere else and the installed version reads as "0.0.0".
         private const string PACKAGE_JSON_PATH =
             "packages/com.midmanstudio.utilities/package.json";
 
@@ -67,8 +80,9 @@ namespace MidManStudio.Core.EditorTools
         }
 
         /// <summary>
-        /// Called once per Unity Editor session via InitializeOnLoad.
-        /// Performs a silent background check if enough time has elapsed.
+        /// Called through <c>delayCall</c> by <see cref="MID_UpdateCheckerAutoRun"/>, which runs on every domain reload
+        /// (editor start, script recompile, entering Play Mode with domain reload). Starts a silent check unless the last
+        /// successful check is under 24 hours old. A failed check records no time, so it is tried again on the next reload.
         /// </summary>
         public static void AutoCheck()
         {
@@ -385,6 +399,7 @@ namespace MidManStudio.Core.EditorTools
 
         // ── Helpers ───────────────────────────────────────────────────────────
 
+        /// <summary>GETs the URL and returns the body. Throws on a network error or an HTTP error status. No timeout is set.</summary>
         private static async Task<string> FetchAsync(string url)
         {
             using var req = UnityWebRequest.Get(url);
@@ -407,6 +422,7 @@ namespace MidManStudio.Core.EditorTools
             return req.downloadHandler.text;
         }
 
+        /// <summary>Reads the version from <c>PACKAGE_JSON_PATH</c>. Returns "0.0.0" when the file is missing or unreadable.</summary>
         private static string ReadLocalVersion()
         {
             try
@@ -455,6 +471,10 @@ namespace MidManStudio.Core.EditorTools
             return va.CompareTo(vb);
         }
 
+        /// <summary>
+        /// Parses "1.2.3" or "v1.2.3". Anything else (a prerelease suffix, or a prefix such as "utilities/") does not
+        /// parse and counts as 0.0.0.
+        /// </summary>
         private static Version TryParseVersion(string raw)
         {
             raw = raw.Trim().TrimStart('v');
@@ -471,6 +491,7 @@ namespace MidManStudio.Core.EditorTools
 
     // ── Auto-check on editor startup ─────────────────────────────────────────
 
+    /// <summary>Schedules <see cref="MID_PackageUpdateChecker.AutoCheck"/> after every domain reload.</summary>
     [InitializeOnLoad]
     public static class MID_UpdateCheckerAutoRun
     {

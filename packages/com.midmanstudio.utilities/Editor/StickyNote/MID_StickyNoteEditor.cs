@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/stickynote.md, section "MID_StickyNoteEditor.cs"
+// ============================================================================
 
 #if UNITY_EDITOR
 using UnityEditor;
@@ -8,8 +12,11 @@ namespace MidManStudio.Core.EditorUtils.Notes
 {
     /// <summary>
     /// Custom inspector for MID_StickyNote.
-    /// Shows a live theme preview, note list with add/remove/reorder,
-    /// and quick-action runtime controls.
+    /// Shows a theme preview drawn with IMGUI (not the real canvas), a note list with
+    /// add, remove and reorder buttons, four foldout sections (Content, Appearance,
+    /// Layout, Behaviour), a Rebuild button, and in Play Mode Visible and Minimized
+    /// toggles. Properties are looked up by the private field names of MID_StickyNote,
+    /// so renaming a field there breaks this editor.
     /// </summary>
     [CustomEditor(typeof(MID_StickyNote))]
     public class MID_StickyNoteEditor : UnityEditor.Editor
@@ -68,6 +75,7 @@ namespace MidManStudio.Core.EditorUtils.Notes
 
         // ── OnInspectorGUI ────────────────────────────────────────────────────
 
+        /// <summary>Draws the header, theme preview, info box, the four sections, the Rebuild button and, only in Play Mode, the runtime controls.</summary>
         public override void OnInspectorGUI()
         {
             serializedObject.Update();
@@ -170,6 +178,7 @@ namespace MidManStudio.Core.EditorUtils.Notes
             EditorGUILayout.EndVertical();
         }
 
+        // First three note entries plus an ellipsis. The text file content is not previewed.
         private string BuildPreviewText()
         {
             if (_pNotes.arraySize == 0 && _pTextFile.objectReferenceValue == null) return "(empty)";

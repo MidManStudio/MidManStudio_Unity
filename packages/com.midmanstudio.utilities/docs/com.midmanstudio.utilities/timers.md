@@ -37,6 +37,13 @@ dissolve, fade, stepped dissolve, ping-pong).
   starting, which is a small API addition, not a doc fix); documented on
   `CreatePingPongTimer` itself and here so it's not mistaken for working
   as named.
+- Not fixed: `SteppedValueTimer.Tick` takes at most one step per call and throws away the time past the interval
+  (`_timeSinceLastStep` is set to 0, not reduced by the interval). A long frame, or an interval that is shorter than a
+  frame, makes the timer slower than `stepInterval` suggests. For example a 0.04 s interval at 60 fps steps every third
+  frame, which is 0.05 s. Found by reading the code, not run in Unity.
 
 ### `PerformanceBenchmarkTimer.cs`
-No bugs found in this file.
+- Not fixed: `BenchmarkResult.ToCSV()` formats its numbers with `F3` in the current culture. On a machine whose culture
+  uses a decimal comma the line has more than 9 comma separated fields, so the CSV is unusable and the "CSV has 9
+  columns" check in `TimerBenchmarkRunner` fails. `ToString()` has the same culture dependence, which only affects
+  display. Found by reading the code, not run on such a machine.

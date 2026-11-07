@@ -1,19 +1,27 @@
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/autoreference.md, section "MID_AutoRefOptions.cs"
+// ============================================================================
 using System;
 using UnityEngine;
 
 namespace MidManStudio.Core.AutoReference
 {
+    /// <summary>When a <see cref="MID_AutoRef"/> component resolves by itself.</summary>
     public enum MID_AutoRefRunMode
     {
+        /// <summary>Only through the context menu, the inspector button, the editor window or a code call.</summary>
         Manual     = 0,
+        /// <summary>In <c>Awake</c>, in Play Mode and in builds.</summary>
         Awake      = 1,
+        /// <summary>In <c>Start</c>, in Play Mode and in builds.</summary>
         Start      = 2,
-        OnValidate = 3 // Edit-time only — resolves automatically after being added or edited, no button needed.
+        /// <summary>Edit Mode only: resolves after the component is added or edited, no button needed.</summary>
+        OnValidate = 3
     }
     /// <summary>
-    ///  Shared settings for MID_AutoReferenceResolver — used by both the runtime MID_AutoRef
-    /// component (per-object) and the bulk Editor/AutoReference/MID_AutoReferenceWindow.
+    /// Settings for <see cref="MID_AutoReferenceResolver"/>. Used by the <see cref="MID_AutoRef"/> component
+    /// (one set per object) and by the bulk Auto Reference editor window (one set for all objects).
     /// </summary>
     [Serializable]
     public class MID_AutoRefOptions

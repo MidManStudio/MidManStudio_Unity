@@ -1,37 +1,7 @@
-
-// Runtime benchmark: MID_TickDelay vs Coroutine vs Task.Delay
-//
-// ══ GC MEASUREMENT CAVEATS ═══════════════════════════════════════════════
-//   Uses GC.GetAllocatedBytesForCurrentThread() — per-thread monotonic
-//   counter, most accurate managed API available.
-//
-//   KNOWN LIMITATIONS:
-//   - Task.Delay: .NET pools DelayPromise objects internally. After warmup
-//     the pool is warm and subsequent calls show 0B. First run shows real
-//     allocation (~120–160B). This is correct behaviour — Task reuses objects.
-//   - Coroutine: Same effect. After first GC pass, IEnumerator state machines
-//     get reused from the allocator free list. First run shows real alloc (~80B).
-//   - Re-running the test in the same Play session will show lower numbers
-//     for Coroutine and Task because their pools are warm.
-//   - MID_TickDelay shows 0B consistently because it never allocates at all —
-//     the pre-allocated pool has no internal pooling that could mask real allocs.
-//   For ground truth: open Window > Analysis > Profiler, GC.Alloc column.
-//
-// ══ TIMING CAVEATS ════════════════════════════════════════════════════════
-//   Task.Delay ≈ 0ms error — OS high-res timer, correct.
-//   Coroutine  ≈ frame duration error — correct.
-//   TickDelay  ≈ 0–one tick interval error — correct and intentional.
-//   Task fires on threadpool. Time.realtimeSinceStartup is NOT thread-safe.
-//   We use Stopwatch.GetTimestamp() for Task timing instead.
-//
-// ══ WHY MID_TICKDELAY FOR NETCODE? ═══════════════════════════════════════
-//   - Zero alloc every run (no pool warm-up dependency)
-//   - Fires on main thread — safe to touch Unity objects
-//   - No IEnumerator — works inside ServerRpc/ClientRpc directly
-//   - Cancellable with TickDelayHandle
-//   Trade-off: timing bounded by one tick interval (~50ms avg at Tick_0_1)
-//   which is acceptable for respawn timers, cooldowns, deferred RPCs.
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/tests.md, section "MID_TickDelayBenchmark.cs"
+// ============================================================================
 using System;
 using System.Collections;
 using System.Diagnostics;
@@ -47,6 +17,11 @@ using UnityEditor;
 
 namespace BenchTests
 {
+    /// <summary>
+    /// Result of the allocation test: bytes allocated per scheduling call for MID_TickDelay, Coroutine and Task.Delay,
+    /// the iteration count, whether the result is valid, and whether it came from the first run of the Play session
+    /// (<c>WasColdRun</c>).
+    /// </summary>
     [Serializable]
     public struct DelayBenchGCResult
     {
@@ -63,6 +38,10 @@ namespace BenchTests
                 Math.Max(CoroutineBytesPerCall, TaskDelayBytesPerCall));
     }
 
+    /// <summary>
+    /// Result of the timing test: for each of MID_TickDelay, Coroutine and Task.Delay the average and maximum absolute
+    /// error in milliseconds against the requested delay and how many callbacks fired, plus the tick interval used.
+    /// </summary>
     [Serializable]
     public struct DelayBenchTimingResult
     {
@@ -86,6 +65,7 @@ namespace BenchTests
             Math.Max(TickDelayAvgMs, Math.Max(CoroutineAvgMs, TaskDelayAvgMs));
     }
 
+    /// <summary>Running total, maximum and count of timing errors for one method in the timing test.</summary>
     internal sealed class TimingAccumulator
     {
         public double TotalErr;
@@ -102,10 +82,25 @@ namespace BenchTests
         public double AvgMs => Fired > 0 ? TotalErr / Fired : 0;
     }
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // Add MID_TickDelayBenchRunner to a scene GameObject — nothing else.
-    // ═════════════════════════════════════════════════════════════════════════
-
+    /// <summary>
+    /// Scene component that compares <c>MID_TickDelay</c>, a coroutine and <c>Task.Delay</c> for allocation and timing.
+    /// Add it to a GameObject and use the Tick Delay Bench window in Play Mode (MidManStudio > Utilities > Tests >
+    /// Tick Delay Bench). Every run first warms up, then runs the allocation test, the timing test, or both.
+    ///
+    /// Allocation test: <c>GCIterations</c> scheduling calls per method, measured with
+    /// <c>GC.GetAllocatedBytesForCurrentThread</c> on the main thread. Each method gets a full GC before its run.
+    /// Coroutine and Task.Delay numbers fall on later runs in the same Play session, so the first run is the cold run.
+    /// The window explains that the Profiler's GC.Alloc column is the real proof.
+    ///
+    /// Timing test: <c>TimingIterations</c> delays of <c>DelaySeconds</c> per method, started one per frame. Error is
+    /// the absolute difference between the measured and requested delay. Time is read with
+    /// <c>Stopwatch.GetTimestamp</c> because Task.Delay calls back on a thread pool thread and Unity's clock is not
+    /// thread safe. MID_TickDelay is expected to be off by up to one tick interval, a coroutine by about a frame, and
+    /// Task.Delay by about a millisecond.
+    ///
+    /// The runner does not change <c>MID_TickDelay.PoolCapacity</c> (default 64), so a run with more than 64 delays
+    /// pending at once, such as 500 GC iterations, drops calls.
+    /// </summary>
     public class MID_TickDelayBenchRunner : MonoBehaviour
     {
         [Header("Configuration")]
@@ -236,7 +231,7 @@ namespace BenchTests
         // GetAllocatedBytesForCurrentThread() measures main-thread allocations only.
         // Task.Delay and Coroutine WILL show real allocations on first (cold) run.
         // On re-runs their internal pools are warm — results will be lower or 0.
-        // MID_TickDelay always shows 0B because it never allocates regardless.
+        // MID_TickDelay is expected to show 0B while the pool has room (64 slots by default).
 
         private IEnumerator GCInner()
         {
@@ -516,6 +511,12 @@ namespace BenchTests
 
 #if UNITY_EDITOR
 
+    /// <summary>
+    /// Editor window for <see cref="MID_TickDelayBenchRunner"/> (menu priority 120). Needs Play Mode and a runner in
+    /// the scene, and offers an Add Runner to Scene button when none is found. Has configuration sliders, Run All,
+    /// GC Only, Timing Only and Cancel buttons, and shows the allocation and timing results with bars. The help text
+    /// in the window is fixed wording, not computed from the results.
+    /// </summary>
     public class MID_TickDelayBenchWindow : EditorWindow
     {
         private MID_TickDelayBenchRunner _runner;

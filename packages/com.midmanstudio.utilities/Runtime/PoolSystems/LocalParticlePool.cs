@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/pool-systems.md, section "LocalParticlePool.cs"
+// ============================================================================
 using System.Collections.Generic;
 using UnityEngine;
 using MidManStudio.Core.Logging;
@@ -6,6 +10,13 @@ using MidManStudio.Core.EditorUtils;
 
 namespace MidManStudio.Core.Pools
 {
+    /// <summary>
+    /// Pool for particle effect prefabs, keyed by the generated <see cref="PoolableParticleType"/> enum. Works like
+    /// <see cref="LocalObjectPool"/>, with a few differences: every instance gets a <see cref="LocalParticleReturn"/> with the
+    /// config's lifetime, <see cref="GetObject(PoolableParticleType, Vector3, Quaternion)"/> clears and plays all particle systems on
+    /// the instance, and there is no check for a duplicate return or a destroyed queue entry. It is initialised by
+    /// <see cref="LocalObjectPool.CallInitializePool"/> or by calling <see cref="CallInitializePool"/> directly.
+    /// </summary>
     public class LocalParticlePool : Singleton<LocalParticlePool>
     {
         #region Serialized Fields
@@ -46,6 +57,7 @@ namespace MidManStudio.Core.Pools
 
         #region Properties
 
+        /// <summary>True after <see cref="CallInitializePool"/> has registered the configured types.</summary>
         public bool HasBeenInitialized() => _initialized;
 
         #endregion
@@ -61,6 +73,7 @@ namespace MidManStudio.Core.Pools
 
         #region Public API
 
+        /// <summary>Checks the config list and registers every entry with its prewarm count. Does nothing when already initialised. A duplicate type or prefab is logged and leaves the pool uninitialised.</summary>
         public void CallInitializePool()
         {
             if (_initialized) return;
@@ -91,6 +104,7 @@ namespace MidManStudio.Core.Pools
 
         // ── Get ───────────────────────────────────────────────────────────────
 
+        /// <summary>Takes an instance from the queue, or creates one, places it, activates it and restarts its particle systems. Returns null when the type cannot be registered.</summary>
         public GameObject GetObject(PoolableParticleType type, Vector3 position, Quaternion rotation)
         {
             if (!EnsureRegistered(type)) return null;
@@ -124,11 +138,13 @@ namespace MidManStudio.Core.Pools
             return obj;
         }
 
+        /// <summary>2D overload. The z position is 0.</summary>
         public GameObject GetObject(PoolableParticleType type, Vector2 position, Quaternion rotation)
             => GetObject(type, new Vector3(position.x, position.y, 0f), rotation);
 
         // ── Return ────────────────────────────────────────────────────────────
 
+        /// <summary>Stops and clears the particle systems and puts the instance back in the queue. Destroys it when the queue is full or the type is not registered.</summary>
         public void ReturnObject(GameObject obj, PoolableParticleType type)
         {
             if (!_registeredTypes.Contains(type))
@@ -171,6 +187,7 @@ namespace MidManStudio.Core.Pools
 
         // ── Registration ──────────────────────────────────────────────────────
 
+        /// <summary>Registers a particle type at run time. <paramref name="lifetime"/> is the seconds before the instance returns itself.</summary>
         public void AddType(PoolableParticleType type, GameObject prefab,
                             int prewarm = 10, int maxSize = 30, float lifetime = 5f)
         {
@@ -200,8 +217,10 @@ namespace MidManStudio.Core.Pools
             });
         }
 
+        /// <summary>True when the type has been registered.</summary>
         public bool IsRegistered(PoolableParticleType type) => _registeredTypes.Contains(type);
 
+        /// <summary>Destroys all queued instances and forgets every registration. Instances that are currently checked out are not touched.</summary>
         public void ClearPool()
         {
             int total = 0;

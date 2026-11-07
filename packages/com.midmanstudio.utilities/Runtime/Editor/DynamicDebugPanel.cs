@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/helpers.md, section "DynamicDebugPanel.cs"
+// ============================================================================
 using UnityEngine;
 using System;
 using System.Collections.Generic;
@@ -5,11 +9,18 @@ using System.Collections.Generic;
 namespace MidManStudio.Core.EditorTools
 {
     /// <summary>
-    /// Enhanced debug panel with minimize functionality and separate logs/stats sections.
+    /// On-screen debug panel with a Stats view (sections of display, slider, toggle, button and progress-bar
+    /// values) and a Logs view, plus built-in FPS, frame time and memory stats. Put it on one GameObject; a second
+    /// copy destroys itself. The panel is drawn with IMGUI only inside the Unity Editor (the drawing code is under
+    /// <c>#if UNITY_EDITOR</c>), so it is invisible in builds, although its <c>Update</c> still runs there.
     /// </summary>
     public class DynamicDebugPanel : MonoBehaviour
     {
         #region Singleton
+        /// <summary>
+        /// The live panel, or null. Set in Awake (a duplicate destroys its own GameObject). The panel is not
+        /// created on demand, so check for null before use.
+        /// </summary>
         public static DynamicDebugPanel Instance { get; private set; }
         #endregion
 
@@ -44,6 +55,7 @@ namespace MidManStudio.Core.EditorTools
         #endregion
 
         #region Debug Data Structures
+        /// <summary>One row of the Stats view.</summary>
         public struct DebugValue
         {
             public string name;
@@ -51,6 +63,7 @@ namespace MidManStudio.Core.EditorTools
             public DebugValueType type;
             public float minValue;
             public float maxValue;
+            /// <summary>Called with the new value for a Slider, and with 0 when a Button is clicked. Toggles have no callback.</summary>
             public System.Action<float> onSliderChanged;
             public string format;
 
@@ -67,15 +80,22 @@ namespace MidManStudio.Core.EditorTools
             }
         }
 
+        /// <summary>How a value is drawn and edited.</summary>
         public enum DebugValueType
         {
+            /// <summary>Read-only text, formatted with the value's format string.</summary>
             Display,
+            /// <summary>Editable slider between the min and max. Changes call the callback.</summary>
             Slider,
+            /// <summary>Editable checkbox. It only changes the stored value; there is no callback and no way to read it back.</summary>
             Toggle,
+            /// <summary>Button that calls the callback with 0.</summary>
             Button,
+            /// <summary>Bar for a value from 0 to 1. The value is not clamped.</summary>
             ProgressBar
         }
 
+        /// <summary>A titled, collapsible group of values in the Stats view.</summary>
         public struct DebugSection
         {
             public string title;
@@ -385,12 +405,17 @@ namespace MidManStudio.Core.EditorTools
         #endregion
 
         #region Public API
+        /// <summary>Adds an empty section. Does nothing if a section with that name exists.</summary>
         public void AddSection(string sectionName, Color titleColor = default)
         {
             if (!debugSections.ContainsKey(sectionName))
                 debugSections[sectionName] = new DebugSection(sectionName, titleColor);
         }
 
+        /// <summary>
+        /// Adds or replaces a value in a section, creating the section if needed. For a Slider pass the min, max
+        /// and a callback. For a ProgressBar pass a value from 0 to 1.
+        /// </summary>
         public void AddValue(string section, string name, object value, DebugValueType type = DebugValueType.Display,
                             float minValue = 0f, float maxValue = 100f, System.Action<float> onChanged = null, string format = "F2")
         {
@@ -400,6 +425,7 @@ namespace MidManStudio.Core.EditorTools
             debugSections[section] = debugSection;
         }
 
+        /// <summary>Sets the stored value of an existing row. Does nothing if the section or row does not exist.</summary>
         public void UpdateValue(string section, string name, object value)
         {
             if (!debugSections.ContainsKey(section) || !debugSections[section].values.ContainsKey(name)) return;
@@ -410,6 +436,7 @@ namespace MidManStudio.Core.EditorTools
             debugSections[section]    = debugSection;
         }
 
+        /// <summary>Removes a row from a section. Does nothing if the section does not exist.</summary>
         public void RemoveValue(string section, string name)
         {
             if (!debugSections.ContainsKey(section)) return;
@@ -418,6 +445,7 @@ namespace MidManStudio.Core.EditorTools
             debugSections[section] = debugSection;
         }
 
+        /// <summary>Adds a time-stamped line to the Logs view. The oldest line is dropped past <c>maxLogEntries</c>.</summary>
         public void AddLog(string message)
         {
             logEntries.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
@@ -425,14 +453,17 @@ namespace MidManStudio.Core.EditorTools
             if (autoScroll && currentViewMode == ViewMode.Logs) scrollPosition.y = float.MaxValue;
         }
 
+        /// <summary>Removes all lines from the Logs view.</summary>
         public void ClearLogs()     => logEntries.Clear();
 
+        /// <summary>Removes every section, including the ones you added, then re-creates the built-in System section.</summary>
         public void ClearAllStats()
         {
             debugSections.Clear();
             InitializeDefaultSections();
         }
 
+        /// <summary>Cycles Closed to Expanded, Expanded to Minimized, Minimized to Expanded. It never closes an open panel; use <see cref="SetPanelState"/> for that.</summary>
         public void TogglePanel()
         {
             currentState = currentState switch
@@ -443,6 +474,7 @@ namespace MidManStudio.Core.EditorTools
             };
         }
 
+        /// <summary>Shows the panel expanded (true) or closes it (false).</summary>
         public void SetPanelState(bool show) =>
             currentState = show ? PanelState.Expanded : PanelState.Closed;
 

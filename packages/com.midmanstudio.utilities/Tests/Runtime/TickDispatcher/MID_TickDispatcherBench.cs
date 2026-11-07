@@ -1,16 +1,7 @@
-
-// Benchmarks MID_TickDispatcher (managed) against a simulated raw Update() baseline.
-// Native tick dispatcher removed — real-world results showed managed wins below ~500
-// Burst subscribers doing heavy math. Not worth the complexity for typical gameplay code.
-//
-// Open: MidManStudio > Utilities > Tests > Tick Dispatcher Bench
-// Attach MID_TickDispatcherBench to a scene GameObject.
-//
-// Three sections:
-//   Single-Rate  — variable subscriber count at one tick rate
-//   Multi-Rate   — all rates active simultaneously (realistic game load)
-//   Heavy        — callbacks doing real math work
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/tests.md, section "MID_TickDispatcherBench.cs"
+// ============================================================================
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -26,11 +17,12 @@ using UnityEditor;
 
 namespace BenchTests
 {
-    // ── Simulated MonoBehaviour Update loop ───────────────────────────────────
-    // Models the managed-side cost of Unity's internal Update() dispatch.
-    // The actual native→managed boundary crossing is not measurable from managed
-    // code but this gives a valid comparison of callback execution cost.
 
+    /// <summary>
+    /// Stand-in for a MonoBehaviour that has an Update method. <c>UpdateEmpty</c> does nothing and
+    /// <c>UpdateHeavy</c> does 50 sine and cosine steps. Both are marked NoInlining so the call is not removed.
+    /// The cost of Unity's native to managed call for a real Update is not included.
+    /// </summary>
     public class SimulatedUpdateBehaviour
     {
         [MethodImpl(MethodImplOptions.NoInlining)]
@@ -46,8 +38,11 @@ namespace BenchTests
         }
     }
 
-    // ── Result types ──────────────────────────────────────────────────────────
-
+    /// <summary>
+    /// One measurement: average, minimum, maximum and standard deviation in milliseconds for one pass over all
+    /// subscribers, with the subscriber and iteration counts. <c>HasData</c> is false when the average is 0, and the
+    /// window then shows "not run".
+    /// </summary>
     [Serializable]
     public struct TickBenchResult
     {
@@ -61,6 +56,10 @@ namespace BenchTests
             : "not run";
     }
 
+    /// <summary>
+    /// One scenario with two measurements side by side, <c>UpdateSim</c> and <c>Managed</c>.
+    /// <c>UpdateVsManaged</c> is the UpdateSim average divided by the Managed average.
+    /// </summary>
     [Serializable]
     public struct TickScenarioResult
     {
@@ -75,6 +74,20 @@ namespace BenchTests
 
     // ── MonoBehaviour ─────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Scene component behind the Tick Dispatcher Bench window (MidManStudio > Utilities > Tests > Tick Dispatcher
+    /// Bench). Add it to a GameObject. <c>RunSingle</c> measures each count in <c>SubCounts</c> at <c>BenchRate</c>.
+    /// <c>RunMulti</c> runs <c>MultiRates</c> together for one simulated second in 16 ms steps, with at most 10
+    /// subscribers per rate. <c>RunHeavy</c> runs 5 subscribers that each do 50 sine and cosine steps.
+    /// <c>RunAll</c> runs the three and logs a summary.
+    ///
+    /// This class never calls <c>MID_TickDispatcher</c>. The Managed side is a plain loop over an array of Action
+    /// delegates (single-rate and heavy) or a hand-written timer loop (multi-rate), and the Update sim side is a loop
+    /// of plain method calls. Only the <c>TickRate</c> enum and <c>MID_Logger</c> come from the package. The
+    /// "dispatcher N times faster than Update sim" figure is therefore a delegate loop against a method loop, not a
+    /// measurement of the dispatcher. An older note in this file said the native dispatcher was removed because the
+    /// managed one won below about 500 Burst subscribers doing heavy maths.
+    /// </summary>
     public class MID_TickDispatcherBench : MonoBehaviour
     {
         [Header("Config")]
@@ -325,6 +338,12 @@ namespace BenchTests
 
 #if UNITY_EDITOR
 
+    /// <summary>
+    /// Editor window for <see cref="MID_TickDispatcherBench"/> (menu priority 121). It finds the component in the open
+    /// scene or takes one in its object field, has Run All, Clear and a Run button per section, and draws the
+    /// single-rate, multi-rate and heavy results as foldouts with bars. It does not check for Play Mode. Repaints on
+    /// every editor update while open.
+    /// </summary>
     public class MID_TickDispatcherBenchWindow : EditorWindow
     {
         private MID_TickDispatcherBench _bench;

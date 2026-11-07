@@ -1,13 +1,7 @@
-// Editor-only. Ensures required persistent manager prefabs exist in the scene
-// when testing scenes directly without going through a bootstrap / loading scene.
-//
-// USAGE:
-//   1. Add this component to any GameObjcet in your test scene.
-//   2. Drag your persistent manager prefabs into Required Dependencies.
-//   3. Press Play — managers are auto-instantiated if missing.
-//
-// On ExitingPlayMode the injected objects are optionally destroyed (cleanupOnStop).
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/editor-helpers.md, section "SceneDependencyInjector.cs"
+// ============================================================================
 #if UNITY_EDITOR
 using System.Collections.Generic;
 using System.Linq;
@@ -17,11 +11,14 @@ using MidManStudio.Core.Logging;
 using MidManStudio.Core.EditorUtils;
 namespace MidManStudio.Core.EditorTools
 {
+    /// <summary>One row of the dependency list: a prefab asset.</summary>
     [System.Serializable]
     public class DependencyItem : IArrayElementTitle
     {
+        /// <summary>The prefab to instantiate.</summary>
         public GameObject prefab;
 
+        /// <summary>The prefab's name, or "Missing_Dependency" when no prefab is set.</summary>
         public string Name =>
             prefab == null                    ? "Missing_Dependency" :
             string.IsNullOrWhiteSpace(prefab.name) ? "Unnamed_Prefab"     :
@@ -29,7 +26,16 @@ namespace MidManStudio.Core.EditorTools
     }
 
     /// <summary>
-    /// Editor-only: auto-injects required persistent manager prefabs at play-mode start.
+    /// For testing a scene on its own without a bootstrap scene. It lists the manager prefabs the scene needs, and
+    /// when Play Mode starts it instantiates each one that is not already present. Injected objects are moved to
+    /// DontDestroyOnLoad and are destroyed again when Play Mode ends if cleanupOnStop is on.
+    ///
+    /// A prefab counts as present when any MonoBehaviour type on its root object already exists in a loaded scene
+    /// (active objects only), or when an active object with the prefab's name exists. So a prefab that holds
+    /// several managers is skipped as soon as one of them exists. Rows with no prefab are removed by OnValidate.
+    ///
+    /// Setup: add the component to a GameObject in the test scene, drag the manager prefabs into Required
+    /// Dependencies, and press Play. Editor-only code: it is compiled only into the Editor assembly.
     /// </summary>
     [ExecuteInEditMode]
     public class SceneDependencyInjector : MonoBehaviour
@@ -86,6 +92,10 @@ namespace MidManStudio.Core.EditorTools
 
         // ── Public API ────────────────────────────────────────────────────────
 
+        /// <summary>
+        /// Instantiates every listed prefab that is not already present, once. Does nothing when it has already
+        /// injected (use <see cref="ForceReinject"/> to run again). Rows without a prefab are skipped with a warning.
+        /// </summary>
         [ContextMenu("Inject Dependencies")]
         public void InjectDependencies()
         {
@@ -131,6 +141,7 @@ namespace MidManStudio.Core.EditorTools
                 nameof(SceneDependencyInjector));
         }
 
+        /// <summary>Destroys the objects injected earlier, clears the injected flag and injects again.</summary>
         [ContextMenu("Force Reinject All")]
         public void ForceReinject()
         {
@@ -139,6 +150,7 @@ namespace MidManStudio.Core.EditorTools
             InjectDependencies();
         }
 
+        /// <summary>Destroys the objects this component injected and clears the injected flag.</summary>
         [ContextMenu("Cleanup Injected Objects")]
         public void CleanupInjectedObjects()
         {
@@ -168,6 +180,8 @@ namespace MidManStudio.Core.EditorTools
 
         // ── Helpers ───────────────────────────────────────────────────────────
 
+        // Present when ANY MonoBehaviour type on the prefab's root already exists in a loaded scene (active objects
+        // only), or an active object with the prefab's name exists.
         private bool IsDependencyPresent(GameObject prefab)
         {
             foreach (var comp in prefab.GetComponents<MonoBehaviour>())
@@ -196,6 +210,7 @@ namespace MidManStudio.Core.EditorTools
             }
         }
 
+        // Drops rows with no prefab, so an empty row added with "+" is removed the next time the component is validated.
         private void OnValidate()
         {
             requiredDependencies ??= new List<DependencyItem>();
@@ -205,6 +220,11 @@ namespace MidManStudio.Core.EditorTools
 
     // ── Custom inspector ──────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Inspector for <see cref="SceneDependencyInjector"/>: the settings, a hand-drawn dependency list (add, remove,
+    /// clear all, remove nulls), the read-only state, and buttons for inject, force reinject and cleanup. It does
+    /// not use the <c>[MID_NamedList]</c> drawer that the list field carries.
+    /// </summary>
     [CustomEditor(typeof(SceneDependencyInjector))]
    public class SceneDependencyInjectorEditor : UnityEditor.Editor
     {

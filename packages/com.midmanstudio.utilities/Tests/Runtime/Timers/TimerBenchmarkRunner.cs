@@ -1,16 +1,7 @@
-// Runtime tests and benchmarks for Timer.cs and PerformanceBenchmarkTimer.cs.
-//
-// USAGE:
-//   1. Add this component to any scene GameObject.
-//   2. Press Play — tests run automatically if RunOnStart = true.
-//   3. Or right-click the component and select "Run All Tests".
-//   Results are printed to the Console with clear PASS / FAIL markers.
-//
-// ASSEMBLY:
-//   Lives in MidManStudio.Utilities.Tests (Tests/Runtime/).
-//   Unity resolves it at play time even though autoReferenced = false —
-//   just add the MonoBehaviour to your scene GameObject normally.
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/tests.md, section "TimerBenchmarkRunner.cs"
+// ============================================================================
 using System;
 using System.Collections;
 using UnityEngine;
@@ -18,6 +9,18 @@ using MidManStudio.Core.Timers;
 
 namespace BenchTests
 {
+    /// <summary>
+    /// Scene component that runs a self-checking test suite for the timers in <c>MidManStudio.Core.Timers</c> and
+    /// prints a PASS or FAIL line for each check to the Console. Add it to a GameObject and enter Play Mode. With Run
+    /// On Start (on by default) it runs at once, or use the component's context menu "Run All Tests". It covers
+    /// <c>CountdownTimer</c>, <c>StopwatchTimer</c>, <c>NetworkTimer</c>, <c>ValueInterpolationTimer</c>,
+    /// <c>SteppedValueTimer</c> and <c>PerformanceBenchmarkTimer</c>. A failure also writes a Console error.
+    ///
+    /// The timing checks drive the timers from <c>Time.deltaTime</c> in a coroutine, so a slow frame can fail the
+    /// stopwatch check (it allows Timing Tolerance, 0.06 s by default). The script is in the
+    /// MidManStudio.Utilities.Tests assembly, which is not auto-referenced. That only stops other assemblies from
+    /// referencing it. The component can still be added to a GameObject.
+    /// </summary>
     public class TimerBenchmarkRunner : MonoBehaviour
     {
         // ── Inspector ─────────────────────────────────────────────────────────
@@ -393,7 +396,7 @@ namespace BenchTests
 
             // ── Ascending, 4 equal steps ──────────────────────────────────────
             {
-                // 0→1 in steps of 0.25 every 0.04s → 4 steps, done in 0.16s
+                // 0→1 in steps of 0.25 every 0.04s → 4 steps (one step per Tick at most, so a little over 0.16s)
                 const float start = 0f, end = 1f, step = 0.25f, interval = 0.04f;
                 var svt = new SteppedValueTimer(start, end, step, interval);
 
@@ -446,7 +449,7 @@ namespace BenchTests
             {
                 var svt = new SteppedValueTimer(0f, 1f, 0.5f, 0.05f);
                 svt.Start();
-                svt.Tick(0.1f); // advance two steps
+                svt.Tick(0.1f); // advances one step (a single Tick never takes more than one)
                 svt.Reset();
                 Expect("CurrentValue resets to start after Reset()",
                     Approx(svt.CurrentValue, 0f));

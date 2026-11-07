@@ -1,6 +1,7 @@
-// Creates default EffectCategoryProvider and EffectTypeProvider assets for utilities.
-// Runs automatically via [InitializeOnLoad].
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/fx.md, section "PackageEffectProviderBootstrapper.cs"
+// ============================================================================
 #if UNITY_EDITOR
 using System.IO;
 using UnityEditor;
@@ -9,6 +10,12 @@ using MidManStudio.Core.FX.Generator;
 
 namespace MidManStudio.Core.EditorUtils.FX
 {
+    /// <summary>
+    /// Creates the default <see cref="EffectCategoryProviderSO"/> and <see cref="EffectTypeProviderSO"/>
+    /// assets for this package in <c>Assets/MidManStudio/Utilities/FXProviders</c> when they are missing.
+    /// Runs once after each domain reload (<c>delayCall</c>) and from the menu item
+    /// MidManStudio > Utilities > Internal > Recreate Default Effect Providers.
+    /// </summary>
     [InitializeOnLoad]
     internal static class PackageEffectProviderBootstrapper
     {

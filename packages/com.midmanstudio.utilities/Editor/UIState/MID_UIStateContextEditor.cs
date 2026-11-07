@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/uistate.md, section "MID_UIStateContextEditor.cs"
+// ============================================================================
 
 #if UNITY_EDITOR
 using System;
@@ -11,6 +15,7 @@ namespace MidManStudio.Core.EditorUtils.UIState
 {
     // ── Visibility Inspector ──────────────────────────────────────────────────
 
+    /// <summary>Inspector for <see cref="MID_UIStateVisibility"/>: context field, named flag checkboxes and log level.</summary>
     [CustomEditor(typeof(MID_UIStateVisibility))]
     [CanEditMultipleObjects]
     public class MID_UIStateVisibilityEditor : UnityEditor.Editor
@@ -61,6 +66,7 @@ namespace MidManStudio.Core.EditorUtils.UIState
 
     // ── Back Button Inspector ─────────────────────────────────────────────────
 
+    /// <summary>Inspector for <see cref="MID_UIStateBackButton"/>: context field, named flag checkboxes, history option and log level.</summary>
     [CustomEditor(typeof(MID_UIStateBackButton))]
     [CanEditMultipleObjects]
     public class MID_UIStateBackButtonEditor : UnityEditor.Editor
@@ -127,6 +133,7 @@ namespace MidManStudio.Core.EditorUtils.UIState
 
     // ── State Button Inspector ────────────────────────────────────────────────
 
+    /// <summary>Inspector for <see cref="MID_UIStateButton"/>: context field, a dropdown of the single-bit states and the options.</summary>
     [CustomEditor(typeof(MID_UIStateButton))]
     [CanEditMultipleObjects]
     public class MID_UIStateButtonEditor : UnityEditor.Editor
@@ -175,6 +182,7 @@ namespace MidManStudio.Core.EditorUtils.UIState
 
     // ── UIStateManager Inspector ──────────────────────────────────────────────
 
+    /// <summary>Inspector for <see cref="MID_UIStateManager"/>: context, initial state dropdown and the list of panel configs, drawn by hand with named state dropdowns.</summary>
     [CustomEditor(typeof(MID_UIStateManager))]
     public class MID_UIStateManagerEditor : UnityEditor.Editor
     {
@@ -270,8 +278,7 @@ namespace MidManStudio.Core.EditorUtils.UIState
                 ? $"Config [{i}]"
                 : displayProp.stringValue;
 
-            // FIX: Use plain Foldout — NOT BeginFoldoutHeaderGroup — for row headers.
-            // BeginFoldoutHeaderGroup cannot be nested inside another one.
+            // Row headers use a plain Foldout, because BeginFoldoutHeaderGroup cannot be nested inside another one.
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
 
             element.isExpanded = EditorGUILayout.Foldout(
@@ -293,9 +300,8 @@ namespace MidManStudio.Core.EditorUtils.UIState
 
                 EditorGUILayout.Space(4);
 
-                // FIX: Draw arrays with plain Foldout, NOT PropertyField(prop, true)
-                // PropertyField(arrayProp, includeChildren:true) internally calls
-                // BeginFoldoutHeaderGroup which cannot be nested here.
+                // Arrays go through DrawArrayProperty (plain Foldout). PropertyField(arrayProp, true)
+                // opens its own BeginFoldoutHeaderGroup, which cannot be nested here.
                 DrawArrayProperty(showProp,  "Show (activate on enter)");
                 DrawArrayProperty(hideProp,  "Hide (deactivate on enter)");
 
@@ -354,6 +360,7 @@ namespace MidManStudio.Core.EditorUtils.UIState
 
     // ── Shared Utilities ──────────────────────────────────────────────────────
 
+    /// <summary>Shared drawing helpers for the UI state inspectors. They find the generated enum by name through reflection and draw its members as checkboxes or a dropdown over a serialized int.</summary>
     public static class UIStateContextEditorUtils
     {
         /// <summary>

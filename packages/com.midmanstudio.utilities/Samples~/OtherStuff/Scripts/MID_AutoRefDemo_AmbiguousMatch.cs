@@ -1,12 +1,13 @@
-// SHOWCASE 2 — Ambiguous multi-candidate resolution via fuzzy name matching.
-// Three MID_DemoLabelSlot children exist, created out of field-declaration order —
-// the resolver has to pick each one by name similarity, not by discovery order.
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/samples.md, section "MID_AutoRefDemo_AmbiguousMatch.cs"
+// ============================================================================
 using UnityEngine;
 using MidManStudio.Core.AutoReference;
 
 namespace MidManStudio.Core.Tests.AutoReference
 {
+    /// <summary>Script under test for demo 2: three fields of the same type, named health, mana and stamina.</summary>
     [MID_AutoRefable]
     public class MID_DemoAmbiguousPanel : MonoBehaviour
     {
@@ -19,6 +20,13 @@ namespace MidManStudio.Core.Tests.AutoReference
         public MID_DemoLabelSlot StaminaLabel => _staminaLabel;
     }
 
+    /// <summary>
+    /// Auto Reference demo 2, several candidates of one type. It creates three <c>MID_DemoLabelSlot</c> children named
+    /// StaminaLabel, HealthLabel and ManaLabel, in an order that differs from the field order, calls
+    /// <c>MID_AutoReferenceResolver.Resolve</c> with Include Children on, and checks that each field got the child whose
+    /// name matches it. Uses the type <c>MID_DemoLabelSlot</c> from the demo 1 file. Runs in Start when Run On Start is
+    /// on (default), or from the context menu "Run Test".
+    /// </summary>
     public class MID_AutoRefDemo_AmbiguousMatch : MonoBehaviour
     {
         [SerializeField] private bool _runOnStart = true;

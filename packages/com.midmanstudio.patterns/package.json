@@ -5,9 +5,9 @@
     "description": "Generic, engine-independent design pattern building blocks for Unity 2022.3+. Command (undo/redo history, grouped and merged commands, composite commands, deferred command queue), State (stack-based state machine), Event Queue (deferred typed events), Dependency Injection (service locator and a factory-based container), and Broker Chain (central broker running priority-ordered handlers over a query, with a stat sheet for buffs and modifiers), Dirty Flag, Double Buffer, Flyweight, Prototype, Type Object, Data Locality, Spatial Partition, Decorator, Factory, a fixed-step Game Loop, Subclass Sandbox, Facade, Template Method, and a Bytecode virtual machine). No dependencies; Singleton, pooling and immediate events live in the utilities package.",
     "unity": "2022.3",
     "unityRelease": "0f1",
-    "documentationUrl": "",
-    "changelogUrl": "",
-    "licensesUrl": "",
+    "documentationUrl": "https://github.com/MidManStudio/MidManStudio_Unity/blob/patterns/v0.1.0/packages/com.midmanstudio.patterns/README.md",
+    "changelogUrl": "https://github.com/MidManStudio/MidManStudio_Unity/blob/patterns/v0.1.0/packages/com.midmanstudio.patterns/CHANGELOG.md",
+    "licensesUrl": "https://github.com/MidManStudio/MidManStudio_Unity/blob/patterns/v0.1.0/packages/com.midmanstudio.patterns/LICENSE.md",
     "dependencies": {},
     "keywords": [
         "patterns",

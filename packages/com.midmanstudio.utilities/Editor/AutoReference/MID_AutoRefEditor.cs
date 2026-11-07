@@ -1,5 +1,7 @@
-// Custom inspector for MID_AutoRef — a one-click "Resolve Now" button painted with
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/autoreference.md, section "MID_AutoRefEditor.cs"
+// ============================================================================
 #if UNITY_EDITOR
 using System;
 using System.Linq;
@@ -12,6 +14,10 @@ using MidManStudio.Core.AutoReference;
 using MidManStudio.Core.EditorTools;
 namespace MidManStudio.Core.EditorUtils.AutoReference
 {
+    /// <summary>
+    /// Inspector for <see cref="MID_AutoRef"/>: the default fields, a RESOLVE NOW button and a one-line summary
+    /// of the last run (assigned, ambiguous, unresolved, already set). Built with UI Toolkit.
+    /// </summary>
     [CustomEditor(typeof(MID_AutoRef))]
     public class MID_AutoRefEditor : Editor
     {
@@ -56,9 +62,8 @@ namespace MidManStudio.Core.EditorUtils.AutoReference
     }
 
     /// <summary>
-    /// Clickable, green→orange gradient CTA. A plain VisualElement + Clickable
-    /// manipulator with a separate gradient-paint child behind a separate Label —
-    /// deliberately NOT a Button subclass (see file header for why that broke text).
+    /// Clickable green to orange gradient button. A plain VisualElement with a Clickable manipulator, a
+    /// gradient-paint child behind a separate Label. It is deliberately not a Button subclass.
     /// </summary>
     internal sealed class GradientResolveButton : VisualElement
     {

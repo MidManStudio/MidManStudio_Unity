@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/uistate.md, section "MID_UIStateManager.cs"
+// ============================================================================
 
 using System;
 using System.Collections.Generic;
@@ -9,6 +13,7 @@ using MidManStudio.Core.EditorUtils;
 
 namespace MidManStudio.Core.UIState
 {
+    /// <summary>One row of the manager: for a state flag, the objects to activate and deactivate, and two events.</summary>
     [Serializable]
     public class UIStatePanelConfig : IArrayElementTitle
     {
@@ -28,12 +33,19 @@ namespace MidManStudio.Core.UIState
         public UnityEvent onEnter;
         public UnityEvent onExit;
 
+        /// <summary>Label in inspector lists: the display name, else "State_N", else "None".</summary>
         public string Name =>
             !string.IsNullOrWhiteSpace(displayName) ? displayName :
             stateMask != 0                           ? $"State_{stateMask}" :
                                                        "None";
     }
 
+    /// <summary>
+    /// Singleton that applies a <see cref="MID_UIStateContext"/> to scene objects. On each state change it deactivates
+    /// the Show objects of every config whose flag is not in the new state, then activates the Show objects and
+    /// deactivates the Hide objects of every config whose flag is in the new state, and invokes onExit or onEnter.
+    /// It persists across scenes (<c>Awake</c> calls <c>Remake(true)</c>). <c>Start</c> applies the initial state.
+    /// </summary>
     public class MID_UIStateManager : Singleton<MID_UIStateManager>
     {
         #region Inspector
@@ -61,8 +73,11 @@ namespace MidManStudio.Core.UIState
 
         #region Properties
 
+        /// <summary>The context this manager applies.</summary>
         public MID_UIStateContext Context     => _context;
+        /// <summary>The context's current state, or 0 when no context is assigned.</summary>
         public int  CurrentState             => _context != null ? _context.CurrentState : 0;
+        /// <summary>True when the context has a state to go back to.</summary>
         public bool CanGoBack                => _context != null && _context.CanGoBack;
 
         #endregion
@@ -106,10 +121,10 @@ namespace MidManStudio.Core.UIState
             }
             else
             {
-                // FIX: For initial state 0 (None), ChangeState is a no-op (0→0).
+                // For initial state 0 (None), ChangeState is a no-op (0→0).
                 // Explicitly apply the None state to this manager's config arrays
                 // so that cfg.show objects active in the scene are properly hidden.
-                // MID_UIStateVisibility components handle themselves via their own _initialised fix.
+                // MID_UIStateVisibility components apply their own initial state through _initialised.
                 ApplyNoneState();
             }
         }
@@ -125,6 +140,7 @@ namespace MidManStudio.Core.UIState
 
         #region Public API
 
+        /// <summary>Moves the context to <paramref name="newState"/>. Logs an error when no context is assigned.</summary>
         public void ChangeState(int newState)
         {
             if (_context == null)
@@ -136,16 +152,20 @@ namespace MidManStudio.Core.UIState
             _context.ChangeState(newState);
         }
 
+        /// <summary>Returns the context to the previous state.</summary>
         public void GoBack()
         {
             if (_context == null) return;
             _context.GoBack();
         }
 
+        /// <summary>Clears the context's back history.</summary>
         public void ClearHistory() => _context?.ClearHistory();
 
+        /// <summary>True when the context is exactly in <paramref name="state"/>.</summary>
         public bool IsInState(int state) => _context != null && _context.IsInState(state);
 
+        /// <summary>Swaps the context at run time and subscribes to the new one. It does not apply the new context's current state.</summary>
         public void SetContext(MID_UIStateContext context)
         {
             if (_context != null)
@@ -213,7 +233,7 @@ namespace MidManStudio.Core.UIState
         }
 
         /// <summary>
-        /// FIX: Applied when _initialState == 0 (None).
+        /// Applied when _initialState == 0 (None).
         /// Hides all cfg.show objects across every config without firing onExit events,
         /// since we are not "leaving" any state — we are simply setting initial scene state.
         /// Does not notify context or fire OnStateChanged (context state stays at 0).

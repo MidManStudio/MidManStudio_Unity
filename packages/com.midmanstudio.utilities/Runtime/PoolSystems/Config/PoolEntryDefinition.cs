@@ -1,29 +1,19 @@
-﻿
-// One of these lives in every package (and in the user's game project) that wants
-// to contribute entries to the shared PoolableObjectType / PoolableParticleType enums.
-//
-// SETUP:
-//   Right-click in Project window >
-//       MidManStudio > Pool Type Provider  — object pool entries
-//       MidManStudio > Particle Pool Type Provider — particle pool entries
-//
-// ENTRY OFFSET RULES:
-//   explicitOffset = -1  →  generator assigns automatically (blockStart + auto index)
-//   explicitOffset >= 0  →  pinned to that offset within the provider's block.
-//                           Use this to stop an entry's value shifting when you
-//                           add entries above it.
-//
-// ORDERING WITHIN A BLOCK:
-//   The list order only matters for auto-offset entries.
-//   Pin critical entries (ones referenced in serialized inspector fields) so they
-//   never move even if you insert new entries above them.
-
+﻿// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/pool-systems.md, section "PoolEntryDefinition.cs"
+// ============================================================================
 using System.Collections.Generic;
 using UnityEngine;
 using MidManStudio.Core.EditorUtils;
 
 namespace MidManStudio.Core.Pools.Generator
 {
+    /// <summary>
+    /// One entry of a pool type provider: the enum member name, an optional comment written next to it, and an offset.
+    /// An <c>explicitOffset</c> of -1 lets the generator choose the number. A value of 0 or more pins the entry to that
+    /// offset inside the provider's block, so its number is known in advance. Use a pin for entries whose value you
+    /// need to know or fix, for example one referenced from other packages.
+    /// </summary>
     [System.Serializable]
     public class PoolEntryDefinition : IArrayElementTitle
     {
@@ -39,7 +29,7 @@ namespace MidManStudio.Core.Pools.Generator
                  "so their integer value never changes.")]
         public int explicitOffset = -1;
 
-        // IArrayElementTitle
+        /// <summary>Label in inspector lists: the entry name, or "Unnamed Entry" when blank.</summary>
         public string Name =>
             string.IsNullOrWhiteSpace(entryName) ? "Unnamed Entry" : entryName;
     }

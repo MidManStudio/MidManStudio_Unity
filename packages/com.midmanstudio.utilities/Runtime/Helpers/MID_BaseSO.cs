@@ -1,34 +1,22 @@
-
-// Base ScriptableObject for all MidManStudio SO assets.
-// Provides:
-//   - Custom icon per instance (drag any Texture2D into _customIcon in the inspector)
-//   - Group icon per type (override GroupIconPath in subclass to point to a project asset)
-//   - Auto-applies icon on asset import/change via MID_BaseSOEditor
-//   - IArrayElementTitle so any List<MID_BaseSO> uses SO name by default
-//
-// USAGE — custom icon per instance:
-//   Select the SO asset, expand "Icon" in the inspector, drag a Texture2D.
-//
-// USAGE — group icon (all assets of one type share an icon):
-//   [CreateAssetMenu(...)]
-//   public class WeaponItemSO : MID_BaseSO
-//   {
-//       protected override string GroupIconPath =>
-//           "Packages/com.midmanstudio.utilities/Editor/Icons/weapon_icon.png";
-//   }
-//
-// USAGE — type-level icon via Unity attribute (Unity 2021.2+, no runtime cost):
-//   [Icon("Packages/com.midmanstudio.utilities/Editor/Icons/weapon_icon.png")]
-//   public class WeaponItemSO : MID_BaseSO { }
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/helpers.md, section "MID_BaseSO.cs"
+// ============================================================================
 using UnityEngine;
 using MidManStudio.Core.EditorUtils;
 
 namespace MidManStudio.Core
 {
     /// <summary>
-    /// Base class for all MidManStudio ScriptableObject assets.
-    /// Provides per-instance custom icons and optional per-type group icons.
+    /// Base class for MidManStudio ScriptableObject assets. It adds an optional icon (one per asset, or one per
+    /// type through <see cref="GroupIconPath"/>) that the Project window draws over the asset's default icon,
+    /// and it implements <see cref="IArrayElementTitle"/> so lists of these assets show the asset name in
+    /// <c>[MID_NamedList]</c> lists. The icon is drawn by Editor-only classes and does nothing at run time.
+    ///
+    /// Per-asset icon: select the asset and drag a Texture2D into the Icon field.
+    /// Per-type icon: override <see cref="GroupIconPath"/> with a project path to a Texture2D.
+    /// A type-level icon can also come from Unity's own <c>[Icon("path")]</c> attribute (Unity 2021.2 and later),
+    /// which needs none of this class.
     /// </summary>
     public abstract class MID_BaseSO : ScriptableObject, IArrayElementTitle
     {
@@ -55,14 +43,16 @@ namespace MidManStudio.Core
         /// <summary>
         /// Override in a subclass to specify a project-relative path to a Texture2D
         /// that will be used as the icon for ALL assets of that type (group icon).
-        /// Example: "Packages/com.midmanstudio.utilities/Editor/Icons/library_icon.png"
+        /// Example: "Assets/Icons/library_icon.png"
         /// Per-instance <see cref="CustomIcon"/> takes precedence over this.
         /// </summary>
         public virtual string GroupIconPath => null;
 
         /// <summary>
-        /// Resolves the effective icon: per-instance first, group second, null otherwise.
-        /// Called by the custom editor to apply the icon to the asset.
+        /// Returns the icon to show: the per-asset icon first, then the group icon, otherwise null.
+        /// The group icon is loaded through the AssetDatabase, so it is only found in the Editor; in a build
+        /// this returns the per-asset icon or null. Used by the Project window drawer, the inspector preview
+        /// and the ScriptableObject Viewer.
         /// </summary>
         public Texture2D ResolveIcon()
         {

@@ -1,14 +1,14 @@
-﻿
-// Auto-returns a pooled GameObject to LocalObjectPool after a configured delay.
-// Automatically added to pooled objects by LocalObjectPool.
-// Uses the generated PoolableObjectType enum.
-
+﻿// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/pool-systems.md, section "LocalPoolReturn.cs"
+// ============================================================================
 using System.Collections;
 using UnityEngine;
 using MidManStudio.Core.Logging;
 
 namespace MidManStudio.Core.Pools
 {
+    /// <summary>Auto-return settings of <see cref="LocalPoolReturn"/>: on by default, after 5 seconds, and what to do when the pool is missing.</summary>
     [System.Serializable]
     public class ReturnConfig
     {
@@ -21,8 +21,10 @@ namespace MidManStudio.Core.Pools
     }
 
     /// <summary>
-    /// Attach to any pooled GameObject.
-    /// Handles auto-return after a delay and immediate manual return.
+    /// Returns a pooled GameObject to <see cref="LocalObjectPool"/> after a delay, or at once on request. Uses the generated
+    /// <see cref="PoolableObjectType"/> enum. <see cref="LocalObjectPool"/> adds it to every instance it creates and sets
+    /// the type. With the default config the object returns itself 5 seconds after it is enabled, so call
+    /// <see cref="SetAutoReturn"/> with false (or change the config on the prefab) for objects that live longer.
     /// </summary>
     public class LocalPoolReturn : MonoBehaviour
     {
@@ -46,6 +48,7 @@ namespace MidManStudio.Core.Pools
 
         // ── Public API ────────────────────────────────────────────────────────
 
+        /// <summary>Sets the pool type this object returns to.</summary>
         public void SetOriginalType(PoolableObjectType type)
         {
             originalType = type;
@@ -53,8 +56,10 @@ namespace MidManStudio.Core.Pools
                 nameof(LocalPoolReturn), nameof(SetOriginalType));
         }
 
+        /// <summary>The pool type this object returns to.</summary>
         public PoolableObjectType GetOriginalType() => originalType;
 
+        /// <summary>Turns the auto-return timer on or off. When the object is active the timer starts again or stops at once.</summary>
         public void SetAutoReturn(bool enabled)
         {
             config.autoReturn = enabled;
@@ -63,6 +68,7 @@ namespace MidManStudio.Core.Pools
             else         StopAutoReturn();
         }
 
+        /// <summary>Sets the auto-return time in seconds. When the object is active and auto-return is on, the timer starts again from zero.</summary>
         public void SetDuration(float newDuration)
         {
             config.duration = newDuration;
@@ -77,8 +83,11 @@ namespace MidManStudio.Core.Pools
             ReturnToPool();
         }
 
+        /// <summary>True while an auto-return timer is running.</summary>
         public bool IsScheduledForReturn() => config.autoReturn && _returnCoroutine != null;
+        /// <summary>The auto-return time in seconds.</summary>
         public float GetDuration()          => config.duration;
+        /// <summary>True when auto-return is on.</summary>
         public bool  IsAutoReturnEnabled()  => config.autoReturn;
 
         // ── Private ───────────────────────────────────────────────────────────

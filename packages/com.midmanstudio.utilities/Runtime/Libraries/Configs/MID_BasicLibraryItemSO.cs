@@ -1,21 +1,16 @@
-
-// Concrete library item for cases that don't need custom data fields.
-// Contains just an id, display name, description, and optional sprite.
-//
-// For items with custom fields, subclass MID_LibraryItemSO instead:
-//   [CreateAssetMenu(menuName = "MyGame/Libraries/WeaponItem")]
-//   public class WeaponItemSO : MID_LibraryItemSO { public float damage; }
-//
-// CREATE:
-//   Right-click in Project > MidManStudio > Utilities > Library Item (Basic)
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/libraries.md, section "MID_BasicLibraryItemSO.cs"
+// ============================================================================
 using UnityEngine;
 
 namespace MidManStudio.Core.Libraries
 {
     /// <summary>
-    /// Ready-to-use library item with display name, description, and optional sprite.
-    /// Create via: right-click > MidManStudio > Utilities > Library Item (Basic)
+    /// Ready-to-use library item for cases that need no custom data: the id from the base class, a display
+    /// name, a description, an optional icon and optional tags. Create via Create > MidManStudio >
+    /// Utilities > Library Item (Basic). For an item with its own fields, derive from
+    /// <see cref="MID_LibraryItemSO"/> instead.
     /// </summary>
     
 [CreateAssetMenu(fileName="NewLibraryItem",

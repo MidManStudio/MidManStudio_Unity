@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/fx.md, section "MID_FlipbookEffect.cs"
+// ============================================================================
 using System.Collections;
 using UnityEngine;
 using MidManStudio.Core.Logging;
@@ -5,29 +9,18 @@ using MidManStudio.Core.Logging;
 namespace MidManStudio.Core.FX
 {
     /// <summary>
-    /// Pooled sprite-sheet flipbook effect. Fills the gap GlobalFXManager had no
-    /// answer for: it's ParticleSystem-only, with a single persistent emitter per
-    /// (category, type) — there was no way to play a hand-drawn sprite sequence
-    /// (a muzzle flash flipbook, e.g.) at an arbitrary world position, since a
-    /// SpriteRenderer can't be "emitted" from multiple positions the way a
-    /// ParticleSystem can via EmitParams.
-    ///
-    /// This plugs into the same slot the Pool Type Generator had already reserved
-    /// but never built anything for — PoolableObjectType.FlipbookEffect
-    /// (com.midmanstudio.utilities block, explicitOffset = 2).
-    ///
-    /// Mirrors MID_SpawnableAudio's exact pool-return pattern: fetch from
-    /// LocalObjectPool, play, auto-return via LocalPoolReturn (or the pool
-    /// directly, or SetActive(false) as a last resort).
-    ///
-    /// SETUP:
-    ///   Register a prefab (SpriteRenderer + this component, ideally + LocalPoolReturn)
-    ///   in LocalObjectPool with typeId = PoolableObjectType.FlipbookEffect.
-    ///
-    /// USAGE (called by GlobalFXManager when an FXEntry has flipbookFrames set):
-    ///   var go = LocalObjectPool.Instance.GetObject(PoolableObjectType.FlipbookEffect, pos, rot);
-    ///   go.GetComponent<MID_FlipbookEffect>().Play(frames, fps, pos, rot);
+    /// Pooled sprite-sheet flipbook effect. <c>GlobalFXManager</c> uses it for entries that have
+    /// <c>flipbookFrames</c>, because a persistent <see cref="ParticleSystem"/> cannot play a hand-drawn
+    /// sprite sequence at an arbitrary world position.
     /// </summary>
+    /// <remarks>
+    /// Setup: register a prefab (SpriteRenderer, this component, ideally <c>LocalPoolReturn</c>) in
+    /// <c>LocalObjectPool</c> with the type <c>PoolableObjectType.FlipbookEffect</c>.
+    /// Usage, as done by <c>GlobalFXManager</c>: fetch an object with
+    /// <c>LocalObjectPool.Instance.GetObject(PoolableObjectType.FlipbookEffect, pos, rot)</c>, then call
+    /// <see cref="Play"/>. After the last frame the effect returns itself: through <c>LocalPoolReturn</c>
+    /// if the prefab has one, else through the pool directly, else by deactivating the object.
+    /// </remarks>
     [RequireComponent(typeof(SpriteRenderer))]
     public class MID_FlipbookEffect : MonoBehaviour
     {

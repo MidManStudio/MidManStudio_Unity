@@ -1,26 +1,14 @@
-
-// Manages ParticleSystem instances placed directly in the HUD/UI hierarchy.
-// Effects are identified by string keys — no closed enum, fully extensible.
-//
-// USAGE:
-//   Register effects in the inspector under Effect Configs.
-//   Call TriggerEffect("WaveComplete") from game code.
-//
-// SETUP:
-//   Place this component on your HUD root.
-//   Add one UIEffectConfig entry per particle system.
-//   Set the key to any string you like (e.g. "Explosion", "LevelUp").
-//
-// PLAY MODES:
-//   useEmitMode = false → ParticleSystem.Play()
-//   useEmitMode = true  → ParticleSystem.Emit(count)
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/pool-systems.md, section "UIParticlePoolManager.cs"
+// ============================================================================
 using System.Collections.Generic;
 using UnityEngine;
 using MidManStudio.Core.Logging;
 
 namespace MidManStudio.Core.Pools
 {
+    /// <summary>One UI effect: the string key and the scene ParticleSystem to play. <c>useEmitMode</c> chooses Emit(count) instead of Play().</summary>
     [System.Serializable]
     public class UIEffectConfig
     {
@@ -35,8 +23,11 @@ namespace MidManStudio.Core.Pools
     }
 
     /// <summary>
-    /// Manages UI-layer ParticleSystem effects by string key.
-    /// Zero instantiation — plays/emits existing scene particle systems.
+    /// Plays ParticleSystems that are already in the HUD or UI hierarchy, by string key. It creates nothing and pools
+    /// nothing, and there is no enum, so any key works. Put the component on the HUD root, add one
+    /// <see cref="UIEffectConfig"/> per particle system and call <see cref="TriggerEffect"/> with the key, for example
+    /// <c>TriggerEffect("WaveComplete")</c>. In <c>Awake</c> it stops all configured systems and deactivates their
+    /// GameObjects. Play mode per effect: Play() or Emit(count).
     /// </summary>
     public class UIParticlePoolManager : MonoBehaviour
     {
@@ -128,6 +119,7 @@ namespace MidManStudio.Core.Pools
             }
         }
 
+        /// <summary>True when the effect exists and its particle system is playing. Logs an error for an unknown key.</summary>
         public bool IsPlaying(string key) =>
             TryGet(key, out var cfg) && cfg.particleSystem.isPlaying;
 
@@ -143,6 +135,7 @@ namespace MidManStudio.Core.Pools
             if (!_effectConfigs.Contains(config)) _effectConfigs.Add(config);
         }
 
+        /// <summary>Removes the effect with this key. The particle system itself is not touched.</summary>
         public void UnregisterEffect(string key)
         {
             _lookup.Remove(key);

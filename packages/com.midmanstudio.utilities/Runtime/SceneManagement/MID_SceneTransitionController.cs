@@ -1,4 +1,7 @@
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/scenemanagement.md, section "MID_SceneTransitionController.cs"
+// ============================================================================
 using System;
 using System.Collections;
 using UnityEngine;
@@ -8,25 +11,29 @@ using MidManStudio.Core.Singleton;
 namespace MidManStudio.Core.SceneManagement
 {
     /// <summary>
-    ///  Abstract base class for scene transition UI controllers.
-    /// Coordinates MID_SceneLoader (utilities) and optionally a network loader (netcode)
-    /// through the ISceneLoader interface. Game code subclasses this and overrides the
-    /// virtual hooks to drive its own fade/animation system (DOTween, LeanTween, etc.).
-    ///
-    /// SUBCLASSING:
-    ///   public class MySceneManager : MID_SceneTransitionController
-    ///   {
-    ///       protected override IEnumerator TransitionIn()  { /* fade to black  */ yield break; }
-    ///       protected override IEnumerator TransitionOut() { /* fade from black */ yield break; }
-    ///       protected override void OnProgressUpdated(float p) { progressBar.value = p; }
-    ///       protected override void OnTransitionComplete(int sceneId) { HideLoadingUI(); }
-    ///   }
-    ///
-    /// USAGE (game code):
-    ///   MySceneManager.Instance.LoadScene(SceneId.Gameplay);
-    ///   MySceneManager.Instance.LoadScene(SceneId.Network, SceneLoadType.NetworkAdditive);
-
+    /// Abstract base class for scene transition UI controllers. It coordinates <c>MID_SceneLoader</c> and,
+    /// optionally, a network loader through <see cref="ISceneLoader"/>. Game code derives from it and overrides
+    /// the virtual hooks to drive its own fade or animation (DOTween, LeanTween, coroutines).
     /// </summary>
+    /// <remarks>
+    /// Order of a transition with <c>useTransition</c> on: <c>OnPreTransition</c>, <c>TransitionIn</c>, the optional
+    /// delay, the load starts, <c>OnLoadingStarted</c>, then when the loader reports completion
+    /// <c>OnLoadingFinished</c>, <c>TransitionOut</c>, <c>OnPostTransition</c>, and the
+    /// <see cref="OnSceneTransitionComplete"/> event. The loaders are looked up once in <c>Start</c>.
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// public class MySceneManager : MID_SceneTransitionController
+    /// {
+    ///     protected override IEnumerator TransitionIn()  { /* fade to black  */ yield break; }
+    ///     protected override IEnumerator TransitionOut() { /* fade from black */ yield break; }
+    ///     protected override void OnProgressUpdated(float p) { progressBar.value = p; }
+    /// }
+    ///
+    /// MySceneManager.Instance.LoadScene(SceneId.Gameplay);
+    /// MySceneManager.Instance.LoadScene(SceneId.Network, SceneLoadType.NetworkAdditive);
+    /// </code>
+    /// </example>
     [RequireComponent(typeof(Canvas))]
     public abstract class MID_SceneTransitionController : Singleton<MID_SceneTransitionController>
     {
@@ -51,7 +58,9 @@ namespace MidManStudio.Core.SceneManagement
 
         /// <summary>Fires on all clients when a scene finishes loading. Payload is SceneId int.</summary>
         public Action<int>    OnSceneTransitionComplete;
+        /// <summary>Fires after a load failed, once the error hook and a fixed 2 second wait are done. Payload is the error message.</summary>
         public Action<string> OnSceneTransitionFailed;
+        /// <summary>Fires with the smoothed progress, 0..1, about every 50 ms while loading.</summary>
         public Action<float>  OnSceneTransitionProgress;
 
         #endregion
@@ -75,8 +84,11 @@ namespace MidManStudio.Core.SceneManagement
 
         #region Properties
 
+        /// <summary>True from the start of a transition until it completes or fails.</summary>
         public bool      IsTransitioning   => _isTransitioning;
+        /// <summary>The scene being loaded, or <see cref="SceneId.None"/> when idle.</summary>
         public SceneId   CurrentTargetScene => (SceneId)_currentTargetId;
+        /// <summary>The smoothed progress shown to the UI, 0..1.</summary>
         public float     CurrentProgress   => _currentProgress;
 
         #endregion
@@ -191,10 +203,16 @@ namespace MidManStudio.Core.SceneManagement
             LoadScene((int)sceneId, loadType, useTransition, delayMs);
         }
 
+        /// <summary>Load a scene with an explicit load type.</summary>
         public void LoadScene(SceneId sceneId, SceneLoadType loadType,
             bool useTransition = true, short delayMs = 0) =>
             LoadScene((int)sceneId, loadType, useTransition, delayMs);
 
+        /// <summary>
+        /// Starts a transition. Ignored with a warning while another transition runs. Reports
+        /// <see cref="OnSceneTransitionFailed"/> when no loader is connected for the load type.
+        /// <paramref name="delayMs"/> is waited here, after TransitionIn, not inside the loader.
+        /// </summary>
         public void LoadScene(int sceneId, SceneLoadType loadType = SceneLoadType.Single,
             bool useTransition = true, short delayMs = 0)
         {
@@ -221,6 +239,7 @@ namespace MidManStudio.Core.SceneManagement
         }
 
         [ContextMenu("Emergency Cleanup")]
+        /// <summary>Stops all transition coroutines and resets the state. Also in the component context menu.</summary>
         public void EmergencyCleanup()
         {
             MID_Logger.LogWarning(_logLevel, "Emergency cleanup triggered.",
@@ -412,7 +431,7 @@ namespace MidManStudio.Core.SceneManagement
         /// <summary>Called when load fails. Show error UI, then yield for as long as needed.</summary>
         protected virtual IEnumerator OnTransitionError(string error) { yield break; }
 
-        /// <summary>Called when transition fully completes. Override to react to scene id.</summary>
+        /// <summary>Declared for subclasses but not called by this base class. Use the <see cref="OnSceneTransitionComplete"/> event.</summary>
         protected virtual void OnTransitionComplete(int sceneId) { }
 
         #endregion

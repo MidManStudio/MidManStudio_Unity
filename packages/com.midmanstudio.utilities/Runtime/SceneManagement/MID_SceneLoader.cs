@@ -1,16 +1,7 @@
-// Standard (non-network) scene loader. Implements ISceneLoader.
-// Handles single and additive loading with progress reporting.
-// Optionally validates internet connectivity for InternetRequired scenes
-// via MID_NetworkConnectionManager if available.
-//
-// SETUP:
-//   Add to a persistent singleton GameObject.
-//   Add SceneTypeProviderSO assets for your scenes and run the Scene Type Generator.
-//
-// USAGE:
-//   MID_SceneLoader.Instance.LoadScene((int)SceneId.MainMenu);
-//   MID_SceneLoader.Instance.OnSceneLoadCompleted += id => Debug.Log($"Loaded {id}");
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/scenemanagement.md, section "MID_SceneLoader.cs"
+// ============================================================================
 using System;
 using System.Threading.Tasks;
 using UnityEngine;
@@ -21,8 +12,24 @@ using MidManStudio.Core.Singleton;
 namespace MidManStudio.Core.SceneManagement
 {
     /// <summary>
-    /// Non-network scene loader. Wrap in MID_SceneTransitionController for UI transitions.
+    /// Standard (non-network) scene loader. Implements <see cref="ISceneLoader"/>. Handles single and
+    /// additive loading with progress reporting, and can check the internet for scenes marked
+    /// <see cref="SceneNetworkDependency.InternetRequired"/>. Wrap it in a
+    /// <see cref="MID_SceneTransitionController"/> subclass for fade and loading screens.
     /// </summary>
+    /// <remarks>
+    /// Setup: put it on a persistent singleton GameObject, add <c>SceneTypeProviderSO</c> assets for your scenes
+    /// and run the Scene Type Generator. Only one load runs at a time: a second call while loading is ignored
+    /// with a warning. The internet check uses <c>MID_NetworkConnectionManager.ConfirmConnectionAsync</c> from the
+    /// netcode package when that assembly is present (found by reflection), else
+    /// <c>Application.internetReachability</c>.
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// MID_SceneLoader.Instance.LoadScene(SceneId.MainMenu);
+    /// MID_SceneLoader.Instance.OnSceneLoadCompleted += id => Debug.Log($"Loaded {id}");
+    /// </code>
+    /// </example>
     public class MID_SceneLoader : Singleton<MID_SceneLoader>, ISceneLoader
     {
         #region Inspector
@@ -45,13 +52,16 @@ namespace MidManStudio.Core.SceneManagement
 
         #region ISceneLoader
 
+        /// <inheritdoc/>
         public bool IsLoadingScene      => _isLoading;
         public int  CurrentLoadingSceneId => _currentLoadingId;
 
+        /// <inheritdoc/>
         public Action<float>  OnLoadProgressChanged { get; set; }
         public Action<int>    OnSceneLoadCompleted  { get; set; }
         public Action<string> OnSceneLoadFailed     { get; set; }
 
+        /// <inheritdoc/>
         public void LoadScene(int sceneId, SceneLoadType loadType = SceneLoadType.Single,
             short delayMs = 0)
         {
@@ -73,6 +83,7 @@ namespace MidManStudio.Core.SceneManagement
             ExecuteLoad(sceneId, loadType, delayMs);
         }
 
+        /// <inheritdoc/>
         public void UnloadScene(int sceneId)
         {
             try
@@ -88,6 +99,7 @@ namespace MidManStudio.Core.SceneManagement
             }
         }
 
+        /// <inheritdoc/>
         public bool IsSceneLoaded(int sceneId) =>
             SceneManager.GetSceneByBuildIndex(sceneId).isLoaded;
 
@@ -95,6 +107,7 @@ namespace MidManStudio.Core.SceneManagement
 
         #region Public Helpers
 
+        /// <summary>Same as the int overload, taking the generated <see cref="SceneId"/>.</summary>
         public void LoadScene(SceneId id, SceneLoadType loadType = SceneLoadType.Single,
             short delayMs = 0) =>
             LoadScene((int)id, loadType, delayMs);
@@ -102,6 +115,7 @@ namespace MidManStudio.Core.SceneManagement
         public void UnloadScene(SceneId id) => UnloadScene((int)id);
         public bool IsSceneLoaded(SceneId id) => IsSceneLoaded((int)id);
 
+        /// <summary>The generated id of the active scene, or <see cref="SceneId.None"/> when its build index is not in the registry.</summary>
         public SceneId GetActiveSceneId()
         {
             int idx = SceneManager.GetActiveScene().buildIndex;

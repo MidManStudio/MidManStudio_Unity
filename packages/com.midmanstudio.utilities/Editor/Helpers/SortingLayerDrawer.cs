@@ -1,3 +1,7 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/editor-helpers.md, section "SortingLayerDrawer.cs"
+// ============================================================================
 #if UNITY_EDITOR
 using UnityEditor;
 using UnityEngine;
@@ -11,6 +15,8 @@ namespace MidManStudio.Core.EditorUtils
     /// public SortingLayer API (layers / name / value) rather than the
     /// private EditorGUILayout.SortingLayerField overload (which only exists
     /// via reflection and is not guaranteed stable across Unity versions).
+    /// A stored name that matches no layer is shown as the first layer, and nothing is written until a layer is
+    /// picked. A field that is not a string, or a project with no layers, gets the normal field.
     /// </summary>
     [CustomPropertyDrawer(typeof(MID_SortingLayerAttribute))]
     public class SortingLayerDrawer : PropertyDrawer

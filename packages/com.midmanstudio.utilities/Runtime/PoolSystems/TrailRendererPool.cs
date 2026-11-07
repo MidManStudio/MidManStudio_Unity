@@ -1,18 +1,7 @@
-
-// Generic pooled trail renderer manager for utilities package.
-// Manages a fixed pool of TrailRenderer GameObjects.
-// Any moving object can request a trail slot by calling Acquire(),
-// update it each frame via SetPosition(), and release via Release().
-//
-// NOT projectile-specific — works for any moving entity.
-// The projectile system's TrailObjectPool (which reads NativeProjectile[])
-// lives in the projectile package and uses this as its underlying pool.
-//
-// USAGE:
-//   int slot = TrailRendererPool.Instance.Acquire(config, ownerInstanceId);
-//   TrailRendererPool.Instance.SetPosition(slot, transform.position);
-//   TrailRendererPool.Instance.Release(slot);
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/pool-systems.md, section "TrailRendererPool.cs"
+// ============================================================================
 using UnityEngine;
 using MidManStudio.Core.Logging;
 using MidManStudio.Core.Singleton;
@@ -21,6 +10,7 @@ namespace MidManStudio.Core.Pools
 {
     // ── Config passed when acquiring a trail slot ─────────────────────────────
 
+    /// <summary>Settings applied to a trail slot by <see cref="TrailRendererPool.Acquire"/>. Start from <see cref="Default"/>, because a zero start width gives an invisible trail.</summary>
     public struct TrailConfig
     {
         public Material  Material;
@@ -63,6 +53,16 @@ namespace MidManStudio.Core.Pools
 
     // ─────────────────────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// A fixed pool of TrailRenderer objects that any moving object can use. <see cref="Acquire"/> returns a slot index,
+    /// <see cref="SetPosition"/> moves the trail each frame and <see cref="Release"/> lets it fade out and recycles the slot.
+    /// It is not specific to projectiles. The projectile system's <c>TrailObjectPool</c> uses it as its pool.
+    /// <example><code>
+    /// int slot = TrailRendererPool.Instance.Acquire(TrailConfig.Default, GetInstanceID());
+    /// TrailRendererPool.Instance.SetPosition(slot, transform.position);
+    /// TrailRendererPool.Instance.Release(slot);
+    /// </code></example>
+    /// </summary>
     public class TrailRendererPool : Singleton<TrailRendererPool>
     {
         [SerializeField] private MID_LogLevel _logLevel   = MID_LogLevel.Info;
@@ -186,7 +186,9 @@ namespace MidManStudio.Core.Pools
             s.Renderer.Clear();
         }
 
+        /// <summary>Number of slots, 0 before the pool is initialised.</summary>
         public int  PoolSize   => _slots?.Length ?? 0;
+        /// <summary>True when the slot index is valid and the slot is in use.</summary>
         public bool IsAcquired(int slot) => IsValidActiveSlot(slot);
 
         // ── Private ───────────────────────────────────────────────────────────
@@ -256,9 +258,8 @@ namespace MidManStudio.Core.Pools
             tr.endWidth   = cfg.EndWidth   >= 0f ? cfg.EndWidth   : 0f;
             tr.numCapVertices = Mathf.Clamp(cfg.CapVertices, 0, 4);
 
-            // TrailRenderer is a real Unity Renderer, so unlike the RustSim
-            // batch draw calls, this sorts correctly against every other
-            // SpriteRenderer/Renderer in the scene — no Z-depth workaround needed.
+            // TrailRenderer is a real Unity Renderer, so it sorts against the other renderers in the scene by
+            // sorting layer and order.
             tr.sortingLayerID = cfg.SortingLayerID;
             tr.sortingOrder   = cfg.SortingOrder;
         }

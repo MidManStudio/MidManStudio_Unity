@@ -1,6 +1,8 @@
 # com.midmanstudio.utilities: FXSystems
 
-Only the files touched so far are covered here. The rest of `Runtime/FXSystems` is not yet documented.
+Everything in `Runtime/FXSystems` and `Editor/FXSystems` is covered here except the two generated files
+`Generated/EffectCategory.cs` and `Generated/EffectType.cs`. Those are written by the Effect Type Generator and are
+not edited by hand. The numbering rules are in [enum-generators.md](enum-generators.md).
 
 ## Modules
 
@@ -56,6 +58,105 @@ or the settings asset changes, if Auto-Generate is on in the settings (`EffectTy
 **Tests:** the numbering is covered by `Tests/Editor/EnumBlockLogicTests.cs`, see [enum-generators.md](enum-generators.md).
 The generator and the window have no tests.
 
+### `FXEntry.cs`
+**What it does:** The serializable list item of `GlobalFXManager`. It binds one (`EffectCategory`, `EffectType`)
+pair to either an in-scene `ParticleSystem` or a set of sprite frames. Namespace `MidManStudio.Core.FX`. Fields:
+`category`, `effectType`, `displayName`, `particleSystem`, `defaultParticleCount` (6, minimum 1, used when the
+caller passes -1), `flipbookFrames`, `flipbookFps` (24, minimum 1).
+
+**How it works:** `IsFlipbook` is true when `flipbookFrames` has at least one frame. If both a particle system and
+frames are set, the frames win. `Name` (from `IArrayElementTitle`, the label in the inspector list) is the display
+name when set, else `Category/Type (flipbook)` for a flipbook, else `Category/<particle system name>`, else
+`Category/Type`.
+
+**Gotchas:**
+- The particle system must use Simulation Space World for positioning by emit parameters to work. The manager checks
+  this at startup, see `GlobalFXManager.cs` above.
+- `category` and `effectType` are stored as the numbers of the generated enums. See
+  [enum-generators.md](enum-generators.md) for why numbers stay stable.
+
+### `MID_FlipbookEffect.cs`
+**What it does:** A pooled sprite-sheet effect. The prefab needs a `SpriteRenderer` (the component is required) and
+this script, and is registered in `LocalObjectPool` as `PoolableObjectType.FlipbookEffect`. `Play(frames, fps,
+position, rotation)` places the object, shows each frame for `1 / max(fps, 1)` seconds with a coroutine, and then
+calls `Return()`. `Return()` can also be called at any time to stop early.
+
+**How it works:**
+- Return goes through `LocalPoolReturn.ReturnToPoolNow()` when the prefab has that component, else through
+  `LocalObjectPool.ReturnObject` when the type is registered, else the object is deactivated.
+- `Play` with no frames returns the object at once. A second call to `Return` is ignored until `OnEnable` runs again,
+  which is how a pooled object is reused.
+- The sprite is cleared when playback is reset. The inspector field `_logLevel` defaults to `None`.
+
+**Decisions:** `GlobalFXManager` has one persistent emitter per entry, so it cannot show a hand-drawn sprite sequence
+at many positions at once. The flipbook uses the pool slot `PoolableObjectType.FlipbookEffect` of the utilities block
+(offset 2) and follows the same return pattern as `MID_SpawnableAudio`.
+
+**Gotchas:**
+- Timing uses `WaitForSeconds`, which follows `Time.timeScale`. A paused game freezes the flipbook.
+- The sorting layer, order and material come from the prefab. The component sets none of them.
+- `Play` must run on an active object, because it starts a coroutine.
+
+### `FXEntryDefinition.cs`
+**What it does:** One row of a provider asset: `entryName` (becomes the enum member, PascalCase, no spaces), `comment`
+(written next to the member) and `explicitOffset` (-1 is auto-assigned, 0 or more is pinned to that offset in the
+provider's block). It has the same three fields and rules as `PoolEntryDefinition`, so the pool and effect
+generators treat entries the same way. Namespace `MidManStudio.Core.FX.Generator`.
+
+**Gotchas:** Pin an entry when serialized inspector data refers to it by number. Use the same rules as in
+[enum-generators.md](enum-generators.md).
+
+### `EffectCategoryProviderSO.cs`
+**What it does:** A ScriptableObject that adds entries to the generated `EffectCategory` enum. Create it with
+Create > MidManStudio > Utilities > Effect Category Provider. Fields: `packageId` (default `com.mygame`, must be
+unique across all providers), `displayName`, `priority` (default 100) and `entries` (list of `FXEntryDefinition`,
+drawn with `[MID_NamedList]`). `EntryCount` returns the list size.
+
+**Decisions:** Each package or game project that needs categories has its own provider, so packages never edit each
+other's lists. The tooltip on `priority` reserves 0 for the utilities package and 10 for the projectile system. Game
+code uses 100 or more. After a change, run MidManStudio > Utilities > Effect Type Generator.
+
+### `EffectTypeProviderSO.cs`
+**What it does:** The same as `EffectCategoryProviderSO`, for the `EffectType` enum. Create it with Create >
+MidManStudio > Utilities > Effect Type Provider. Same four fields and the same defaults. It has no tooltips on the
+fields.
+
+### `EffectTypeGeneratorSettingsSO.cs`
+**What it does:** Project-wide generator settings. Create it with Create > MidManStudio > Utilities > Effect Type
+Generator Settings. The generator uses the first asset of this type it finds. Fields and defaults:
+
+| Field | Default |
+|---|---|
+| `categoryEnumOutputPath` | `packages/com.midmanstudio.utilities/Runtime/FXSystems/Generated/EffectCategory.cs` |
+| `typeEnumOutputPath` | `packages/com.midmanstudio.utilities/Runtime/FXSystems/Generated/EffectType.cs` |
+| `lockFilePath` | `Assets/MidManStudio/Generated/FX/EffectTypeLock.json` (commit it) |
+| `minimumBlockSize` | 100 (minimum 10) |
+| `generatedNamespace` | `MidManStudio.Core.FX` |
+| `autoGenerateOnAssetChange` | false |
+
+**Gotchas:**
+- The generator writes these paths as they are, relative to the Unity project root, and creates missing folders. The
+  two default enum paths match the layout of the MidManStudio_Unity repository. In a project that installs the package
+  from git the package lives in `Library/PackageCache` and is read-only, so the defaults would write a folder named
+  `packages` next to `Assets`, which Unity does not compile. Point both paths into `Assets` before generating in such a
+  project. Found by reading the code, not run in Unity.
+
+### `PackageEffectProviderBootstrapper.cs` (Editor)
+**What it does:** An `[InitializeOnLoad]` class that creates the default provider assets in
+`Assets/MidManStudio/Utilities/FXProviders` when they do not exist, one frame after each domain reload. The menu item
+MidManStudio > Utilities > Internal > Recreate Default Effect Providers runs the same check by hand.
+
+**What it creates (package id `com.midmanstudio.utilities`, priority 0, all offsets pinned):**
+- `EffectCategoryProvider_Utilities.asset`: `Impact` 0, `MuzzleFlash` 1, `ShellEjection` 2, `Explosion` 3.
+- `EffectTypeProvider_Utilities.asset`: `Generic` 0, `MetalSurface` 1, `ConcreteSurface` 2, `DirtSurface` 3,
+  `WoodSurface` 4, `FleshSurface` 5, `SmallMuzzle` 10, `MediumMuzzle` 11, `LargeMuzzle` 12, `BrassShell` 20,
+  `SteelShell` 21, `SmallExplosion` 30, `MediumExplosion` 31, `LargeExplosion` 32.
+
+**Gotchas:**
+- Only the default path is checked. If the asset is moved or renamed, a new one is created at the default path on the
+  next reload, and the project then has two providers with the same package id. Delete the copy you do not want.
+- It does not run the generator. Run MidManStudio > Utilities > Effect Type Generator afterwards.
+
 ## Fixes and Problems
 
 ### `GlobalFXManager.cs`
@@ -85,3 +186,27 @@ even when the type enum then failed.
 **Problem (open):** The auto-generate hook does not notice a deleted provider asset, because the type of a
 deleted path cannot be looked up. This comes from reading the code and was not tried in Unity. Generate by hand
 after deleting a provider. The `Generated:` timestamp (see above) makes every run change both files.
+
+### `FXEntry.cs`
+- Moved out of the file header: the description of category and type, and the note that both enums are generated by
+  the Effect Type Generator. Both are in the section above. No fixes were made to this file.
+
+### `MID_FlipbookEffect.cs`
+- Moved out of the class comment: why the class exists (a persistent `ParticleSystem` cannot play a sprite sequence at
+  many positions), the link to the pool slot `FlipbookEffect` in the utilities block, the likeness to
+  `MID_SpawnableAudio`, and the setup and usage steps. All are in the section above and in the class summary.
+- Not fixed: each frame step creates a new `WaitForSeconds`, and each `Play` creates a coroutine, so a flipbook
+  allocates garbage while it plays. This matters when many flipbooks play per second.
+- Not fixed: playback follows `Time.timeScale` (see Gotchas above).
+
+### `FXEntryDefinition.cs`, `EffectCategoryProviderSO.cs`, `EffectTypeProviderSO.cs`, `EffectTypeGeneratorSettingsSO.cs`
+- Moved out of the file headers: setup steps, the priority reservation and the menu paths. They are in the sections
+  above. The code is unchanged.
+- Not fixed: the default output paths of the settings asset assume the repository layout, see the gotcha under
+  `EffectTypeGeneratorSettingsSO.cs`.
+- Not fixed: `EffectTypeProviderSO` has no tooltips on its fields, while `EffectCategoryProviderSO` has them. This is
+  a string change in the code, so it is left for a code pass.
+
+### `PackageEffectProviderBootstrapper.cs`
+- Not fixed: a moved or renamed default provider asset is created again at the default path, which gives two
+  providers with the same package id. Found by reading the code.

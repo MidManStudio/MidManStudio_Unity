@@ -1,21 +1,27 @@
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/autoreference.md, section "MID_AutoRef.cs"
+// ============================================================================
 using UnityEngine;
 #if UNITY_EDITOR
 using UnityEditor;
 #endif
 
 namespace MidManStudio.Core.AutoReference
-{/// <summary>
- /// Drop this on any GameObject that has one or more [MID_AutoRefable] scripts.
-    /// Auto-fills their reference fields on self/children/(optional external root),
-    /// disambiguating multi-candidate fields by fuzzy name match. Works in edit mode
-    /// (via "Resolve Now" / OnValidate) and at runtime (Awake/Start), including in builds.
+{
+    /// <summary>
+    /// Fills the reference fields of the <c>[MID_AutoRefable]</c> scripts on the same GameObject. For each
+    /// Component, GameObject or interface field it looks on this object, its children and optionally an
+    /// external root. When several candidates fit, it picks the one whose GameObject name best matches the
+    /// field name. Works in Edit Mode (Resolve Now, or automatically with run mode OnValidate) and at run time
+    /// (run mode Awake or Start), including in builds.
     /// </summary>
     [DisallowMultipleComponent]
     public class MID_AutoRef : MonoBehaviour
     {
         [SerializeField] private MID_AutoRefOptions _options = new MID_AutoRefOptions();
 
+        /// <summary>The settings this component resolves with.</summary>
         public MID_AutoRefOptions Options => _options;
 
         private void Awake()
@@ -28,6 +34,7 @@ namespace MidManStudio.Core.AutoReference
             if (_options.runMode == MID_AutoRefRunMode.Start) ResolveNow();
         }
 
+        /// <summary>Resolves all <c>[MID_AutoRefable]</c> scripts on this GameObject now, with this component's options.</summary>
         [ContextMenu("Resolve Now")]
         public void ResolveNow()
         {

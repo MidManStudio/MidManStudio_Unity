@@ -1,8 +1,7 @@
-// SHOWCASE — MID_TickDispatcher + MID_TickDelay + Timer classes running together
-// continuously. Drop on any GameObject in its own scene and press Play. Watch the
-// Console: a periodic summary line plus one-off milestone logs (delay fired,
-// finite repeat sequence complete, countdown cycle restarted, pulse ping-ponging).
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/samples.md, section "MID_TickTimerShowcase.cs"
+// ============================================================================
 using System;
 using UnityEngine;
 using MidManStudio.Core.TickDispatcher;
@@ -10,6 +9,21 @@ using MidManStudio.Core.Timers;
 using MidManStudio.Core.Logging;
 namespace MidManStudio.Core.Tests.TickDispatcher
 {
+    /// <summary>
+    /// Runs <c>MID_TickDispatcher</c>, <c>MID_TickDelay</c> and the timer classes together and keeps them running, for
+    /// the Tick Test sample. Add it to a GameObject in its own scene and press Play.
+    ///
+    /// Tick dispatcher: three subscriptions (fast, slow, summary rates) that count ticks. The summary rate also writes
+    /// a line with both counters, <c>MID_TickDelay.ActiveCount</c>, the stopwatch time, the countdown progress and the
+    /// pulse value.
+    /// Tick delay: a one-shot delay, a finite repeat and a repeat-forever heartbeat. The delegates are created once in
+    /// <c>Awake</c>, as the zero-allocation rule needs.
+    /// Timers: a countdown that restarts when done, a stopwatch, and a pulse (ease in-out, ping-pong) that restarts when
+    /// done. They are ticked by hand from <c>Update</c>.
+    ///
+    /// Unsubscribes and cancels the forever delay in <c>OnDestroy</c>. The inspector fields are the three rates, the
+    /// delay timings and the log level (default Verbose).
+    /// </summary>
     public class MID_TickTimerShowcase : MonoBehaviour
     {
         [Header("Tick Dispatcher")]

@@ -8,7 +8,7 @@ are not repeated here.
 
 ## Installation
 **Via git URL** (Unity Package Manager, Add package from git URL):
-https://github.com/MidManStudio/MidManStudio_Unity.git?path=/packages/com.midmanstudio.patterns
+https://github.com/MidManStudio/MidManStudio_Unity.git?path=/packages/com.midmanstudio.patterns#patterns/v0.1.0
 
 **Via local file path** (development, manifest.json):
 "com.midmanstudio.patterns": "file:../../packages/com.midmanstudio.patterns"

@@ -1,5 +1,7 @@
-
-// No changes to runtime logic.
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/uistate.md, section "MID_UIStateButton.cs"
+// ============================================================================
 
 using UnityEngine;
 using UnityEngine.UI;
@@ -7,6 +9,11 @@ using MidManStudio.Core.Logging;
 
 namespace MidManStudio.Core.UIState
 {
+    /// <summary>
+    /// Moves a <see cref="MID_UIStateContext"/> to one target state when its Button is clicked. With Disable When
+    /// Active on, the button is not interactable while the context is exactly in the target state (an exact
+    /// compare, so it never disables while several flags are set). The inspector shows named states.
+    /// </summary>
     [RequireComponent(typeof(Button))]
     public class MID_UIStateButton : MonoBehaviour
     {
@@ -21,7 +28,9 @@ namespace MidManStudio.Core.UIState
 
         private Button _button;
 
+        /// <summary>The context this button drives.</summary>
         public MID_UIStateContext Context         => _context;
+        /// <summary>The state this button moves the context to (a raw value of the generated enum).</summary>
         public int                TargetStateMask => _targetStateMask;
 
         private void Awake()

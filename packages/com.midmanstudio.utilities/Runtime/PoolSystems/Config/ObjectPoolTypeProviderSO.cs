@@ -1,23 +1,7 @@
-
-// One of these lives in every package (and in the user's game project) that wants
-// to contribute entries to the shared PoolableObjectType / PoolableParticleType enums.
-//
-// SETUP:
-//   Right-click in Project window >
-//       MidManStudio > Pool Type Provider  — object pool entries
-//       MidManStudio > Particle Pool Type Provider — particle pool entries
-//
-// ENTRY OFFSET RULES:
-//   explicitOffset = -1  →  generator assigns automatically (blockStart + auto index)
-//   explicitOffset >= 0  →  pinned to that offset within the provider's block.
-//                           Use this to stop an entry's value shifting when you
-//                           add entries above it.
-//
-// ORDERING WITHIN A BLOCK:
-//   The list order only matters for auto-offset entries.
-//   Pin critical entries (ones referenced in serialized inspector fields) so they
-//   never move even if you insert new entries above them.
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/pool-systems.md, section "ObjectPoolTypeProviderSO.cs"
+// ============================================================================
 using System.Collections.Generic;
 using UnityEngine;
 using MidManStudio.Core.EditorUtils;
@@ -28,6 +12,14 @@ namespace MidManStudio.Core.Pools.Generator
     //  Object pool provider
     // ─────────────────────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Lists the object pool types that one package or game project adds to <c>PoolableObjectType</c>. Create it with
+    /// Create > MidManStudio > Utilities > Pool Type Provider (Object), then run the Pool Type Generator. Each provider owns
+    /// a block of numbers and <c>priority</c> orders the blocks (0 utilities, 10 projectile system, 20 audio, 100 and up
+    /// for game code). An entry with an <c>explicitOffset</c> of 0 or more is pinned to that offset inside the block. An
+    /// entry with -1 is numbered by the generator and keeps its number through the lock file, wherever it sits in the list.
+    /// The inspector adds an Import Entries from JSON panel.
+    /// </summary>
 [CreateAssetMenu(fileName="PoolTypeProvider",
     menuName="MidManStudio/Utilities/Pool Type Provider (Object)", order=160)]
     public class ObjectPoolTypeProviderSO : ScriptableObject, IPoolEntryProviderSO
@@ -51,12 +43,11 @@ namespace MidManStudio.Core.Pools.Generator
         [MID_NamedList]
         public List<PoolEntryDefinition> entries = new List<PoolEntryDefinition>();
 
-        // Convenience
+        /// <summary>Number of entries in the list.</summary>
         public int EntryCount => entries?.Count ?? 0;
 
-        // IPoolEntryProviderSO — lets the shared "Import from JSON" Inspector
-        // code (see PoolTypeProviderEditor.cs) read/write `entries` without
-        // knowing which concrete provider type it's looking at.
+        // IPoolEntryProviderSO: lets the shared "Import from JSON" inspector (PoolTypeProviderEditor.cs)
+        // read and write `entries` without knowing which provider type it has.
         List<PoolEntryDefinition> IPoolEntryProviderSO.Entries => entries;
     }
 

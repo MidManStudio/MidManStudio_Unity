@@ -5,9 +5,9 @@
     "description": "Audio for Unity 2022.3+: music manager with crossfade and pitch glide, SFX playback by library id or generated enum, audio categories with a mixer group and volume, a pooled-voice clip player, pooled spatial audio objects, a peak limiter for the final mix (Rust DSP on desktop and mobile, C# fallback on WebGL), and a relay that plays audio for GlobalFXManager effects.",
     "unity": "2022.3",
     "unityRelease": "0f1",
-    "documentationUrl": "",
-    "changelogUrl": "",
-    "licensesUrl": "",
+    "documentationUrl": "https://github.com/MidManStudio/MidManStudio_Unity/blob/audio/v1.0.0/packages/com.midmanstudio.audio/README.md",
+    "changelogUrl": "https://github.com/MidManStudio/MidManStudio_Unity/blob/audio/v1.0.0/packages/com.midmanstudio.audio/CHANGELOG.md",
+    "licensesUrl": "https://github.com/MidManStudio/MidManStudio_Unity/blob/audio/v1.0.0/packages/com.midmanstudio.audio/LICENSE.md",
     "dependencies": {
         "com.midmanstudio.utilities": "1.0.0"
     },

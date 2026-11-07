@@ -6,9 +6,10 @@ Shared runtime and editor utility library used across MidManStudio packages
 and projects: singletons, logging, event bus, object/particle pooling,
 scriptable-object libraries, scene management, UI state, FX playback,
 auto-reference wiring, hierarchy tooling, timers, and small editor
-windows for each of those systems. 120 files across `Runtime/` and `Editor/`,
-plus `Samples~/` (optional example scenes/scripts, not part of the shipped
-package) and `Tests/` (manual benchmark runners, not an automated suite).
+windows for each of those systems. 111 C# files across `Runtime/` and `Editor/`
+(11 of them generated), plus `Samples~/` (optional example scenes and 8 scripts,
+imported from the Package Manager window) and `Tests/` (three manual benchmark
+components and one Editor test file).
 
 This package is too large for a single doc file (see the Crate and File
 Structure rule in the documentation guidelines), so it is split by part,
@@ -39,24 +40,36 @@ hand-maintained.
   `StopwatchTimer`, `ValueInterpolationTimer`, `SteppedValueTimer`,
   `NetworkTimer`, `TimerFactory`, `PerformanceBenchmarkTimer`,
   `PerformanceBenchmarkRunner`. Done.
-- TickDispatcher - not yet covered.
-- StickyNote - not yet covered.
-- Libraries - not yet covered.
-- SceneManagement - not yet covered.
-- AutoReference - not yet covered.
-- [FXSystems](com.midmanstudio.utilities/fx.md) - `GlobalFXManager` and `EffectTypeGenerator`. The rest is not
-  yet covered.
-- UIState - not yet covered.
+- [TickDispatcher](com.midmanstudio.utilities/tickdispatcher.md) - `MID_TickDispatcher` (shared tick
+  subscriptions by rate) and `MID_TickDelay` (pooled delayed and repeating actions). Done.
+- [StickyNote](com.midmanstudio.utilities/stickynote.md) - `MID_StickyNote` (scene note drawn in the Game View)
+  and its Editor. Done.
+- [Libraries](com.midmanstudio.utilities/libraries.md) - library item and library ScriptableObjects,
+  `MID_LibraryRegistry`, the type provider and the library type generator. Done.
+- [SceneManagement](com.midmanstudio.utilities/scenemanagement.md) - scene loader, transition controller, scene
+  types and the scene type generator. Done.
+- [AutoReference](com.midmanstudio.utilities/autoreference.md) - attributes, options, name matcher,
+  `MID_AutoReferenceResolver`, `MID_AutoRef` and the Editor tools. Done.
+- [FXSystems](com.midmanstudio.utilities/fx.md) - `GlobalFXManager`, flipbook effects, FX entries, provider
+  assets and the effect type generator. Done.
+- [UIState](com.midmanstudio.utilities/uistate.md) - context, UI element, visibility, button, back button and
+  manager components, and the context generator. Done.
 - [Enum generators](com.midmanstudio.utilities/enum-generators.md) - `EnumBlockLogic` (shared numbering for
   the effect and pool generators) and its tests. Done.
-- [PoolSystems](com.midmanstudio.utilities/pool-systems.md) - `PackagePoolProviderBootstrapper` and
-  `PoolTypeGenerator`. The rest is not yet covered.
-- Helpers - not yet covered.
+- [PoolSystems](com.midmanstudio.utilities/pool-systems.md) - local object and particle pools, trail and UI
+  particle pools, pool provider assets and the pool type generator. Done.
+- [Helpers](com.midmanstudio.utilities/helpers.md) - `MID_BaseSO`, the named list and sorting layer attributes,
+  `MID_HelperFunctions`, `MID_SusValue`, `SusValueManager` and `DynamicDebugPanel` (from `Runtime/Editor`). Done.
+- [Editor helpers](com.midmanstudio.utilities/editor-helpers.md) - property drawers, the `MID_BaseSO` editor and
+  project icons, `MidEditorUIElements`, `SceneDependencyInjector`, the package update checker and the
+  ScriptableObject Viewer window. Done.
+- [Editor windows](com.midmanstudio.utilities/editor-windows.md) - Script Execution Order, Script Utilities and
+  Sprite to Tilemap Converter. Done.
 - [Ui](com.midmanstudio.utilities/ui.md) - `MID_Button` (animated button
   companion component). Done.
-- ScriptableObjectViewer (`Editor/ScriptableObjectViewer`) - not yet covered.
-- `Runtime/Editor/DynamicDebugPanel.cs` - not yet covered; doesn't fit an
-  existing part, needs its own small part or a home in Helpers.
+- [Tests](com.midmanstudio.utilities/tests.md) - Tick Delay Bench, Tick Dispatcher Bench, the timer test suite
+  and the two test assemblies. Done.
+- [Samples](com.midmanstudio.utilities/samples.md) - the six samples and their 8 scripts. Done.
 
 ## CI and Workflows
 

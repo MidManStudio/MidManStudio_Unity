@@ -1,24 +1,7 @@
-
-// Subscribable Value
-// Generic observable value container.
-// Subscribe to value changes or any update attempt.
-// Part of com.midmanstudio.utilities — no game dependencies.
-//
-// TWO SUBSCRIPTION TYPES:
-//   SubscribeToValueChanged — fires only when the value actually changes (inequality check)
-//   SubscribeToAnyUpdate    — fires every time .Value is set, even if value is the same
-//
-// DUPLICATE PREVENTION:
-//   Both subscription sets use HashSet — adding the same delegate twice is a no-op.
-//
-// VALIDATION:
-//   Optionally supply a predicate via SetValidationFunction(). Values that fail
-//   validation are rejected silently (with a LogWarning).
-//
-// IMPLICIT CONVERSION:
-//   MID_SusValue<float> susFloat = new(1f);
-//   float raw = susFloat; // works via implicit operator T
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/helpers.md, section "MID_SusValue.cs"
+// ============================================================================
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -31,16 +14,28 @@ namespace MidManStudio.Core.ObservableValues
     /// </summary>
     public interface IManagedSusValue
     {
+        /// <summary>Removes every subscriber from the value.</summary>
         void   ClearAllSubscriptions();
+
+        /// <summary>True when the value was registered with <see cref="SusValueManager"/> at construction.</summary>
         bool   IsManaged { get; }
+
+        /// <summary>The ID the value is registered under.</summary>
         string ValueId   { get; }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Observable value container. Subscribe to change notifications without
-    /// coupling to MonoBehaviour events or UnityEvents.
+    /// Observable value container. Subscribe to change notifications without coupling to MonoBehaviour events
+    /// or UnityEvents. No game dependencies.
+    ///
+    /// Two subscription kinds: <see cref="SubscribeToValueChanged"/> fires only when the stored value actually
+    /// changes; <see cref="SubscribeToAnyUpdate"/> fires on every set, even with the same value. Each set is first
+    /// checked by the optional validation function, and a rejected value is dropped with a warning. Subscribers
+    /// are kept in HashSets, so adding the same delegate twice does nothing. The notification loops enumerate
+    /// those sets directly, so changing the subscriptions from inside a callback is not safe.
+    /// Implicit conversion to T lets a <c>MID_SusValue&lt;float&gt;</c> be used where a float is expected.
     /// </summary>
     public class MID_SusValue<T>
     {
@@ -74,9 +69,10 @@ namespace MidManStudio.Core.ObservableValues
         // ── Value property ────────────────────────────────────────────────────
 
         /// <summary>
-        /// Get or set the stored value.
-        /// Setting triggers OnAnyUpdate always, and OnValueChanged only if the
-        /// value actually differs from the current one.
+        /// Get or set the stored value. A set that passes validation notifies OnAnyUpdate always, and
+        /// OnValueChanged only if the value differs from the current one. OnAnyUpdate fires before the value is
+        /// stored, so inside an OnAnyUpdate callback <c>.Value</c> is still the old value and the new one is the
+        /// callback argument. OnValueChanged fires after it is stored.
         /// </summary>
         public T Value
         {
@@ -90,7 +86,7 @@ namespace MidManStudio.Core.ObservableValues
                     return;
                 }
 
-                // Always fire AnyUpdate BEFORE storing so listeners see old value too if needed
+                // AnyUpdate fires BEFORE storing: listeners get the new value as the argument and can still read the old one from .Value
                 NotifyAnyUpdate(value);
 
                 if (!AreEqual(_value, value))
@@ -102,7 +98,10 @@ namespace MidManStudio.Core.ObservableValues
             }
         }
 
-        /// <summary>True if the current value is null (always false for value types).</summary>
+        /// <summary>
+        /// True if the current value is null (always false for value types). It is a plain C# null check, so a
+        /// destroyed UnityEngine.Object stored here does not count as null.
+        /// </summary>
         public bool IsValueNull => _value == null;
 
         // ── Validation ────────────────────────────────────────────────────────
@@ -136,26 +135,32 @@ namespace MidManStudio.Core.ObservableValues
             return _onChanged.Remove(callback);
         }
 
+        /// <summary>True if this delegate is currently subscribed to value-changed notifications.</summary>
         public bool IsSubscribedToValueChanged(OnValueChangedDelegate callback) =>
             callback != null && _onChanged.Contains(callback);
 
         // ── Subscriptions — OnAnyUpdate ───────────────────────────────────────
 
         /// <summary>
-        /// Subscribe to receive the value on every set attempt, even if unchanged.
+        /// Subscribe to receive the value on every set that passes validation, even if unchanged. The callback
+        /// runs before the value is stored.
         /// </summary>
+        /// <returns>True if added, false if already subscribed.</returns>
         public bool SubscribeToAnyUpdate(OnAnyUpdateDelegate callback)
         {
             if (callback == null) return false;
             return _onAnyUpdate.Add(callback);
         }
 
+        /// <summary>Unsubscribe from any-update notifications.</summary>
+        /// <returns>True if removed, false if it was not subscribed.</returns>
         public bool UnsubscribeFromAnyUpdate(OnAnyUpdateDelegate callback)
         {
             if (callback == null) return false;
             return _onAnyUpdate.Remove(callback);
         }
 
+        /// <summary>True if this delegate is currently subscribed to any-update notifications.</summary>
         public bool IsSubscribedToAnyUpdate(OnAnyUpdateDelegate callback) =>
             callback != null && _onAnyUpdate.Contains(callback);
 
@@ -177,22 +182,24 @@ namespace MidManStudio.Core.ObservableValues
         }
 
         /// <summary>
-        /// Force-fire OnValueChanged with the current value as both old and new.
+        /// Fires OnValueChanged (not OnAnyUpdate) with the current value as both old and new.
         /// Useful to push the current state to newly-subscribed listeners.
         /// </summary>
         public void ForceNotify() => NotifyValueChanged(_value, _value);
 
+        /// <summary>Removes every subscriber, of both kinds.</summary>
         public void ClearAllSubscriptions()
         {
             _onChanged.Clear();
             _onAnyUpdate.Clear();
         }
 
+        /// <summary>Number of subscribers of both kinds added together.</summary>
         public int GetSubscriberCount() => _onChanged.Count + _onAnyUpdate.Count;
 
         // ── Implicit conversion ───────────────────────────────────────────────
 
-        /// <summary>Allows using a MID_SusValue<T> directly where a T is expected.</summary>
+        /// <summary>Allows using a <c>MID_SusValue&lt;T&gt;</c> directly where a T is expected. A null container converts to <c>default</c>.</summary>
         public static implicit operator T(MID_SusValue<T> susValue) =>
             susValue == null ? default : susValue._value;
 
@@ -239,15 +246,24 @@ namespace MidManStudio.Core.ObservableValues
     // ─────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// MID_SusValue that automatically registers itself with <see cref="SusValueManager"/>
-    /// and can be cleaned up centrally (e.g. on scene unload or object destruction).
+    /// MID_SusValue that registers itself with <see cref="SusValueManager"/> when it is constructed, so its
+    /// subscriptions can be cleared centrally (for example when the owning GameObject is destroyed).
+    /// Registration needs <c>SusValueManager.Instance</c>, which exists only in Play Mode and is looked up with
+    /// Unity APIs, so construct these in Awake or Start on the main thread (not in a field initialiser or
+    /// constructor). Outside Play Mode the value is created but not managed. IDs must be unique among live values.
     /// </summary>
     public class ManagedSusValue<T> : MID_SusValue<T>, IManagedSusValue
     {
         private readonly string _valueId;
         private bool            _isManaged;
 
+        /// <summary>The ID this value is registered under.</summary>
         public string ValueId   => _valueId;
+
+        /// <summary>
+        /// True when a manager existed at construction. It stays true even if the manager skipped the value
+        /// because the ID was already registered.
+        /// </summary>
         public bool   IsManaged => _isManaged;
 
         /// <param name="initialValue">Starting value.</param>
@@ -278,6 +294,9 @@ namespace MidManStudio.Core.ObservableValues
             }
         }
 
+        // Finalizer: the manager's dictionary holds the value strongly while it is registered, so this only runs
+        // after the manager has dropped it (ClearAll or UnregisterValue). It runs on the finalizer thread and looks
+        // the ID up again, which can remove a different value that has reused the same ID.
         ~ManagedSusValue()
         {
             if (_isManaged && SusValueManager.HasInstance)

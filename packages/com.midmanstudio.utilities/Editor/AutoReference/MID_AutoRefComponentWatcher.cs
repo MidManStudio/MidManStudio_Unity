@@ -1,8 +1,7 @@
-// Auto-adds a MID_AutoRef component when a [MID_AutoRefable(autoAddComponent: true)]
-// script is added to a GameObject — no manual drag-and-drop needed. Hooks
-// ObjectFactory.componentWasAdded, which fires exactly on add — no scene scanning.
-// Duplicate-safe: checked here AND MID_AutoRef carries [DisallowMultipleComponent].
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/autoreference.md, section "MID_AutoRefComponentWatcher.cs"
+// ============================================================================
 #if UNITY_EDITOR
 using System.Reflection;
 using UnityEditor;
@@ -11,6 +10,12 @@ using MidManStudio.Core.AutoReference;
 
 namespace MidManStudio.Core.EditorUtils.AutoReference
 {
+    /// <summary>
+    /// Adds a <see cref="MID_AutoRef"/> component when a <c>[MID_AutoRefable(autoAddComponent: true)]</c> script
+    /// is added to a GameObject, and starts a resolve when the existing or new component has run mode OnValidate.
+    /// Hooks <c>ObjectFactory.componentWasAdded</c>, so there is no scene scanning. Safe against duplicates:
+    /// it checks for an existing component and <see cref="MID_AutoRef"/> is <c>[DisallowMultipleComponent]</c>.
+    /// </summary>
     [InitializeOnLoad]
     internal static class MID_AutoRefComponentWatcher
     {

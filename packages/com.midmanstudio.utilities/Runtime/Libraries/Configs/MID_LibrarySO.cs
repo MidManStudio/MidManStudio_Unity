@@ -1,17 +1,7 @@
-
-// A named collection of MID_LibraryItemSO assets keyed by their ItemId.
-// Register libraries in MID_LibraryRegistry to access them globally.
-//
-// CREATE:
-//   Right-click > MidManStudio > Utilities > Library
-//
-// ADD ITEMS:
-//   Create MID_BasicLibraryItemSO assets (or your own subclasses),
-//   then drag them into this library's Items list.
-//
-// RETRIEVAL:
-//   var item = MID_LibraryRegistry.Instance.GetItem<MID_BasicLibraryItemSO>("Weapons", "Sword");
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/libraries.md, section "MID_LibrarySO.cs"
+// ============================================================================
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -20,6 +10,15 @@ using MidManStudio.Core.EditorUtils;
 namespace MidManStudio.Core.Libraries
 {
     
+    /// <summary>
+    /// A named collection of <see cref="MID_LibraryItemSO"/> assets, looked up by their
+    /// <see cref="MID_LibraryItemSO.ItemId"/> (case-insensitive). Add the library to a
+    /// <see cref="MID_LibraryRegistry"/> to reach it from anywhere.
+    /// </summary>
+    /// <remarks>
+    /// Create via Create > MidManStudio > Utilities > Library, then drag item assets into the Items list.
+    /// Retrieval: <c>MID_LibraryRegistry.Instance.GetItem&lt;MID_BasicLibraryItemSO&gt;("Weapons", "Sword")</c>.
+    /// </remarks>
 [CreateAssetMenu(fileName="NewLibrary",
     menuName="MidManStudio/Utilities/Library", order=120)]
     public class MID_LibrarySO : ScriptableObject, IArrayElementTitle
@@ -34,11 +33,12 @@ namespace MidManStudio.Core.Libraries
         private Dictionary<string, MID_LibraryItemSO> _lookup;
         private bool _built;
 
-        // IArrayElementTitle
+        /// <summary>List element label in the inspector: the id, else the asset name, else "Library".</summary>
         public string Name =>
             !string.IsNullOrWhiteSpace(_libraryId) ? _libraryId :
             !string.IsNullOrEmpty(name) ? name : "Library";
 
+        /// <summary>Key used by the registry. Falls back to the asset name when the id field is blank.</summary>
         public string LibraryId =>
             !string.IsNullOrWhiteSpace(_libraryId) ? _libraryId : name;
 
@@ -102,7 +102,7 @@ namespace MidManStudio.Core.Libraries
             get { BuildLookup(); return _lookup.Keys; }
         }
 
-        // Force rebuild after domain reload
+        // Unity calls OnEnable after a domain reload, so the lookup is rebuilt on next use.
         private void OnEnable() => _built = false;
     }
 }

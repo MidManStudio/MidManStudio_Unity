@@ -1,53 +1,28 @@
-// THE FIX for "the selected icon doesn't reflect on the individual SO asset
-// in the editor": MID_BaseSOEditor used to call
-// EditorGUIUtility.SetIconForObject(target, icon) to push a per-instance icon
-// onto each asset's Project window thumbnail. That API's own documentation
-// says it's scoped to GameObject and MonoScript — "Sets a custom icon to
-// associate with a GameObject or MonoScript" — it was never actually
-// supported for arbitrary ScriptableObject asset instances, which is exactly
-// why it worked unreliably (or not at all) per-asset.
-//
-// The correct, well-established approach for per-instance ScriptableObject
-// icons is EditorApplication.projectWindowItemOnGUI: draw the icon directly
-// over each item's row/tile yourself, every time the Project window repaints
-// that item. This is how third-party "SO custom icon" tools do it (see e.g.
-// the AssetIcons package, or the ScriptableObjectIcon attribute pattern
-// several Unity devs have independently converged on).
-//
-// Cached by GUID since this callback fires on every repaint for every
-// visible item — without caching, that's a LoadAssetAtPath + ResolveIcon per
-// item per frame, which gets slow fast in a project with many assets.
-//
-// ── "draws over, doesn't replace" fix ──────────────────────────────────────
-// projectWindowItemOnGUI fires AFTER Unity has already painted its own
-// default icon into selectionRect — there's no hook to suppress that first
-// pass, only to draw on top of it. GUI.DrawTexture alpha-blends, it doesn't
-// clear what's underneath, so two things were leaking through the old icon:
-//   1. ScaleMode.ScaleToFit letterboxes/pillarboxes any non-square texture,
-//      leaving the untouched rect edges showing the default icon behind it.
-//   2. Any transparent pixels in the custom icon (rounded corners, padding,
-//      etc.) let the default icon show through those pixels too.
-// Fix: paint an opaque rect matching the Project window's row/tile
-// background FIRST — this erases the default icon — then draw the custom
-// icon on top. Whatever's left uncovered now shows plain background instead
-// of a ghost of the old icon: actual replacement, not an overlay.
-//
-// The background colors below are the standard dark/light Editor skin
-// defaults (EditorGUIUtility.isProSkin), not a pixel-sampled read of the
-// real row — Unity doesn't expose a way to read that back. They match
-// unselected rows closely. Selected rows get a rough blue-tint approximation
-// so there's no jarring solid-gray seam over a highlighted item, but it
-// won't be a pixel-perfect match to Unity's internal highlight tone (which
-// also shifts slightly when the Project window has focus vs. not, and that
-// state isn't exposed either). Purely cosmetic — nudge the constants below
-// if it ever looks visibly off in your Editor version/theme.
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/editor-helpers.md, section "MID_BaseSOProjectIconDrawer.cs"
+// ============================================================================
 using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 
 namespace MidManStudio.Core.EditorUtils
 {
+    /// <summary>
+    /// Draws the icon of each <see cref="MID_BaseSO"/> asset (its own icon, or its type's group icon) over the
+    /// asset's thumbnail in the Project window, through <c>EditorApplication.projectWindowItemOnGUI</c>.
+    /// Unity's <c>EditorGUIUtility.SetIconForObject</c> only supports GameObjects and scripts, so it cannot set
+    /// the icon of a ScriptableObject asset.
+    ///
+    /// Unity has already painted its own icon when the callback runs, and there is no hook to stop that. The
+    /// drawer first paints an opaque rectangle in an approximate row background colour, then draws the icon on top,
+    /// so letterboxed edges and transparent pixels do not show the default icon. The colours are the standard dark
+    /// and light skin colours with a rough blue tint for a selected row. They are not sampled from the real row,
+    /// so they can be slightly off. This is cosmetic.
+    ///
+    /// Results are cached by GUID, including "no icon", and the cache is cleared on script reload. The inspector
+    /// calls <see cref="InvalidateCache"/> when the icon field changes.
+    /// </summary>
     [InitializeOnLoad]
     public static class MID_BaseSOProjectIconDrawer
     {
@@ -55,7 +30,7 @@ namespace MidManStudio.Core.EditorUtils
         private static readonly HashSet<string> _confirmedNotMidBaseSO = new HashSet<string>();
 
         // Approximate Editor default row/tile backgrounds (dark/light skin)
-        // and a rough selection tint — see file header for why these are
+        // and a rough selection tint. See the class summary for why these are
         // approximations rather than sampled values.
         private static readonly Color _bgDark         = new Color(0.219f, 0.219f, 0.219f, 1f);
         private static readonly Color _bgLight         = new Color(0.760f, 0.760f, 0.760f, 1f);
@@ -97,7 +72,7 @@ namespace MidManStudio.Core.EditorUtils
             var iconRect = new Rect(selectionRect.x, selectionRect.y, size, size);
 
             // Erase the default icon Unity already painted into this rect
-            // before drawing ours — see file header. Without this, letterboxed
+            // before drawing ours (see the class summary). Without this, letterboxed
             // edges and any transparent pixels in `icon` show the old icon.
             var selectedGuids = Selection.assetGUIDs;
             bool isSelected = selectedGuids != null && System.Array.IndexOf(selectedGuids, guid) >= 0;

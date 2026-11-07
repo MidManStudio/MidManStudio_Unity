@@ -1,4 +1,7 @@
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/autoreference.md, section "MID_AutoReferenceResolver.cs"
+// ============================================================================
 using System;
 using System.Collections.Generic;
 using System.Reflection;
@@ -10,14 +13,20 @@ using UnityEditor;
 
 namespace MidManStudio.Core.AutoReference
 {
+    /// <summary>What happened to one field during a resolve.</summary>
     public enum MID_AutoRefOutcome
     {
+        /// <summary>Exactly one candidate was found and assigned.</summary>
         Assigned,
+        /// <summary>The field already had a value and overwrite is off.</summary>
         SkippedAlreadySet,
+        /// <summary>No candidate of the right type was found.</summary>
         NoCandidates,
+        /// <summary>Two or more candidates were found and the best name match was assigned.</summary>
         AmbiguousResolved
     }
 
+    /// <summary>Report for one field: script, field, outcome, candidate count, match score (1 for a single candidate) and the name of the assigned object.</summary>
     public readonly struct MID_AutoRefFieldResult
     {
         public readonly string ScriptTypeName;
@@ -41,13 +50,11 @@ namespace MidManStudio.Core.AutoReference
         }
     }
     /// <summary>
-    ///  Core auto-reference resolver. Scans a GameObject's [MID_AutoRefable] MonoBehaviours,
-    /// reflects over their assignable reference fields (Component / GameObject / interface),
-    /// and auto-assigns the best candidate found on self, children, and optionally an
-    /// external search root. No per-field attribute required — opt a field out with
-    /// [MID_NoAutoRef]. Editor-only concerns (Undo, dirtying, logging) are wrapped in
-    /// #if UNITY_EDITOR so this stays in the runtime assembly and still supports proper
-    /// undo when called from the editor — same pattern MID_Logger.cs already uses.
+    /// Core auto-reference resolver. Scans the <c>[MID_AutoRefable]</c> MonoBehaviours of a GameObject, reflects
+    /// over their eligible reference fields (Component, GameObject or interface typed) and assigns the best
+    /// candidate found on the object, its children and optionally an external root. A field needs no attribute;
+    /// opt a field out with <see cref="MID_NoAutoRefAttribute"/>. The editor-only parts (Undo, dirtying) sit in
+    /// <c>#if UNITY_EDITOR</c> blocks, so the class stays in the runtime assembly and works in builds.
     /// </summary>
     public static class MID_AutoReferenceResolver
     {
@@ -226,8 +233,8 @@ namespace MidManStudio.Core.AutoReference
 #endif
         }
 
-        // Avoids waking MID_Logger's auto-instantiating singleton during edit-mode scans —
-        // same reason SceneDependencyInjector guards on Application.isPlaying before logging.
+        // In Edit Mode these use Debug.Log directly, so a scan does not create the MID_Logger singleton.
+        // SceneDependencyInjector guards on Application.isPlaying for the same reason.
         private static void LogWarn(string msg)
         {
             if (Application.isPlaying) MID_Logger.LogWarning(MID_LogLevel.Info, msg, nameof(MID_AutoReferenceResolver));

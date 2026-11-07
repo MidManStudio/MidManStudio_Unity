@@ -1,12 +1,18 @@
-
-// Project-wide settings for the pool type generator.
-// Create via: MidManStudio > Utilities > Pool Type Generator Settings
-
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/com.midmanstudio.utilities/pool-systems.md, section "PoolTypeGeneratorSettingsSO.cs"
+// ============================================================================
 using UnityEngine;
 
 namespace MidManStudio.Core.Pools.Generator
 {
     
+    /// <summary>
+    /// Project-wide settings for the Pool Type Generator: where the three enum files and the lock file are written, the
+    /// minimum block size, the namespace and whether to generate again when a provider changes. Create it with Create >
+    /// MidManStudio > Utilities > Pool Type Generator Settings. The enum output paths are relative to the project root and
+    /// match the layout of the MidManStudio_Unity repository.
+    /// </summary>
 [CreateAssetMenu(fileName="PoolTypeGeneratorSettings",
     menuName="MidManStudio/Utilities/Pool Type Generator Settings", order=150)]
     public class PoolTypeGeneratorSettingsSO : ScriptableObject
