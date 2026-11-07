@@ -19,6 +19,7 @@
 
   overrides::
     target("README.md", "README.md")
+    target("packages/com.midmanstudio.utilities/README.md", "packages/com.midmanstudio.utilities/README.md")
     target("packages/com.midmanstudio.patterns/README.md", "packages/com.midmanstudio.patterns/README.md")
     target("packages/com.midmanstudio.audio/README.md", "packages/com.midmanstudio.audio/README.md")
     target("packages/com.midmanstudio.netcode/README.md", "packages/com.midmanstudio.netcode/README.md")
